@@ -236,6 +236,7 @@ function syncEventFields(){
 }
 function renderStep2(){
  let q='';
+ let keepSearchFocus=$('#wpSearch')===document.activeElement;
  let playerScroll={body:$('#wizardBody')?.scrollTop||0,av:$('#av')?.scrollTop||0,inv:$('#inv')?.scrollTop||0,conf:$('#conf')?.scrollTop||0};
  const rememberScroll=()=>{if($('#av'))playerScroll={body:$('#wizardBody')?.scrollTop||0,av:$('#av')?.scrollTop||0,inv:$('#inv')?.scrollTop||0,conf:$('#conf')?.scrollTop||0}};
  const restoreScroll=()=>{if($('#wizardBody'))$('#wizardBody').scrollTop=playerScroll.body;if($('#av'))$('#av').scrollTop=playerScroll.av;if($('#inv'))$('#inv').scrollTop=playerScroll.inv;if($('#conf'))$('#conf').scrollTop=playerScroll.conf};
@@ -266,8 +267,9 @@ function renderStep2(){
   <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days===2?`<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>`:''}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3>Invited <span>${invited.length}</span></h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
-  $('#wpSearch').value=q;$('#wpSearch').focus();try{$('#wpSearch').setSelectionRange(q.length,q.length)}catch(_){}
-  $('#wpSearch').oninput=e=>{q=e.target.value.toLowerCase();draw()};
+  $('#wpSearch').value=q;
+  if(keepSearchFocus){try{$('#wpSearch').focus({preventScroll:true});$('#wpSearch').setSelectionRange(q.length,q.length)}catch(_){}}
+  $('#wpSearch').oninput=e=>{q=e.target.value.toLowerCase();keepSearchFocus=true;draw()};
   $('#wizardAddPlayer').onclick=()=>{let id=addPlayer();if(id){q='';draw()}};
   $('#wizardManagePlayers').onclick=()=>{wizardReturnStep=2;$('#wizardShade').classList.remove('open');nav('playersPage');renderPlayersAdmin()};
   $('#av').innerHTML=available.map(p=>p.system

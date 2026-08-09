@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 13.0
+AWAY GOLF SCORER — VERSION 15.12
 
-VERSION 15.11
+VERSION 15.12
 - Enlarged and separated player response controls on phones.
 - Player selection lists retain their scroll position after each response.
 - Scoring automatically requests a screen wake lock and restores it when the app becomes visible again.
@@ -272,3 +272,7 @@ VERSION 15.2 — SCORING REFINEMENT
   Example: Marker P (0 pts) and Player 8 (0 pts) verifies successfully.
 - Verification rows show both entered gross/P value and Stableford points.
 - Existing NTP confirmation/time/lock behaviour is unchanged.
+VERSION 15.12 UPDATE
+--------------------
+- Player traffic-light selections no longer focus the search box or open the phone keyboard.
+- The player-selection page remains at its current scroll position after a response is changed.
