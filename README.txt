@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.12
+AWAY GOLF SCORER — VERSION 15.13
+
+VERSION 15.13 — SECURE SHARED EVENTS
+- Added Supabase-backed shared events with Row Level Security.
+- Devices sign in anonymously without requiring player passwords or accounts.
+- Organisers publish a locked event and receive a six-character player join code.
+- Players join by event code and select their own name.
+- A joined player is restricted to that player's scorecard on the device.
+- Round entries remain saved locally first and synchronise automatically when online.
+- Live event changes and other players' score records refresh through Supabase Realtime.
+- Added secure organiser workspace storage for later cross-device setup synchronisation.
 
 VERSION 15.12
 - Enlarged and separated player response controls on phones.

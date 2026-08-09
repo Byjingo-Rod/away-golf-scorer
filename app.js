@@ -54,7 +54,107 @@ function ensureCourseData(c){
 }
 store.courses.forEach(ensureCourseData);
 
-function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0 }
+let cloudReady=false,cloudBusy=false,cloudMessage='Connecting securely…',cloudChannel=null,cloudReloadTimer=null;
+const cloudRoundTimers=new Map();
+function cloudPlayerIds(){
+ const ids=new Set((store.event?.confirmed||[]).map(String));
+ Object.values(store.event?.groupSetup||{}).forEach(s=>(s?.groups||[]).flat().forEach(id=>{if(String(id)!==NO_PARTNER_ID)ids.add(String(id))}));
+ return [...ids].filter(id=>player(id));
+}
+function cloudPayload(){
+ const event=JSON.parse(JSON.stringify(store.event||{}));
+ delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;
+ const players=cloudPlayerIds().map(id=>{const p=player(id);return{id:String(p.id),name:p.name,ga:p.ga??'',rosterActive:true,golfLink:'',homeClub:'',notes:''}});
+ const courseIds=[event.course1,event.course2].filter(Boolean).map(String);
+ const courses=store.courses.filter(c=>courseIds.includes(String(c.id))).map(c=>JSON.parse(JSON.stringify(c)));
+ return{event,players,courses};
+}
+function cloudPlayerRows(){
+ return cloudPlayerIds().map(id=>{const p=player(id);return{id:String(id),name:p.name,dailyHandicaps:{day1:playerDailyHandicap(id,1),day2:store.event?.days===2?playerDailyHandicap(id,2):null}}});
+}
+function setCloudMessage(message,busy=false){cloudMessage=message;cloudBusy=busy;renderCloudPanel()}
+function applyRemoteCloud(bundle){
+ const payload=bundle?.event?.event_data||{};
+ if(store.cloud?.role==='player'&&payload.event){
+   const localScoring=store.event?.scoring||{day1:{},day2:{}};
+   const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{}};
+   store.event={...JSON.parse(JSON.stringify(payload.event)),...localUi,scoring:localScoring};
+   (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
+   (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
+   store.event.playerPreviewId=String(store.cloud.playerId);
+ }
+ (bundle?.scores||[]).forEach(row=>{scoringDayStore(+row.day)[String(row.scorer_player_id)]=row.score_data||{}});
+ localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();
+ if(document.querySelector('#scorePage.active'))renderPlayerExperience();
+}
+async function syncCloudNow(){
+ if(!store.cloud?.eventId||cloudBusy)return;
+ setCloudMessage('Synchronising…',true);
+ try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
+ catch(error){setCloudMessage(navigator.onLine?'Sync delayed — tap Retry':'Offline — scores remain saved on this phone')}
+}
+function watchCloudEvent(){
+ if(!store.cloud?.eventId||cloudChannel)return;
+ cloudChannel=AwayCloud.subscribe(store.cloud.eventId,()=>{clearTimeout(cloudReloadTimer);cloudReloadTimer=setTimeout(syncCloudNow,450)});
+}
+async function publishCloudEvent(){
+ if(!store.event?.locked)return alert('Lock the event before publishing it to players.');
+ setCloudMessage('Publishing event…',true);
+ try{
+   const payload=cloudPayload();
+   const result=await AwayCloud.createEvent(store.event.name,payload,cloudPlayerRows());
+   await AwayCloud.updateEvent(result.event_id,payload,store.event.status||'locked');
+   store.cloud={role:'organiser',eventId:result.event_id,joinCode:result.join_code};
+   localStorage.setItem('awayGolf13',JSON.stringify(store));watchCloudEvent();setCloudMessage('Published · ready for players');renderCloudPanel();
+ }catch(error){setCloudMessage('Could not publish');alert('Publishing did not complete. '+(error.message||error))}
+}
+async function updateCloudEvent(){
+ if(!store.cloud?.eventId||store.cloud.role!=='organiser')return;
+ setCloudMessage('Updating event…',true);
+ try{await AwayCloud.updateEvent(store.cloud.eventId,cloudPayload(),store.event?.status||'locked');setCloudMessage('Event update shared with players')}
+ catch(error){setCloudMessage('Update delayed — tap Retry');alert('The cloud update did not complete. '+(error.message||error))}
+}
+async function lookupCloudEvent(){
+ const code=String($('#joinCode')?.value||'').trim().toUpperCase();
+ if(code.length!==6)return alert('Enter the six-character event code.');
+ setCloudMessage('Finding event…',true);
+ try{
+   const rows=await AwayCloud.invitation(code);
+   if(!rows.length){setCloudMessage('Ready');return alert('No current Away Golf event was found for that code.')}
+   const available=rows.filter(r=>!r.already_joined);
+   $('#modalContent').innerHTML=`<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. This links this phone to your score only.</p><label>Your name<select id="cloudJoinPlayer">${available.map(r=>`<option value="${esc(r.player_id)}">${esc(r.display_name)}</option>`).join('')}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" ${available.length?'':'disabled'}>Join Event</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>${available.length?'':'<p class="cloudWarning">Every player position has already been claimed. Ask the organiser for help.</p>'}`;
+   $('#modalShade').classList.add('open');$('#cancelCloudJoin').onclick=()=>{$('#modalShade').classList.remove('open');setCloudMessage('Ready')};
+   if(available.length)$('#confirmCloudJoin').onclick=async()=>{
+     const playerId=$('#cloudJoinPlayer').value;$('#confirmCloudJoin').disabled=true;
+     try{const eventId=await AwayCloud.joinEvent(code,playerId);store.cloud={role:'player',eventId,joinCode:code,playerId:String(playerId)};localStorage.setItem('awayGolf13',JSON.stringify(store));const bundle=await AwayCloud.loadEvent(eventId);applyRemoteCloud(bundle);$('#modalShade').classList.remove('open');watchCloudEvent();setCloudMessage('Joined · live scoring connected');nav('scorePage')}
+     catch(error){$('#confirmCloudJoin').disabled=false;alert('Joining did not complete. '+(error.message||error))}
+   };
+ }catch(error){setCloudMessage('Could not find event');alert('Event lookup did not complete. '+(error.message||error))}
+}
+function queueCloudRound(day,playerId){
+ if(!store.cloud?.eventId)return;
+ if(store.cloud.role==='player'&&String(store.cloud.playerId)!==String(playerId))return;
+ const key=`${day}:${playerId}`;clearTimeout(cloudRoundTimers.get(key));setCloudMessage(navigator.onLine?'Score saved · syncing…':'Score saved on phone · offline');
+ cloudRoundTimers.set(key,setTimeout(async()=>{
+   try{await AwayCloud.saveRound(store.cloud.eventId,+day,String(playerId),JSON.parse(JSON.stringify(scorerStore(day,playerId))));cloudRoundTimers.delete(key);setCloudMessage('Live · score shared')}
+   catch(_){setCloudMessage('Score saved on phone · sync will retry');cloudRoundTimers.set(key,setTimeout(()=>queueCloudRound(day,playerId),5000))}
+ },500));
+}
+function renderCloudPanel(){
+ const host=$('#cloudPanel'),head=$('#cloudHeader');if(!host||!head)return;
+ head.textContent=cloudReady?(navigator.onLine?'Cloud connected':'Offline mode'):'Connecting…';head.classList.toggle('offline',!navigator.onLine);
+ if(store.cloud?.role==='organiser'&&store.cloud.eventId){host.innerHTML=`<div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name||'Away Golf Event')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode||'——')}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy?'disabled':''}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy?'disabled':''}>Refresh Scores</button></div>`;$('#updateCloudEvent').onclick=updateCloudEvent;$('#retryCloud').onclick=syncCloudNow;return}
+ if(store.cloud?.role==='player'&&store.cloud.eventId){host.innerHTML=`<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name||'Player')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name||'the Away Golf event')}</b>. Scores are saved locally first and shared automatically.</p><button class="primary" id="openMyCard">Open My Scorecard</button>`;$('#openMyCard').onclick=()=>nav('scorePage');return}
+ host.innerHTML=`<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div>${store.event?.locked?'<button class="primary" id="publishCloudEvent">Publish Locked Event</button>':'<p class="hint">After Groups & Teams are complete and the event is locked, publish it here to receive the player join code.</p>'}<div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy?'disabled':''}>Join an Event</button></div>`;
+ if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;$('#lookupCloudEvent').onclick=lookupCloudEvent;
+}
+async function initialiseCloud(){
+ try{await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}}
+ catch(_){cloudReady=false;setCloudMessage('Offline — local scoring available')}
+}
+window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
+
+function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;renderCloudPanel() }
 function nav(id){$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience()}
 $$('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 function showSide(html){$('#sideContent').innerHTML=html;$('#sidePanel').classList.add('open')}$('#closeSide').onclick=()=>$('#sidePanel').classList.remove('open');
@@ -932,13 +1032,13 @@ function renderHoleScoring(selected,day){
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>YOUR SCORE</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf,totalSelf.points,selected)}</div><div class="scoreSteppers">${stepper('selfGross','Score',rec.self.gross,par||4,1,20)}${stepper('selfPutts','Putts',rec.self.putts,2,0,9)}</div></div>
  ${ntp?`<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder?`Current holder: ${esc(holderName||'Player')}`:'No name recorded yet'}${isExtra?' · You have the NTP extra shot today.':''}</span><strong>Did ${esc(target?.name||'your marker partner')} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked?`<button disabled>Entry locked</button>`:rec.ntp?.confirmedAt?`<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>`:`<button class="primary ${rec.ntp?.pending?'confirming':''}" id="yesNtp">${rec.ntp?.pending?'CONFIRM YES':'YES'}</button>`}</div>`:''}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos===0?'disabled':''}>← Previous</button><button class="primary" id="nextHole">${pos===17?'FINISH ROUND':'Next Hole →'}</button></div></div>`;
- const setField=(id,val)=>{const [section,key]=id.startsWith('official')?['official',id==='officialGross'?'gross':'putts']:['self',id==='selfGross'?'gross':'putts'];rec[section][key]=val;localStorage.setItem('awayGolf13',JSON.stringify(store));renderHoleScoring(selected,day)};
+ const setField=(id,val)=>{const [section,key]=id.startsWith('official')?['official',id==='officialGross'?'gross':'putts']:['self',id==='selfGross'?'gross':'putts'];rec[section][key]=val;localStorage.setItem('awayGolf13',JSON.stringify(store));queueCloudRound(day,selected);renderHoleScoring(selected,day)};
  $$('[data-step]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.step,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts',base=key==='gross'?(par||4):2,min=key==='gross'?1:0,max=key==='gross'?20:9,current=rec[section][key]===''||rec[section][key]==null||String(rec[section][key]).toUpperCase()==='P'?base:+rec[section][key];setField(id,Math.max(min,Math.min(max,current+(+btn.dataset.delta))))});
  $$('[data-pickup]').forEach(btn=>btn.onclick=()=>{setField(btn.dataset.pickup,'P')});
  $$('[data-confirm]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.confirm,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts';if(rec[section][key]===''||rec[section][key]==null)setField(id,+btn.dataset.base)});
  $('#exitRound').onclick=()=>{store.event.playerRoundMode='preview';releaseRoundWakeLock();save();renderPlayerExperience()};
- if($('#yesNtp'))$('#yesNtp').onclick=()=>{if(!rec.ntp.pending){rec.ntp.pending=true}else{rec.ntp.pending=false;rec.ntp.entrantId=targetId;rec.ntp.confirmedAt=new Date().toISOString()}save();renderHoleScoring(selected,day)};
- if($('#undoNtp'))$('#undoNtp').onclick=()=>{rec.ntp.confirmedAt=null;rec.ntp.entrantId=null;rec.ntp.pending=false;save();renderHoleScoring(selected,day)};
+ if($('#yesNtp'))$('#yesNtp').onclick=()=>{if(!rec.ntp.pending){rec.ntp.pending=true}else{rec.ntp.pending=false;rec.ntp.entrantId=targetId;rec.ntp.confirmedAt=new Date().toISOString()}save();queueCloudRound(day,selected);renderHoleScoring(selected,day)};
+ if($('#undoNtp'))$('#undoNtp').onclick=()=>{rec.ntp.confirmedAt=null;rec.ntp.entrantId=null;rec.ntp.pending=false;save();queueCloudRound(day,selected);renderHoleScoring(selected,day)};
  $('#prevHole').onclick=()=>{store.event.playerHolePos=Math.max(0,pos-1);save();renderHoleScoring(selected,day)};
  $('#nextHole').onclick=()=>{if(ntp&&rec.ntp.confirmedAt)rec.ntp.locked=true;if(pos===17){store.event.playerRoundMode='verify';save();renderRoundVerification(selected,day)}else{store.event.playerHolePos=pos+1;save();renderHoleScoring(selected,day)}};
 }
@@ -946,7 +1046,7 @@ function renderPlayerExperience(){
  const host=$('#playerExperience');if(!host)return;
  if(!store.event){host.innerHTML='<div class="card"><h2>Player View</h2><p>Create an event plan first.</p></div>';return}
  initialiseGroups();
- const days=store.event.days||1;let day=Math.min(store.event.playerPreviewDay||1,days);let field=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID);let selected=String(store.event.playerPreviewId||field[0]||'');if(!field.includes(selected))selected=String(field[0]||'');
+ const days=store.event.days||1;let day=Math.min(store.event.playerPreviewDay||1,days);let field=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID);if(store.cloud?.role==='player')field=field.filter(id=>String(id)===String(store.cloud.playerId));let selected=String(store.event.playerPreviewId||field[0]||'');if(!field.includes(selected))selected=String(field[0]||'');
  store.event.playerPreviewDay=day;store.event.playerPreviewId=selected;
  if(store.event.playerRoundMode==='scoring')return renderHoleScoring(selected,day);
  if(store.event.playerRoundMode==='verify')return renderRoundVerification(selected,day);
@@ -971,6 +1071,6 @@ function renderPlayerExperience(){
  $('#playerGotIt').onclick=()=>{store.event.playerPreviewAck=store.event.playerPreviewAck||{};store.event.playerPreviewAck[day]=store.event.playerPreviewAck[day]||{};store.event.playerPreviewAck[day][selected]=true;save();renderPlayerExperience()};
  $('#startRoundPreview').onclick=()=>{if(!canStart)return;store.event.playerRoundMode='scoring';store.event.playerHolePos=0;requestRoundWakeLock();save();renderPlayerExperience()};
 }
-renderHome();renderPlayersAdmin();renderCoursesAdmin();
+renderHome();renderPlayersAdmin();renderCoursesAdmin();initialiseCloud();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
