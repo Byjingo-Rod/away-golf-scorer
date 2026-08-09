@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.13
+AWAY GOLF SCORER — VERSION 15.14
+
+VERSION 15.14 — PLAYER-ONLY PHONES
+- Joined players now see a true player-only interface: Home and My Golf only.
+- Player devices cannot open Players, Courses, Teams or event-setup screens.
+- The organiser can see which players have connected to the live event.
+- The organiser can release a player's phone connection so that player may join again on a replacement device.
 
 VERSION 15.13 — SECURE SHARED EVENTS
 - Added Supabase-backed shared events with Row Level Security.

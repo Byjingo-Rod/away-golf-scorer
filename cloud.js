@@ -77,6 +77,16 @@ async function saveRound(eventId,day,playerId,scoreData){
   return data;
 }
 
+async function releasePlayer(eventId,playerId){
+  await ensureSignedIn();
+  const {data,error}=await client.from('away_event_players')
+    .update({member_user_id:null,joined_at:null})
+    .eq('event_id',eventId).eq('player_id',String(playerId))
+    .select('player_id,display_name,joined_at').single();
+  if(error)throw error;
+  return data;
+}
+
 async function saveWorkspace(workspaceData){
   const session=await ensureSignedIn();
   const {data,error}=await client.from('away_organiser_workspaces').upsert({
@@ -94,5 +104,5 @@ function subscribe(eventId,onChange){
     .subscribe();
 }
 
-window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,saveWorkspace,subscribe};
+window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,releasePlayer,saveWorkspace,subscribe};
 })();

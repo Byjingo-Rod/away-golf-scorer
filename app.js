@@ -56,6 +56,11 @@ store.courses.forEach(ensureCourseData);
 
 let cloudReady=false,cloudBusy=false,cloudMessage='Connecting securely…',cloudChannel=null,cloudReloadTimer=null;
 const cloudRoundTimers=new Map();
+const isPlayerDevice=()=>store.cloud?.role==='player'&&Boolean(store.cloud?.eventId);
+function applyDeviceRole(){
+ document.body.classList.toggle('playerDevice',isPlayerDevice());
+ if(isPlayerDevice()&&!['home','scorePage'].includes($('.page.active')?.id||''))nav('scorePage');
+}
 function cloudPlayerIds(){
  const ids=new Set((store.event?.confirmed||[]).map(String));
  Object.values(store.event?.groupSetup||{}).forEach(s=>(s?.groups||[]).flat().forEach(id=>{if(String(id)!==NO_PARTNER_ID)ids.add(String(id))}));
@@ -84,8 +89,17 @@ function applyRemoteCloud(bundle){
    store.event.playerPreviewId=String(store.cloud.playerId);
  }
  (bundle?.scores||[]).forEach(row=>{scoringDayStore(+row.day)[String(row.scorer_player_id)]=row.score_data||{}});
+ store.cloudPlayers=(bundle?.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
  localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();
  if(document.querySelector('#scorePage.active'))renderPlayerExperience();
+}
+async function releaseCloudPlayer(playerId){
+ if(store.cloud?.role!=='organiser'||!store.cloud?.eventId)return;
+ const row=(store.cloudPlayers||[]).find(x=>String(x.playerId)===String(playerId));
+ if(!confirm(`Release ${row?.name||'this player'}'s phone connection? They can then join again on another phone.`))return;
+ setCloudMessage('Releasing player connection…',true);
+ try{await AwayCloud.releasePlayer(store.cloud.eventId,playerId);cloudBusy=false;await syncCloudNow();setCloudMessage(`${row?.name||'Player'} can join again`)}
+ catch(error){setCloudMessage('Release did not complete');alert('The player connection was not released. '+(error.message||error))}
 }
 async function syncCloudNow(){
  if(!store.cloud?.eventId||cloudBusy)return;
@@ -126,7 +140,7 @@ async function lookupCloudEvent(){
    $('#modalShade').classList.add('open');$('#cancelCloudJoin').onclick=()=>{$('#modalShade').classList.remove('open');setCloudMessage('Ready')};
    if(available.length)$('#confirmCloudJoin').onclick=async()=>{
      const playerId=$('#cloudJoinPlayer').value;$('#confirmCloudJoin').disabled=true;
-     try{const eventId=await AwayCloud.joinEvent(code,playerId);store.cloud={role:'player',eventId,joinCode:code,playerId:String(playerId)};localStorage.setItem('awayGolf13',JSON.stringify(store));const bundle=await AwayCloud.loadEvent(eventId);applyRemoteCloud(bundle);$('#modalShade').classList.remove('open');watchCloudEvent();setCloudMessage('Joined · live scoring connected');nav('scorePage')}
+     try{const eventId=await AwayCloud.joinEvent(code,playerId);store.cloud={role:'player',eventId,joinCode:code,playerId:String(playerId)};localStorage.setItem('awayGolf13',JSON.stringify(store));const bundle=await AwayCloud.loadEvent(eventId);applyRemoteCloud(bundle);applyDeviceRole();$('#modalShade').classList.remove('open');watchCloudEvent();setCloudMessage('Joined · live scoring connected');nav('scorePage')}
      catch(error){$('#confirmCloudJoin').disabled=false;alert('Joining did not complete. '+(error.message||error))}
    };
  }catch(error){setCloudMessage('Could not find event');alert('Event lookup did not complete. '+(error.message||error))}
@@ -143,7 +157,7 @@ function queueCloudRound(day,playerId){
 function renderCloudPanel(){
  const host=$('#cloudPanel'),head=$('#cloudHeader');if(!host||!head)return;
  head.textContent=cloudReady?(navigator.onLine?'Cloud connected':'Offline mode'):'Connecting…';head.classList.toggle('offline',!navigator.onLine);
- if(store.cloud?.role==='organiser'&&store.cloud.eventId){host.innerHTML=`<div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name||'Away Golf Event')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode||'——')}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy?'disabled':''}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy?'disabled':''}>Refresh Scores</button></div>`;$('#updateCloudEvent').onclick=updateCloudEvent;$('#retryCloud').onclick=syncCloudNow;return}
+ if(store.cloud?.role==='organiser'&&store.cloud.eventId){const connections=(store.cloudPlayers||[]).filter(x=>x.joined);host.innerHTML=`<div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name||'Away Golf Event')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode||'——')}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy?'disabled':''}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy?'disabled':''}>Refresh Scores</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers||[]).length} joined</span></div>${connections.map(x=>`<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy?'disabled':''}>Release Phone</button></div>`).join('')||'<p class="hint">No players have joined yet.</p>'}</div>`;$('#updateCloudEvent').onclick=updateCloudEvent;$('#retryCloud').onclick=syncCloudNow;$$('[data-releaseplayer]').forEach(b=>b.onclick=()=>releaseCloudPlayer(b.dataset.releaseplayer));return}
  if(store.cloud?.role==='player'&&store.cloud.eventId){host.innerHTML=`<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name||'Player')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name||'the Away Golf event')}</b>. Scores are saved locally first and shared automatically.</p><button class="primary" id="openMyCard">Open My Scorecard</button>`;$('#openMyCard').onclick=()=>nav('scorePage');return}
  host.innerHTML=`<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div>${store.event?.locked?'<button class="primary" id="publishCloudEvent">Publish Locked Event</button>':'<p class="hint">After Groups & Teams are complete and the event is locked, publish it here to receive the player join code.</p>'}<div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy?'disabled':''}>Join an Event</button></div>`;
  if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;$('#lookupCloudEvent').onclick=lookupCloudEvent;
@@ -154,8 +168,8 @@ async function initialiseCloud(){
 }
 window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
 
-function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;renderCloudPanel() }
-function nav(id){$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience()}
+function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;applyDeviceRole();renderCloudPanel() }
+function nav(id){if(isPlayerDevice()&&!['home','scorePage'].includes(id))id='scorePage';$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience()}
 $$('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 function showSide(html){$('#sideContent').innerHTML=html;$('#sidePanel').classList.add('open')}$('#closeSide').onclick=()=>$('#sidePanel').classList.remove('open');
 function playerInfo(id,status=''){let p=player(id);showSide(`<h2>${esc(p.name)}</h2><p><small>GOLFLINK NUMBER</small><br><b>${esc(p.golfLink||'—')}</b></p><p><small>GA HANDICAP</small><br><b>${Number(p.ga||0).toFixed(1)}</b></p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub||'—')}</b></p><p><small>LAST AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent||'—')}</b></p><p><small>EVENTS PLAYED</small><br><b>${p.eventsPlayed||0}</b></p><p><small>NOTES</small><br>${esc(p.notes||'—')}</p><p><small>STATUS</small><br><b>${p.rosterActive===false?'Inactive':'Active'}${status?' • '+status:''}</b></p>`)}
@@ -1071,6 +1085,6 @@ function renderPlayerExperience(){
  $('#playerGotIt').onclick=()=>{store.event.playerPreviewAck=store.event.playerPreviewAck||{};store.event.playerPreviewAck[day]=store.event.playerPreviewAck[day]||{};store.event.playerPreviewAck[day][selected]=true;save();renderPlayerExperience()};
  $('#startRoundPreview').onclick=()=>{if(!canStart)return;store.event.playerRoundMode='scoring';store.event.playerHolePos=0;requestRoundWakeLock();save();renderPlayerExperience()};
 }
-renderHome();renderPlayersAdmin();renderCoursesAdmin();initialiseCloud();
+applyDeviceRole();renderHome();renderPlayersAdmin();renderCoursesAdmin();initialiseCloud();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
