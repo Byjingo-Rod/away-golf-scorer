@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.17
+AWAY GOLF SCORER — VERSION 15.18
+
+VERSION 15.18 — ORGANISER'S LIVE EVENT CONTROL
+- Added a phone-friendly organiser panel on Home for locked events.
+- Shows live Joined, Playing, Attention and Finalised counts for each day.
+- Shows every player's group, phone connection, holes entered, next hole and round status.
+- Flags scorecards needing attention when player and marker entries are missing or disagree.
+- A round's finalised status now travels with its live score data from the player's phone.
+- Leaderboard winners remain In Progress until the required player scorecards are checked and finalised.
+- When all players are finalised, Prize Giving Ready opens the Results Summary directly.
+- Editing a score after finalisation automatically returns that round to In Progress until it is checked again.
 
 VERSION 15.17 — FAST PRIZE GIVING
 - Results Summary now displays the configured prize or win benefit beside every competition.

@@ -68,7 +68,7 @@ function cloudPlayerIds(){
 }
 function cloudPayload(){
  const event=JSON.parse(JSON.stringify(store.event||{}));
- delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;delete event.leaderboardTab;delete event.leaderboardView;
+ delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;delete event.leaderboardTab;delete event.leaderboardView;delete event.liveControlDay;
  const players=cloudPlayerIds().map(id=>{const p=player(id);return{id:String(p.id),name:p.name,ga:p.ga??'',rosterActive:true,golfLink:'',homeClub:'',notes:''}});
  const courseIds=[event.course1,event.course2].filter(Boolean).map(String);
  const courses=store.courses.filter(c=>courseIds.includes(String(c.id))).map(c=>JSON.parse(JSON.stringify(c)));
@@ -169,7 +169,7 @@ async function initialiseCloud(){
 }
 window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
 
-function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;applyDeviceRole();renderCloudPanel() }
+function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;applyDeviceRole();renderCloudPanel();renderLiveEventControl() }
 function nav(id){if(isPlayerDevice()&&!['home','scorePage','leaderboardPage'].includes(id))id='scorePage';$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience();if(id==='leaderboardPage')renderLeaderboard()}
 $$('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 function showSide(html){$('#sideContent').innerHTML=html;$('#sidePanel').classList.add('open')}$('#closeSide').onclick=()=>$('#sidePanel').classList.remove('open');
@@ -831,6 +831,30 @@ function scorerStore(day,scorerId){
 function scoreRecord(day,scorerId,hole){
  const s=scorerStore(day,scorerId),k=String(hole);s[k]=s[k]||{official:{},self:{},ntp:{}};return s[k];
 }
+const scoreEntered=value=>value!==''&&value!=null;
+function roundFinalisedFor(day,playerId){
+ return Boolean(store.event?.roundFinalised?.['day'+day]?.[String(playerId)]||scoringDayStore(day)?.[String(playerId)]?._meta?.finalisedAt);
+}
+function verificationIssueCount(day,playerId){
+ const c=course(day===1?store.event.course1:store.event.course2),v=version(c)||{},mine=scoringDayStore(day)?.[String(playerId)]||{};
+ return Array.from({length:18},(_,i)=>i+1).filter(h=>{const self=mine[String(h)]?.self||{},off=findOfficialForPlayer(day,playerId,h),selfGross=self.gross??'',offGross=off?.gross??'';if(!off||!scoreEntered(selfGross)||!scoreEntered(offGross))return true;const grossMatch=String(offGross).toUpperCase()===String(selfGross).toUpperCase(),hcp=playerDailyHandicap(playerId,day),offPts=stablefordPoints(offGross,+(v.par?.[h-1]||0),v.index?.[h-1]??'',hcp),selfPts=stablefordPoints(selfGross,+(v.par?.[h-1]||0),v.index?.[h-1]??'',hcp);return!(grossMatch||(offPts!=null&&selfPts!=null&&offPts===selfPts))}).length;
+}
+function livePlayerStatus(day,playerId){
+ const setup=store.event.groupSetup?.['day'+day],ctx=playerGroupContext(playerId,day),start=setup?.starts?.[ctx?.groupIndex]||1,seq=scoreSequence(start),mine=scoringDayStore(day)?.[String(playerId)]||{},entered=seq.filter(h=>scoreEntered(mine[String(h)]?.self?.gross)).length,finalised=roundFinalisedFor(day,playerId),issues=entered===18?verificationIssueCount(day,playerId):0,next=seq[Math.min(entered,17)],joined=Boolean((store.cloudPlayers||[]).find(x=>String(x.playerId)===String(playerId))?.joined);
+ let state='notStarted',label='Not started',detail=joined?'Connected · ready to start':'Phone not joined';
+ if(entered>0&&entered<18){state='playing';label='Playing';detail=`Hole ${next} next · ${entered} of 18 entered`}
+ if(entered===18&&issues){state='attention';label='Attention';detail=`${issues} score${issues===1?'':'s'} need checking`}
+ if(entered===18&&!issues){state='ready';label='Ready to finalise';detail='All 18 player and marker scores agree'}
+ if(finalised){state='finalised';label='Finalised';detail='Round checked and complete'}
+ return{playerId:String(playerId),joined,entered,finalised,issues,state,label,detail,group:(ctx?.groupIndex??0)+1};
+}
+function renderLiveEventControl(){
+ const host=$('#liveEventControl'),basic=$('#basicEventProgress');if(!host||!basic)return;
+ if(!store.event?.locked||isPlayerDevice()){host.innerHTML='';basic.style.display='';return}
+ basic.style.display='none';const days=store.event.days||1,day=Math.min(days,+(store.event.liveControlDay||store.event.activeGroupDay||1)),ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID).map(String),rows=ids.map(id=>livePlayerStatus(day,id)).sort((a,b)=>a.group-b.group||(player(a.playerId)?.name||'').localeCompare(player(b.playerId)?.name||'')),joined=rows.filter(x=>x.joined).length,playing=rows.filter(x=>x.state==='playing'||x.state==='ready').length,attention=rows.filter(x=>x.state==='attention').length,finalised=rows.filter(x=>x.finalised).length,allFinal=Boolean(rows.length&&finalised===rows.length);
+ host.innerHTML=`<section class="liveControlCard"><div class="liveControlHead"><div><small>ORGANISER'S LIVE EVENT CONTROL</small><h2>Day ${day} Round Progress</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><button class="soft" id="refreshLiveControl">Refresh</button></div>${days===2?`<div class="liveDayTabs"><button data-liveday="1" class="${day===1?'active':''}">Day 1</button><button data-liveday="2" class="${day===2?'active':''}">Day 2</button></div>`:''}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention?'warn':''}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal?'done':''}"><small>FINALISED</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal?`<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>Every Day ${day} scorecard has been checked and finalised.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>`:`<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length-finalised} player${rows.length-finalised===1?'':'s'} still to finalise Day ${day}.</span></div>`}<div class="livePlayerList">${rows.map(r=>`<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined?'connected':''}"></i><span><b>${esc(player(r.playerId)?.name||'Player')}</b><small>Group ${r.group} · ${r.joined?'Phone joined':'Not joined'}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round(r.entered/18*100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join('')||'<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Attention means a player has entered all 18 holes but one or more player/marker scores are missing or do not agree.</p></section>`;
+ $$('[data-liveday]').forEach(b=>b.onclick=()=>{store.event.liveControlDay=+b.dataset.liveday;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLiveEventControl()});$('#refreshLiveControl').onclick=async()=>{await syncCloudNow();renderLiveEventControl()};if($('#openPrizeSummary'))$('#openPrizeSummary').onclick=()=>{store.event.leaderboardView='summary';localStorage.setItem('awayGolf13',JSON.stringify(store));nav('leaderboardPage')};
+}
 function markerTargetFor(pid,day){
  const ctx=playerGroupContext(pid,day);if(!ctx)return null;
  const g=ctx.group.filter(x=>String(x)!==NO_PARTNER_ID),me=String(pid),pos=g.indexOf(me);
@@ -1005,7 +1029,7 @@ function renderRoundVerification(selected,day){
  <div class="verifyCard"><h3>${mismatches.length?`${mismatches.length} hole${mismatches.length===1?'':'s'} need attention`:'All 18 scores agree'}</h3><p>Your score is compared with the official score entered for you by your marker.</p><div class="verifyRows">${rows.map(r=>`<div class="verifyRow ${r.match?'match':'mismatch'}"><b>Hole ${r.h}</b><span>Marker: ${r.off===''?'—':r.off}${r.offPts!=null?` (${r.offPts} pt${r.offPts===1?'':'s'})`:''}</span><span>You: ${r.self===''?'—':r.self}${r.selfPts!=null?` (${r.selfPts} pt${r.selfPts===1?'':'s'})`:''}</span><strong>${r.match?'✓':'!'}</strong></div>`).join('')}</div></div>
  ${mismatches.length?`<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official score. Player/Marker scores on all 18 holes must agree for the round to be finalised.</div>`:`<button class="startRoundBtn" id="finaliseRound">FINALISE ROUND</button>`}`;
  $('#backToRound').onclick=()=>{store.event.playerRoundMode='scoring';save();renderPlayerExperience()};
- if($('#finaliseRound'))$('#finaliseRound').onclick=()=>{store.event.roundFinalised=store.event.roundFinalised||{};store.event.roundFinalised['day'+day]=store.event.roundFinalised['day'+day]||{};store.event.roundFinalised['day'+day][selected]=new Date().toISOString();store.event.playerRoundMode='preview';releaseRoundWakeLock();save();alert('Round finalised for '+player(selected).name+'.');renderPlayerExperience()};
+ if($('#finaliseRound'))$('#finaliseRound').onclick=()=>{const at=new Date().toISOString();store.event.roundFinalised=store.event.roundFinalised||{};store.event.roundFinalised['day'+day]=store.event.roundFinalised['day'+day]||{};store.event.roundFinalised['day'+day][selected]=at;const round=scorerStore(day,selected);round._meta={...(round._meta||{}),finalisedAt:at};store.event.playerRoundMode='preview';releaseRoundWakeLock();localStorage.setItem('awayGolf13',JSON.stringify(store));queueCloudRound(day,selected);renderHome();alert('Round finalised for '+player(selected).name+'.');renderPlayerExperience()};
 }
 function renderHoleScoring(selected,day){
  requestRoundWakeLock();
@@ -1047,7 +1071,7 @@ function renderHoleScoring(selected,day){
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>YOUR SCORE</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf,totalSelf.points,selected)}</div><div class="scoreSteppers">${stepper('selfGross','Score',rec.self.gross,par||4,1,20)}${stepper('selfPutts','Putts',rec.self.putts,2,0,9)}</div></div>
  ${ntp?`<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder?`Current holder: ${esc(holderName||'Player')}`:'No name recorded yet'}${isExtra?' · You have the NTP extra shot today.':''}</span><strong>Did ${esc(target?.name||'your marker partner')} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked?`<button disabled>Entry locked</button>`:rec.ntp?.confirmedAt?`<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>`:`<button class="primary ${rec.ntp?.pending?'confirming':''}" id="yesNtp">${rec.ntp?.pending?'CONFIRM YES':'YES'}</button>`}</div>`:''}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos===0?'disabled':''}>← Previous</button><button class="primary" id="nextHole">${pos===17?'FINISH ROUND':'Next Hole →'}</button></div></div>`;
- const setField=(id,val)=>{const [section,key]=id.startsWith('official')?['official',id==='officialGross'?'gross':'putts']:['self',id==='selfGross'?'gross':'putts'];rec[section][key]=val;localStorage.setItem('awayGolf13',JSON.stringify(store));queueCloudRound(day,selected);renderHoleScoring(selected,day)};
+ const setField=(id,val)=>{const [section,key]=id.startsWith('official')?['official',id==='officialGross'?'gross':'putts']:['self',id==='selfGross'?'gross':'putts'];rec[section][key]=val;const round=scorerStore(day,selected);if(round._meta?.finalisedAt)delete round._meta.finalisedAt;if(store.event.roundFinalised?.['day'+day])delete store.event.roundFinalised['day'+day][selected];localStorage.setItem('awayGolf13',JSON.stringify(store));queueCloudRound(day,selected);renderHoleScoring(selected,day)};
  $$('[data-step]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.step,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts',base=key==='gross'?(par||4):2,min=key==='gross'?1:0,max=key==='gross'?20:9,current=rec[section][key]===''||rec[section][key]==null||String(rec[section][key]).toUpperCase()==='P'?base:+rec[section][key];setField(id,Math.max(min,Math.min(max,current+(+btn.dataset.delta))))});
  $$('[data-pickup]').forEach(btn=>btn.onclick=()=>{setField(btn.dataset.pickup,'P')});
  $$('[data-confirm]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.confirm,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts';if(rec[section][key]===''||rec[section][key]==null)setField(id,+btn.dataset.base)});
@@ -1114,8 +1138,10 @@ function calculateLeaderboard(def){
  return rankLeaderRows(rows,!def.lower,Boolean(def.countback));
 }
 function leaderboardComplete(def,rows){
- if(def.type==='ntp')return dayFieldIds(def.day).filter(id=>String(id)!==NO_PARTNER_ID).every(id=>leaderboardPlayerPoints(def.day,id).every(x=>x!=null));
- return Boolean(rows.length&&rows.every(r=>r.thru===r.target));
+ const dayFinal=day=>{const field=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID);return Boolean(field.length&&field.every(id=>roundFinalisedFor(day,id)))};
+ const finalised=def.day?dayFinal(def.day):(store.event.days===2?dayFinal(1)&&dayFinal(2):dayFinal(1));
+ if(def.type==='ntp')return finalised&&dayFieldIds(def.day).filter(id=>String(id)!==NO_PARTNER_ID).every(id=>leaderboardPlayerPoints(def.day,id).every(x=>x!=null));
+ return Boolean(finalised&&rows.length&&rows.every(r=>r.thru===r.target));
 }
 function summaryCompetitionResult(def){
  if(def.type==='ntp'){const holders=ntpHolesFor(def.day).map(h=>({hole:h,holder:currentNtpHolder(def.day,h)})),complete=leaderboardComplete(def,[]);return{complete,text:holders.length?holders.map(x=>`Hole ${x.hole}: ${x.holder?player(x.holder.id)?.name||'Player':'Pending'}`).join(' · '):'Pending'}}
