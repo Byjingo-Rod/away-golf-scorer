@@ -1,11 +1,26 @@
-AWAY GOLF SCORER — VERSION 15.15
+AWAY GOLF SCORER — VERSION 15.17
+
+VERSION 15.17 — FAST PRIZE GIVING
+- Results Summary now displays the configured prize or win benefit beside every competition.
+- Final results with a configured prize show an organiser-only Award Prize button.
+- Awarded results are dimmed and clearly marked ✓ Awarded to prevent accidental duplicate prize giving.
+- Award status is saved with the event and shared with connected player phones.
+- An awarded result can be changed back after a confirmation if the organiser makes a mistake.
+
+VERSION 15.16 — LEADERBOARD RANKING CORRECTION
+- Players and teams marked Not Started now always appear below competitors with recorded scores.
+- Corrects live Scratch and Putting leaderboards where a zero from no entries could otherwise appear to lead.
+- Uses the correct golf nomenclature Single Stableford throughout.
+- Two-day leaderboards now have Day 1, Day 2 and Summary views.
+- Day 2 retains Day 1 Single Stableford and the continuing two-day competitions, while completed Day 1-only competitions move off the active display.
+- Added a results summary with Day 1, Day 2 and overall event winners; every result can be opened to see its full standings.
 
 VERSION 15.15 — LIVE LEADERBOARDS
 - Added live leaderboard tabs for every competition selected in Event Setup.
-- Supports one-day and two-day Singles Stableford, daily 4BBB, Putting pairs/teams, Best 3 of 4, daily or two-day Par 3 pairs, Scratch, Eclectic and NTP holders.
+- Supports one-day and two-day Single Stableford, daily 4BBB, Putting pairs/teams, Best 3 of 4, daily or two-day Par 3 pairs, Scratch, Eclectic and NTP holders.
 - Shows each result as Not Started, Thru holes, or Final as shared scores arrive.
-- Applies automatic back 9, last 6, last 3 and hole-by-hole countback to Singles, 4BBB and Scratch ties.
-- Two-day Singles uses Day 2 first for countback.
+- Applies automatic back 9, last 6, last 3 and hole-by-hole countback to Single Stableford, 4BBB and Scratch ties.
+- Two-day Single Stableford uses Day 2 first for countback.
 - Leaderboards are available on organiser and joined-player devices.
 - Joined-player navigation now labels the scoring area My Golf.
 

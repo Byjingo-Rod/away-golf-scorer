@@ -68,7 +68,7 @@ function cloudPlayerIds(){
 }
 function cloudPayload(){
  const event=JSON.parse(JSON.stringify(store.event||{}));
- delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;delete event.leaderboardTab;
+ delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;delete event.leaderboardTab;delete event.leaderboardView;
  const players=cloudPlayerIds().map(id=>{const p=player(id);return{id:String(p.id),name:p.name,ga:p.ga??'',rosterActive:true,golfLink:'',homeClub:'',notes:''}});
  const courseIds=[event.course1,event.course2].filter(Boolean).map(String);
  const courses=store.courses.filter(c=>courseIds.includes(String(c.id))).map(c=>JSON.parse(JSON.stringify(c)));
@@ -82,7 +82,7 @@ function applyRemoteCloud(bundle){
  const payload=bundle?.event?.event_data||{};
  if(store.cloud?.role==='player'&&payload.event){
    const localScoring=store.event?.scoring||{day1:{},day2:{}};
- const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{},leaderboardTab:store.event?.leaderboardTab||''};
+ const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{},leaderboardTab:store.event?.leaderboardTab||'',leaderboardView:store.event?.leaderboardView||''};
    store.event={...JSON.parse(JSON.stringify(payload.event)),...localUi,scoring:localScoring};
    (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
    (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
@@ -1078,13 +1078,17 @@ function leaderCountback(a,b,higher=true){
  for(let i=17;i>=0;i--){const c=cmp(av[i]??0,bv[i]??0);if(c)return c}return 0;
 }
 function rankLeaderRows(rows,higher=true,useCountback=false){
- rows.sort((a,b)=>{const c=higher?b.total-a.total:a.total-b.total;return c||(useCountback?leaderCountback(a,b,higher):0)||a.name.localeCompare(b.name)});
- rows.forEach((r,i)=>{const prev=rows[i-1],same=prev&&prev.total===r.total&&(!useCountback||leaderCountback(prev,r,higher)===0);r.rank=same?prev.rank:i+1;r.tied=Boolean(same||(rows[i+1]&&rows[i+1].total===r.total&&(!useCountback||leaderCountback(r,rows[i+1],higher)===0)));r.cb=Boolean(useCountback&&i===0&&rows[1]&&rows[1].total===r.total&&leaderCountback(r,rows[1],higher)!==0)});return rows;
+ rows.sort((a,b)=>{const started=(b.thru>0)-(a.thru>0);if(started)return started;const c=higher?b.total-a.total:a.total-b.total;return c||(useCountback?leaderCountback(a,b,higher):0)||a.name.localeCompare(b.name)});
+ rows.forEach((r,i)=>{const prev=rows[i-1],next=rows[i+1],same=prev&&Boolean(prev.thru)===Boolean(r.thru)&&prev.total===r.total&&(!useCountback||leaderCountback(prev,r,higher)===0);r.rank=same?prev.rank:i+1;r.tied=Boolean(same||(next&&Boolean(next.thru)===Boolean(r.thru)&&next.total===r.total&&(!useCountback||leaderCountback(r,next,higher)===0)));r.cb=Boolean(useCountback&&r.thru&&i===0&&rows[1]?.thru&&rows[1].total===r.total&&leaderCountback(r,rows[1],higher)!==0)});return rows;
 }
 function leaderboardDefinitions(){
- const selected=new Set(store.event.competitions||[]),days=store.event.days||1,defs=[],add=(id,label,type,day=0,opts={})=>defs.push({id,label,type,day,...opts});
- if(selected.has('single'))add('single-d1','Singles Stableford','single',1,{countback:true});
- if(selected.has('combined'))add('combined','Singles Stableford — 2 Days','combined',0,{countback:true});
+ const selected=new Set(store.event.competitions||[]),days=store.event.days||1,defs=[],add=(id,label,type,day=0,opts={})=>defs.push({id,label,type,day,scope:day||'overall',...opts});
+ if(selected.has('single'))add('single-d1','Single Stableford','single',1,{countback:true});
+ if(selected.has('combined')){
+  add('single-d1','Single Stableford — Day 1','single',1,{countback:true,showOnDay2:true});
+  add('single-d2','Single Stableford — Day 2','single',2,{countback:true});
+  add('combined','Single Stableford — 2 Days','combined',0,{countback:true});
+ }
  for(let day=1;day<=days;day++){
   if(selected.has('fourball'))add(`fourball-d${day}`,`4BBB — Day ${day}`,'fourball',day,{countback:true});
   if(selected.has('teamPutts'))add(`putts-d${day}`,`${store.event.puttingFormat==='pairs'?'Pairs':'Team'} Putting — Day ${day}`,'putts',day,{lower:true});
@@ -1109,15 +1113,45 @@ function calculateLeaderboard(def){
  if(def.type==='eclectic')rows=field(1).filter(id=>field(2).includes(id)).map(id=>leaderRow(id,player(id)?.name||'Player','Best score on each hole',Array.from({length:18},(_,i)=>{const vals=[points(1,id)[i],points(2,id)[i]].filter(x=>x!=null);return vals.length?Math.max(...vals):null})));
  return rankLeaderRows(rows,!def.lower,Boolean(def.countback));
 }
+function leaderboardComplete(def,rows){
+ if(def.type==='ntp')return dayFieldIds(def.day).filter(id=>String(id)!==NO_PARTNER_ID).every(id=>leaderboardPlayerPoints(def.day,id).every(x=>x!=null));
+ return Boolean(rows.length&&rows.every(r=>r.thru===r.target));
+}
+function summaryCompetitionResult(def){
+ if(def.type==='ntp'){const holders=ntpHolesFor(def.day).map(h=>({hole:h,holder:currentNtpHolder(def.day,h)})),complete=leaderboardComplete(def,[]);return{complete,text:holders.length?holders.map(x=>`Hole ${x.hole}: ${x.holder?player(x.holder.id)?.name||'Player':'Pending'}`).join(' · '):'Pending'}}
+ const rows=calculateLeaderboard(def),top=rows[0],complete=leaderboardComplete(def,rows);if(!top||!top.thru)return{complete:false,text:'Not started'};
+ return{complete,text:`${top.name} — ${top.total} ${def.type==='scratch'?'strokes':def.type==='putts'?'putts':'pts'}${top.cb?' CB':''}`};
+}
+function leaderboardBenefitId(def){
+ if(def.type==='single')return(store.event.competitions||[]).includes('combined')?'combined':'single';
+ return({combined:'combined',fourball:'fourball',putts:'teamPutts',best3:'best3of4',scratch:'scratch',ntp:'ntp',par3:'par3',par3aggregate:'par3',eclectic:'eclectic'})[def.type]||def.type;
+}
+function summaryPrizeDetails(def){const id=leaderboardBenefitId(def),text=competitionBenefitText(id,store.event.benefits),configured=text!=='Prize not set';return{id,text,configured,awarded:Boolean(store.event.prizesAwarded?.[def.id])}}
+async function setPrizeAwarded(defId,awarded){
+ store.event.prizesAwarded=store.event.prizesAwarded||{};
+ if(awarded)store.event.prizesAwarded[defId]={awardedAt:new Date().toISOString()};else delete store.event.prizesAwarded[defId];
+ localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard();
+ if(store.cloud?.role==='organiser'&&store.cloud?.eventId)await updateCloudEvent();
+}
+function renderLeaderboardSummary(host,defs,viewTabs){
+ const groups=[{title:'Day 1 Results',defs:defs.filter(d=>d.scope===1)},{title:'Day 2 Results',defs:defs.filter(d=>d.scope===2)},{title:'Overall Event Results',defs:defs.filter(d=>d.scope==='overall')}].filter(g=>g.defs.length);
+ const organiser=store.cloud?.role!=='player';
+ host.innerHTML=`<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · winners and prize giving</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}<div class="summaryGroups">${groups.map(g=>`<section class="summaryCard"><h3>${g.title}</h3>${g.defs.map(d=>{const r=summaryCompetitionResult(d),p=summaryPrizeDetails(d);return`<div class="summaryResult ${p.awarded?'awarded':''}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${r.complete?'Winner':'In progress'}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong><small class="summaryPrize ${p.configured?'':'notSet'}">Prize: ${esc(p.text)}</small></span><span class="summaryActions">${p.awarded?`<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>`:(organiser&&r.complete&&p.configured?`<button class="prizeAward" data-prizeaward="${d.id}">Award Prize</button>`:'')}<em>›</em></span></div>`}).join('')}</section>`).join('')}</div><p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
+ $$('[data-summaryopen]').forEach(b=>{const open=()=>{const d=defs.find(x=>x.id===b.dataset.summaryopen);store.event.leaderboardView=d?.scope==='overall'?(store.event.days===2?2:1):d?.scope||1;store.event.leaderboardTab=b.dataset.summaryopen;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()};b.onclick=e=>{if(!e.target.closest('[data-prizeaward]'))open()};b.onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&!e.target.closest('[data-prizeaward]')){e.preventDefault();open()}}});
+ $$('[data-prizeaward]').forEach(b=>b.onclick=async e=>{e.stopPropagation();const wasAwarded=b.dataset.awarded==='1';if(wasAwarded&&!confirm('Change this prize back to not yet awarded?'))return;await setPrizeAwarded(b.dataset.prizeaward,!wasAwarded)});$('#leaderRefresh').onclick=async()=>{await syncCloudNow();renderLeaderboard()};
+}
 function renderLeaderboard(){
  const host=$('#leaderboardExperience');if(!host)return;if(!store.event){host.innerHTML='<div class="card"><h2>Leaderboard</h2><p>Create an event first.</p></div>';return}
  const defs=leaderboardDefinitions();if(!defs.length){host.innerHTML='<div class="card"><h2>Leaderboard</h2><p>No scored competitions were selected for this event.</p></div>';return}
- let active=store.event.leaderboardTab||defs[0].id;if(!defs.some(d=>d.id===active))active=defs[0].id;store.event.leaderboardTab=active;const def=defs.find(d=>d.id===active);
- const tabs=`<div class="leaderTabs">${defs.map(d=>`<button data-leadertab="${d.id}" class="${d.id===active?'active':''}">${esc(d.label)}</button>`).join('')}</div>`;
+ const days=store.event.days||1;let view=store.event.leaderboardView||Math.min(days,store.event.playerPreviewDay||store.event.activeGroupDay||1);if(days===1)view=1;store.event.leaderboardView=view;
+ const viewTabs=days===2?`<div class="leaderViewTabs"><button data-leaderview="1" class="${view==1?'active':''}">Day 1</button><button data-leaderview="2" class="${view==2?'active':''}">Day 2</button><button data-leaderview="summary" class="${view==='summary'?'active':''}">Summary</button></div>`:`<div class="leaderViewTabs"><button data-leaderview="1" class="${view==1?'active':''}">Today</button><button data-leaderview="summary" class="${view==='summary'?'active':''}">Summary</button></div>`;
+ if(view==='summary'){renderLeaderboardSummary(host,defs,viewTabs);$$('[data-leaderview]').forEach(b=>b.onclick=()=>{store.event.leaderboardView=b.dataset.leaderview==='summary'?'summary':+b.dataset.leaderview;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()});return}
+ const visible=defs.filter(d=>d.scope===+view||d.scope==='overall'||(+view===2&&d.showOnDay2));let active=store.event.leaderboardTab||visible[0]?.id;if(!visible.some(d=>d.id===active))active=visible[0]?.id;store.event.leaderboardTab=active;const def=visible.find(d=>d.id===active);
+ const tabs=`<div class="leaderTabs">${visible.map(d=>`<button data-leadertab="${d.id}" class="${d.id===active?'active':''}">${esc(d.label)}</button>`).join('')}</div>`;
  let body='';if(def.type==='ntp'){body=ntpHolesFor(def.day).map(h=>{const holder=currentNtpHolder(def.day,h);return`<div class="leaderRow ntpLeaderRow"><b>Hole ${h}</b><span class="leaderName">${holder?esc(player(holder.id)?.name||'Player'):'No confirmed holder yet'}</span></div>`}).join('')||'<div class="leaderEmpty">No NTP holes selected.</div>'}
  else{const rows=calculateLeaderboard(def),unit=def.type==='scratch'?'strokes':def.type==='putts'?'putts':'pts';body=rows.map((r,i)=>`<div class="leaderRow ${i===0&&r.thru?'winner':''}"><span class="leaderRank">${r.tied?'T':''}${r.rank}</span><span class="leaderName">${esc(r.name)}${r.detail?`<small>${esc(r.detail)}</small>`:''}</span><span class="leaderScore">${r.total} <small>${unit}</small>${r.cb?' <small>CB</small>':''}</span><span class="leaderThru">${r.thru===r.target?'Final':r.thru?'Thru '+r.thru:'Not started'}</span></div>`).join('')||'<div class="leaderEmpty">No players are available.</div>'}
- host.innerHTML=`<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · updates as scores arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback?'Automatic countback':'Live standings'}</span></div>${body}</div><p class="leaderNote">Scores marked Final have all required holes entered. CB means the winner was decided by countback.</p>`;
- $$('[data-leadertab]').forEach(b=>b.onclick=()=>{store.event.leaderboardTab=b.dataset.leadertab;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()});$('#leaderRefresh').onclick=async()=>{await syncCloudNow();renderLeaderboard()};
+ host.innerHTML=`<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · updates as scores arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback?'Automatic countback':'Live standings'}</span></div>${body}</div><p class="leaderNote">Scores marked Final have all required holes entered. CB means the winner was decided by countback.</p>`;
+ $$('[data-leaderview]').forEach(b=>b.onclick=()=>{store.event.leaderboardView=b.dataset.leaderview==='summary'?'summary':+b.dataset.leaderview;store.event.leaderboardTab='';localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()});$$('[data-leadertab]').forEach(b=>b.onclick=()=>{store.event.leaderboardTab=b.dataset.leadertab;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()});$('#leaderRefresh').onclick=async()=>{await syncCloudNow();renderLeaderboard()};
 }
 function renderPlayerExperience(){
  const host=$('#playerExperience');if(!host)return;
