@@ -11,6 +11,18 @@ This file stores ideas that are valuable but are not required for the 2 Septembe
 
 ---
 
+## Approved Core Work — Live Leaderboards and Countback
+
+**Status:** Approved for the Supabase stage
+
+- Live provisional and verified leaderboards for every selected competition.
+- Automatic Golf Australia countback for Scratch, Singles Stableford and 4BBB: holes 10–18, then 13–18, then 16–18, then hole-by-hole from Hole 18 backwards.
+- Display countback winners with the suffix **CB** and provide a tappable explanation.
+- If every comparison remains identical, display **TIED — Organiser Decision**.
+- Organiser Results screen shows rankings, ties and the prizes configured during event setup.
+
+---
+
 ## AGI-001 — Search Previous Events by Location
 
 **Status:** Backlog  

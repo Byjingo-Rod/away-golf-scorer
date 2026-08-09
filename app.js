@@ -5,6 +5,13 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const inactiveNames=new Set(['Denis Lenard','John Herbert','Rolly Nice']);
 const NO_PARTNER_ID='system-no-partner';
 const NO_PARTNER={id:NO_PARTNER_ID,name:'No Partner',golfLink:'',ga:'',rosterActive:true,system:true};
+let roundWakeLock=null;
+async function requestRoundWakeLock(){
+ if(!('wakeLock' in navigator)||!['scoring','verify'].includes(store.event?.playerRoundMode)||document.visibilityState!=='visible')return false;
+ try{if(!roundWakeLock||roundWakeLock.released)roundWakeLock=await navigator.wakeLock.request('screen');return true}catch(_){roundWakeLock=null;return false}
+}
+async function releaseRoundWakeLock(){try{if(roundWakeLock&&!roundWakeLock.released)await roundWakeLock.release()}catch(_){}roundWakeLock=null}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&['scoring','verify'].includes(store.event?.playerRoundMode))requestRoundWakeLock()});
 const competitionNames={single:'Single Stableford',combined:'Single Stableford',fourball:'4BBB Stableford',teamPutts:'Putting Competition',best3of4:'Best 3 of 4 Stableford',par3:'Par 3 Competition',ntp:'Nearest the Pin',scratch:'Scratch',eclectic:'Eclectic'};
 function competitionDisplayName(id){
  if(id==='teamPutts')return `Putting Competition (${store.event?.puttingFormat==='pairs'?'2 Player':'4 Player'})`;
@@ -229,12 +236,16 @@ function syncEventFields(){
 }
 function renderStep2(){
  let q='';
+ let playerScroll={body:$('#wizardBody')?.scrollTop||0,av:$('#av')?.scrollTop||0,inv:$('#inv')?.scrollTop||0,conf:$('#conf')?.scrollTop||0};
+ const rememberScroll=()=>{if($('#av'))playerScroll={body:$('#wizardBody')?.scrollTop||0,av:$('#av')?.scrollTop||0,inv:$('#inv')?.scrollTop||0,conf:$('#conf')?.scrollTop||0}};
+ const restoreScroll=()=>{if($('#wizardBody'))$('#wizardBody').scrollTop=playerScroll.body;if($('#av'))$('#av').scrollTop=playerScroll.av;if($('#inv'))$('#inv').scrollTop=playerScroll.inv;if($('#conf'))$('#conf').scrollTop=playerScroll.conf};
  function ensureAvailability(id){
    id=String(id);
    W.event.dayAvailability=W.event.dayAvailability||{};
    if(!W.event.dayAvailability[id])W.event.dayAvailability[id]={1:true,2:true};
  }
  function draw(){
+  rememberScroll();
   let normal=activePlayers().filter(p=>(p.name+' '+p.golfLink).toLowerCase().includes(q));
   let systemMatches=('no partner').includes(q)||q===''?[NO_PARTNER]:[];
   let ps=[...normal,...systemMatches];
@@ -269,6 +280,7 @@ function renderStep2(){
     return `<div class="playerRow confirmedAvailability ${p.system?'noPartnerRow':''}"><div><b>${esc(p.name)}</b><small>${p.system?'Missing player position':esc(p.golfLink)}</small></div>${W.event.days===2?`<div class="dayAvailability"><label><input type="checkbox" data-wday="${id}|1" ${a[1]!==false?'checked':''}> D1</label><label><input type="checkbox" data-wday="${id}|2" ${a[2]!==false?'checked':''}> D2</label></div>`:'<span>✓</span>'}</div>`
   }).join('')||'<p class="hint" style="padding:10px">Accepted players appear here.</p>';
   $$('[data-wday]').forEach(cb=>cb.onchange=()=>{let [id,day]=cb.dataset.wday.split('|');ensureAvailability(id);W.event.dayAvailability[id][+day]=cb.checked;draw()});
+  restoreScroll();
  }
  draw()
 }
@@ -858,6 +870,7 @@ function playerHoleEntry(day,playerId,hole){
 }
 function playerSurname(id){const n=String(player(id)?.name||'Player').trim().split(/\s+/);return n[n.length-1]||'Player'}
 function renderRoundVerification(selected,day){
+ requestRoundWakeLock();
  const host=$('#playerExperience'),ctx=playerGroupContext(selected,day),setup=ctx?.setup,c=course(day===1?store.event.course1:store.event.course2),v=version(c)||{};
  if(!ctx)return renderPlayerExperience();
  const start=setup.starts?.[ctx.groupIndex]||1,seq=scoreSequence(start),mine=scorerStore(day,selected);
@@ -875,9 +888,10 @@ function renderRoundVerification(selected,day){
  <div class="verifyCard"><h3>${mismatches.length?`${mismatches.length} hole${mismatches.length===1?'':'s'} need attention`:'All 18 scores agree'}</h3><p>Your score is compared with the official score entered for you by your marker.</p><div class="verifyRows">${rows.map(r=>`<div class="verifyRow ${r.match?'match':'mismatch'}"><b>Hole ${r.h}</b><span>Marker: ${r.off===''?'—':r.off}${r.offPts!=null?` (${r.offPts} pt${r.offPts===1?'':'s'})`:''}</span><span>You: ${r.self===''?'—':r.self}${r.selfPts!=null?` (${r.selfPts} pt${r.selfPts===1?'':'s'})`:''}</span><strong>${r.match?'✓':'!'}</strong></div>`).join('')}</div></div>
  ${mismatches.length?`<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official score. Player/Marker scores on all 18 holes must agree for the round to be finalised.</div>`:`<button class="startRoundBtn" id="finaliseRound">FINALISE ROUND</button>`}`;
  $('#backToRound').onclick=()=>{store.event.playerRoundMode='scoring';save();renderPlayerExperience()};
- if($('#finaliseRound'))$('#finaliseRound').onclick=()=>{store.event.roundFinalised=store.event.roundFinalised||{};store.event.roundFinalised['day'+day]=store.event.roundFinalised['day'+day]||{};store.event.roundFinalised['day'+day][selected]=new Date().toISOString();save();alert('Round finalised for '+player(selected).name+'.');store.event.playerRoundMode='preview';renderPlayerExperience()};
+ if($('#finaliseRound'))$('#finaliseRound').onclick=()=>{store.event.roundFinalised=store.event.roundFinalised||{};store.event.roundFinalised['day'+day]=store.event.roundFinalised['day'+day]||{};store.event.roundFinalised['day'+day][selected]=new Date().toISOString();store.event.playerRoundMode='preview';releaseRoundWakeLock();save();alert('Round finalised for '+player(selected).name+'.');renderPlayerExperience()};
 }
 function renderHoleScoring(selected,day){
+ requestRoundWakeLock();
  const host=$('#playerExperience'),p=player(selected),ctx=playerGroupContext(selected,day);if(!p||!ctx)return renderPlayerExperience();
  const setup=ctx.setup,c=course(day===1?store.event.course1:store.event.course2),v=version(c)||{},start=setup.starts?.[ctx.groupIndex]||1,seq=scoreSequence(start);
  let pos=Math.max(0,Math.min(17,store.event.playerHolePos||0)),hole=seq[pos],idx=hole-1,rec=scoreRecord(day,selected,hole),targetId=markerTargetFor(selected,day),target=player(targetId),hcpSelf=playerDailyHandicap(selected,day),hcpTarget=playerDailyHandicap(targetId,day);
@@ -909,7 +923,7 @@ function renderHoleScoring(selected,day){
    const has=value!==''&&value!=null,isGross=id.endsWith('Gross'),picked=isGross&&String(value).toUpperCase()==='P',val=picked?'P':(has?+value:+base);
    return`<div class="scoreStepperWrap ${isGross?'grossControl':'puttsControl'}"><small>${label}</small><div class="scoreStepper ${isGross?'scoreFour':''} ${has?'set':'unset'}"><button type="button" data-step="${id}" data-delta="-1">−</button><button type="button" class="stepValue" data-confirm="${id}" data-base="${base}">${val}</button><button type="button" data-step="${id}" data-delta="1">+</button>${isGross?`<button type="button" class="pickupBtn ${picked?'picked':''}" data-pickup="${id}" title="Pick up">P</button>`:''}</div></div>`};
  const timeText=rec.ntp?.confirmedAt?new Date(rec.ntp.confirmedAt).toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'}):'';
- host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF · DAY ${day}</span><h2>${esc(c?.name||'Course')}</h2></div><button class="soft" id="exitRound">Exit</button></div>
+ host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF · DAY ${day}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${'wakeLock' in navigator?'Screen awake ✓':'Use phone screen-lock setting'}</small></div><button class="soft" id="exitRound">Exit</button></div>
  <div class="holeHero ${ntp?'isNtp':''}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par||'—'}</b></div><div><small>INDEX</small><b>${esc(indexVal||'—')}</b></div><div><small>METRES</small><b>${metres||'—'}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
  ${best3On?`<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current==null?'—':best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total==null?'—':best3Total}</strong></span></div>`:''}
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>OFFICIAL SCORE</small><h3>${esc(target?.name||'Marker partner')}</h3></div>${scoreSummary(sfOff,totalOff.points,targetId)}</div><div class="scoreSteppers">${stepper('officialGross','Score',rec.official.gross,par||4,1,20)}${stepper('officialPutts','Putts',rec.official.putts,2,0,9)}</div></div>
@@ -920,7 +934,7 @@ function renderHoleScoring(selected,day){
  $$('[data-step]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.step,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts',base=key==='gross'?(par||4):2,min=key==='gross'?1:0,max=key==='gross'?20:9,current=rec[section][key]===''||rec[section][key]==null||String(rec[section][key]).toUpperCase()==='P'?base:+rec[section][key];setField(id,Math.max(min,Math.min(max,current+(+btn.dataset.delta))))});
  $$('[data-pickup]').forEach(btn=>btn.onclick=()=>{setField(btn.dataset.pickup,'P')});
  $$('[data-confirm]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.confirm,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts';if(rec[section][key]===''||rec[section][key]==null)setField(id,+btn.dataset.base)});
- $('#exitRound').onclick=()=>{store.event.playerRoundMode='preview';save();renderPlayerExperience()};
+ $('#exitRound').onclick=()=>{store.event.playerRoundMode='preview';releaseRoundWakeLock();save();renderPlayerExperience()};
  if($('#yesNtp'))$('#yesNtp').onclick=()=>{if(!rec.ntp.pending){rec.ntp.pending=true}else{rec.ntp.pending=false;rec.ntp.entrantId=targetId;rec.ntp.confirmedAt=new Date().toISOString()}save();renderHoleScoring(selected,day)};
  if($('#undoNtp'))$('#undoNtp').onclick=()=>{rec.ntp.confirmedAt=null;rec.ntp.entrantId=null;rec.ntp.pending=false;save();renderHoleScoring(selected,day)};
  $('#prevHole').onclick=()=>{store.event.playerHolePos=Math.max(0,pos-1);save();renderHoleScoring(selected,day)};
@@ -953,7 +967,7 @@ function renderPlayerExperience(){
  $('#previewPlayer').onchange=e=>{store.event.playerPreviewId=e.target.value;save();renderPlayerExperience()};$$('[data-previewday]').forEach(b=>b.onclick=()=>{store.event.playerPreviewDay=+b.dataset.previewday;store.event.playerPreviewId=null;store.event.playerRoundMode='preview';save();renderPlayerExperience()});
  $('#playerRulesBtn').onclick=()=>{store.event.playerRulesOpen=!rulesOpen;save();renderPlayerExperience()};
  $('#playerGotIt').onclick=()=>{store.event.playerPreviewAck=store.event.playerPreviewAck||{};store.event.playerPreviewAck[day]=store.event.playerPreviewAck[day]||{};store.event.playerPreviewAck[day][selected]=true;save();renderPlayerExperience()};
- $('#startRoundPreview').onclick=()=>{if(!canStart)return;store.event.playerRoundMode='scoring';store.event.playerHolePos=0;save();renderPlayerExperience()};
+ $('#startRoundPreview').onclick=()=>{if(!canStart)return;store.event.playerRoundMode='scoring';store.event.playerHolePos=0;requestRoundWakeLock();save();renderPlayerExperience()};
 }
 renderHome();renderPlayersAdmin();renderCoursesAdmin();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});

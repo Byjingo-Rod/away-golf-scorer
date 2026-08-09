@@ -1,6 +1,10 @@
 AWAY GOLF SCORER — VERSION 13.0
 
-VERSION 15.10
+VERSION 15.11
+- Enlarged and separated player response controls on phones.
+- Player selection lists retain their scroll position after each response.
+- Scoring automatically requests a screen wake lock and restores it when the app becomes visible again.
+- The wake lock releases when the player exits or finalises the round.
 - NTP setup shows each day's starting tee arrangement beside the day heading.
 - Two-hole NTP days include a one-click Swap NTP Order control.
 - Competitions & Rules explicitly labels Putting Competition as 2 Player or 4 Player.
