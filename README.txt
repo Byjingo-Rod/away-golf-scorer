@@ -1,4 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.14
+AWAY GOLF SCORER — VERSION 15.15
+
+VERSION 15.15 — LIVE LEADERBOARDS
+- Added live leaderboard tabs for every competition selected in Event Setup.
+- Supports one-day and two-day Singles Stableford, daily 4BBB, Putting pairs/teams, Best 3 of 4, daily or two-day Par 3 pairs, Scratch, Eclectic and NTP holders.
+- Shows each result as Not Started, Thru holes, or Final as shared scores arrive.
+- Applies automatic back 9, last 6, last 3 and hole-by-hole countback to Singles, 4BBB and Scratch ties.
+- Two-day Singles uses Day 2 first for countback.
+- Leaderboards are available on organiser and joined-player devices.
+- Joined-player navigation now labels the scoring area My Golf.
 
 VERSION 15.14 — PLAYER-ONLY PHONES
 - Joined players now see a true player-only interface: Home and My Golf only.

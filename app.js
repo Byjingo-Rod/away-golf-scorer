@@ -68,7 +68,7 @@ function cloudPlayerIds(){
 }
 function cloudPayload(){
  const event=JSON.parse(JSON.stringify(store.event||{}));
- delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;
+ delete event.scoring;delete event.playerRoundMode;delete event.playerHolePos;delete event.playerPreviewId;delete event.playerPreviewDay;delete event.playerPreviewAck;delete event.playerRulesOpen;delete event.leaderboardTab;
  const players=cloudPlayerIds().map(id=>{const p=player(id);return{id:String(p.id),name:p.name,ga:p.ga??'',rosterActive:true,golfLink:'',homeClub:'',notes:''}});
  const courseIds=[event.course1,event.course2].filter(Boolean).map(String);
  const courses=store.courses.filter(c=>courseIds.includes(String(c.id))).map(c=>JSON.parse(JSON.stringify(c)));
@@ -82,7 +82,7 @@ function applyRemoteCloud(bundle){
  const payload=bundle?.event?.event_data||{};
  if(store.cloud?.role==='player'&&payload.event){
    const localScoring=store.event?.scoring||{day1:{},day2:{}};
-   const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{}};
+ const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{},leaderboardTab:store.event?.leaderboardTab||''};
    store.event={...JSON.parse(JSON.stringify(payload.event)),...localUi,scoring:localScoring};
    (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
    (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
@@ -92,6 +92,7 @@ function applyRemoteCloud(bundle){
  store.cloudPlayers=(bundle?.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
  localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();
  if(document.querySelector('#scorePage.active'))renderPlayerExperience();
+ if(document.querySelector('#leaderboardPage.active'))renderLeaderboard();
 }
 async function releaseCloudPlayer(playerId){
  if(store.cloud?.role!=='organiser'||!store.cloud?.eventId)return;
@@ -169,7 +170,7 @@ async function initialiseCloud(){
 window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
 
 function renderHome(){ $('#homeEvent').textContent=store.event?.name||'Not set';$('#homePlayers').textContent=store.event?.confirmed?.length||0;applyDeviceRole();renderCloudPanel() }
-function nav(id){if(isPlayerDevice()&&!['home','scorePage'].includes(id))id='scorePage';$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience()}
+function nav(id){if(isPlayerDevice()&&!['home','scorePage','leaderboardPage'].includes(id))id='scorePage';$$('.page').forEach(x=>x.classList.toggle('active',x.id===id));$$('nav button').forEach(x=>x.classList.toggle('active',x.dataset.nav===id));if(id==='teamsPage')renderTeamsPage();if(id==='scorePage')renderPlayerExperience();if(id==='leaderboardPage')renderLeaderboard()}
 $$('nav button').forEach(b=>b.onclick=()=>nav(b.dataset.nav));
 function showSide(html){$('#sideContent').innerHTML=html;$('#sidePanel').classList.add('open')}$('#closeSide').onclick=()=>$('#sidePanel').classList.remove('open');
 function playerInfo(id,status=''){let p=player(id);showSide(`<h2>${esc(p.name)}</h2><p><small>GOLFLINK NUMBER</small><br><b>${esc(p.golfLink||'—')}</b></p><p><small>GA HANDICAP</small><br><b>${Number(p.ga||0).toFixed(1)}</b></p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub||'—')}</b></p><p><small>LAST AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent||'—')}</b></p><p><small>EVENTS PLAYED</small><br><b>${p.eventsPlayed||0}</b></p><p><small>NOTES</small><br>${esc(p.notes||'—')}</p><p><small>STATUS</small><br><b>${p.rosterActive===false?'Inactive':'Active'}${status?' • '+status:''}</b></p>`)}
@@ -1055,6 +1056,68 @@ function renderHoleScoring(selected,day){
  if($('#undoNtp'))$('#undoNtp').onclick=()=>{rec.ntp.confirmedAt=null;rec.ntp.entrantId=null;rec.ntp.pending=false;save();queueCloudRound(day,selected);renderHoleScoring(selected,day)};
  $('#prevHole').onclick=()=>{store.event.playerHolePos=Math.max(0,pos-1);save();renderHoleScoring(selected,day)};
  $('#nextHole').onclick=()=>{if(ntp&&rec.ntp.confirmedAt)rec.ntp.locked=true;if(pos===17){store.event.playerRoundMode='verify';save();renderRoundVerification(selected,day)}else{store.event.playerHolePos=pos+1;save();renderHoleScoring(selected,day)}};
+}
+function leaderboardPlayerPoints(day,pid){
+ const v=version(course(day===1?store.event.course1:store.event.course2))||{},hcp=playerDailyHandicap(pid,day);
+ return Array.from({length:18},(_,i)=>{const e=playerHoleEntry(day,pid,i+1);return stablefordPoints(e?.gross,+(v.par?.[i]||0),v.index?.[i]??'',hcp)});
+}
+function leaderboardPlayerGross(day,pid){return Array.from({length:18},(_,i)=>{const g=playerHoleEntry(day,pid,i+1)?.gross;return String(g).toUpperCase()==='P'||g===''||g==null?null:+g})}
+function leaderboardUnits(day,type){
+ const setup=store.event.groupSetup?.['day'+day],out=[];if(!setup)return out;
+ (setup.groups||[]).forEach((raw,gi)=>{
+  const group=raw.map(String),filled=group.map(id=>id===NO_PARTNER_ID?String(setup.virtualPlayer||''):id).filter(Boolean);
+  if(type==='team')out.push({id:`d${day}g${gi}`,ids:[...new Set(filled)],name:`Group ${gi+1}`,detail:filled.map(id=>playerSurname(id)).join(', ')});
+  else for(let n=0;n<4;n+=2){const ids=group.slice(n,n+2).map(id=>id===NO_PARTNER_ID?String(setup.virtualPlayer||''):id).filter(Boolean);if(ids.length)out.push({id:`d${day}g${gi}p${n/2}`,ids:[...new Set(ids)],name:ids.map(id=>player(id)?.name||'Player').join(' & '),detail:`Day ${day} · Group ${gi+1}`})}
+ });return out;
+}
+const leaderSum=values=>values.reduce((n,x)=>n+(x==null?0:+x||0),0);
+function leaderRow(id,name,detail,holes,target=18){return{id,name,detail,holes,total:leaderSum(holes),thru:holes.filter(x=>x!=null).length,target,cbHoles:holes}}
+function leaderCountback(a,b,higher=true){
+ const av=a.cbHoles||a.holes,bv=b.cbHoles||b.holes,cmp=(x,y)=>higher?y-x:x-y;
+ for(const [s,e] of [[9,18],[12,18],[15,18]]){const c=cmp(leaderSum(av.slice(s,e)),leaderSum(bv.slice(s,e)));if(c)return c}
+ for(let i=17;i>=0;i--){const c=cmp(av[i]??0,bv[i]??0);if(c)return c}return 0;
+}
+function rankLeaderRows(rows,higher=true,useCountback=false){
+ rows.sort((a,b)=>{const c=higher?b.total-a.total:a.total-b.total;return c||(useCountback?leaderCountback(a,b,higher):0)||a.name.localeCompare(b.name)});
+ rows.forEach((r,i)=>{const prev=rows[i-1],same=prev&&prev.total===r.total&&(!useCountback||leaderCountback(prev,r,higher)===0);r.rank=same?prev.rank:i+1;r.tied=Boolean(same||(rows[i+1]&&rows[i+1].total===r.total&&(!useCountback||leaderCountback(r,rows[i+1],higher)===0)));r.cb=Boolean(useCountback&&i===0&&rows[1]&&rows[1].total===r.total&&leaderCountback(r,rows[1],higher)!==0)});return rows;
+}
+function leaderboardDefinitions(){
+ const selected=new Set(store.event.competitions||[]),days=store.event.days||1,defs=[],add=(id,label,type,day=0,opts={})=>defs.push({id,label,type,day,...opts});
+ if(selected.has('single'))add('single-d1','Singles Stableford','single',1,{countback:true});
+ if(selected.has('combined'))add('combined','Singles Stableford — 2 Days','combined',0,{countback:true});
+ for(let day=1;day<=days;day++){
+  if(selected.has('fourball'))add(`fourball-d${day}`,`4BBB — Day ${day}`,'fourball',day,{countback:true});
+  if(selected.has('teamPutts'))add(`putts-d${day}`,`${store.event.puttingFormat==='pairs'?'Pairs':'Team'} Putting — Day ${day}`,'putts',day,{lower:true});
+  if(selected.has('best3of4'))add(`best3-d${day}`,`Best 3 of 4 — Day ${day}`,'best3',day);
+  if(selected.has('scratch'))add(`scratch-d${day}`,`Scratch — Day ${day}`,'scratch',day,{lower:true,countback:true});
+  if(selected.has('ntp'))add(`ntp-d${day}`,`Nearest the Pin — Day ${day}`,'ntp',day);
+ }
+ if(selected.has('par3')){if(days===2&&store.event.par3Format==='aggregate')add('par3-agg','Par 3 Pairs — 2 Days','par3aggregate');else for(let day=1;day<=days;day++)add(`par3-d${day}`,`Par 3 Pairs — Day ${day}`,'par3',day)}
+ if(selected.has('eclectic'))add('eclectic','Eclectic — 2 Days','eclectic',0,{countback:true});
+ return defs;
+}
+function calculateLeaderboard(def){
+ const field=day=>dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID).map(String),points=(day,id)=>leaderboardPlayerPoints(day,id),gross=(day,id)=>leaderboardPlayerGross(day,id);let rows=[];
+ if(def.type==='single')rows=field(def.day).map(id=>leaderRow(id,player(id)?.name||'Player','',points(def.day,id)));
+ if(def.type==='combined')rows=field(1).filter(id=>field(2).includes(id)).map(id=>{const d1=points(1,id),d2=points(2,id),r=leaderRow(id,player(id)?.name||'Player','Day 1 + Day 2',[...d1,...d2],36);r.cbHoles=d2;return r});
+ if(def.type==='scratch')rows=field(def.day).map(id=>leaderRow(id,player(id)?.name||'Player','',gross(def.day,id)));
+ if(def.type==='fourball')rows=leaderboardUnits(def.day,'pair').map(u=>leaderRow(u.id,u.name,u.detail,Array.from({length:18},(_,i)=>{const vals=u.ids.map(id=>points(def.day,id)[i]).filter(x=>x!=null);return vals.length?Math.max(...vals):null})));
+ if(def.type==='putts'){const kind=store.event.puttingFormat==='pairs'?'pair':'team';rows=leaderboardUnits(def.day,kind).map(u=>leaderRow(u.id,u.name,u.detail,Array.from({length:18},(_,i)=>{const vals=u.ids.map(id=>playerHoleEntry(def.day,id,i+1)?.putts).map(x=>x===''||x==null?null:+x);return vals.every(x=>x!=null)?leaderSum(vals):null})))}
+ if(def.type==='best3')rows=leaderboardUnits(def.day,'team').map(u=>leaderRow(u.id,u.name,u.detail,Array.from({length:18},(_,i)=>{const vals=u.ids.map(id=>points(def.day,id)[i]).filter(x=>x!=null).sort((a,b)=>b-a);return vals.length>=3?leaderSum(vals.slice(0,3)):null})));
+ if(def.type==='par3'){const v=version(course(def.day===1?store.event.course1:store.event.course2))||{},ix=Array.from({length:18},(_,i)=>i).filter(i=>+v.par?.[i]===3);rows=leaderboardUnits(def.day,'pair').map(u=>leaderRow(u.id,u.name,u.detail,ix.map(i=>{const vals=u.ids.map(id=>points(def.day,id)[i]);return vals.every(x=>x!=null)?leaderSum(vals):null}),ix.length))}
+ if(def.type==='par3aggregate'){const ix=d=>{const v=version(course(d===1?store.event.course1:store.event.course2))||{};return Array.from({length:18},(_,i)=>i).filter(i=>+v.par?.[i]===3)};rows=leaderboardUnits(2,'pair').map(u=>{const holes=[];for(const d of [1,2])ix(d).forEach(i=>{const vals=u.ids.map(id=>points(d,id)[i]);holes.push(vals.every(x=>x!=null)?leaderSum(vals):null)});return leaderRow(u.id,u.name,'Day 2 partnership · both rounds',holes,holes.length)})}
+ if(def.type==='eclectic')rows=field(1).filter(id=>field(2).includes(id)).map(id=>leaderRow(id,player(id)?.name||'Player','Best score on each hole',Array.from({length:18},(_,i)=>{const vals=[points(1,id)[i],points(2,id)[i]].filter(x=>x!=null);return vals.length?Math.max(...vals):null})));
+ return rankLeaderRows(rows,!def.lower,Boolean(def.countback));
+}
+function renderLeaderboard(){
+ const host=$('#leaderboardExperience');if(!host)return;if(!store.event){host.innerHTML='<div class="card"><h2>Leaderboard</h2><p>Create an event first.</p></div>';return}
+ const defs=leaderboardDefinitions();if(!defs.length){host.innerHTML='<div class="card"><h2>Leaderboard</h2><p>No scored competitions were selected for this event.</p></div>';return}
+ let active=store.event.leaderboardTab||defs[0].id;if(!defs.some(d=>d.id===active))active=defs[0].id;store.event.leaderboardTab=active;const def=defs.find(d=>d.id===active);
+ const tabs=`<div class="leaderTabs">${defs.map(d=>`<button data-leadertab="${d.id}" class="${d.id===active?'active':''}">${esc(d.label)}</button>`).join('')}</div>`;
+ let body='';if(def.type==='ntp'){body=ntpHolesFor(def.day).map(h=>{const holder=currentNtpHolder(def.day,h);return`<div class="leaderRow ntpLeaderRow"><b>Hole ${h}</b><span class="leaderName">${holder?esc(player(holder.id)?.name||'Player'):'No confirmed holder yet'}</span></div>`}).join('')||'<div class="leaderEmpty">No NTP holes selected.</div>'}
+ else{const rows=calculateLeaderboard(def),unit=def.type==='scratch'?'strokes':def.type==='putts'?'putts':'pts';body=rows.map((r,i)=>`<div class="leaderRow ${i===0&&r.thru?'winner':''}"><span class="leaderRank">${r.tied?'T':''}${r.rank}</span><span class="leaderName">${esc(r.name)}${r.detail?`<small>${esc(r.detail)}</small>`:''}</span><span class="leaderScore">${r.total} <small>${unit}</small>${r.cb?' <small>CB</small>':''}</span><span class="leaderThru">${r.thru===r.target?'Final':r.thru?'Thru '+r.thru:'Not started'}</span></div>`).join('')||'<div class="leaderEmpty">No players are available.</div>'}
+ host.innerHTML=`<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · updates as scores arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback?'Automatic countback':'Live standings'}</span></div>${body}</div><p class="leaderNote">Scores marked Final have all required holes entered. CB means the winner was decided by countback.</p>`;
+ $$('[data-leadertab]').forEach(b=>b.onclick=()=>{store.event.leaderboardTab=b.dataset.leadertab;localStorage.setItem('awayGolf13',JSON.stringify(store));renderLeaderboard()});$('#leaderRefresh').onclick=async()=>{await syncCloudNow();renderLeaderboard()};
 }
 function renderPlayerExperience(){
  const host=$('#playerExperience');if(!host)return;
