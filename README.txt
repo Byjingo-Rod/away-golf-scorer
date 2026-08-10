@@ -1,4 +1,118 @@
-AWAY GOLF SCORER — VERSION 15.18
+AWAY GOLF SCORER — VERSION 15.33
+
+VERSION 15.33 — BEST 3 OF 4 LOTTERY PRIZE WORDING
+- The winning Best 3 of 4 team's Summary prize now states clearly that it is
+  the only team that does not contribute the selected amount to the Lottery Pool.
+- The displayed amount continues to come from the event's competition setup.
+
+AWAY GOLF SCORER — VERSION 15.32
+
+VERSION 15.32 — COMPLETED SCORECARD VIEWER
+- A finalised player now sees View Completed Scorecard instead of Start Round.
+- Completed cards are strictly read-only and show all 18 holes, gross score,
+  putts, Stableford points and the exact handicap adjustment used on each hole.
+- Plus-handicap give-back holes are highlighted, making +4 and +1 calculations
+  directly auditable against the course stroke indexes.
+- Front nine, back nine and 18-hole totals are included, with a safe return to
+  Player View.
+
+VERSION 15.28 — GUARANTEED PLUS-HANDICAP CONTROL
+
+VERSION 15.28 — GUARANTEED PLUS-HANDICAP CONTROL
+- Replaced typed plus signs with a separate, unambiguous Plus checkbox.
+- Quick handicap entry now has Player, Handicap and Plus columns. Ordinary
+  handicaps retain the fast type/Enter/type/Enter workflow.
+- A +4 player is entered as number 4 with Plus ticked; a +1 player is entered as
+  number 1 with Plus ticked.
+- Groups & Teams and Player Profile use the same separate Plus control.
+- Plus handicaps are stored independently of browser number formatting and are
+  visibly rendered with a + prefix.
+- Verified that +4 deducts one stroke on indexes 15, 16, 17 and 18: par scores
+  one point and birdie scores two on those holes; par scores two elsewhere.
+
+VERSION 15.27 — PLUS HANDICAPS
+- Added full support for plus playing handicaps such as +4.
+- Plus handicaps retain and display the + sign in quick entry, Groups & Teams,
+  Player Profile, course history and the player's round preview.
+- Stableford scoring correctly deducts strokes on the easiest-ranked holes: a
+  +4 player must birdie stroke indexes 15, 16, 17 and 18 to score two points.
+- Handicap entry instructions now explicitly show the +4 input example.
+- Widened Set Hcp — [Course] so longer course names fit on one line and reduced
+  the adjoining player/GolfLink search area to use the available space better.
+- Preserved a stacked, phone-friendly arrangement on narrow screens.
+
+VERSION 15.26 — FAST COURSE HANDICAPS AND PROVISIONAL PLANNING
+- Replaced the read-only player information panel with an editable Player Profile.
+- Player Profile now prioritises Name, GolfLink No., Home Club, last Away Golf
+  event, course handicap history, current event course handicap(s), Notes and Status.
+- Removed the stale GA Handicap from the visible Player Profile.
+- Added Set Hcp — [Course] beside Manage Player List during event planning.
+- The handicap screen is one vertical list of all selected players; pressing Enter
+  stores the number and advances directly to the next player.
+- Two-day events receive a separate handicap-entry button and list for each course.
+- Entered handicaps automatically populate Groups & Teams and are retained with
+  the event plan. Locked-event handicaps are recorded in each player's course history.
+- Event planning can proceed when the target field is filled by accepted and/or
+  awaiting-reply invitations. Awaiting players remain visibly amber in the groups.
+- Lock Event is prevented until every provisional amber player is confirmed green.
+- Restored a reliable Return to Setup button from the Player List for unlocked events.
+- Corrected the safe-test heading for the 16-player dress rehearsal.
+
+VERSION 15.25 — 16-PLAYER DRESS REHEARSAL
+- Added a protected one-day 16-player Oatlands test matching the scale of the
+  first real Away Golf event.
+- Uses four groups of four, eight 4BBB pairs and four competing teams.
+- Provides completed 18-hole gross scores, matched marker scores, realistic
+  putts, NTP progression and finalised rounds for all 16 players.
+- Simulates all 16 player phones as joined so the organiser's live event control,
+  four-group display and Prize Giving Ready state can be tested at full scale.
+- Covers Single Stableford, 4BBB, Team Putting, Best 3 of 4, Par 3 Pairs,
+  Nearest the Pin and Scratch leaderboards plus the complete Results Summary.
+- Testing Tools can switch among the 8-player one-day, 8-player two-day and
+  16-player one-day tests without exposing test data to the live event system.
+
+VERSION 15.24 — CLEAN ONE-DAY RESULT NAMES
+- Removed redundant “Day 1” text from every one-day competition name.
+- One-day Summary heading is now “Event Results”.
+- Multi-day competition names retain their Day 1 and Day 2 identification.
+
+VERSION 15.23 — ONE-DAY SUMMARY FIX
+- Fixed the one-day Summary tab returning immediately to Today's Single Stableford.
+- One-day Summary now displays all selected competition winners and prize controls.
+
+VERSION 15.22 — NTP PROGRESSION
+- Daily NTP leaderboard retains each successive provisional holder and time.
+- The last recorded holder is clearly labelled Winner.
+- Prize Summary remains uncluttered and shows only the final NTP winner.
+- Protected test now includes realistic multi-player NTP progressions.
+
+VERSION 15.21 — ONE-DAY TEST AND EVENT OPTIONS
+- Added a protected one-day eight-player Oatlands test.
+- Testing Tools can switch safely between one-day and two-day tests.
+- One-day test covers Single Stableford, 4BBB, Team Putting, Best 3 of 4,
+  Par 3 Pairs, Nearest the Pin and Scratch.
+- Added Event Options on Home.
+- Cancel Event closes scoring and archives a published join code while retaining
+  the cancelled event as a record.
+- Delete Event from This Device removes the current event and local scores after
+  two confirmations while retaining players, courses and organiser preferences.
+
+VERSION 15.20 — SINGLE STABLEFORD FORMAT CHOICE
+- One-day events retain the normal optional Single Stableford.
+- Two-day events can run daily Single Stableford, two-day aggregate, or both.
+- The protected Oatlands test uses the two-day aggregate only.
+- Team Putting and Best 3 of 4 summary winners include all four player names.
+
+VERSION 15.19 — PROTECTED EIGHT-PLAYER OATLANDS TEST
+- Added a reusable two-day test event based on genuine Oatlands scorecards supplied by the organiser.
+- Uses eight existing Away Golf players, two four-player groups and four 4BBB pairs each day.
+- Day 2 partnerships differ from Day 1, allowing the draw and daily team results to be tested properly.
+- Includes realistic completed gross scores, inferred putts and NTP results.
+- Tests Single Stableford, 4BBB, four-player Putting, Best 3 of 4, Par 3 pairs, Scratch, Eclectic, NTP and prize giving.
+- Testing Tools can show no scores, completed Day 1, or both completed days.
+- The existing event, cloud connection and course records are backed up before test mode begins.
+- The test event remains local and cannot accidentally be published to connected players.
+- Restore My Previous Event returns the organiser to the exact event that was open before testing.
 
 VERSION 15.18 — ORGANISER'S LIVE EVENT CONTROL
 - Added a phone-friendly organiser panel on Home for locked events.
@@ -326,3 +440,34 @@ VERSION 15.12 UPDATE
 --------------------
 - Player traffic-light selections no longer focus the search box or open the phone keyboard.
 - The player-selection page remains at its current scroll position after a response is changed.
+VERSION 15.29 — ONE-DAY WORDING CLEANUP
+========================================
+
+- One-day event screens no longer display unnecessary Day 1 wording.
+- Course setup, NTP setup, event review, Groups & Teams, live progress,
+  verification and the player phone view now use uncluttered one-day wording.
+- Day 1 and Day 2 labels remain fully visible throughout multi-day events.
+- Includes the Version 15.28 plus-handicap input and Stableford calculation fix.
+VERSION 15.30 — THE RIDGE 16-PLAYER FULL EVENT TEST
+===================================================
+
+- Adds a protected test loader for the user's locked one-day Ridge event.
+- Simulates and finalises 16 complete rounds (288 holes) using the actual
+  players, groups, 4BBB pairs, Ridge handicaps, competitions and NTP hole.
+- Includes realistic Stableford variation, putts and progressive NTP holders.
+- Sam Reece (+4) scores 40 points; Jeremy Ward (+1) scores 38; Rod Ruston
+  retains his poor-round pattern and scores 25 points.
+- The locked event is backed up before testing and isolated from cloud data.
+- Remove Test Scores & Restore Event returns the event exactly to its
+  pre-test state for future live use.
+- Completes the Version 15.29 one-day wording cleanup on the live score screen
+  and one-day 4BBB leaderboard details.
+VERSION 15.31 — ONE-DAY SINGLE STABLEFORD REPORT CORRECTION
+===========================================================
+
+- Removes an obsolete two-day Single Stableford flag that could be carried
+  into a one-day event by an older competition template.
+- Prevents the incorrect Single Stableford — 2 Days result from appearing in
+  a one-day Results Summary.
+- Preserves the correct one-day Single Stableford result and all test scores.
+- Cleans the flag both when the app opens and when Ridge test data is removed.
