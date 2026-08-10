@@ -1,4 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.33
+AWAY GOLF SCORER — VERSION 15.34
+
+VERSION 15.34 — DAY 2 HANDICAP REVIEW AND GC COURSE NAMES
+- Saving Day 1 handicaps in a two-day event automatically carries them into
+  Day 2. A later Day 1 correction also carries forward unless the organiser
+  has already entered a different Day 2 handicap for that player.
+- The second setup action is now Review Day 2 Hcp. Its review screen is
+  pre-filled and only genuine Day 2 changes need to be entered.
+- Course names use GC instead of the fully written Golf Club. Existing saved
+  course records and recorded player course handicaps are migrated on opening.
 
 VERSION 15.33 — BEST 3 OF 4 LOTTERY PRIZE WORDING
 - The winning Best 3 of 4 team's Summary prize now states clearly that it is
