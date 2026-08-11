@@ -1,4 +1,19 @@
-AWAY GOLF SCORER — VERSION 15.34
+AWAY GOLF SCORER — VERSION 15.35
+
+VERSION 15.35 — COURSE DATA AND LIVE-SCORING RESILIENCE
+- Restored the organiser-verified Oatlands GC card: par 70, 5,503 metres and
+  complete MiScore stroke indices through handicap 54.
+- Expanded course contacts to separate Club and Pro Shop phone/email fields and
+  added the golf professional's name.
+- Rebuilt scorecard entry for direct typing; Enter advances through every cell.
+- Favourite courses now appear first with a visible star.
+- Cleaned and aligned the player profile editor and repaired blank legacy
+  GolfLink data from the built-in player list.
+- One-day/non-NTP Final Check screens no longer show irrelevant completed items.
+- Added a genuine Retry Sync control and renamed Open My Scorecard to Open
+  Scoring Card.
+- Live leaderboards continue from official marker entries, show missing holes as
+  pending and never count an unentered hole as zero.
 
 VERSION 15.34 — DAY 2 HANDICAP REVIEW AND GC COURSE NAMES
 - Saving Day 1 handicaps in a two-day event automatically carries them into
