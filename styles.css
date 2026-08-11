@@ -381,5 +381,8 @@ body.playerDevice nav button[data-nav="scorePage"]:after{content:'My Golf';font-
 .groupPlayer.awaitingPlayer{background:#fff7df;border-left:4px solid #c08c15}.groupPlayerName b em{font-size:10px;font-style:normal;color:#9a6b00;margin-left:5px;white-space:nowrap}.planningAwaitingNotice{display:flex;justify-content:space-between;gap:14px;align-items:center;background:#fff6d9;border:1px solid #e3bd55;border-left:5px solid #c08c15;border-radius:10px;padding:11px 14px;margin:10px 0;color:#6f5107}.planningAwaitingNotice span{font-size:12px}
 @media(max-width:650px){.quickHandicapColumns,.quickHcpRow{grid-template-columns:minmax(120px,1fr) 76px 58px;gap:7px}.planningAwaitingNotice{align-items:flex-start;flex-direction:column}.groupPlayerName b em{display:block;margin-left:0}.dailyHcpRow{align-items:flex-start;flex-direction:column}.teamHcpControls{width:100%;justify-content:flex-end}}
 
+/* 15.37 prominent live progress */
+.leaderThru{font-size:15px;font-weight:950;color:#245b42;white-space:nowrap}.leaderRow.waitingMarker .leaderThru{font-size:10px;color:#8b5b17;white-space:normal}
+
 /* 15.22 NTP progression */
 .ntpHistoryBlock{border-top:1px solid #e4ece7}.ntpHistoryBlock:first-child{border-top:0}.ntpHistoryBlock h4{margin:0;padding:10px 13px 6px;background:#f7faf8}.ntpHistoryEntry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:9px 13px;border-top:1px solid #edf1ee;align-items:center}.ntpHistoryEntry time{font-weight:800;color:#526a5d}.ntpHistoryEntry.winner{background:#fff9df;color:#145c3a;font-weight:900}.ntpHistoryBlock p{margin:0;padding:12px 13px;color:#697870}

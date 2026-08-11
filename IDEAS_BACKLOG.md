@@ -11,6 +11,20 @@ This file stores ideas that are valuable but are not required for the 2 Septembe
 
 ---
 
+## Approved Design — Automatic Shotgun Starting Holes
+
+**Status:** Recorded; implementation deferred until after the current live tests
+
+- The organiser chooses a designated starting hole after playing groups are formed.
+- Group 1 starts there; each following group uses the preceding hole, wrapping from Hole 1 to Hole 18.
+- Example: four groups with designated Hole 13 start on 13, 12, 11 and 10.
+- Provide **Modify Starting Holes** and **Reset Automatic Assignment** safety controls.
+- Final Check confirms that every group has one unique starting hole.
+- Each player's card opens at the assigned hole and wraps to finish immediately before it.
+- Version 1.0 supports one group per hole. Two groups on selected holes is a later large-field enhancement.
+
+---
+
 ## Approved Core Work — Live Leaderboards and Countback
 
 **Status:** Approved for the Supabase stage

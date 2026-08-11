@@ -1,4 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.36
+AWAY GOLF SCORER — VERSION 15.37
+
+VERSION 15.37 — FAIR LIVE LEADERBOARDS
+
+- Every live result shows a prominent Thru number based on completed official marker holes.
+- Scratch is ranked against par during play (-2, E or +3), keeping players comparable when groups have completed different numbers of holes.
+- Final Scratch standings retain gross strokes and also show the score against par.
+- Live positions are identified as provisional until scorecards are finalised.
+- GolfLink number is explicitly optional when adding non-golfers and corporate-event players.
+- The approved automatic shotgun starting-hole design is recorded in Ideas Backlog for later implementation.
 
 VERSION 15.36 — VISIBLE MISSED HOLES AND CLEAR WAITING RESULTS
 
