@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.35
+AWAY GOLF SCORER — VERSION 15.36
+
+VERSION 15.36 — VISIBLE MISSED HOLES AND CLEAR WAITING RESULTS
+
+- Added a high-contrast 18-hole tracker: green and ticked means scored, red with an exclamation mark means a passed hole is missing, neutral means not yet reached, and a heavy blue border identifies the current hole.
+- Added a persistent missing-hole warning listing the affected holes and a Go to first missing hole button.
+- Hole numbers in the tracker can be tapped directly to return to any hole.
+- Pairs Putting and Best 3 of 4 now show Waiting for Marker to Score instead of a misleading zero until enough official marker scores exist.
 
 VERSION 15.35 — COURSE DATA AND LIVE-SCORING RESILIENCE
 - Restored the organiser-verified Oatlands GC card: par 70, 5,503 metres and
