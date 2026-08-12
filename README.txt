@@ -1,4 +1,9 @@
-AWAY GOLF SCORER — VERSION 15.41
+AWAY GOLF SCORER — VERSION 15.42
+
+VERSION 15.42 — SCRATCH LEADERBOARD WORDING
+
+- A disqualified Scratch row now says Withdrawn from this Competition and keeps Pick-up on Hole # alongside it on one line.
+- The leaderboard note explicitly defines the displayed label with bold quoted wording: “Thru” is the number of holes with official marker scores.
 
 VERSION 15.41 — ORGANISER EVENT RECOVERY
 

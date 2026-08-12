@@ -363,10 +363,10 @@ body.playerDevice nav button[data-nav="scorePage"]:after{content:'My Golf';font-
 .scoreStepper .stepValue,.scoreStepper.unset .stepValue{background:#e5e8e6;color:#737d77}
 .scoreStepper.set .stepValue{background:#111;color:#fff;font-weight:950}
 .scoreStepper.scoreFour .pickupBtn.picked{background:#111;color:#fff}
-.leaderRow.scratchDisqualified{grid-template-columns:42px minmax(0,1fr) minmax(150px,auto) 42px}
+.leaderRow.scratchDisqualified{grid-template-columns:42px minmax(145px,1fr) minmax(138px,auto) 32px;gap:5px}
 .leaderRow.scratchDisqualified .leaderThru{grid-column:3;color:#7a3c34;white-space:nowrap;text-align:left;font-weight:850}
 .leaderRow.scratchDisqualified .leaderScore{grid-column:4}
-@media(max-width:650px){.leaderRow.scratchDisqualified{grid-template-columns:32px minmax(0,1fr) minmax(126px,auto) 28px}.leaderRow.scratchDisqualified .leaderThru{font-size:9px}}
+@media(max-width:650px){.leaderRow.scratchDisqualified{grid-template-columns:28px minmax(142px,1fr) minmax(112px,auto) 20px;padding-left:4px;padding-right:4px}.leaderRow.scratchDisqualified .leaderName small{font-size:8px;white-space:nowrap}.leaderRow.scratchDisqualified .leaderThru{font-size:8px}}
 .recoverEventBox{margin-top:12px;padding:11px;border:1px solid #bfd3c6;border-radius:10px;background:#f2f8f4}.recoverEventBox b,.recoverEventBox span{display:block}.recoverEventBox span{margin:3px 0 9px;font-size:10px;color:#607068}
 
 /* 15.18 organiser live event control */
