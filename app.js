@@ -5,13 +5,15 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const inactiveNames=new Set(['Denis Lenard','John Herbert','Rolly Nice']);
 const NO_PARTNER_ID='system-no-partner';
 const NO_PARTNER={id:NO_PARTNER_ID,name:'No Partner',golfLink:'',ga:'',rosterActive:true,system:true};
-let roundWakeLock=null;
+let roundWakeLock=null,roundWakeLockActive=false;
+function updateWakeIndicator(){const el=$('.awakeIndicator');if(el)el.textContent=!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
 async function requestRoundWakeLock(){
  if(!('wakeLock' in navigator)||!['scoring','verify'].includes(store.event?.playerRoundMode)||document.visibilityState!=='visible')return false;
- try{if(!roundWakeLock||roundWakeLock.released)roundWakeLock=await navigator.wakeLock.request('screen');return true}catch(_){roundWakeLock=null;return false}
+ try{if(!roundWakeLock||roundWakeLock.released){roundWakeLock=await navigator.wakeLock.request('screen');roundWakeLock.addEventListener('release',()=>{roundWakeLockActive=false;updateWakeIndicator()})}roundWakeLockActive=true;updateWakeIndicator();return true}catch(_){roundWakeLock=null;roundWakeLockActive=false;updateWakeIndicator();return false}
 }
-async function releaseRoundWakeLock(){try{if(roundWakeLock&&!roundWakeLock.released)await roundWakeLock.release()}catch(_){}roundWakeLock=null}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&['scoring','verify'].includes(store.event?.playerRoundMode))requestRoundWakeLock()});
+async function releaseRoundWakeLock(){try{if(roundWakeLock&&!roundWakeLock.released)await roundWakeLock.release()}catch(_){}roundWakeLock=null;roundWakeLockActive=false}
+const renewRoundWakeLock=()=>{if(document.visibilityState==='visible'&&['scoring','verify'].includes(store.event?.playerRoundMode))requestRoundWakeLock()};
+document.addEventListener('visibilitychange',renewRoundWakeLock);window.addEventListener('focus',renewRoundWakeLock);window.addEventListener('pageshow',renewRoundWakeLock);document.addEventListener('pointerdown',renewRoundWakeLock,{passive:true});
 const competitionNames={single:'Single Stableford',combined:'Single Stableford',fourball:'4BBB Stableford',teamPutts:'Putting Competition',best3of4:'Best 3 of 4 Stableford',par3:'Par 3 Competition',ntp:'Nearest the Pin',scratch:'Scratch',eclectic:'Eclectic'};
 const gcCourseName=name=>String(name||'').replace(/\bGolf Club\b/g,'GC');
 function parsePlayingHandicap(value){
@@ -133,7 +135,7 @@ function applyRemoteCloud(bundle){
    (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
    store.event.playerPreviewId=String(store.cloud.playerId);
  }
- (bundle?.scores||[]).forEach(row=>{scoringDayStore(+row.day)[String(row.scorer_player_id)]=row.score_data||{}});
+ (bundle?.scores||[]).forEach(row=>{const ownActiveRound=store.cloud?.role==='player'&&String(row.scorer_player_id)===String(store.cloud.playerId)&&['scoring','verify'].includes(store.event?.playerRoundMode);if(!ownActiveRound)scoringDayStore(+row.day)[String(row.scorer_player_id)]=row.score_data||{}});
  store.cloudPlayers=(bundle?.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
  localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();
  if(document.querySelector('#scorePage.active'))renderPlayerExperience();
@@ -1377,7 +1379,7 @@ function renderHoleScoring(selected,day){
  const holeStatus=h=>h===hole?'current':holeComplete(h)?'complete':seq.indexOf(h)<furthestPos?'missing':'upcoming';
  const holeTracker=`<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Scored</span><span><i class="missing">!</i> Missed</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq.map((h,i)=>{const state=holeStatus(h);return`<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state==='complete'?'<small>✓</small>':state==='missing'?'<small>!</small>':''}</button>`}).join('')}</div></div>`;
  const missingAlert=missingHoles.length?`<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length===1?'':'s'}: ${missingHoles.join(', ')}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`:'';
- host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF${store.event.days===2?` · DAY ${day}`:''}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${'wakeLock' in navigator?'Screen awake ✓':'Use phone screen-lock setting'}</small></div><button class="soft" id="exitRound">Exit</button></div>
+ host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF${store.event.days===2?` · DAY ${day}`:''}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}</small></div><button class="soft" id="exitRound">Exit</button></div>
  ${holeTracker}${missingAlert}
  <div class="holeHero ${ntp?'isNtp':''}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par||'—'}</b></div><div><small>INDEX</small><b>${esc(indexVal||'—')}</b></div><div><small>METRES</small><b>${metres||'—'}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
  ${best3On?`<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current==null?'—':best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total==null?'—':best3Total}</strong></span></div>`:''}

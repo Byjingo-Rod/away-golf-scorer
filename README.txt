@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.39
+AWAY GOLF SCORER — VERSION 15.40
+
+VERSION 15.40 — ON-COURSE SCORE ENTRY RELIABILITY
+
+- Entered Score and Putts values now change to a black button with a large white number; unentered values remain grey for unmistakable confirmation in sunlight.
+- An incoming cloud refresh can no longer replace the active player's newer local scoring card with an older blank server copy while a tap is uploading.
+- Screen wake lock is renewed when scoring regains focus, returns from the background, is restored from a browser page cache or receives a new scoring tap, with a live status shown on the card.
+- Scratch Pick-up status now has a wide single-line cell immediately to the left of the score column.
 
 VERSION 15.39 — NEW EVENT PUBLISHING AND FINAL PLAN CHECK
 
