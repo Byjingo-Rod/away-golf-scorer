@@ -14,7 +14,7 @@ async function rememberOrganiserWorkspace(eventId,joinCode){
  try{await AwayCloud.saveWorkspace({activePublishedEvent:{eventId:String(eventId),joinCode:String(joinCode||'').toUpperCase()}})}catch(_){}
 }
 let roundWakeLock=null,roundWakeLockActive=false;
-function updateWakeIndicator(){const el=$('.awakeIndicator');if(el)el.textContent=!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
+function updateWakeIndicator(){const el=$('#wakeHeader');if(!el)return;const active=isPlayerDevice()&&['scoring','verify'].includes(store.event?.playerRoundMode);el.classList.toggle('active',active);el.textContent=!('wakeLock'in navigator)?'Use screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
 async function requestRoundWakeLock(){
  if(!('wakeLock' in navigator)||!['scoring','verify'].includes(store.event?.playerRoundMode)||document.visibilityState!=='visible')return false;
  try{if(!roundWakeLock||roundWakeLock.released){roundWakeLock=await navigator.wakeLock.request('screen');roundWakeLock.addEventListener('release',()=>{roundWakeLockActive=false;updateWakeIndicator()})}roundWakeLockActive=true;updateWakeIndicator();return true}catch(_){roundWakeLock=null;roundWakeLockActive=false;updateWakeIndicator();return false}
@@ -119,6 +119,7 @@ const isPlayerDevice=()=>store.cloud?.role==='player'&&Boolean(store.cloud?.even
 function applyDeviceRole(){
  document.body.classList.toggle('playerDevice',isPlayerDevice());
  if(isPlayerDevice()&&!['home','scorePage'].includes($('.page.active')?.id||''))nav('scorePage');
+ updateWakeIndicator();
 }
 function cloudPlayerIds(){
  const ids=new Set((store.event?.confirmed||[]).map(String));
@@ -1416,14 +1417,13 @@ function renderHoleScoring(selected,day){
  const holeStatus=h=>h===hole?'current':holeComplete(h)?'complete':seq.indexOf(h)<furthestPos?'missing':'upcoming';
  const holeTracker=`<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Scored</span><span><i class="missing">!</i> Missed</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq.map((h,i)=>{const state=holeStatus(h);return`<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state==='complete'?'<small>✓</small>':state==='missing'?'<small>!</small>':''}</button>`}).join('')}</div></div>`;
  const missingAlert=missingHoles.length?`<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length===1?'':'s'}: ${missingHoles.join(', ')}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`:'';
- host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF${store.event.days===2?` · DAY ${day}`:''}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}</small></div><button class="soft" id="exitRound">Exit</button></div>
- ${holeTracker}${missingAlert}
+ host.innerHTML=`<div class="scoringPhone">${holeTracker}${missingAlert}
  <div class="holeHero ${ntp?'isNtp':''}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par||'—'}</b></div><div><small>INDEX</small><b>${esc(indexVal||'—')}</b></div><div><small>METRES</small><b>${metres||'—'}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
  ${best3On?`<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current==null?'—':best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total==null?'—':best3Total}</strong></span></div>`:''}
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>OFFICIAL SCORE</small><h3>${esc(target?.name||'Marker partner')}</h3></div>${scoreSummary(sfOff,totalOff.points,targetId)}</div><div class="scoreSteppers">${stepper('officialGross','Score',rec.official.gross,par||4,1,20)}${stepper('officialPutts','Putts',rec.official.putts,2,0,9)}</div></div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>YOUR SCORE</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf,totalSelf.points,selected)}</div><div class="scoreSteppers">${stepper('selfGross','Score',rec.self.gross,par||4,1,20)}${stepper('selfPutts','Putts',rec.self.putts,2,0,9)}</div></div>
  ${ntp?`<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder?`Current holder: ${esc(holderName||'Player')}`:'No name recorded yet'}${isExtra?' · You have the NTP extra shot today.':''}</span><strong>Did ${esc(target?.name||'your marker partner')} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked?`<button disabled>Entry locked</button>`:rec.ntp?.confirmedAt?`<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>`:`<button class="primary ${rec.ntp?.pending?'confirming':''}" id="yesNtp">${rec.ntp?.pending?'CONFIRM YES':'YES'}</button>`}</div>`:''}
- <div class="holeNav"><button class="soft" id="prevHole" ${pos===0?'disabled':''}>← Previous</button><button class="primary" id="nextHole">${pos===17?'FINISH ROUND':'Next Hole →'}</button></div></div>`;
+ <div class="holeNav"><button class="soft" id="prevHole" ${pos===0?'disabled':''}>← Previous</button><button class="primary" id="nextHole">${pos===17?'FINISH ROUND':'Next Hole →'}</button></div><button class="soft exitRoundBottom" id="exitRound">Exit Round</button></div>`;
  const setField=(id,val)=>{const [section,key]=id.startsWith('official')?['official',id==='officialGross'?'gross':'putts']:['self',id==='selfGross'?'gross':'putts'];rec[section][key]=val;const round=scorerStore(day,selected);if(round._meta?.finalisedAt)delete round._meta.finalisedAt;if(store.event.roundFinalised?.['day'+day])delete store.event.roundFinalised['day'+day][selected];localStorage.setItem('awayGolf13',JSON.stringify(store));queueCloudRound(day,selected);renderHoleScoring(selected,day)};
  $$('[data-step]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.step,section=id.startsWith('official')?'official':'self',key=id.endsWith('Gross')?'gross':'putts',base=key==='gross'?(par||4):2,min=key==='gross'?1:0,max=key==='gross'?20:9,current=rec[section][key]===''||rec[section][key]==null||String(rec[section][key]).toUpperCase()==='P'?base:+rec[section][key];setField(id,Math.max(min,Math.min(max,current+(+btn.dataset.delta))))});
  $$('[data-pickup]').forEach(btn=>btn.onclick=()=>{setField(btn.dataset.pickup,'P')});

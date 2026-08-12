@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.46
+AWAY GOLF SCORER — VERSION 15.47
+
+VERSION 15.47 — COMPACT SCORING SCREEN
+
+- Removes the duplicate Away Golf and course panel above the hole controls.
+- Moves Screen awake beside Cloud connected in the permanent player header.
+- Moves Exit Round below the Previous and Next Hole controls.
+- Pulls the hole tracker and scoring controls further up the phone screen.
 
 VERSION 15.46 — MINIATURE MASCOT AND ORGANISER WORKSPACE
 
