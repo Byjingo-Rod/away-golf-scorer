@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.42
+AWAY GOLF SCORER — VERSION 15.43
+
+VERSION 15.43 — PUBLISHED EVENT STARTUP PROTECTION
+
+- The organiser PC remembers its active published event independently of an older local planning workspace.
+- A published event is restored automatically from its secure cloud copy when the organiser PC starts.
+- Scratch withdrawal details are locked onto one grid row so Pick-up on Hole # aligns with the player entry.
 
 VERSION 15.42 — SCRATCH LEADERBOARD WORDING
 

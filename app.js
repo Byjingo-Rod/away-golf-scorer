@@ -5,6 +5,10 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const inactiveNames=new Set(['Denis Lenard','John Herbert','Rolly Nice']);
 const NO_PARTNER_ID='system-no-partner';
 const NO_PARTNER={id:NO_PARTNER_ID,name:'No Partner',golfLink:'',ga:'',rosterActive:true,system:true};
+const ORGANISER_LIVE_KEY='awayGolfOrganiserLiveV1';
+function rememberedOrganiserEvent(){try{return JSON.parse(localStorage.getItem(ORGANISER_LIVE_KEY)||'null')}catch(_){return null}}
+function rememberOrganiserEvent(eventId,joinCode){localStorage.setItem(ORGANISER_LIVE_KEY,JSON.stringify({eventId:String(eventId),joinCode:String(joinCode||'').toUpperCase()}))}
+function forgetOrganiserEvent(){localStorage.removeItem(ORGANISER_LIVE_KEY)}
 let roundWakeLock=null,roundWakeLockActive=false;
 function updateWakeIndicator(){const el=$('.awakeIndicator');if(el)el.textContent=!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
 async function requestRoundWakeLock(){
@@ -44,6 +48,10 @@ let store;
 try{store=JSON.parse(localStorage.getItem('awayGolf13')||'null')}catch(e){}
 if(!store){store=fresh();try{const old=JSON.parse(localStorage.getItem('awayGolfV11')||'null');if(old?.players?.length){const map=new Map(old.players.map(p=>[p.id,p]));store.players=store.players.map(p=>({...p,...map.get(p.id),rosterActive:map.get(p.id)?.rosterActive??p.rosterActive}))}if(old?.courses?.length){const map=new Map(old.courses.map(c=>[c.id,c]));store.courses=store.courses.map(c=>({...c,...map.get(c.id),available:map.get(c.id)?.available??true}))}}catch(e){}}
 try{store.template=JSON.parse(localStorage.getItem('awayGolfOrganiserTemplateV1')||'null')||store.template}catch(e){}
+// Keep the organiser PC attached to its published event independently of the
+// editable local workspace. A player device must always retain its own role.
+const rememberedLive=rememberedOrganiserEvent();
+if(rememberedLive?.eventId&&store.cloud?.role!=='player')store.cloud={role:'organiser',eventId:rememberedLive.eventId,joinCode:rememberedLive.joinCode,restorePublished:true};
 function normaliseCourseNames(){
  (store.courses||[]).forEach(c=>c.name=gcCourseName(c.name));
  (store.players||[]).forEach(p=>Object.values(p.courseHandicaps||{}).forEach(h=>h.courseName=gcCourseName(h.courseName)));
@@ -127,13 +135,15 @@ function cloudPlayerRows(){
 function setCloudMessage(message,busy=false){cloudMessage=message;cloudBusy=busy;renderCloudPanel()}
 function applyRemoteCloud(bundle){
  const payload=bundle?.event?.event_data||{};
- if(store.cloud?.role==='player'&&payload.event){
+ const restoreOrganiser=store.cloud?.role==='organiser'&&store.cloud.restorePublished&&payload.event;
+ if((store.cloud?.role==='player'||restoreOrganiser)&&payload.event){
    const localScoring=store.event?.scoring||{day1:{},day2:{}};
- const localUi={playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{},leaderboardTab:store.event?.leaderboardTab||'',leaderboardView:store.event?.leaderboardView||''};
+   const localUi=store.cloud?.role==='player'?{playerRoundMode:store.event?.playerRoundMode||'preview',playerHolePos:store.event?.playerHolePos||0,playerPreviewAck:store.event?.playerPreviewAck||{},leaderboardTab:store.event?.leaderboardTab||'',leaderboardView:store.event?.leaderboardView||''}:{};
    store.event={...JSON.parse(JSON.stringify(payload.event)),...localUi,scoring:localScoring};
    (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
    (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
-   store.event.playerPreviewId=String(store.cloud.playerId);
+   if(store.cloud?.role==='player')store.event.playerPreviewId=String(store.cloud.playerId);
+   if(restoreOrganiser)delete store.cloud.restorePublished;
  }
  (bundle?.scores||[]).forEach(row=>{const ownActiveRound=store.cloud?.role==='player'&&String(row.scorer_player_id)===String(store.cloud.playerId)&&['scoring','verify'].includes(store.event?.playerRoundMode);if(!ownActiveRound)scoringDayStore(+row.day)[String(row.scorer_player_id)]=row.score_data||{}});
  store.cloudPlayers=(bundle?.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
@@ -152,7 +162,7 @@ async function releaseCloudPlayer(playerId){
 async function syncCloudNow(){
  if(!store.cloud?.eventId||cloudBusy)return;
  setCloudMessage('Synchronising…',true);
- try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);if(store.cloud?.role==='organiser'&&bundle?.event?.name&&store.event?.name&&bundle.event.name!==store.event.name){closeCloudConnection();delete store.cloud;store.cloudPlayers=[];cloudBusy=false;cloudMessage='New event ready to publish';localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();return}applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
+ try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);if(store.cloud?.role==='organiser'&&bundle?.event?.name&&store.event?.name&&bundle.event.name!==store.event.name)store.cloud.restorePublished=true;applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
  catch(error){setCloudMessage(navigator.onLine?'Sync delayed — use Retry Sync':'Offline — scores remain saved on this phone')}
 }
 function watchCloudEvent(){
@@ -167,6 +177,7 @@ async function publishCloudEvent(){
    const result=await AwayCloud.createEvent(store.event.name,payload,cloudPlayerRows());
    await AwayCloud.updateEvent(result.event_id,payload,store.event.status||'locked');
    store.cloud={role:'organiser',eventId:result.event_id,joinCode:result.join_code};
+   rememberOrganiserEvent(result.event_id,result.join_code);
    localStorage.setItem('awayGolf13',JSON.stringify(store));watchCloudEvent();setCloudMessage('Published · ready for players');renderCloudPanel();
  }catch(error){setCloudMessage('Could not publish');alert('Publishing did not complete. '+(error.message||error))}
 }
@@ -206,7 +217,7 @@ async function recoverOrganiserEvent(){
   (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
   (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
   store.event.scoring={day1:{},day2:{}};(bundle.scores||[]).forEach(row=>{store.event.scoring['day'+row.day]=store.event.scoring['day'+row.day]||{};store.event.scoring['day'+row.day][String(row.scorer_player_id)]=row.score_data||{}});
-  store.cloud={role:'organiser',eventId,joinCode:code};store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
+  store.cloud={role:'organiser',eventId,joinCode:code};rememberOrganiserEvent(eventId,code);store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
   localStorage.setItem('awayGolf13',JSON.stringify(store));cloudBusy=false;cloudMessage='Published event recovered';watchCloudEvent();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');
  }catch(error){cloudBusy=false;setCloudMessage('Recovery did not complete');alert('The published event could not be recovered on this organiser PC. '+(error.message||error))}
 }
@@ -722,7 +733,7 @@ function finishEvent(){
  dayFields.day1=wizardPlanningPlayers(1);
  if(W.event.days===2)dayFields.day2=wizardPlanningPlayers(2);
  const oldGroups=W.newEvent?null:store.event?.groupSetup;
- if(W.newEvent){closeCloudConnection();delete store.cloud;store.cloudPlayers=[]}
+ if(W.newEvent){closeCloudConnection();delete store.cloud;store.cloudPlayers=[];forgetOrganiserEvent()}
  store.event={...W.event,confirmed,invitationStatus,dayAvailability,dayFields,competitions:[...W.competitions],benefits:W.benefits,status:'planned',locked:false,groupSetup:oldGroups};
  store.template={competitions:[...W.competitions].filter(x=>x!=='eclectic'),benefits:W.benefits,puttingFormat:W.event.puttingFormat||'team',singleStablefordFormat:W.event.singleStablefordFormat||'aggregate',scratchMaxHcp:Number.isFinite(+W.event.scratchMaxHcp)?+W.event.scratchMaxHcp:10,par3Format:W.event.par3Format||'daily',ntpDay1Count:W.event.ntpDay1Count||1,ntpDay2Count:W.event.ntpDay2Count||2};
  localStorage.setItem('awayGolfOrganiserTemplateV1',JSON.stringify(store.template));
@@ -1017,7 +1028,7 @@ async function deleteCurrentEvent(){
   try{await AwayCloud.updateEvent(store.cloud.eventId,cloudPayload(),'archived')}
   catch(error){return alert('The event was not deleted because its player connection could not be closed. '+(error.message||error))}
  }
- closeCloudConnection();store.event=null;delete store.cloud;store.cloudPlayers=[];localStorage.setItem('awayGolf13',JSON.stringify(store));$('#modalShade').classList.remove('open');renderHome();renderPlayerExperience();renderLeaderboard();nav('home');alert('Event deleted. Away Golf is ready for a new event.');
+ closeCloudConnection();store.event=null;delete store.cloud;store.cloudPlayers=[];forgetOrganiserEvent();localStorage.setItem('awayGolf13',JSON.stringify(store));$('#modalShade').classList.remove('open');renderHome();renderPlayerExperience();renderLeaderboard();nav('home');alert('Event deleted. Away Golf is ready for a new event.');
 }
 $('#eventOptions').onclick=openEventOptions;
 
