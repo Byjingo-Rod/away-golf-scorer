@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.47
+AWAY GOLF SCORER — VERSION 15.48
+
+VERSION 15.48 — FIELD-TEST STARTUP PROTECTION
+
+- Restores the organiser's active published event from its secure workspace at startup.
+- If that workspace lookup is unavailable, finds the organiser's newest active published event directly.
+- Prevents an older locked local event from replacing the published field-test event.
+- Leaves protected local tests and unfinished new event plans untouched.
+- Includes the compact Version 15.47 scoring screen.
 
 VERSION 15.47 — COMPACT SCORING SCREEN
 

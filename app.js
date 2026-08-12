@@ -247,7 +247,17 @@ function renderCloudPanel(){
  if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;if($('#retryCloud'))$('#retryCloud').onclick=()=>{if(store.cloud?.eventId)syncCloudNow();else initialiseCloud()};$('#recoverOrganiserEvent').onclick=recoverOrganiserEvent;$('#lookupCloudEvent').onclick=lookupCloudEvent;
 }
 async function initialiseCloud(){
- try{await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');if(!store.cloud?.eventId&&store.cloud?.role!=='player'){const workspace=await AwayCloud.loadWorkspace(),live=workspace?.activePublishedEvent;if(live?.eventId){store.cloud={role:'organiser',eventId:String(live.eventId),joinCode:String(live.joinCode||''),restorePublished:true};rememberOrganiserEvent(live.eventId,live.joinCode);localStorage.setItem('awayGolf13',JSON.stringify(store))}}if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}}
+ try{
+  await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');
+  if(!store.cloud?.eventId&&store.cloud?.role!=='player'&&!store.event?.testMode){
+   let live=null;
+   try{const workspace=await AwayCloud.loadWorkspace();live=workspace?.activePublishedEvent||null}catch(_){}
+   const mayRestorePublished=Boolean(store.event?.locked||!store.event);
+   if(!live?.eventId&&mayRestorePublished){try{const latest=await AwayCloud.loadLatestOwnedEvent();if(latest?.id)live={eventId:latest.id,joinCode:latest.join_code}}catch(_){}}
+   if(live?.eventId&&mayRestorePublished){store.cloud={role:'organiser',eventId:String(live.eventId),joinCode:String(live.joinCode||''),restorePublished:true};rememberOrganiserEvent(live.eventId,live.joinCode);localStorage.setItem('awayGolf13',JSON.stringify(store))}
+  }
+  if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}
+ }
  catch(_){cloudReady=false;setCloudMessage('Offline — local scoring available')}
 }
 window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
