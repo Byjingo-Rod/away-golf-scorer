@@ -1326,6 +1326,10 @@ function playerHoleEntry(day,playerId,hole){
  return findOfficialForPlayer(day,playerId,hole);
 }
 function playerSurname(id){const n=String(player(id)?.name||'Player').trim().split(/\s+/);return n[n.length-1]||'Player'}
+function playerFirstName(id){return String(player(id)?.name||'Player').trim().split(/\s+/)[0]||'Player'}
+function welcomeKey(playerId){return`awayGolfWelcomeV1:${store.cloud?.eventId||store.event?.name||'event'}:${playerId}`}
+function playerHasSeenWelcome(playerId){return localStorage.getItem(welcomeKey(playerId))==='yes'}
+function rememberPlayerWelcome(playerId){localStorage.setItem(welcomeKey(playerId),'yes')}
 function renderCompletedScorecard(selected,day){
  const host=$('#playerExperience');
  if(!roundFinalisedFor(day,selected)){store.event.playerRoundMode='preview';save();return renderPlayerExperience()}
@@ -1333,7 +1337,8 @@ function renderCompletedScorecard(selected,day){
  const rows=seq.map(h=>{const i=h-1,e=playerHoleEntry(day,selected,h)||{},gross=e.gross??'',putts=e.putts??'',par=+(v.par?.[i]||0),indexVal=v.index?.[i]??'',adjustment=stablefordStrokeCount(indexVal,hcp),points=stablefordPoints(gross,par,indexVal,hcp);return{h,par,indexVal,gross,putts,adjustment,points}});
  const totals=list=>list.reduce((t,r)=>{if(String(r.gross).toUpperCase()!=='P'&&scoreEntered(r.gross))t.gross+=+r.gross||0;if(scoreEntered(r.putts))t.putts+=+r.putts||0;if(r.points!=null)t.points+=r.points;return t},{gross:0,putts:0,points:0});
  const front=totals(rows.filter(r=>r.h<=9)),back=totals(rows.filter(r=>r.h>=10)),all=totals(rows),signed=n=>n>0?`+${n}`:n<0?`−${Math.abs(n)}`:'—';
- host.innerHTML=`<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name||'Player')}${store.event.days===1?'':` · Day ${day}`} · ${esc(c?.name||'Course')}</p></div></div>
+ host.innerHTML=`<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name||'Player')}${store.event.days===1?'':` · Day ${day}`} · ${esc(c?.name||'Course')}</p></div><img class="completedMascot" src="assets/away-golf-mascot.png" alt="Away Golf golfer"></div>
+ <div class="completedGreeting"><b>Well played, ${esc(playerFirstName(selected))}!</b><span>Your scorecard is complete. Final competition messages will appear when the event results are confirmed.</span></div>
  <div class="completedCardBanner"><div><small>DAILY HANDICAP</small><b>${esc(formatPlayingHandicap(hcp))}</b></div><div><small>STARTING TEE</small><b>Hole ${start}</b></div><div><small>STATUS</small><b>✓ Finalised</b></div></div>
  <p class="completedCardHelp">Read-only card. <b>Hcp +/-</b> shows the handicap adjustment used on each hole. A minus adjustment confirms that a plus-handicap player gives a stroke back on that hole.</p>
  <div class="completedScoreTable"><div class="completedScoreHead"><span>Hole</span><span>Par</span><span>Index</span><span>Score</span><span>Hcp +/-</span><span>Points</span><span>Putts</span></div>${rows.map(r=>`<div class="completedScoreRow ${r.adjustment<0?'givesStroke':''}"><b>${r.h}</b><span>${r.par||'—'}</span><span>${esc(r.indexVal||'—')}</span><span>${r.gross===''?'—':esc(r.gross)}</span><strong>${signed(r.adjustment)}</strong><span>${r.points==null?'—':r.points}</span><span>${r.putts===''?'—':r.putts}</span></div>`).join('')}</div>
@@ -1407,7 +1412,7 @@ function renderHoleScoring(selected,day){
  const holeStatus=h=>h===hole?'current':holeComplete(h)?'complete':seq.indexOf(h)<furthestPos?'missing':'upcoming';
  const holeTracker=`<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Scored</span><span><i class="missing">!</i> Missed</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq.map((h,i)=>{const state=holeStatus(h);return`<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state==='complete'?'<small>✓</small>':state==='missing'?'<small>!</small>':''}</button>`}).join('')}</div></div>`;
  const missingAlert=missingHoles.length?`<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length===1?'':'s'}: ${missingHoles.join(', ')}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`:'';
- host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF${store.event.days===2?` · DAY ${day}`:''}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}</small></div><button class="soft" id="exitRound">Exit</button></div>
+ host.innerHTML=`<div class="scoringPhone"><div class="scoreHero"><div><span>AWAY GOLF${store.event.days===2?` · DAY ${day}`:''}</span><h2>${esc(c?.name||'Course')}</h2><small class="awakeIndicator">${!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}</small></div><img class="scoreMascot" src="assets/away-golf-mascot.png" alt="Away Golf golfer"><button class="soft" id="exitRound">Exit</button></div>
  ${holeTracker}${missingAlert}
  <div class="holeHero ${ntp?'isNtp':''}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par||'—'}</b></div><div><small>INDEX</small><b>${esc(indexVal||'—')}</b></div><div><small>METRES</small><b>${metres||'—'}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
  ${best3On?`<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current==null?'—':best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total==null?'—':best3Total}</strong></span></div>`:''}
@@ -1552,6 +1557,10 @@ function renderPlayerExperience(){
  if(store.event.playerRoundMode==='verify')return renderRoundVerification(selected,day);
  if(store.event.playerRoundMode==='completed')return renderCompletedScorecard(selected,day);
  const p=player(selected),ctx=playerGroupContext(selected,day);if(!p||!ctx){host.innerHTML='<div class="card"><h2>Player View</h2><p>No player is available for this day.</p></div>';return}
+ if(isPlayerDevice()&&!playerHasSeenWelcome(selected)){
+  host.innerHTML=`<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="assets/away-golf-mascot.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name||'today’s Away Golf event')}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
+  $('#continueFromWelcome').onclick=()=>{rememberPlayerWelcome(selected);store.event.playerRulesOpen=true;store.event.playerRoundMode='preview';save();renderPlayerExperience()};return
+ }
  const g=ctx.group,setup=ctx.setup,c=course(day===1?store.event.course1:store.event.course2),start=setup.starts?.[ctx.groupIndex],startText=`Hole ${start}`;let partner=null;
  if((store.event.competitions||[]).includes('fourball')){const pairStart=ctx.playerIndex<2?0:2;let other=g.slice(pairStart,pairStart+2).find(id=>id!==selected);if(other===NO_PARTNER_ID&&setup.virtualPlayer)partner=player(setup.virtualPlayer);else partner=player(other)}
  const isAffected=(()=>{const np=noPartnerContext(setup.groups,day);return np&&String(np.affected)===selected?np:null})();const isExtra=String(setup.ntpExtraPlayer||'')===selected,rules=[store.event.specialRules||'',(store.event.competitions||[]).includes('scratch')?scratchRulesText(store.event):''].filter(Boolean).join('\n\n');

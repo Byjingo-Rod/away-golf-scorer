@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.43
+AWAY GOLF SCORER — VERSION 15.44
+
+VERSION 15.44 — AWAY GOLF MASCOT
+
+- Adds the approved Away Golf golfer as the permanent app mascot.
+- Welcomes each player by first name once when joining an event.
+- Leads the player from Welcome to Today's Rules, Got It and scoring.
+- Adds a compact mascot to the player card and active scoring header.
+- Adds the first completed-round greeting, ready for final winner messages.
 
 VERSION 15.43 — PUBLISHED EVENT STARTUP PROTECTION
 
