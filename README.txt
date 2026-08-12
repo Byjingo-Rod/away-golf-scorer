@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.37
+AWAY GOLF SCORER — VERSION 15.38
+
+VERSION 15.38 — SCRATCH ELIGIBILITY AND PUTTING VERIFICATION
+
+- Scratch setup now includes an editable maximum daily handicap, defaulting to 10 and including players whose handicap is exactly the selected limit.
+- Players above the Scratch handicap limit are omitted from that leaderboard; legacy events without the new setting retain their existing Scratch field.
+- An eligible Scratch player who records a Pick-up is removed from the ranked field and shown as no longer competing, with the Pick-up hole identified.
+- Scratch participation and Pick-up conditions are added automatically to the organiser and player Rules pages.
+- When a Putting Competition is selected, final verification now compares marker and player putts as well as scores, identifies each discrepancy and blocks finalisation until both agree.
 
 VERSION 15.37 — FAIR LIVE LEADERBOARDS
 
