@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.44
+AWAY GOLF SCORER — VERSION 15.45
+
+VERSION 15.45 — COMPACT MASCOT POSITION
+
+- Moves the small mascot to the top-right of the permanent player-device header.
+- Restores the compact scoring header so the mascot never pushes score controls down.
+- Keeps the large mascot on welcome and completed-round screens.
 
 VERSION 15.44 — AWAY GOLF MASCOT
 
