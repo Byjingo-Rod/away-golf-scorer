@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.40
+AWAY GOLF SCORER — VERSION 15.41
+
+VERSION 15.41 — ORGANISER EVENT RECOVERY
+
+- The original organiser PC can recover an already-published event by entering its six-character player join code, without claiming a player position.
+- Recovery confirms the published event name before replacing a stale local event and restores the event plan, eight-player field, connected-device status and uploaded round scores.
+- The recovered online identity is stored again as the active organiser event so subsequent launches and score refreshes stay attached to it.
 
 VERSION 15.40 — ON-COURSE SCORE ENTRY RELIABILITY
 
