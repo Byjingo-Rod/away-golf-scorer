@@ -150,7 +150,7 @@ async function releaseCloudPlayer(playerId){
 async function syncCloudNow(){
  if(!store.cloud?.eventId||cloudBusy)return;
  setCloudMessage('Synchronising…',true);
- try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
+ try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);if(store.cloud?.role==='organiser'&&bundle?.event?.name&&store.event?.name&&bundle.event.name!==store.event.name){closeCloudConnection();delete store.cloud;store.cloudPlayers=[];cloudBusy=false;cloudMessage='New event ready to publish';localStorage.setItem('awayGolf13',JSON.stringify(store));renderHome();return}applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
  catch(error){setCloudMessage(navigator.onLine?'Sync delayed — use Retry Sync':'Offline — scores remain saved on this phone')}
 }
 function watchCloudEvent(){
@@ -270,12 +270,12 @@ document.addEventListener('click',e=>{let t=e.target;if(t.id==='returnToWizardCo
 let wizardReturnStep=null;
 let W={step:1,event:{},invites:new Map(),competitions:new Set(),benefits:{},benefitOpen:new Set()};
 const stepNames=['Event details','Select players','Competition setup','Special rules','NTP setup','Review and Move to Scoring'];
-function openWizard(){W={step:1,event:{name:'',date:new Date().toISOString().slice(0,10),days:1,startMethod:'single',startMethods:{day1:'single',day2:'single'},startHoles:{day1:[1],day2:[1]},fieldSize:8,course1:activeCourses()[0]?.id||'',course2:activeCourses()[0]?.id||'',twoTeeStarts:{day1:[1,10],day2:[1,10]},puttingFormat:'team',singleStablefordFormat:'aggregate',scratchMaxHcp:10,preferredLies:false,preferredLiesArea:'general',specialRules:'',dayAvailability:{}},invites:new Map(),competitions:new Set(),benefits:{},benefitOpen:new Set()};loadTemplate();$('#wizardShade').classList.add('open');renderWizard()}
+function openWizard(){W={step:1,newEvent:true,event:{name:'',date:new Date().toISOString().slice(0,10),days:1,startMethod:'single',startMethods:{day1:'single',day2:'single'},startHoles:{day1:[1],day2:[1]},fieldSize:8,course1:activeCourses()[0]?.id||'',course2:activeCourses()[0]?.id||'',twoTeeStarts:{day1:[1,10],day2:[1,10]},puttingFormat:'team',singleStablefordFormat:'aggregate',scratchMaxHcp:10,ntpDay1Count:1,preferredLies:false,preferredLiesArea:'general',specialRules:'',dayAvailability:{}},invites:new Map(),competitions:new Set(),benefits:{},benefitOpen:new Set()};loadTemplate();$('#wizardShade').classList.add('open');renderWizard()}
 function reopenEventPlan(){
  if(!store.event)return openWizard();
  const e=JSON.parse(JSON.stringify(store.event));
  e.singleStablefordFormat=e.singleStablefordFormat||(e.days===2?'both':'daily');
- W={step:6,event:e,invites:new Map(),competitions:new Set(e.competitions||[]),benefits:JSON.parse(JSON.stringify(e.benefits||{})),benefitOpen:new Set()};
+ W={step:6,newEvent:false,event:e,invites:new Map(),competitions:new Set(e.competitions||[]),benefits:JSON.parse(JSON.stringify(e.benefits||{})),benefitOpen:new Set()};
  if(e.invitationStatus)Object.entries(e.invitationStatus).forEach(([id,status])=>W.invites.set(String(id),status));
  else (e.confirmed||[]).forEach(id=>W.invites.set(String(id),'accepted'));
  W.event.dayAvailability=W.event.dayAvailability||{};
@@ -284,7 +284,7 @@ function reopenEventPlan(){
  renderWizard();
 }
 $('#newEvent').onclick=openWizard;$('#cancelWizard').onclick=()=>$('#wizardShade').classList.remove('open');$('#backWizard').onclick=()=>{if(W.step>1){W.step--;renderWizard()}};$('#nextWizard').onclick=()=>{if(!validateStep())return;if(W.step<6){W.step++;renderWizard()}else finishEvent()};
-function loadTemplate(){let t=store.template;if(!t)return;W.competitions=new Set(t.competitions||[]);W.benefits=JSON.parse(JSON.stringify(t.benefits||{}));W.event.puttingFormat=t.puttingFormat||'team';W.event.singleStablefordFormat=t.singleStablefordFormat||'aggregate';W.event.scratchMaxHcp=Number.isFinite(+t.scratchMaxHcp)?+t.scratchMaxHcp:10;W.event.par3Format=(t.par3Format==='day2pair'?'aggregate':(t.par3Format==='day1'||t.par3Format==='day2'?'daily':(t.par3Format||'daily')));W.event.ntpDay2Count=t.ntpDay2Count||2}
+function loadTemplate(){let t=store.template;if(!t)return;W.competitions=new Set(t.competitions||[]);W.benefits=JSON.parse(JSON.stringify(t.benefits||{}));W.event.puttingFormat=t.puttingFormat||'team';W.event.singleStablefordFormat=t.singleStablefordFormat||'aggregate';W.event.scratchMaxHcp=Number.isFinite(+t.scratchMaxHcp)?+t.scratchMaxHcp:10;W.event.par3Format=(t.par3Format==='day2pair'?'aggregate':(t.par3Format==='day1'||t.par3Format==='day2'?'daily':(t.par3Format||'daily')));W.event.ntpDay1Count=t.ntpDay1Count||1;W.event.ntpDay2Count=t.ntpDay2Count||2}
 function wizardDayPlayers(day){
  const accepted=[...W.invites.entries()].filter(([id,s])=>s==='accepted').map(([id])=>String(id));
  return accepted.filter(id=>{
@@ -493,7 +493,7 @@ function openWizardHandicapEntry(day){
 }
 document.addEventListener('click',e=>{let t=e.target;if(t.dataset.winvite){W.invites.set(String(t.dataset.winvite),'awaiting');renderStep2()}if(t.dataset.wstatus){let [id,s]=t.dataset.wstatus.split('|');W.invites.set(String(id),s);if(s==='accepted'){W.event.dayAvailability=W.event.dayAvailability||{};W.event.dayAvailability[String(id)]=W.event.dayAvailability[String(id)]||{1:true,2:true}}renderStep2()}if(t.dataset.wpinfo)playerInfo(t.dataset.wpinfo,W.invites.get(t.dataset.wpinfo)||'');if(t.dataset.wpinactive){let p=player(t.dataset.wpinactive);if(p&&confirm(`Make ${p.name} inactive?\n\nThe player remains in Away Golf history.`)){p.rosterActive=false;W.invites.delete(p.id);save();renderStep2()}}if(t.dataset.wpreactivate){let p=player(t.dataset.wpreactivate);if(p){p.rosterActive=true;save();renderStep2()}}});
 function compDefinitions(){
- let d=W.event.days,c1=W.event.course1||'',c2=W.event.course2||'',n1=(course(c1)?.name||'').trim().toLowerCase(),n2=(course(c2)?.name||'').trim().toLowerCase(),same=d==2&&Boolean(c1)&&Boolean(c2)&&(String(c1)===String(c2)||(n1&&n1===n2)),defs=[{id:d==1?'single':'combined',name:'Single Stableford',desc:d==1?'Highest Stableford score over the round.':'Choose daily winners, the two-day aggregate winner, or both.',tag:d==1?'INDIVIDUAL':'FORMAT CHOICE'},{id:'fourball',name:'4BBB Stableford',desc:d==1?'Played by each 4BBB pair.':'Separate 4BBB Stableford on Day 1 and Day 2.',tag:'2-PLAYER PAIRS'},{id:'teamPutts',name:'Putting Competition',desc:'Choose a 4BBB pairs event or a four-player team event.',tag:'PAIRS OR TEAM'},{id:'best3of4',name:'Best 3 of 4 Stableford',desc:d==1?'Best three Stableford scores from the four-person team on every hole.':'Separate Best 3 of 4 event on each day.',tag:'4-PERSON TEAM'},{id:'par3',name:'Par 3 Competition',desc:d==1?'Aggregate Stableford score on the par 3s by each 4BBB pair.':'Choose one-day or two-day format.',tag:'PAR 3'},{id:'ntp',name:'Nearest the Pin',desc:d==1?'One NTP.':'One on Day 1 and one or two on Day 2.',tag:'NTP'},{id:'scratch',name:'Scratch',desc:'Optional event for low-handicap players and professionals.',tag:'OPTIONAL'}];
+ let d=W.event.days,c1=W.event.course1||'',c2=W.event.course2||'',n1=(course(c1)?.name||'').trim().toLowerCase(),n2=(course(c2)?.name||'').trim().toLowerCase(),same=d==2&&Boolean(c1)&&Boolean(c2)&&(String(c1)===String(c2)||(n1&&n1===n2)),defs=[{id:d==1?'single':'combined',name:'Single Stableford',desc:d==1?'Highest Stableford score over the round.':'Choose daily winners, the two-day aggregate winner, or both.',tag:d==1?'INDIVIDUAL':'FORMAT CHOICE'},{id:'fourball',name:'4BBB Stableford',desc:d==1?'Played by each 4BBB pair.':'Separate 4BBB Stableford on Day 1 and Day 2.',tag:'2-PLAYER PAIRS'},{id:'teamPutts',name:'Putting Competition',desc:'Choose a 4BBB pairs event or a four-player team event.',tag:'PAIRS OR TEAM'},{id:'best3of4',name:'Best 3 of 4 Stableford',desc:d==1?'Best three Stableford scores from the four-person team on every hole.':'Separate Best 3 of 4 event on each day.',tag:'4-PERSON TEAM'},{id:'par3',name:'Par 3 Competition',desc:d==1?'Aggregate Stableford score on the par 3s by each 4BBB pair.':'Choose one-day or two-day format.',tag:'PAR 3'},{id:'ntp',name:'Nearest the Pin',desc:d==1?'Choose one or two NTPs.':'One on Day 1 and one or two on Day 2.',tag:'NTP'},{id:'scratch',name:'Scratch',desc:'Optional event for low-handicap players and professionals.',tag:'OPTIONAL'}];
  if(d==2)defs.push({id:'eclectic',name:'Eclectic',desc:same?'Best Stableford score on each hole over the two rounds.':'Available only when the same course is played on both days.',tag:same?'AVAILABLE — SAME COURSE':'NOT AVAILABLE — DIFFERENT COURSES',unavailable:!same});
  return defs
 }
@@ -532,7 +532,9 @@ function renderStep3(){
  $$('[data-comp]').forEach(x=>x.onchange=()=>{x.checked?W.competitions.add(x.dataset.comp):W.competitions.delete(x.dataset.comp);renderStep3()});$$('[data-benefit]').forEach(x=>x.onclick=()=>{W.benefitOpen.has(x.dataset.benefit)?W.benefitOpen.delete(x.dataset.benefit):W.benefitOpen.add(x.dataset.benefit);renderStep3()});
  const scratchComp=$('[data-comp="scratch"]')?.closest('.comp');
  if(scratchComp&&W.competitions.has('scratch'))scratchComp.insertAdjacentHTML('beforeend',`<div class="ntpBox scratchLimitBox"><label><b>Set Max Scratch Hcp</b><input id="scratchMaxHcp" type="number" step="1" value="${W.event.scratchMaxHcp}"></label><small>Players with a daily handicap of ${W.event.scratchMaxHcp} or less are included automatically. Players above ${W.event.scratchMaxHcp} are not included.</small></div>`);
- $('#wizardBody').onchange=e=>{let t=e.target,id=t.dataset.bmode||t.dataset.bballs||t.dataset.bcontrib||t.dataset.bplus||t.dataset.bextra;if(t.name==='singleFormat')W.event.singleStablefordFormat=t.value;if(t.name==='puttingFormat')W.event.puttingFormat=t.value;if(t.name==='p3')W.event.par3Format=t.value;if(t.name==='n2')W.event.ntpDay2Count=+t.value;if(t.id==='scratchMaxHcp'){W.event.scratchMaxHcp=Number.isFinite(+t.value)?+t.value:10;renderStep3()}if(id){W.benefits[id]=W.benefits[id]||{};if(t.dataset.bmode)W.benefits[id].mode=t.value;if(t.dataset.bballs)W.benefits[id].balls=+t.value||'';if(t.dataset.bcontrib)W.benefits[id].contribution=+t.value||'';if(t.dataset.bplus)W.benefits[id].plus=t.checked;if(t.dataset.bextra)W.benefits[id].extra=t.value;W.benefitOpen.add(id);renderStep3()}}
+ const ntpComp=$('[data-comp="ntp"]')?.closest('.comp');
+ if(ntpComp&&W.competitions.has('ntp')&&W.event.days===1)ntpComp.insertAdjacentHTML('beforeend',`<div class="ntpBox"><b>Number of NTPs</b><label><input style="width:auto" type="radio" name="n1" value="1" ${W.event.ntpDay1Count!=2?'checked':''}> One</label><label><input style="width:auto" type="radio" name="n1" value="2" ${W.event.ntpDay1Count==2?'checked':''}> Two</label></div>`);
+ $('#wizardBody').onchange=e=>{let t=e.target,id=t.dataset.bmode||t.dataset.bballs||t.dataset.bcontrib||t.dataset.bplus||t.dataset.bextra;if(t.name==='singleFormat')W.event.singleStablefordFormat=t.value;if(t.name==='puttingFormat')W.event.puttingFormat=t.value;if(t.name==='p3')W.event.par3Format=t.value;if(t.name==='n1')W.event.ntpDay1Count=+t.value;if(t.name==='n2')W.event.ntpDay2Count=+t.value;if(t.id==='scratchMaxHcp'){W.event.scratchMaxHcp=Number.isFinite(+t.value)?+t.value:10;renderStep3()}if(id){W.benefits[id]=W.benefits[id]||{};if(t.dataset.bmode)W.benefits[id].mode=t.value;if(t.dataset.bballs)W.benefits[id].balls=+t.value||'';if(t.dataset.bcontrib)W.benefits[id].contribution=+t.value||'';if(t.dataset.bplus)W.benefits[id].plus=t.checked;if(t.dataset.bextra)W.benefits[id].extra=t.value;W.benefitOpen.add(id);renderStep3()}}
 }
 function renderStep4(){
  const pref=Boolean(W.event.preferredLies),putting=W.competitions.has('teamPutts'),oneDay=W.event.days==1,puttingUnit=W.event.puttingFormat==='pairs'?'pair':'team';
@@ -581,11 +583,11 @@ function renderStep5(){
  W.event.ntpSelections=W.event.ntpSelections||{};
  const par3s=id=>{let v=version(course(id))||{},r=[];for(let i=0;i<18;i++)if(+v.par?.[i]===3)r.push({hole:i+1,index:String(v.index?.[i]??''),metres:v.metres?.[i]??''});let rank=x=>{let n=parseInt(x.index.split('/')[0],10);return Number.isFinite(n)?n:-1};return r.sort((x,y)=>rank(y)-rank(x)||x.hole-y.hole)};
  const ensure=(key,id,count)=>{let ch=par3s(id),v=Array.isArray(W.event.ntpSelections[key])?W.event.ntpSelections[key].map(Number):[];v=v.filter((h,i)=>ch.some(x=>x.hole===h)&&v.indexOf(h)===i).slice(0,count);for(let x of ch){if(v.length>=count)break;if(!v.includes(x.hole))v.push(x.hole)}W.event.ntpSelections[key]=v;return ch};
- const d1=ensure('day1',W.event.course1,1),n2=W.event.days==2?(+W.event.ntpDay2Count||2):0,d2=W.event.days==2?ensure('day2',W.event.course2,n2):[];
+ const n1=W.event.days==1?(+W.event.ntpDay1Count||1):1,d1=ensure('day1',W.event.course1,n1),n2=W.event.days==2?(+W.event.ntpDay2Count||2):0,d2=W.event.days==2?ensure('day2',W.event.course2,n2):[];
  const startLabel=day=>{const method=startMethodFor(W.event,day),holes=startHolesFor(W.event,day);if(method==='shotgun')return 'Today is a Shotgun start';if(method==='two')return `Starting tees today are Holes ${holes[0]} and ${holes[1]}`;return `Starting tee today is Hole ${holes[0]}`};
  const row=(day,key,slot,ch,cid)=>{let sel=W.event.ntpSelections[key][slot],open=W.ntpChange===`${key}:${slot}`,used=W.event.ntpSelections[key].filter((_,i)=>i!==slot),x=ch.find(q=>q.hole===sel);return`<div class="ntpSelectCard"><div class="ntpDay"><b>${day}${W.event.ntpSelections[key].length>1?` — NTP ${slot+1}`:''}</b><span>${esc(course(cid)?.name||'Course')}</span></div><div class="ntpSelected"><div><small>SELECTED</small><strong>Hole ${sel||'—'}</strong><span>${x?`Par 3${x.metres?` · ${x.metres} m`:''}${x.index?` · Index ${esc(x.index)}`:''}`:''}</span></div><button type="button" class="soft" data-ntpchange="${key}:${slot}">${open?'Close':'Change'}</button></div>${open?`<div class="ntpChoices"><b>Choose another Par 3</b>${ch.map(q=>`<button type="button" class="ntpChoice ${q.hole===sel?'selected':''} ${used.includes(q.hole)?'used':''}" ${used.includes(q.hole)?'disabled':''} data-ntppick="${key}:${slot}:${q.hole}"><span>Hole ${q.hole}</span><small>${q.metres?q.metres+' m · ':''}${q.index?'Index '+esc(q.index):''}${q.hole===sel?' · Selected':''}</small></button>`).join('')}</div>`:''}</div>`};
  const dayHead=(day,key)=>`<div class="ntpDayHeading"><h4>${W.event.days===1?'NTP Hole':`Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length===2?`<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>`:''}</div>`;
- $('#wizardBody').innerHTML=`<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div><div class="ntpDayGroup">${dayHead(1,'day1')}${row(W.event.days===1?'NTP':'Day 1','day1',0,d1,W.event.course1)}</div>${W.event.days==2?`<div class="ntpDayGroup">${dayHead(2,'day2')}${Array.from({length:n2},(_,i)=>row('Day 2','day2',i,d2,W.event.course2)).join('')}</div>`:''}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+ $('#wizardBody').innerHTML=`<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div><div class="ntpDayGroup">${dayHead(1,'day1')}${Array.from({length:n1},(_,i)=>row(W.event.days===1?'NTP':'Day 1','day1',i,d1,W.event.course1)).join('')}</div>${W.event.days==2?`<div class="ntpDayGroup">${dayHead(2,'day2')}${Array.from({length:n2},(_,i)=>row('Day 2','day2',i,d2,W.event.course2)).join('')}</div>`:''}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
  $$('[data-ntpchange]').forEach(b=>b.onclick=()=>{W.ntpChange=W.ntpChange===b.dataset.ntpchange?'':b.dataset.ntpchange;renderStep5()});
  $$('[data-ntppick]').forEach(b=>b.onclick=()=>{let [k,s,h]=b.dataset.ntppick.split(':');W.event.ntpSelections[k][+s]=+h;W.ntpChange='';renderStep5()})
  $$('[data-ntpswap]').forEach(b=>b.onclick=()=>{const k=b.dataset.ntpswap,v=W.event.ntpSelections[k];if(v?.length===2){[v[0],v[1]]=[v[1],v[0]];W.ntpChange='';renderStep5()}})
@@ -617,15 +619,16 @@ function renderStep5(){
    return `Day 1 — ${d1}<br>Day 2 — ${d2}`;
  };
 
+ const invitedCount=confirmed.length+awaiting.length,teamText=ids=>ids.length%4===0?`${ids.length/4} team${ids.length===4?'':'s'} of 4`:`${ids.length} playing positions`,d1Ntp=W.event.ntpSelections?.day1||[],d2Ntp=W.event.ntpSelections?.day2||[],ntpLabel=W.event.days===1?(d1Ntp.length===1?`NTP Hole Selected: One NTP — Hole ${d1Ntp[0]}`:`NTP Holes Selected: ${d1Ntp.length} NTPs — Holes ${joinHoles(d1Ntp).replaceAll('Hole ','')}`):`NTP Holes Selected: Day 1 — ${joinHoles(d1Ntp)}; Day 2 — ${joinHoles(d2Ntp)}`;
  const checks=[
-   {ok:Boolean((W.event.name||'').trim()),label:'Event name'},
-   {ok:Boolean(W.event.date),label:'Start date'},
-   {ok:Boolean(W.event.course1),label:W.event.days===1?'Course':'Day 1 course'},
-   ...(W.event.days===2?[{ok:Boolean(W.event.course2),label:'Day 2 course'}]:[]),
-   {ok:confirmed.length+awaiting.length>0,label:'Players invited'},
-   {ok:day1Ids.length>=(+W.event.fieldSize||0)&&(W.event.days===1||day2Ids.length>=(+W.event.fieldSize||0)),label:'Daily field selected'},
-   {ok:selectedDefs.length>0,label:'Competitions selected'},
-   ...(W.competitions.has('ntp')?[{ok:Boolean(W.event.ntpSelections?.day1?.length)&&(W.event.days===1||Boolean(W.event.ntpSelections?.day2?.length)),label:W.event.days===1?'NTP holes selected':'NTP holes selected for both days'}]:[])
+   {ok:Boolean((W.event.name||'').trim()),label:`Event Name: ${W.event.name||'Not entered'}`},
+   {ok:Boolean(W.event.date),label:`Start Date: ${displayDate(W.event.date)}`},
+   {ok:Boolean(W.event.course1),label:W.event.days===1?`Course: ${c1?.name||'Not selected'}`:`Day 1 Course: ${c1?.name||'Not selected'}`},
+   ...(W.event.days===2?[{ok:Boolean(W.event.course2),label:`Day 2 Course: ${c2?.name||'Not selected'}`}]:[]),
+   {ok:invitedCount>0,label:`Players Invited: ${invitedCount} · Confirmed: ${confirmed.length}`},
+   {ok:day1Ids.length>=(+W.event.fieldSize||0)&&(W.event.days===1||day2Ids.length>=(+W.event.fieldSize||0)),label:W.event.days===1?`Daily Field Selected: ${teamText(day1Ids)}`:`Daily Fields Selected: Day 1 — ${teamText(day1Ids)}; Day 2 — ${teamText(day2Ids)}`},
+   {ok:selectedDefs.length>0,label:`Competitions Selected: ${selectedDefs.length}`},
+   ...(W.competitions.has('ntp')?[{ok:Boolean(d1Ntp.length)&&(W.event.days===1||Boolean(d2Ntp.length)),label:ntpLabel}]:[])
  ];
  const allReady=checks.every(x=>x.ok);
 
@@ -699,9 +702,10 @@ function finishEvent(){
  const dayFields={};
  dayFields.day1=wizardPlanningPlayers(1);
  if(W.event.days===2)dayFields.day2=wizardPlanningPlayers(2);
- const oldGroups=store.event?.groupSetup;
+ const oldGroups=W.newEvent?null:store.event?.groupSetup;
+ if(W.newEvent){closeCloudConnection();delete store.cloud;store.cloudPlayers=[]}
  store.event={...W.event,confirmed,invitationStatus,dayAvailability,dayFields,competitions:[...W.competitions],benefits:W.benefits,status:'planned',locked:false,groupSetup:oldGroups};
- store.template={competitions:[...W.competitions].filter(x=>x!=='eclectic'),benefits:W.benefits,puttingFormat:W.event.puttingFormat||'team',singleStablefordFormat:W.event.singleStablefordFormat||'aggregate',scratchMaxHcp:Number.isFinite(+W.event.scratchMaxHcp)?+W.event.scratchMaxHcp:10,par3Format:W.event.par3Format||'daily',ntpDay2Count:W.event.ntpDay2Count||2};
+ store.template={competitions:[...W.competitions].filter(x=>x!=='eclectic'),benefits:W.benefits,puttingFormat:W.event.puttingFormat||'team',singleStablefordFormat:W.event.singleStablefordFormat||'aggregate',scratchMaxHcp:Number.isFinite(+W.event.scratchMaxHcp)?+W.event.scratchMaxHcp:10,par3Format:W.event.par3Format||'daily',ntpDay1Count:W.event.ntpDay1Count||1,ntpDay2Count:W.event.ntpDay2Count||2};
  localStorage.setItem('awayGolfOrganiserTemplateV1',JSON.stringify(store.template));
  // Rebuild groups if the daily fields have changed.
  store.event.groupSetup={};

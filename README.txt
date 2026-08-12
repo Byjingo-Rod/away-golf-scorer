@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.38
+AWAY GOLF SCORER — VERSION 15.39
+
+VERSION 15.39 — NEW EVENT PUBLISHING AND FINAL PLAN CHECK
+
+- A newly created event now disconnects the previous event's online identity and receives its own player join code when published.
+- Existing mismatched local/online event identities are detected safely and detached before publishing, preventing an old event's player list from appearing under a new plan.
+- One-day events may have one or two NTPs, defaulting to one; two distinct Par 3 holes are proposed automatically.
+- Final Check now shows the actual event name, course, start date, invited and confirmed counts, daily team structure, competition count and selected NTP hole or holes.
+- NTP Final Check wording changes automatically between Hole and Holes.
 
 VERSION 15.38 — SCRATCH ELIGIBILITY AND PUTTING VERIFICATION
 

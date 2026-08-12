@@ -33,7 +33,7 @@ async function createEvent(name,eventData,players){
 async function updateEvent(eventId,eventData,status){
   await ensureSignedIn();
   const {data,error}=await client.from('away_events')
-    .update({event_data:eventData,status})
+    .update({name:eventData?.event?.name||'Away Golf Event',event_data:eventData,status})
     .eq('id',eventId).select('id,join_code,revision,updated_at').single();
   if(error)throw error;
   return data;
