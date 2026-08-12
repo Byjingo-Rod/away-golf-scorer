@@ -1,4 +1,4 @@
-AWAY GOLF SCORER — VERSION 15.49
+AWAY GOLF SCORER — VERSION 15.50
 
 VERSION 15.49 — CLEAN FIELD-TEST RESET
 
@@ -595,3 +595,12 @@ VERSION 15.31 — ONE-DAY SINGLE STABLEFORD REPORT CORRECTION
   a one-day Results Summary.
 - Preserves the correct one-day Single Stableford result and all test scores.
 - Cleans the flag both when the app opens and when Ridge test data is removed.
+
+VERSION 15.50 — PLAYER JOINING PAGE
+===================================
+
+- Fresh phones now open on a dedicated player-only joining page.
+- Removes the confusing organiser recovery field from the player's path.
+- Places the six-character event code box and Find My Event button at the top.
+- Shows visible finding, success and error messages after the code is entered.
+- Explains that no APK download is required and the app can run in the browser.

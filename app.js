@@ -116,8 +116,11 @@ localStorage.setItem('awayGolf13',JSON.stringify(store));
 let cloudReady=false,cloudBusy=false,cloudMessage='Connecting securely…',cloudChannel=null,cloudReloadTimer=null;
 const cloudRoundTimers=new Map();
 const isPlayerDevice=()=>store.cloud?.role==='player'&&Boolean(store.cloud?.eventId);
+const isFreshMobileDevice=()=>!store.event&&!store.cloud?.eventId&&window.matchMedia('(max-width:700px) and (pointer:coarse)').matches;
+function setQuickJoinStatus(message,error=false){const el=$('#quickJoinStatus');if(!el)return;el.textContent=message;el.classList.toggle('error',error)}
 function applyDeviceRole(){
  document.body.classList.toggle('playerDevice',isPlayerDevice());
+ document.body.classList.toggle('joinOnlyDevice',isFreshMobileDevice());
  if(isPlayerDevice()&&!['home','scorePage'].includes($('.page.active')?.id||''))nav('scorePage');
  updateWakeIndicator();
 }
@@ -192,22 +195,27 @@ async function updateCloudEvent(){
  try{await AwayCloud.updateEvent(store.cloud.eventId,cloudPayload(),store.event?.status||'locked');setCloudMessage('Event update shared with players')}
  catch(error){setCloudMessage('Update delayed — use Retry Sync');alert('The cloud update did not complete. '+(error.message||error))}
 }
-async function lookupCloudEvent(){
- const code=String($('#joinCode')?.value||'').trim().toUpperCase();
- if(code.length!==6)return alert('Enter the six-character event code.');
+async function lookupCloudEvent(codeOverride){
+ const input=typeof codeOverride==='string'?null:($('#quickJoinCode')||$('#joinCode'));
+ const code=String(typeof codeOverride==='string'?codeOverride:input?.value||'').replace(/[^a-z0-9]/gi,'').trim().toUpperCase();
+ if(code.length!==6){setQuickJoinStatus('Please enter all six characters.',true);input?.focus();return}
+ setQuickJoinStatus('Finding your event…');
+ const quickButton=$('#quickJoinEvent');if(quickButton)quickButton.disabled=true;
  setCloudMessage('Finding event…',true);
  try{
    const rows=await AwayCloud.invitation(code);
-   if(!rows.length){setCloudMessage('Ready');return alert('No current Away Golf event was found for that code.')}
+   if(!rows.length){setCloudMessage('Ready');setQuickJoinStatus('No current event was found. Check the code and try again.',true);return}
    const available=rows.filter(r=>!r.already_joined);
+   setQuickJoinStatus(`${rows[0].event_name} found. Select your name.`);
    $('#modalContent').innerHTML=`<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. This links this phone to your score only.</p><label>Your name<select id="cloudJoinPlayer">${available.map(r=>`<option value="${esc(r.player_id)}">${esc(r.display_name)}</option>`).join('')}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" ${available.length?'':'disabled'}>Join Event</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>${available.length?'':'<p class="cloudWarning">Every player position has already been claimed. Ask the organiser for help.</p>'}`;
-   $('#modalShade').classList.add('open');$('#cancelCloudJoin').onclick=()=>{$('#modalShade').classList.remove('open');setCloudMessage('Ready')};
+   $('#modalShade').classList.add('open');$('#cancelCloudJoin').onclick=()=>{$('#modalShade').classList.remove('open');setCloudMessage('Ready');setQuickJoinStatus('Enter your event code to join.')};
    if(available.length)$('#confirmCloudJoin').onclick=async()=>{
      const playerId=$('#cloudJoinPlayer').value;$('#confirmCloudJoin').disabled=true;
      try{const eventId=await AwayCloud.joinEvent(code,playerId);store.cloud={role:'player',eventId,joinCode:code,playerId:String(playerId)};localStorage.setItem('awayGolf13',JSON.stringify(store));const bundle=await AwayCloud.loadEvent(eventId);applyRemoteCloud(bundle);applyDeviceRole();$('#modalShade').classList.remove('open');watchCloudEvent();setCloudMessage('Joined · live scoring connected');nav('scorePage')}
-     catch(error){$('#confirmCloudJoin').disabled=false;alert('Joining did not complete. '+(error.message||error))}
+     catch(error){$('#confirmCloudJoin').disabled=false;setQuickJoinStatus('Joining did not complete. Check your connection and try again.',true);alert('Joining did not complete. '+(error.message||error))}
    };
- }catch(error){setCloudMessage('Could not find event');alert('Event lookup did not complete. '+(error.message||error))}
+ }catch(error){setCloudMessage('Could not find event');setQuickJoinStatus('Could not contact Away Golf. Check the internet connection and try again.',true);alert('Event lookup did not complete. '+(error.message||error))}
+ finally{if(quickButton)quickButton.disabled=false}
 }
 async function recoverOrganiserEvent(){
  const code=String($('#organiserCode')?.value||'').trim().toUpperCase();
@@ -244,7 +252,7 @@ function renderCloudPanel(){
  if(store.cloud?.role==='organiser'&&store.cloud.eventId){const connections=(store.cloudPlayers||[]).filter(x=>x.joined);host.innerHTML=`<div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name||'Away Golf Event')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode||'——')}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy?'disabled':''}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy?'disabled':''}>${retryNeeded?'Retry Sync':'Refresh Scores'}</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers||[]).length} joined</span></div>${connections.map(x=>`<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy?'disabled':''}>Release Phone</button></div>`).join('')||'<p class="hint">No players have joined yet.</p>'}</div>`;$('#updateCloudEvent').onclick=updateCloudEvent;$('#retryCloud').onclick=syncCloudNow;$$('[data-releaseplayer]').forEach(b=>b.onclick=()=>releaseCloudPlayer(b.dataset.releaseplayer));return}
  if(store.cloud?.role==='player'&&store.cloud.eventId){host.innerHTML=`<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name||'Player')}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name||'the Away Golf event')}</b>. Scores are saved locally first and shared automatically.</p><div class="cloudActions"><button class="primary" id="openMyCard">Open Scoring Card</button>${retryButton}</div>`;$('#openMyCard').onclick=()=>nav('scorePage');if($('#retryCloud'))$('#retryCloud').onclick=syncCloudNow;return}
  host.innerHTML=`<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event?.locked?'<button class="primary" id="publishCloudEvent">Publish Locked Event</button>':'<p class="hint">After Groups & Teams are complete and the event is locked, publish it here to receive the player join code.</p>'}${retryButton}</div><div class="recoverEventBox"><b>Already published from this organiser PC?</b><span>Enter its player join code to restore the published event, players and scores here.</span><div class="joinEventRow"><input id="organiserCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="recoverOrganiserEvent" ${cloudBusy?'disabled':''}>Recover Published Event</button></div></div><div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy?'disabled':''}>Join as a Player</button></div>`;
- if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;if($('#retryCloud'))$('#retryCloud').onclick=()=>{if(store.cloud?.eventId)syncCloudNow();else initialiseCloud()};$('#recoverOrganiserEvent').onclick=recoverOrganiserEvent;$('#lookupCloudEvent').onclick=lookupCloudEvent;
+ if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;if($('#retryCloud'))$('#retryCloud').onclick=()=>{if(store.cloud?.eventId)syncCloudNow();else initialiseCloud()};$('#recoverOrganiserEvent').onclick=recoverOrganiserEvent;$('#lookupCloudEvent').onclick=()=>lookupCloudEvent();
 }
 async function initialiseCloud(){
  try{
@@ -1610,5 +1618,7 @@ function renderPlayerExperience(){
  $('#startRoundPreview').onclick=()=>{if(finalised){store.event.playerRoundMode='completed';save();return renderPlayerExperience()}if(!canStart)return;store.event.playerRoundMode='scoring';store.event.playerHolePos=0;requestRoundWakeLock();save();renderPlayerExperience()};
 }
 applyDeviceRole();renderHome();renderPlayersAdmin();renderCoursesAdmin();initialiseCloud();
+if($('#quickJoinEvent'))$('#quickJoinEvent').onclick=()=>lookupCloudEvent();
+if($('#quickJoinCode')){$('#quickJoinCode').oninput=e=>{e.target.value=e.target.value.replace(/[^a-z0-9]/gi,'').toUpperCase();setQuickJoinStatus(e.target.value.length===6?'Ready to find your event.':'Enter the six-character event code.')};$('#quickJoinCode').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();lookupCloudEvent()}}}
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

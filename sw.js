@@ -1,5 +1,5 @@
-const CACHE='away-golf-v15-49';
-const FILES=['./','./index.html','./styles.css?v=15.49','./supabase.js?v=15.49','./cloud.js?v=15.49','./data.js?v=15.49','./app.js?v=15.49','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png','./assets/away-golf-mascot.png','./away-golf-mascot-mini.png'];
+const CACHE='away-golf-v15-50';
+const FILES=['./','./index.html','./styles.css?v=15.50','./supabase.js?v=15.50','./cloud.js?v=15.50','./data.js?v=15.50','./app.js?v=15.50','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png','./assets/away-golf-mascot.png','./away-golf-mascot-mini.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES)))});
 self.addEventListener('activate',e=>{e.waitUntil(Promise.all([self.clients.claim(),caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x))))]))});
 self.addEventListener('fetch',e=>{e.respondWith(fetch(e.request).then(r=>{let copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request)))});
