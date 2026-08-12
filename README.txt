@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.45
+AWAY GOLF SCORER — VERSION 15.46
+
+VERSION 15.46 — MINIATURE MASCOT AND ORGANISER WORKSPACE
+
+- Adds a separate wordless miniature mascot beside Away Golf Scorer.
+- Places the miniature in the app root so it loads with the core app files.
+- Saves the active published-event identity to the organiser's secure workspace.
+- Restores that published event automatically if an old PC planning copy appears.
 
 VERSION 15.45 — COMPACT MASCOT POSITION
 

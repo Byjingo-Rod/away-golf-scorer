@@ -9,6 +9,10 @@ const ORGANISER_LIVE_KEY='awayGolfOrganiserLiveV1';
 function rememberedOrganiserEvent(){try{return JSON.parse(localStorage.getItem(ORGANISER_LIVE_KEY)||'null')}catch(_){return null}}
 function rememberOrganiserEvent(eventId,joinCode){localStorage.setItem(ORGANISER_LIVE_KEY,JSON.stringify({eventId:String(eventId),joinCode:String(joinCode||'').toUpperCase()}))}
 function forgetOrganiserEvent(){localStorage.removeItem(ORGANISER_LIVE_KEY)}
+async function rememberOrganiserWorkspace(eventId,joinCode){
+ rememberOrganiserEvent(eventId,joinCode);
+ try{await AwayCloud.saveWorkspace({activePublishedEvent:{eventId:String(eventId),joinCode:String(joinCode||'').toUpperCase()}})}catch(_){}
+}
 let roundWakeLock=null,roundWakeLockActive=false;
 function updateWakeIndicator(){const el=$('.awakeIndicator');if(el)el.textContent=!('wakeLock'in navigator)?'Use phone screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
 async function requestRoundWakeLock(){
@@ -177,7 +181,7 @@ async function publishCloudEvent(){
    const result=await AwayCloud.createEvent(store.event.name,payload,cloudPlayerRows());
    await AwayCloud.updateEvent(result.event_id,payload,store.event.status||'locked');
    store.cloud={role:'organiser',eventId:result.event_id,joinCode:result.join_code};
-   rememberOrganiserEvent(result.event_id,result.join_code);
+   await rememberOrganiserWorkspace(result.event_id,result.join_code);
    localStorage.setItem('awayGolf13',JSON.stringify(store));watchCloudEvent();setCloudMessage('Published · ready for players');renderCloudPanel();
  }catch(error){setCloudMessage('Could not publish');alert('Publishing did not complete. '+(error.message||error))}
 }
@@ -217,7 +221,7 @@ async function recoverOrganiserEvent(){
   (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
   (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
   store.event.scoring={day1:{},day2:{}};(bundle.scores||[]).forEach(row=>{store.event.scoring['day'+row.day]=store.event.scoring['day'+row.day]||{};store.event.scoring['day'+row.day][String(row.scorer_player_id)]=row.score_data||{}});
-  store.cloud={role:'organiser',eventId,joinCode:code};rememberOrganiserEvent(eventId,code);store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
+  store.cloud={role:'organiser',eventId,joinCode:code};await rememberOrganiserWorkspace(eventId,code);store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
   localStorage.setItem('awayGolf13',JSON.stringify(store));cloudBusy=false;cloudMessage='Published event recovered';watchCloudEvent();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');
  }catch(error){cloudBusy=false;setCloudMessage('Recovery did not complete');alert('The published event could not be recovered on this organiser PC. '+(error.message||error))}
 }
@@ -242,7 +246,7 @@ function renderCloudPanel(){
  if($('#publishCloudEvent'))$('#publishCloudEvent').onclick=publishCloudEvent;if($('#retryCloud'))$('#retryCloud').onclick=()=>{if(store.cloud?.eventId)syncCloudNow();else initialiseCloud()};$('#recoverOrganiserEvent').onclick=recoverOrganiserEvent;$('#lookupCloudEvent').onclick=lookupCloudEvent;
 }
 async function initialiseCloud(){
- try{await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}}
+ try{await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');if(!store.cloud?.eventId&&store.cloud?.role!=='player'){const workspace=await AwayCloud.loadWorkspace(),live=workspace?.activePublishedEvent;if(live?.eventId){store.cloud={role:'organiser',eventId:String(live.eventId),joinCode:String(live.joinCode||''),restorePublished:true};rememberOrganiserEvent(live.eventId,live.joinCode);localStorage.setItem('awayGolf13',JSON.stringify(store))}}if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}}
  catch(_){cloudReady=false;setCloudMessage('Offline — local scoring available')}
 }
 window.addEventListener('online',()=>{cloudReady=true;syncCloudNow();renderCloudPanel()});window.addEventListener('offline',renderCloudPanel);
