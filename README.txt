@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.51
+AWAY GOLF SCORER — VERSION 15.52
+
+VERSION 15.52 — CLEAR PHONE INSTALLATION INSTRUCTIONS
+=====================================================
+
+- Replaces technical APK wording with the actual Android choices shown.
+- Tells Android players to select Install, not Create shortcut.
+- Adds the separate Safari and Add to Home Screen instruction for iPhone.
+- Confirms that players can also score directly from the browser page.
 
 VERSION 15.51 — RETIRE OLD CLOUD TEST
 =====================================
