@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.50
+AWAY GOLF SCORER — VERSION 15.51
+
+VERSION 15.51 — RETIRE OLD CLOUD TEST
+=====================================
+
+- Permanently disconnects the obsolete Away Golf 15.39 Test (code 2A40BC).
+- Stops a device from guessing and reopening the latest old cloud event.
+- Preserves the genuine Oatlands Saturday field test (code BE8C94).
+- Organiser recovery remains available when its code is deliberately entered.
 
 VERSION 15.49 — CLEAN FIELD-TEST RESET
 

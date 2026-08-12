@@ -52,6 +52,11 @@ let store;
 try{store=JSON.parse(localStorage.getItem('awayGolf13')||'null')}catch(e){}
 if(!store){store=fresh();try{const old=JSON.parse(localStorage.getItem('awayGolfV11')||'null');if(old?.players?.length){const map=new Map(old.players.map(p=>[p.id,p]));store.players=store.players.map(p=>({...p,...map.get(p.id),rosterActive:map.get(p.id)?.rosterActive??p.rosterActive}))}if(old?.courses?.length){const map=new Map(old.courses.map(c=>[c.id,c]));store.courses=store.courses.map(c=>({...c,...map.get(c.id),available:map.get(c.id)?.available??true}))}}catch(e){}}
 try{store.template=JSON.parse(localStorage.getItem('awayGolfOrganiserTemplateV1')||'null')||store.template}catch(e){}
+// Retire the obsolete full-round cloud test wherever an old device link survived.
+// The genuine Oatlands Saturday field test uses BE8C94 and is never touched.
+const RETIRED_TEST_CODE='2A40BC';
+const stale1539Test=String(store.cloud?.joinCode||'').toUpperCase()===RETIRED_TEST_CODE||/away golf\s*-\s*15\.39 test/i.test(store.event?.name||'');
+if(stale1539Test){store.event=null;delete store.cloud;store.cloudPlayers=[];forgetOrganiserEvent();localStorage.setItem('awayGolf13',JSON.stringify(store));sessionStorage.setItem('awayGolfRetired1539','1')}
 // Keep the organiser PC attached to its published event independently of the
 // editable local workspace. A player device must always retain its own role.
 const rememberedLive=rememberedOrganiserEvent();
@@ -257,11 +262,12 @@ function renderCloudPanel(){
 async function initialiseCloud(){
  try{
   await AwayCloud.ensureSignedIn();cloudReady=true;setCloudMessage('Secure connection ready');
+  if(sessionStorage.getItem('awayGolfRetired1539')){try{const workspace=await AwayCloud.loadWorkspace();if(String(workspace?.activePublishedEvent?.joinCode||'').toUpperCase()===RETIRED_TEST_CODE)await AwayCloud.saveWorkspace({activePublishedEvent:null})}catch(_){}sessionStorage.removeItem('awayGolfRetired1539')}
   if(!store.cloud?.eventId&&store.cloud?.role!=='player'&&!store.event?.testMode){
    let live=null;
    try{const workspace=await AwayCloud.loadWorkspace();live=workspace?.activePublishedEvent||null}catch(_){}
+   if(String(live?.joinCode||'').toUpperCase()===RETIRED_TEST_CODE)live=null;
    const mayRestorePublished=Boolean(store.event?.locked||!store.event);
-   if(!live?.eventId&&mayRestorePublished){try{const latest=await AwayCloud.loadLatestOwnedEvent();if(latest?.id)live={eventId:latest.id,joinCode:latest.join_code}}catch(_){}}
    if(live?.eventId&&mayRestorePublished){store.cloud={role:'organiser',eventId:String(live.eventId),joinCode:String(live.joinCode||''),restorePublished:true};rememberOrganiserEvent(live.eventId,live.joinCode);localStorage.setItem('awayGolf13',JSON.stringify(store))}
   }
   if(store.cloud?.eventId){await syncCloudNow();watchCloudEvent()}
