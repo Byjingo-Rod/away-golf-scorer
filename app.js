@@ -167,7 +167,7 @@ async function releaseCloudPlayer(playerId){
 async function syncCloudNow(){
  if(!store.cloud?.eventId||cloudBusy)return;
  setCloudMessage('Synchronising…',true);
- try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);if(store.cloud?.role==='organiser'&&bundle?.event?.name&&store.event?.name&&bundle.event.name!==store.event.name)store.cloud.restorePublished=true;applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
+ try{const bundle=await AwayCloud.loadEvent(store.cloud.eventId);if(bundle?.event?.status==='archived'&&store.cloud?.role==='player'){closeCloudConnection();store.event=null;delete store.cloud;store.cloudPlayers=[];localStorage.setItem('awayGolf13',JSON.stringify(store));applyDeviceRole();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');return setCloudMessage('Previous test event cleared')};if(store.cloud?.role==='organiser'&&bundle?.event?.name&&store.event?.name&&bundle.event.name!==store.event.name)store.cloud.restorePublished=true;applyRemoteCloud(bundle);setCloudMessage(`Live · updated ${new Date().toLocaleTimeString('en-AU',{hour:'numeric',minute:'2-digit'})}`)}
  catch(error){setCloudMessage(navigator.onLine?'Sync delayed — use Retry Sync':'Offline — scores remain saved on this phone')}
 }
 function watchCloudEvent(){
@@ -1021,11 +1021,25 @@ function openEventOptions(){
  if(!store.event)return;
  if(store.event.testMode){alert('Use Testing Tools to change or finish the protected test event.');return}
  const cancelled=store.event.status==='cancelled';
- $('#modalContent').innerHTML=`<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled?'This event is already cancelled. You may retain it for reference or delete it from this device.':'Cancel an event that will not proceed, or permanently delete an unwanted design/draft event.'}</p><div class="eventOptionActions">${cancelled?'':`<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div>`;
+ $('#modalContent').innerHTML=`<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled?'This event is already cancelled. You may retain it for reference or delete it from this device.':'Cancel an event that will not proceed, or permanently delete an unwanted design/draft event.'}</p><div class="eventOptionActions">${cancelled?'':`<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div>`;
  $('#modalShade').classList.add('open');
  if($('#cancelCurrentEvent'))$('#cancelCurrentEvent').onclick=cancelCurrentEvent;
  $('#deleteCurrentEvent').onclick=deleteCurrentEvent;
+ $('#clearPreviousTests').onclick=clearPreviousTestEvents;
  $('#closeEventOptions').onclick=()=>$('#modalShade').classList.remove('open');
+}
+async function clearPreviousTestEvents(){
+ if(!confirm('Clear ALL previous test events?\n\nThis will archive every published event from this organiser, disconnect the current test on phones and tablets, and remove local event scores. Players, courses and scorecards will remain.'))return;
+ if(!confirm('Final check: clear all previous test events now?'))return;
+ const button=$('#clearPreviousTests');if(button)button.disabled=true;
+ try{
+  const archived=await AwayCloud.archiveAllOwnedEvents();
+  try{await AwayCloud.saveWorkspace({activePublishedEvent:null})}catch(_){}
+  closeCloudConnection();store.event=null;delete store.cloud;store.cloudPlayers=[];forgetOrganiserEvent();
+  localStorage.removeItem('awayGolfTestBackupV1');localStorage.removeItem('awayGolfRidgeTestBackupV1');
+  localStorage.setItem('awayGolf13',JSON.stringify(store));$('#modalShade').classList.remove('open');applyDeviceRole();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');
+  alert(`${archived.length} published test event${archived.length===1?' was':'s were'} cleared. Away Golf is ready to create the field-test event.`);
+ }catch(error){if(button)button.disabled=false;alert('The test events were not cleared because the cloud cleanup did not complete. '+(error.message||error))}
 }
 async function cancelCurrentEvent(){
  if(!confirm(`Cancel ${store.event?.name||'this event'}?\n\nPlayers will no longer be able to join or score. The event will remain on this device as a cancelled record.`))return;

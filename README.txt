@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.48
+AWAY GOLF SCORER — VERSION 15.49
+
+VERSION 15.49 — CLEAN FIELD-TEST RESET
+
+- Adds an organiser-only Clear All Previous Test Events action under Event Options.
+- Archives all active published events belonging to the organiser.
+- Clears the PC's current event, scores, join code and saved test backups.
+- Causes connected player devices to leave an archived test automatically.
+- Preserves players, GolfLink details, courses, scorecards and app settings.
 
 VERSION 15.48 — FIELD-TEST STARTUP PROTECTION
 

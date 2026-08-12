@@ -117,6 +117,17 @@ async function loadLatestOwnedEvent(){
   return data||null;
 }
 
+async function archiveAllOwnedEvents(){
+  const session=await ensureSignedIn();
+  const {data,error}=await client.from('away_events')
+    .update({status:'archived'})
+    .eq('organiser_id',session.user.id)
+    .neq('status','archived')
+    .select('id,name,join_code');
+  if(error)throw error;
+  return data||[];
+}
+
 function subscribe(eventId,onChange){
   return client.channel('away-event-'+eventId)
     .on('postgres_changes',{event:'*',schema:'public',table:'away_events',filter:`id=eq.${eventId}`},onChange)
@@ -125,5 +136,5 @@ function subscribe(eventId,onChange){
     .subscribe();
 }
 
-window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,releasePlayer,saveWorkspace,loadWorkspace,loadLatestOwnedEvent,subscribe};
+window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,releasePlayer,saveWorkspace,loadWorkspace,loadLatestOwnedEvent,archiveAllOwnedEvents,subscribe};
 })();
