@@ -370,6 +370,7 @@ body.playerDevice nav button[data-nav="scorePage"]:after{content:'My Golf';font-
 .leaderRow.scratchDisqualified .leaderRank,.leaderRow.scratchDisqualified .leaderName,.leaderRow.scratchDisqualified .leaderThru,.leaderRow.scratchDisqualified .leaderScore{grid-row:1}
 @media(max-width:650px){.leaderRow.scratchDisqualified{grid-template-columns:28px minmax(142px,1fr) minmax(112px,auto) 20px;padding-left:4px;padding-right:4px}.leaderRow.scratchDisqualified .leaderName small{font-size:8px;white-space:nowrap}.leaderRow.scratchDisqualified .leaderThru{font-size:8px}}
 .recoverEventBox{margin-top:12px;padding:11px;border:1px solid #bfd3c6;border-radius:10px;background:#f2f8f4}.recoverEventBox b,.recoverEventBox span{display:block}.recoverEventBox span{margin:3px 0 9px;font-size:10px;color:#607068}
+.organiserCopyNotice{margin-top:12px;padding:12px;border:1px solid #d4bd7f;border-left:5px solid #b88416;border-radius:10px;background:#fff9e9}.organiserCopyNotice b,.organiserCopyNotice span{display:block}.organiserCopyNotice span{margin-top:5px;font-size:11px;line-height:1.4;color:#665a3d}
 
 /* 15.50 unambiguous player joining on a fresh phone */
 .playerJoinLanding{display:none}

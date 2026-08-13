@@ -1,4 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.52
+AWAY GOLF SCORER — VERSION 15.53
+
+VERSION 15.53 — SAFE ORGANISER REOPENING
+========================================
+
+- Removes the misleading attempt to recover organiser control with a player code.
+- Existing organiser app copies continue reopening their saved live event automatically.
+- A blank browser copy clearly directs the organiser back to the established copy.
+- Explains that player codes cannot grant organiser control in a different browser.
+- Preserves all event data, scores and connected-player records during upgrades.
 
 VERSION 15.52 — CLEAR PHONE INSTALLATION INSTRUCTIONS
 =====================================================
