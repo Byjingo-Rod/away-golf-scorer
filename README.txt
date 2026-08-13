@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.54
+AWAY GOLF SCORER — VERSION 15.56
+
+VERSION 15.56 — EMERGENCY SCORE RECOVERY
+=========================================
+
+- Adds an organiser-only Emergency Score Recovery button to live round management.
+- Recovers missing official holes from a player's available self-check scores after a marker's phone fails.
+- Provides a fast 18-hole Player–Marker virtual card for MiScore or manual-card entry.
+- Uses Return to advance through player score, player putts, partner official score and partner putts.
+- Treats zero putts as valid and warns only about missing or impossible entries.
+- Preserves existing phone scores, records a recovery audit trail and feeds accepted entries into every result.
 
 VERSION 15.54 — PUBLISHED EVENTS MENU
 ========================================

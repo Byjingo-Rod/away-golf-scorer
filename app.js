@@ -3496,6 +3496,238 @@ Count-back if tied
       group: (ctx?.groupIndex ?? 0) + 1,
     };
   }
+  function emergencyLog(entry) {
+    store.event.emergencyRecoveryLog =
+      store.event.emergencyRecoveryLog || [];
+    store.event.emergencyRecoveryLog.push({
+      ...entry,
+      at: new Date().toISOString(),
+      device: "organiser",
+    });
+  }
+  function emergencyFinaliseIfVerified(day, playerId) {
+    const id = String(playerId || "");
+    if (!id || verificationIssueCount(day, id) !== 0) return false;
+    const at = new Date().toISOString(),
+      round = scorerStore(day, id);
+    store.event.roundFinalised = store.event.roundFinalised || {};
+    store.event.roundFinalised["day" + day] =
+      store.event.roundFinalised["day" + day] || {};
+    store.event.roundFinalised["day" + day][id] = at;
+    round._meta = {
+      ...(round._meta || {}),
+      finalisedAt: at,
+      emergencyFinalised: true,
+    };
+    queueCloudRound(day, id);
+    return true;
+  }
+  function closeEmergencyRecovery() {
+    $("#modalShade").classList.remove("open");
+  }
+  function emergencyPlayerOptions(day, selected = "") {
+    return dayFieldIds(day)
+      .filter((id) => String(id) !== NO_PARTNER_ID)
+      .map(String)
+      .map(
+        (id) =>
+          `<option value="${esc(id)}" ${id === String(selected) ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`,
+      )
+      .join("");
+  }
+  function openEmergencyRecovery() {
+    const day = Math.min(
+      store.event.days || 1,
+      +(store.event.liveControlDay || 1),
+    );
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
+    $("#modalShade").classList.add("open");
+    $("#closeEmergencyRecovery").onclick = closeEmergencyRecovery;
+    $("#recoverSelfScores").onclick = () =>
+      renderSelfScoreRecovery(day);
+    $("#enterVirtualCard").onclick = () => renderVirtualCard(day);
+  }
+  function renderSelfScoreRecovery(day, failedScorerId) {
+    const ids = dayFieldIds(day)
+      .filter((id) => String(id) !== NO_PARTNER_ID)
+      .map(String);
+    const failed = String(failedScorerId || ids[0] || ""),
+      markedId = markerTargetFor(failed, day),
+      marked = player(markedId),
+      own = scoringDayStore(day)?.[String(markedId)] || {},
+      missing = [];
+    for (let h = 1; h <= 18; h++) {
+      const self = own[String(h)]?.self || {},
+        official = findOfficialForPlayer(day, markedId, h);
+      if (!official && scoreEntered(self.gross))
+        missing.push({ h, gross: self.gross, putts: self.putts });
+    }
+    const rows = missing.length
+      ? missing
+          .map(
+            (r) =>
+              `<tr><td>${r.h}</td><td>${esc(r.gross)}</td><td>${scoreEntered(r.putts) ? esc(r.putts) : "—"}</td><td>Missing</td></tr>`,
+          )
+          .join("")
+      : '<tr><td colspan="4">No recoverable missing scores were found.</td></tr>';
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE · DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking →</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare these entries with the manually completed card before accepting them. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th><th>Putts</th><th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div><div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="acceptSelfRecovery" ${missing.length ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
+    $("#failedScorer").onchange = (e) =>
+      renderSelfScoreRecovery(day, e.target.value);
+    $("#backEmergency").onclick = openEmergencyRecovery;
+    if ($("#acceptSelfRecovery"))
+      $("#acceptSelfRecovery").onclick = async () => {
+        if (
+          !confirm(
+            `Copy ${missing.length} ${marked?.name || "player"} self-score entries into the missing official card?`,
+          )
+        )
+          return;
+        missing.forEach((r) => {
+          const rec = scoreRecord(day, failed, r.h);
+          if (!findOfficialForPlayer(day, markedId, r.h))
+            rec.official = {
+              playerId: String(markedId),
+              gross: r.gross,
+              putts: r.putts,
+              emergencyRecovered: true,
+              recoveredAt: new Date().toISOString(),
+            };
+        });
+        emergencyLog({
+          type: "self-score-copy",
+          day,
+          failedScorerId: failed,
+          recoveredPlayerId: String(markedId),
+          holes: missing.map((x) => x.h),
+        });
+        emergencyFinaliseIfVerified(day, markedId);
+        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        queueCloudRound(day, failed);
+        if (store.cloud?.role === "organiser" && store.cloud?.eventId)
+          await updateCloudEvent();
+        closeEmergencyRecovery();
+        renderHome();
+        renderLeaderboard();
+        alert(`${marked?.name || "Player"}'s missing official scores have been recovered.`);
+      };
+  }
+  function virtualCardWarnings(values) {
+    const warnings = [];
+    values.forEach((row) => {
+      [
+        ["Player", row.selfGross, row.selfPutts],
+        ["Partner", row.officialGross, row.officialPutts],
+      ].forEach(([label, gross, putts]) => {
+        if (!scoreEntered(gross) || !scoreEntered(putts))
+          warnings.push(`Hole ${row.h}: ${label} entry is incomplete.`);
+        else if (
+          String(gross).toUpperCase() !== "P" &&
+          (+gross < 1 || +gross > 20)
+        )
+          warnings.push(`Hole ${row.h}: ${label} score must be 1–20 or P.`);
+        else if (+putts < 0 || +putts > 9)
+          warnings.push(`Hole ${row.h}: ${label} putts must be 0–9.`);
+        else if (String(gross).toUpperCase() !== "P" && +putts > +gross)
+          warnings.push(`Hole ${row.h}: ${label} putts exceed total strokes.`);
+      });
+    });
+    return warnings;
+  }
+  function renderVirtualCard(day, scorerId) {
+    const ids = dayFieldIds(day)
+        .filter((id) => String(id) !== NO_PARTNER_ID)
+        .map(String),
+      scorer = String(scorerId || ids[0] || ""),
+      targetId = markerTargetFor(scorer, day),
+      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      v = version(c) || {},
+      existing = Object.keys(scoringDayStore(day)?.[scorer] || {}).filter(
+        (x) => /^\d+$/.test(x),
+      ).length;
+    const rows = Array.from({ length: 18 }, (_, i) => {
+      const h = i + 1;
+      return `<tr><td><b>${h}</b><small>Par ${v.par?.[i] || "—"}</small></td><td><input aria-label="${esc(player(scorer)?.name || "Player")} Hole ${h} strokes" data-vcard="${h}|selfGross" inputmode="text" maxlength="2"></td><td><input aria-label="${esc(player(scorer)?.name || "Player")} Hole ${h} putts" data-vcard="${h}|selfPutts" inputmode="numeric" maxlength="1"></td><td><input aria-label="${esc(player(targetId)?.name || "Partner")} Hole ${h} strokes" data-vcard="${h}|officialGross" inputmode="text" maxlength="2"></td><td><input aria-label="${esc(player(targetId)?.name || "Partner")} Hole ${h} putts" data-vcard="${h}|officialPutts" inputmode="numeric" maxlength="1"></td></tr>`;
+    }).join("");
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>COMPLETE CARD · DAY ${day}</small><h2>Enter Player–Marker Card</h2><p>Enter the player's self-check score and the partner's official score exactly as shown in MiScore or on the manual card.</p></div><label class="emergencySelect">Virtual player / scorer<select id="virtualScorer">${emergencyPlayerOptions(day, scorer)}</select></label><div class="virtualCardNames"><span><small>SELF-CHECK CARD</small><b>${esc(player(scorer)?.name || "Player")}</b></span><span><small>OFFICIAL CARD BEING MARKED</small><b>${esc(player(targetId)?.name || "Marker partner")}</b></span></div>${existing ? `<div class="emergencyWarning"><b>Card already contains ${existing} hole${existing === 1 ? "" : "s"}.</b><span>Complete-card entry is disabled so existing phone scores cannot be overwritten.</span></div>` : ""}<p class="fastEntryHelp">Enter a number and press Return to move to the next box. Zero putts is valid. Enter <b>P</b> for a pickup.</p><div class="emergencyTableWrap virtualCardWrap"><table class="emergencyTable virtualCard"><thead><tr><th>Hole</th><th>${esc(playerSurname(scorer))}<br>Score</th><th>${esc(playerSurname(scorer))}<br>Putts</th><th>${esc(playerSurname(targetId))}<br>Official</th><th>${esc(playerSurname(targetId))}<br>Putts</th></tr></thead><tbody>${rows}</tbody></table></div><div id="virtualCardCheck" class="virtualCardCheck">0 of 72 entries completed</div><div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="reviewVirtualCard" ${existing ? "disabled" : ""}>Review Card</button></div>`;
+    $("#virtualScorer").onchange = (e) =>
+      renderVirtualCard(day, e.target.value);
+    $("#backEmergency").onclick = openEmergencyRecovery;
+    const inputs = $$('[data-vcard]');
+    const updateCount = () => {
+      const n = inputs.filter((x) => x.value.trim() !== "").length;
+      $("#virtualCardCheck").textContent = `${n} of 72 entries completed`;
+    };
+    inputs.forEach((input, i) => {
+      input.oninput = () => {
+        input.value = input.value.toUpperCase().replace(/[^0-9P]/g, "");
+        updateCount();
+      };
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          inputs[i + 1]?.focus();
+          inputs[i + 1]?.select();
+        }
+      };
+    });
+    $("#reviewVirtualCard").onclick = () => {
+      const values = Array.from({ length: 18 }, (_, i) => {
+        const h = i + 1,
+          get = (key) =>
+            $(`[data-vcard="${h}|${key}"]`).value.trim().toUpperCase();
+        return {
+          h,
+          selfGross: get("selfGross"),
+          selfPutts: get("selfPutts"),
+          officialGross: get("officialGross"),
+          officialPutts: get("officialPutts"),
+        };
+      });
+      const warnings = virtualCardWarnings(values);
+      if (warnings.length) {
+        $("#virtualCardCheck").innerHTML = `<b>Check ${warnings.length} entr${warnings.length === 1 ? "y" : "ies"}</b><span>${warnings.slice(0, 6).map(esc).join("<br>")}${warnings.length > 6 ? `<br>…and ${warnings.length - 6} more` : ""}</span>`;
+        $("#virtualCardCheck").classList.add("hasWarnings");
+        return;
+      }
+      if (
+        !confirm(
+          `Accept the complete Player–Marker card for ${player(scorer)?.name || "this player"}?`,
+        )
+      )
+        return;
+      values.forEach((r) => {
+        const rec = scoreRecord(day, scorer, r.h);
+        rec.self = {
+          playerId: scorer,
+          gross: r.selfGross,
+          putts: +r.selfPutts,
+          emergencyEntered: true,
+        };
+        rec.official = {
+          playerId: String(targetId),
+          gross: r.officialGross,
+          putts: +r.officialPutts,
+          emergencyEntered: true,
+        };
+      });
+      emergencyLog({
+        type: "virtual-player-marker-card",
+        day,
+        scorerId: scorer,
+        markedPlayerId: String(targetId),
+        holes: Array.from({ length: 18 }, (_, i) => i + 1),
+      });
+      emergencyFinaliseIfVerified(day, scorer);
+      emergencyFinaliseIfVerified(day, targetId);
+      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      queueCloudRound(day, scorer);
+      closeEmergencyRecovery();
+      renderHome();
+      renderLeaderboard();
+      alert("The complete Player–Marker card has been accepted.");
+    };
+    inputs[0]?.focus();
+  }
   function renderLiveEventControl() {
     const host = $("#liveEventControl"),
       basic = $("#basicEventProgress");
@@ -3535,7 +3767,7 @@ Count-back if tied
       attention = rows.filter((x) => x.state === "attention").length,
       finalised = rows.filter((x) => x.finalised).length,
       allFinal = Boolean(rows.length && finalised === rows.length);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><button class="soft" id="refreshLiveControl">Refresh</button></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>FINALISED</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} has been checked and finalised.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to finalise${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Attention means a player has entered all 18 holes but one or more player/marker scores are missing or do not agree. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>FINALISED</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} has been checked and finalised.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to finalise${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Attention means a player has entered all 18 holes but one or more player/marker scores are missing or do not agree. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     $$("[data-liveday]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -3548,6 +3780,7 @@ Count-back if tied
       await syncCloudNow();
       renderLiveEventControl();
     };
+    $("#emergencyRecovery").onclick = openEmergencyRecovery;
     if ($("#openPrizeSummary"))
       $("#openPrizeSummary").onclick = () => {
         store.event.leaderboardView = "summary";
