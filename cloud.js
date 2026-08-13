@@ -117,6 +117,19 @@ async function loadLatestOwnedEvent(){
   return data||null;
 }
 
+async function loadRecentOwnedEvents(limit=5){
+  const session=await ensureSignedIn();
+  const safeLimit=Math.max(1,Math.min(5,Number(limit)||5));
+  const {data,error}=await client.from('away_events')
+    .select('id,join_code,name,status,updated_at')
+    .eq('organiser_id',session.user.id)
+    .neq('status','archived')
+    .order('updated_at',{ascending:false})
+    .limit(safeLimit);
+  if(error)throw error;
+  return data||[];
+}
+
 async function archiveAllOwnedEvents(){
   const session=await ensureSignedIn();
   const {data,error}=await client.from('away_events')
@@ -136,5 +149,5 @@ function subscribe(eventId,onChange){
     .subscribe();
 }
 
-window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,releasePlayer,saveWorkspace,loadWorkspace,loadLatestOwnedEvent,archiveAllOwnedEvents,subscribe};
+window.AwayCloud={client,ensureSignedIn,createEvent,updateEvent,invitation,joinEvent,loadEvent,saveRound,releasePlayer,saveWorkspace,loadWorkspace,loadLatestOwnedEvent,loadRecentOwnedEvents,archiveAllOwnedEvents,subscribe};
 })();

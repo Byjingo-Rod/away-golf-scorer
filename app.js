@@ -13,6 +13,13 @@ async function rememberOrganiserWorkspace(eventId,joinCode){
  rememberOrganiserEvent(eventId,joinCode);
  try{await AwayCloud.saveWorkspace({activePublishedEvent:{eventId:String(eventId),joinCode:String(joinCode||'').toUpperCase()}})}catch(_){}
 }
+const RECENT_PUBLISHED_KEY='awayGolfRecentPublishedV1';
+function recentPublishedEvents(){try{return JSON.parse(localStorage.getItem(RECENT_PUBLISHED_KEY)||'[]')}catch(_){return[]}}
+function rememberPublishedEvent(item){
+ const event={eventId:String(item.eventId||item.id),joinCode:String(item.joinCode||item.join_code||'').toUpperCase(),name:String(item.name||'Away Golf Event'),updatedAt:item.updatedAt||item.updated_at||new Date().toISOString()};
+ const list=[event,...recentPublishedEvents().filter(x=>String(x.eventId)!==event.eventId)].slice(0,5);
+ localStorage.setItem(RECENT_PUBLISHED_KEY,JSON.stringify(list));
+}
 let roundWakeLock=null,roundWakeLockActive=false;
 function updateWakeIndicator(){const el=$('#wakeHeader');if(!el)return;const active=isPlayerDevice()&&['scoring','verify'].includes(store.event?.playerRoundMode);el.classList.toggle('active',active);el.textContent=!('wakeLock'in navigator)?'Use screen-lock setting':roundWakeLockActive?'Screen awake ✓':'Keeping screen awake…'}
 async function requestRoundWakeLock(){
@@ -191,6 +198,7 @@ async function publishCloudEvent(){
    await AwayCloud.updateEvent(result.event_id,payload,store.event.status||'locked');
    store.cloud={role:'organiser',eventId:result.event_id,joinCode:result.join_code};
    await rememberOrganiserWorkspace(result.event_id,result.join_code);
+   rememberPublishedEvent({eventId:result.event_id,joinCode:result.join_code,name:store.event.name});
    localStorage.setItem('awayGolf13',JSON.stringify(store));watchCloudEvent();setCloudMessage('Published · ready for players');renderCloudPanel();
  }catch(error){setCloudMessage('Could not publish');alert('Publishing did not complete. '+(error.message||error))}
 }
@@ -238,6 +246,36 @@ async function recoverOrganiserEvent(){
   store.cloud={role:'organiser',eventId,joinCode:code};await rememberOrganiserWorkspace(eventId,code);store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
   localStorage.setItem('awayGolf13',JSON.stringify(store));cloudBusy=false;cloudMessage='Published event recovered';watchCloudEvent();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');
  }catch(error){cloudBusy=false;setCloudMessage('Recovery did not complete');alert('The published event could not be recovered on this organiser PC. '+(error.message||error))}
+}
+async function openPublishedEvent(eventId,joinCode,name){
+ if(cloudBusy)return;
+ const replacing=store.event&&String(store.cloud?.eventId||'')!==String(eventId);
+ if(replacing&&!confirm(`Open ${name||'this published event'}? The event currently displayed will be replaced on this screen.`))return;
+ setCloudMessage('Opening published event…',true);
+ try{
+  const bundle=await AwayCloud.loadEvent(eventId),payload=bundle?.event?.event_data||{};
+  if(!payload.event)throw new Error('The published event plan could not be read.');
+  closeCloudConnection();store.event=JSON.parse(JSON.stringify(payload.event));
+  (payload.players||[]).forEach(remote=>{const i=store.players.findIndex(p=>String(p.id)===String(remote.id));if(i>=0)store.players[i]={...store.players[i],...remote};else store.players.push({...remote})});
+  (payload.courses||[]).forEach(remote=>{const i=store.courses.findIndex(c=>String(c.id)===String(remote.id));if(i>=0)store.courses[i]=remote;else store.courses.push(remote)});
+  store.event.scoring={day1:{},day2:{}};(bundle.scores||[]).forEach(row=>{const key='day'+row.day;store.event.scoring[key]=store.event.scoring[key]||{};store.event.scoring[key][String(row.scorer_player_id)]=row.score_data||{}});
+  const code=String(joinCode||bundle.event?.join_code||'').toUpperCase();store.cloud={role:'organiser',eventId:String(eventId),joinCode:code};
+  await rememberOrganiserWorkspace(eventId,code);rememberPublishedEvent({eventId,joinCode:code,name:store.event.name});
+  store.cloudPlayers=(bundle.players||[]).map(row=>({playerId:String(row.player_id),name:row.display_name||'',joined:Boolean(row.joined_at),joinedAt:row.joined_at||null}));
+  localStorage.setItem('awayGolf13',JSON.stringify(store));cloudBusy=false;cloudMessage='Live event opened';$('#modalShade').classList.remove('open');watchCloudEvent();renderHome();renderPlayerExperience();renderLeaderboard();nav('home');
+ }catch(error){cloudBusy=false;setCloudMessage('Published event did not open');alert('The published event could not be opened. '+(error.message||error))}
+}
+async function openPublishedEvents(){
+ $('#modalContent').innerHTML='<h2>Published Events</h2><p class="publishedEventsHelp">Loading your five most recent published events…</p>';
+ $('#modalShade').classList.add('open');
+ try{
+  const cloudEvents=(await AwayCloud.loadRecentOwnedEvents(5)).filter(x=>String(x.join_code||'').toUpperCase()!==RETIRED_TEST_CODE);
+  const combined=[...cloudEvents,...recentPublishedEvents().map(x=>({id:x.eventId,join_code:x.joinCode,name:x.name,updated_at:x.updatedAt,localOnly:true}))];
+  const seen=new Set(),events=combined.filter(x=>{const id=String(x.id);if(!id||seen.has(id))return false;seen.add(id);return true}).sort((a,b)=>new Date(b.updated_at||0)-new Date(a.updated_at||0)).slice(0,5);
+  $('#modalContent').innerHTML=`<h2>Published Events</h2><p class="publishedEventsHelp">Select an event to open its organiser screen, connected players and scores.</p>${events.length?`<div class="publishedEventList">${events.map(x=>`<button class="publishedEventChoice" data-openpublishedevent="${esc(x.id)}" data-joincode="${esc(x.join_code||'')}" data-eventname="${esc(x.name||'Away Golf Event')}"><span><b>${esc(x.name||'Away Golf Event')}</b><small>${x.join_code?`Join code ${esc(x.join_code)} · `:''}${x.updated_at?`Updated ${new Date(x.updated_at).toLocaleDateString('en-AU')}`:'Published event'}</small></span><strong>Open →</strong></button>`).join('')}</div>`:'<p class="publishedEventsError">No published events were found for this organiser copy.</p>'}<button class="soft" id="closePublishedEvents">Close</button>`;
+  $('#closePublishedEvents').onclick=()=>$('#modalShade').classList.remove('open');
+  $$('[data-openpublishedevent]').forEach(button=>button.onclick=()=>openPublishedEvent(button.dataset.openpublishedevent,button.dataset.joincode,button.dataset.eventname));
+ }catch(error){$('#modalContent').innerHTML=`<h2>Published Events</h2><p class="publishedEventsError">The published-event list could not be loaded. Check the internet connection and try again.</p><button class="soft" id="closePublishedEvents">Close</button>`;$('#closePublishedEvents').onclick=()=>$('#modalShade').classList.remove('open')}
 }
 function queueCloudRound(day,playerId){
  if(!store.cloud?.eventId)return;
@@ -1074,6 +1112,7 @@ async function deleteCurrentEvent(){
  closeCloudConnection();store.event=null;delete store.cloud;store.cloudPlayers=[];forgetOrganiserEvent();localStorage.setItem('awayGolf13',JSON.stringify(store));$('#modalShade').classList.remove('open');renderHome();renderPlayerExperience();renderLeaderboard();nav('home');alert('Event deleted. Away Golf is ready for a new event.');
 }
 $('#eventOptions').onclick=openEventOptions;
+$('#publishedEvents').onclick=openPublishedEvents;
 
 const OATLANDS_TEST_IDS=['p42','p11','p27','p6','p2','p17','p49','p1'];
 const OATLANDS_SIXTEEN_IDS=[...OATLANDS_TEST_IDS,'p3','p4','p5','p7','p8','p9','p12','p13'];

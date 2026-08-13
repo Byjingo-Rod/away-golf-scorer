@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.53
+AWAY GOLF SCORER — VERSION 15.54
+
+VERSION 15.54 — PUBLISHED EVENTS MENU
+========================================
+
+- Adds Published Events beside Today’s Special Rules.
+- Lists the organiser’s five most recently published events.
+- Opens the selected event directly with its connected players and scores.
+- Changes the player entry label to Insert the Event Code Provided.
 
 VERSION 15.53 — SAFE ORGANISER REOPENING
 ========================================
