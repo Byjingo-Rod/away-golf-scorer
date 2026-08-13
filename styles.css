@@ -5048,6 +5048,14 @@ body.playerDevice .cloudHeader {
   padding: 9px 11px;
   font-weight: 900;
 }
+.emergencyActions button:disabled,
+.emergencyActions button.primary:disabled {
+  border-color: #cfd6d1;
+  background: #e5e9e6;
+  color: #8a958e;
+  opacity: 1;
+  cursor: not-allowed;
+}
 .emergencyHead small {
   color: #a34e0b;
   font-weight: 950;
@@ -5055,6 +5063,18 @@ body.playerDevice .cloudHeader {
 }
 .emergencyHead h2,
 .emergencyHead p { margin: 4px 0 8px; }
+.virtualCourseName {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 2px solid #26734c;
+  border-radius: 9px;
+  background: #eef7f1;
+  text-align: center;
+}
+.virtualCourseName small,
+.virtualCourseName b { display: block; }
+.virtualCourseName small { color: #607168; font-size: 9px; font-weight: 900; }
+.virtualCourseName b { color: #174f37; font-size: 20px; margin-top: 2px; }
 .emergencyChoices {
   display: grid;
   grid-template-columns: 1fr 1fr;

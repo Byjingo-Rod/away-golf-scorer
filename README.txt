@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.56
+AWAY GOLF SCORER — VERSION 15.57
+
+VERSION 15.57 — VIRTUAL CARD CLARITY
+====================================
+
+- Shows the selected course prominently above emergency Player–Marker entry.
+- Makes clear that the organiser enters gross strokes, not Stableford points.
+- Accepts either P or a dash as Pickup and stores the entry consistently as P.
+- Greys unavailable recovery buttons so they cannot look ready to press.
 
 VERSION 15.56 — EMERGENCY SCORE RECOVERY
 =========================================
