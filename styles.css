@@ -4725,6 +4725,150 @@ body.joinOnlyDevice .playerJoinLanding {
   border-left: 5px solid #c08c15;
   background: #fffaf0;
 }
+.multiTeeHcpWrap {
+  overflow-x: auto;
+}
+.multiTeeHcpColumns,
+.multiTeeHcpRow {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.4fr) repeat(3, 82px 48px);
+  align-items: center;
+  gap: 8px;
+  min-width: 650px;
+}
+.multiTeeHcpColumns {
+  padding: 0 10px;
+  margin-top: 14px;
+  color: #607068;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.multiTeeHcpRow {
+  padding: 8px 10px;
+  border: 1px solid #d7e3dc;
+  border-radius: 9px;
+  background: #fff;
+}
+.multiTeeHcpRow > span {
+  display: flex;
+  flex-direction: column;
+}
+.multiTeeHcpRow input[type="number"] {
+  width: 100%;
+  font-size: 17px;
+  text-align: center;
+}
+.multiTeeHcpRow .quickPlusCheck {
+  justify-content: center;
+}
+.eventTeePanel {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  margin: 12px 0;
+  padding: 13px;
+  border: 2px solid #d49a43;
+  border-radius: 11px;
+  background: #fff8ea;
+}
+.eventTeePanel.final {
+  border-color: #26845b;
+  background: #edf8f1;
+}
+.eventTeePanel h3,
+.eventTeePanel p {
+  margin: 2px 0;
+}
+.eventTeePanel > div:first-child > small {
+  color: #92601d;
+  font-weight: 900;
+}
+.eventTeeButtons {
+  display: flex;
+  gap: 6px;
+}
+.eventTeeButtons button {
+  min-width: 76px;
+  padding: 8px 10px;
+  border: 1px solid #b9cec1;
+  border-radius: 8px;
+  background: #fff;
+  color: #27513d;
+  font-weight: 800;
+}
+.eventTeeButtons button.active {
+  border-color: #176c46;
+  background: #176c46;
+  color: #fff;
+}
+.eventTeeButtons small {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 600;
+}
+.finaliseTeeBtn,
+.reopenTeeBtn {
+  white-space: nowrap;
+}
+.teeSelectionWarning {
+  color: #9d392f;
+}
+.planTeeSelection {
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid #d5e2da;
+  border-radius: 9px;
+  background: #f7faf8;
+}
+.planTeeSelection > div:first-child {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+.planTeeSelection span {
+  color: #62736a;
+  font-size: 10px;
+}
+.planTeeDay {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+}
+.planTeeDay strong {
+  min-width: 55px;
+}
+.planTeeDay button {
+  padding: 7px 16px;
+  border: 1px solid #bdd0c4;
+  border-radius: 7px;
+  background: #fff;
+  color: #28533e;
+  font-weight: 800;
+}
+.planTeeDay button.active {
+  background: #176c46;
+  color: #fff;
+}
+@media (max-width: 760px) {
+  .eventTeePanel {
+    grid-template-columns: 1fr;
+  }
+  .eventTeeButtons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .eventTeeButtons button {
+    min-width: 0;
+  }
+  .finaliseTeeBtn,
+  .reopenTeeBtn {
+    width: 100%;
+  }
+}
 .quickHcpRow.awaitingPlayer small {
   color: #9a6b00;
 }

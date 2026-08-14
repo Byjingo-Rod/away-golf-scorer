@@ -1,4 +1,16 @@
-AWAY GOLF SCORER — VERSION 15.58
+AWAY GOLF SCORER — VERSION 15.59
+
+VERSION 15.59 — LATE TEE SELECTION SAFETY
+==========================================
+
+- Stores separate Back, Middle and Front Tee handicaps for every event player.
+- Gives each tee its own independent Plus-handicap tick.
+- Allows a provisional playing tee to be chosen during relaxed event planning.
+- Allows the organiser to change and finalise the tee after locking and publishing the event.
+- Holds player scoring until the organiser finalises the playing tee.
+- Shares the final tee and its matching handicaps to connected players.
+- Prevents any tee change after the first score or putt is entered.
+- Allows a finalised tee to be reopened safely before scoring if the course changes its instruction again.
 
 VERSION 15.58 — ORGANISER BACKUP AND PUBLISHED EVENT SAFETY
 ===========================================================

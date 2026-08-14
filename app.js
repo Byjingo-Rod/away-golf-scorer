@@ -187,6 +187,58 @@
       ? ""
       : Math.abs(n);
   }
+  const EVENT_TEES = ["back", "middle", "front"];
+  const EVENT_TEE_LABELS = { back: "Back", middle: "Middle", front: "Front" };
+  function ensureEventTeePlanning(event = store.event) {
+    if (!event) return;
+    event.dailyHandicaps = event.dailyHandicaps || { day1: {}, day2: {} };
+    const initialiseFromLegacy = !event.teePlanningVersion;
+    event.teeHandicaps = event.teeHandicaps || { day1: {}, day2: {} };
+    event.teeSelection = event.teeSelection || {};
+    event.teeSelectionFinalised = event.teeSelectionFinalised || {};
+    for (let day = 1; day <= (event.days || 1); day++) {
+      const key = "day" + day,
+        legacy = event.dailyHandicaps[key] || {};
+      event.teeHandicaps[key] = event.teeHandicaps[key] || {};
+      EVENT_TEES.forEach((tee) => {
+        const existing = event.teeHandicaps[key][tee];
+        event.teeHandicaps[key][tee] = existing || {};
+        if (
+          initialiseFromLegacy &&
+          !Object.keys(event.teeHandicaps[key][tee]).length
+        )
+          event.teeHandicaps[key][tee] = { ...legacy };
+      });
+      event.teeSelection[key] = EVENT_TEES.includes(event.teeSelection[key])
+        ? event.teeSelection[key]
+        : "middle";
+      if (event.teeSelectionFinalised[key] == null)
+        event.teeSelectionFinalised[key] = Boolean(event.locked);
+      event.dailyHandicaps[key] = {
+        ...event.teeHandicaps[key][event.teeSelection[key]],
+      };
+    }
+    event.teePlanningVersion = 1;
+  }
+  function selectedEventTee(day, event = store.event) {
+    ensureEventTeePlanning(event);
+    return event?.teeSelection?.["day" + day] || "middle";
+  }
+  function teeHandicapsFor(day, tee, event = store.event) {
+    ensureEventTeePlanning(event);
+    return event?.teeHandicaps?.["day" + day]?.[tee] || {};
+  }
+  function selectEventTee(day, tee, event = store.event) {
+    ensureEventTeePlanning(event);
+    if (!event || !EVENT_TEES.includes(tee)) return;
+    const key = "day" + day;
+    event.teeSelection[key] = tee;
+    event.dailyHandicaps[key] = { ...teeHandicapsFor(day, tee, event) };
+  }
+  function teeSelectionIsFinal(day, event = store.event) {
+    ensureEventTeePlanning(event);
+    return Boolean(event?.teeSelectionFinalised?.["day" + day]);
+  }
   function competitionDisplayName(id) {
     if (id === "teamPutts")
       return `Putting Competition (${store.event?.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`;
@@ -1102,7 +1154,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.58", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.59", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2267,7 +2319,7 @@
             : `Day 1: ${d1.length}/${need} · Day 2: ${d2.length}/${need}`;
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
-  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set Hcp — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Hcp</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
+  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Tee Hcps</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days === 2 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3>Invited <span>${invited.length}</span></h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
       $("#wpSearch").value = q;
@@ -2346,7 +2398,7 @@
     }
     draw();
   }
-  function openWizardHandicapEntry(day) {
+  function openLegacyWizardHandicapEntry(day) {
     const ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID),
       c = course(W.event["course" + day]),
       key = "day" + day;
@@ -2435,6 +2487,99 @@
       $("#modalShade").classList.remove("open");
       renderStep2();
     };
+  }
+  function openWizardHandicapEntry(day) {
+    const ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID),
+      c = course(W.event["course" + day]),
+      key = "day" + day;
+    ensureEventTeePlanning(W.event);
+    const initialDay1 = JSON.parse(
+      JSON.stringify(W.event.teeHandicaps.day1 || {}),
+    );
+    if (day === 2)
+      EVENT_TEES.forEach((tee) =>
+        ids.forEach((id) => {
+          const d1 = teeHandicapsFor(1, tee, W.event),
+            d2 = teeHandicapsFor(2, tee, W.event);
+          if ((d2[id] === "" || d2[id] == null) && d1[id] != null)
+            d2[id] = d1[id];
+        }),
+      );
+    const teeHead = EVENT_TEES.map(
+      (tee) => `<span>${EVENT_TEE_LABELS[tee]} Hcp</span><span>Plus</span>`,
+    ).join("");
+    const rows = ids
+      .map((id) => {
+        const cells = EVENT_TEES.map((tee) => {
+          const value = teeHandicapsFor(day, tee, W.event)[id],
+            plus = Number(value) < 0;
+          return `<div class="signedHcpInput ${plus ? "plus" : ""}" data-teesigned="${tee}|${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-teequickhcp="${tee}|${id}" value="${esc(handicapMagnitude(value))}" placeholder="Hcp"></div><label class="quickPlusCheck"><input type="checkbox" data-teequickplus="${tee}|${id}" ${plus ? "checked" : ""}><span>+</span></label>`;
+        }).join("");
+        return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
+      })
+      .join("");
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day === 2 ? "Review Day 2" : "Set"} Tee Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter the playing handicap for each possible tee. Press Enter to move across the row. Tick + independently for plus handicaps.</p></div></div><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Tee Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalShade").classList.add("open");
+    const inputs = $$('[data-teequickhcp]');
+    const storeValue = (inp) => {
+      const [tee, id] = inp.dataset.teequickhcp.split("|"),
+        map = teeHandicapsFor(day, tee, W.event);
+      if (inp.value === "") map[id] = "";
+      else {
+        const raw = Math.max(0, Math.min(54, +inp.value || 0)),
+          plus = $(`[data-teequickplus="${tee}|${id}"]`)?.checked;
+        map[id] = plus ? -raw : raw;
+        $(`[data-teesigned="${tee}|${id}"]`)?.classList.toggle(
+          "plus",
+          Boolean(plus),
+        );
+      }
+    };
+    inputs.forEach((inp, i) => {
+      inp.oninput = () => storeValue(inp);
+      inp.onkeydown = (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        storeValue(inp);
+        if (inputs[i + 1]) {
+          inputs[i + 1].focus();
+          inputs[i + 1].select();
+        } else $("#saveQuickHandicaps").focus();
+      };
+    });
+    $$('[data-teequickplus]').forEach(
+      (cb) =>
+        (cb.onchange = () => {
+          const inp = $(`[data-teequickhcp="${cb.dataset.teequickplus}"]`);
+          if (inp) storeValue(inp);
+        }),
+    );
+    $("#closeQuickHandicaps").onclick = () =>
+      $("#modalShade").classList.remove("open");
+    $("#saveQuickHandicaps").onclick = () => {
+      inputs.forEach(storeValue);
+      if (day === 1 && W.event.days === 2)
+        EVENT_TEES.forEach((tee) => {
+          const d1 = teeHandicapsFor(1, tee, W.event),
+            d2 = teeHandicapsFor(2, tee, W.event),
+            initial = initialDay1[tee] || {};
+          wizardPlanningPlayers(2)
+            .filter((id) => id !== NO_PARTNER_ID)
+            .forEach((id) => {
+              if (
+                d1[id] != null &&
+                d1[id] !== "" &&
+                (d2[id] == null || d2[id] === "" || d2[id] === initial[id])
+              )
+                d2[id] = d1[id];
+            });
+        });
+      selectEventTee(day, selectedEventTee(day, W.event), W.event);
+      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      $("#modalShade").classList.remove("open");
+      renderStep2();
+    };
+    if (inputs[0]) inputs[0].focus();
   }
   document.addEventListener("click", (e) => {
     let t = e.target;
@@ -2830,6 +2975,7 @@ Count-back if tied
     );
   }
   function renderStep6() {
+    ensureEventTeePlanning(W.event);
     const displayDate = (iso) => {
       if (!iso) return "No date";
       const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -2914,6 +3060,16 @@ Count-back if tied
         ok: invitedCount > 0,
         label: `Players Invited: ${invitedCount} · Confirmed: ${confirmed.length}`,
       },
+      ...Array.from({ length: W.event.days }, (_, i) => {
+        const day = i + 1,
+          complete = EVENT_TEES.every((tee) =>
+            teeHandicapsComplete(day, tee, W.event),
+          );
+        return {
+          ok: complete,
+          label: `${W.event.days === 1 ? "" : `Day ${day} `}Back, Middle and Front Tee Handicaps: ${complete ? "Complete" : "Incomplete"}`,
+        };
+      }),
       {
         ok:
           day1Ids.length >= (+W.event.fieldSize || 0) &&
@@ -2965,8 +3121,8 @@ Count-back if tied
 
    <div class="startCard">
      <h4>Courses</h4>
-     <p>${W.event.days === 1 ? `<b>${esc(c1?.name || "Not selected")}</b>` : `<b>Day 1:</b> ${esc(c1?.name || "Not selected")}`}</p>
-     ${W.event.days == 2 ? `<p><b>Day 2:</b> ${esc(c2?.name || "Not selected")}</p>` : ""}
+     <p>${W.event.days === 1 ? `<b>${esc(c1?.name || "Not selected")}</b> · Provisional ${EVENT_TEE_LABELS[selectedEventTee(1, W.event)]} Tee` : `<b>Day 1:</b> ${esc(c1?.name || "Not selected")} · Provisional ${EVENT_TEE_LABELS[selectedEventTee(1, W.event)]} Tee`}</p>
+     ${W.event.days == 2 ? `<p><b>Day 2:</b> ${esc(c2?.name || "Not selected")} · Provisional ${EVENT_TEE_LABELS[selectedEventTee(2, W.event)]} Tee</p>` : ""}
    </div>
 
    <div class="startCard">
@@ -3008,13 +3164,22 @@ Count-back if tied
    ${allReady ? "<b>Everything required for setup is complete but you can make changes to any element until Lock Event is used.</b>" : "<b>A setup item still needs attention.</b><span>Use Back to correct anything marked with ! before proceeding.</span>"}
  </div>
 
- <div class="startConfirmRow"><div><b>Starting Tee Check</b><span>${esc(startDesc)}</span></div><button type="button" class="soft" id="changeStartingTee">Change Starting Tee</button></div>
+ <div class="planTeeSelection"><div><b>Provisional Playing Tee</b><span>Choose the expected tee now. You can change and finalise it after the event is locked and players have joined, provided scoring has not begun.</span></div>${Array.from({ length: W.event.days }, (_, i) => { const day = i + 1, selected = selectedEventTee(day, W.event); return `<div class="planTeeDay"><strong>${W.event.days === 1 ? "Event" : `Day ${day}`}</strong>${EVENT_TEES.map((tee) => `<button type="button" data-wizardplayingtee="${day}|${tee}" class="${selected === tee ? "active" : ""}">${EVENT_TEE_LABELS[tee]}</button>`).join("")}</div>`; }).join("")}</div>
+ <div class="startConfirmRow"><div><b>Starting Hole Check</b><span>${esc(startDesc)}</span></div><button type="button" class="soft" id="changeStartingTee">Change Starting Hole</button></div>
  <button type="button" class="startEventBig" id="startEventBig" ${allReady ? "" : "disabled"}>SAVE EVENT PLAN – PROCEED TO SET UP SCORING</button>`;
 
     $("#changeStartingTee").onclick = () => {
       W.step = 1;
       renderWizard();
     };
+    $$("[data-wizardplayingtee]").forEach(
+      (button) =>
+        (button.onclick = () => {
+          const [day, tee] = button.dataset.wizardplayingtee.split("|");
+          selectEventTee(+day, tee, W.event);
+          renderStep6();
+        }),
+    );
     $("#startEventBig").onclick = () => {
       if (!allReady) return;
       finishEvent();
@@ -3410,21 +3575,28 @@ Count-back if tied
     return parts.join(" · ");
   }
   function eventDayHandicaps(day) {
+    ensureEventTeePlanning(store.event);
     store.event.dailyHandicaps = store.event.dailyHandicaps || {
       day1: {},
       day2: {},
     };
-    store.event.dailyHandicaps["day" + day] =
-      store.event.dailyHandicaps["day" + day] || {};
-    return store.event.dailyHandicaps["day" + day];
+    const key = "day" + day,
+      active = teeHandicapsFor(day, selectedEventTee(day));
+    store.event.dailyHandicaps[key] = active;
+    return active;
   }
   function playerDailyHandicap(id, day) {
-    const v = eventDayHandicaps(day)[String(id)];
+    const v = teeHandicapsFor(
+      day,
+      selectedEventTee(day),
+    )[String(id)];
     return v === "" || v == null ? null : +v;
   }
-  function recordEventHandicapHistory() {
+  function recordEventHandicapHistory(dayOnly = null) {
     if (!store.event) return;
-    for (let day = 1; day <= store.event.days; day++) {
+    const firstDay = dayOnly || 1,
+      lastDay = dayOnly || store.event.days;
+    for (let day = firstDay; day <= lastDay; day++) {
       const c = course(store.event["course" + day]);
       dayFieldIds(day)
         .filter((id) => id !== NO_PARTNER_ID)
@@ -3499,6 +3671,27 @@ Count-back if tied
     return s[k];
   }
   const scoreEntered = (value) => value !== "" && value != null;
+  function dayHasScoreEntries(day) {
+    const rounds = store.event?.scoring?.["day" + day] || {};
+    return Object.values(rounds).some((round) =>
+      Object.entries(round || {}).some(([hole, rec]) => {
+        if (!/^([1-9]|1[0-8])$/.test(hole)) return false;
+        return [
+          rec?.self?.gross,
+          rec?.self?.putts,
+          rec?.official?.gross,
+          rec?.official?.putts,
+        ].some(scoreEntered);
+      }),
+    );
+  }
+  function teeHandicapsComplete(day, tee, event = store.event) {
+    const map = teeHandicapsFor(day, tee, event),
+      ids = event === store.event ? dayFieldIds(day) : wizardPlanningPlayers(day);
+    return ids
+      .filter((id) => String(id) !== NO_PARTNER_ID)
+      .every((id) => map[String(id)] !== "" && map[String(id)] != null);
+  }
   function scratchHandicapLimit(event = store.event) {
     return event?.scratchMaxHcp == null
       ? null
@@ -4954,15 +5147,20 @@ Count-back if tied
       { length: store.event.days },
       (_, i) => store.event.groupSetup["day" + (i + 1)]?.saved,
     ).every(Boolean);
-    const handicapsComplete = Array.from({ length: store.event.days }, (_, i) =>
-      dayFieldIds(i + 1)
-        .filter((x) => String(x) !== NO_PARTNER_ID)
-        .every((id) => playerDailyHandicap(id, i + 1) != null),
+    const handicapsComplete = Array.from(
+      { length: store.event.days },
+      (_, i) => EVENT_TEES.every((tee) => teeHandicapsComplete(i + 1, tee)),
     ).every(Boolean);
     const lockReady = allSaved && handicapsComplete;
     const awaitingIds = ids.filter(
       (id) => store.event.invitationStatus?.[String(id)] === "awaiting",
     );
+    ensureEventTeePlanning(store.event);
+    const selectedTee = selectedEventTee(day),
+      teeFinal = teeSelectionIsFinal(day),
+      teeScoringStarted = dayHasScoreEntries(day),
+      selectedTeeComplete = teeHandicapsComplete(day, selectedTee),
+      teePanel = `<div class="eventTeePanel ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${EVENT_TEE_LABELS[selectedTee]} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : "Provisional selection. All three handicap sets remain stored."}</p></div><div class="eventTeeButtons">${EVENT_TEES.map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${EVENT_TEE_LABELS[tee]}<small>${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${locked && teeFinal && !teeScoringStarted ? '<button type="button" class="soft reopenTeeBtn" id="reopenEventTee">Change Tee Before Scoring</button>' : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`;
     const affected = ctx?.affected ? player(ctx.affected) : null;
     const shortNotice = ctx
       ? `<div class="virtualNotice">
@@ -4976,9 +5174,10 @@ Count-back if tied
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
    <div class="teamsTopActions">${store.event.days == 2 ? `<div class="dayTabs" aria-label="Select event day"><button type="button" class="${day === 1 ? "active" : ""}" data-groupday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-groupday="2">Day 2</button></div>` : ""}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — planning and team setup can no longer be changed.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and, on Day 2, strongly avoids repeating Day 1 combinations."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee remains changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and, on Day 2, strongly avoids repeating Day 1 combinations."}</div></div>`}
  ${day === 2 && !locked ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
+ ${teePanel}
  <div class="groupGrid">${groups
    .map(
      (g, gi) => `<div class="playingGroup">
@@ -5046,6 +5245,51 @@ Count-back if tied
           renderTeamsPage();
         }),
     );
+    $$("[data-eventtee]").forEach(
+      (button) =>
+        (button.onclick = () => {
+          if (teeSelectionIsFinal(day) || dayHasScoreEntries(day)) return;
+          selectEventTee(day, button.dataset.eventtee);
+          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          renderTeamsPage();
+        }),
+    );
+    if ($("#finaliseEventTee"))
+      $("#finaliseEventTee").onclick = async () => {
+        if (dayHasScoreEntries(day))
+          return alert("The tee cannot be changed because scoring has begun.");
+        const tee = selectedEventTee(day);
+        if (!teeHandicapsComplete(day, tee))
+          return alert(
+            `Complete every ${EVENT_TEE_LABELS[tee]} Tee handicap before finalising.`,
+          );
+        if (
+          !confirm(
+            `Finalise the ${EVENT_TEE_LABELS[tee]} Tee for ${store.event.days === 1 ? "this event" : `Day ${day}`}?\n\nPlayers will score using this tee's handicaps.`,
+          )
+        )
+          return;
+        store.event.teeSelectionFinalised["day" + day] = true;
+        selectEventTee(day, tee);
+        recordEventHandicapHistory(day);
+        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        if (store.cloud?.role === "organiser" && store.cloud.eventId)
+          await updateCloudEvent();
+        renderTeamsPage();
+        renderPlayerExperience();
+      };
+    if ($("#reopenEventTee"))
+      $("#reopenEventTee").onclick = async () => {
+        if (dayHasScoreEntries(day))
+          return alert("The tee cannot be changed because scoring has begun.");
+        if (!confirm("Reopen the playing tee selection before scoring? Players will be held at the start screen until you finalise it again.")) return;
+        store.event.teeSelectionFinalised["day" + day] = false;
+        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        if (store.cloud?.role === "organiser" && store.cloud.eventId)
+          await updateCloudEvent();
+        renderTeamsPage();
+        renderPlayerExperience();
+      };
     if (locked) return;
     $("#backToEventSetup").onclick = reopenEventPlan;
     $("#historyBalanced").onclick = () => {
@@ -5175,13 +5419,12 @@ Count-back if tied
       }
       if (
         confirm(
-          "LOCK EVENT now?\\n\\nAfter locking, players, competitions, rules and groups can no longer be changed.",
+          "LOCK EVENT now?\\n\\nPlayers, competitions, rules and groups will be fixed. The playing tee can still be changed and finalised until the first score is entered.",
         )
       ) {
         store.event.locked = true;
         store.event.status = "locked";
         store.event.lockedAt = new Date().toISOString();
-        recordEventHandicapHistory();
         save();
         renderTeamsPage();
       }
@@ -6642,11 +6885,13 @@ Count-back if tied
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
       finalised = roundFinalisedFor(day, selected),
-      canStart = Boolean(store.event.locked && ack && hcp != null),
+      canStart = Boolean(
+        store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null,
+      ),
       rulesOpen = Boolean(store.event.playerRulesOpen);
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${days === 2 ? `<div class="previewDayTabs" aria-label="Select scoring day"><button type="button" class="${day === 1 ? "active" : ""}" data-previewday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-previewday="2">Day 2</button></div>` : ""}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts twoFacts"><div><small>Daily Handicap</small><b>${hcp == null ? "—" : esc(formatPlayingHandicap(hcp))}</b></div><div><small>Starting Tee</small><b>${esc(startText)}</b></div></div></div>
+ <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts"><div><small>Playing Tee</small><b>${teeSelectionIsFinal(day) ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${teeSelectionIsFinal(day) && hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. <span class="vpName">${esc(player(setup.virtualPlayer)?.name || "Virtual Player")} (VP)</span> supplies the missing score where a partner or fourth team member is required.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b> on each NTP hole today. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
@@ -6671,7 +6916,7 @@ Count-back if tied
          )}</div><h4>Special Rules</h4><p>${rules ? esc(rules).replace(/\n/g, "<br>") : "No additional special rules for this event."}</p></div>`
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Got It" : "Got It"}</button></div>
- <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO START" : "START ROUND"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
+ <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO START" : "START ROUND"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
     $("#previewPlayer").onchange = (e) => {
       store.event.playerPreviewId = e.target.value;
       store.event.playerRoundMode = "preview";
