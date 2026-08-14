@@ -80,6 +80,15 @@
     ].slice(0, 5);
     localStorage.setItem(RECENT_PUBLISHED_KEY, JSON.stringify(list));
   }
+  function forgetPublishedEvent(eventId) {
+    const id = String(eventId || "");
+    localStorage.setItem(
+      RECENT_PUBLISHED_KEY,
+      JSON.stringify(
+        recentPublishedEvents().filter((x) => String(x.eventId) !== id),
+      ),
+    );
+  }
   let roundWakeLock = null,
     roundWakeLockActive = false;
   function updateWakeIndicator() {
@@ -1013,32 +1022,35 @@
     $("#modalShade").classList.add("open");
     try {
       const cloudEvents = (await AwayCloud.loadRecentOwnedEvents(5)).filter(
-        (x) => String(x.join_code || "").toUpperCase() !== RETIRED_TEST_CODE,
-      );
-      const combined = [
-        ...cloudEvents,
-        ...recentPublishedEvents().map((x) => ({
-          id: x.eventId,
-          join_code: x.joinCode,
-          name: x.name,
-          updated_at: x.updatedAt,
-          localOnly: true,
-        })),
-      ];
-      const seen = new Set(),
-        events = combined
-          .filter((x) => {
-            const id = String(x.id);
-            if (!id || seen.has(id)) return false;
-            seen.add(id);
-            return true;
-          })
-          .sort(
-            (a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0),
-          )
-          .slice(0, 5);
+          (x) => String(x.join_code || "").toUpperCase() !== RETIRED_TEST_CODE,
+        ),
+        events = await Promise.all(
+          cloudEvents.map(async (x) => {
+            try {
+              const bundle = await AwayCloud.loadEvent(x.id),
+                actual = bundle?.event?.event_data?.event || {},
+                actualName = String(actual.name || x.name || "Away Golf Event"),
+                cloudName = String(x.name || "Away Golf Event");
+              return {
+                ...x,
+                name: actualName,
+                cloud_name: cloudName,
+                mismatch: actualName !== cloudName,
+                event_date: actual.date || "",
+                field_size:
+                  actual.dayFields?.day1?.length ||
+                  actual.confirmed?.length ||
+                  actual.fieldSize ||
+                  0,
+                readable: true,
+              };
+            } catch (_) {
+              return { ...x, readable: false };
+            }
+          }),
+        );
       $("#modalContent").innerHTML =
-        `<h2>Published Events</h2><p class="publishedEventsHelp">Select an event to open its organiser screen, connected players, scores and results.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<button class="publishedEventChoice" data-openpublishedevent="${esc(x.id)}" data-joincode="${esc(x.join_code || "")}" data-eventname="${esc(x.name || "Away Golf Event")}"><span><b>${esc(x.name || "Away Golf Event")}</b><small>${x.join_code ? `Join code ${esc(x.join_code)} · ` : ""}${x.updated_at ? `Updated ${new Date(x.updated_at).toLocaleDateString("en-AU")}` : "Published event"}</small></span><strong>Open →</strong></button>`).join("")}</div>` : '<p class="publishedEventsError">No published events were found for this organiser copy.</p>'}<section class="organiserTabletConnect"><h3>Connect this tablet as an organiser</h3><p>Use the two codes shown by the organiser PC. This is separate from joining as a player.</p><div><input id="tabletEventCode" maxlength="6" placeholder="Player event code"><input id="tabletOrganiserCode" maxlength="8" placeholder="Organiser access code"><button class="primary" id="claimOrganiserTablet">Connect Tablet</button></div></section><button class="soft" id="closePublishedEvents">Close</button>`;
+        `<h2>Published Events</h2><p class="publishedEventsHelp">These details have been checked against the actual event stored online.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<div class="publishedEventChoice ${x.mismatch ? "mismatch" : ""} ${x.readable ? "" : "unreadable"}"><button data-openpublishedevent="${esc(x.id)}" data-joincode="${esc(x.join_code || "")}" data-eventname="${esc(x.name || "Away Golf Event")}" ${x.readable ? "" : "disabled"}><span><b>${esc(x.name || "Away Golf Event")}</b><small>${x.join_code ? `Join code ${esc(x.join_code)} · ` : ""}${x.event_date ? `${esc(formatEventDate(x.event_date))} · ` : ""}${x.field_size ? `${esc(x.field_size)} players` : x.updated_at ? `Updated ${new Date(x.updated_at).toLocaleDateString("en-AU")}` : "Published event"}</small>${x.mismatch ? `<em>Warning: old cloud label “${esc(x.cloud_name)}” did not match the actual event contents.</em>` : ""}${x.readable ? "" : "<em>The stored event contents could not be read.</em>"}</span><strong>Open →</strong></button><button class="archivePublishedEvent" data-archivepublishedevent="${esc(x.id)}" data-archivename="${esc(x.name || "Away Golf Event")}">Archive</button></div>`).join("")}</div>` : '<p class="publishedEventsError">No published events were found for this organiser copy.</p>'}<section class="organiserTabletConnect"><h3>Connect this tablet as an organiser</h3><p>Use the two codes shown by the organiser PC. This is separate from joining as a player.</p><div><input id="tabletEventCode" maxlength="6" placeholder="Player event code"><input id="tabletOrganiserCode" maxlength="8" placeholder="Organiser access code"><button class="primary" id="claimOrganiserTablet">Connect Tablet</button></div></section><button class="soft" id="closePublishedEvents">Close</button>`;
       $("#closePublishedEvents").onclick = () =>
         $("#modalShade").classList.remove("open");
       $$("[data-openpublishedevent]").forEach(
@@ -1050,6 +1062,33 @@
               button.dataset.eventname,
             )),
       );
+      $$("[data-archivepublishedevent]").forEach(
+        (button) =>
+          (button.onclick = async () => {
+            const eventId = button.dataset.archivepublishedevent,
+              eventName = button.dataset.archivename || "this event";
+            if (!confirm(`Archive ${eventName}?\n\nIt will disappear from Published Events and its join code will stop being offered. Your players, courses and local planning data will not be deleted.`)) return;
+            button.disabled = true;
+            button.textContent = "Archiving…";
+            try {
+              await AwayCloud.archiveEvent(eventId);
+              forgetPublishedEvent(eventId);
+              if (String(store.cloud?.eventId || "") === String(eventId)) {
+                closeCloudConnection();
+                delete store.cloud;
+                store.cloudPlayers = [];
+                forgetOrganiserEvent();
+                try { await AwayCloud.saveWorkspace({ activePublishedEvent: null }); } catch (_) {}
+                save();
+              }
+              await openPublishedEvents();
+            } catch (error) {
+              button.disabled = false;
+              button.textContent = "Archive";
+              alert("The event could not be archived. " + (error.message || error));
+            }
+          }),
+      );
       $("#claimOrganiserTablet").onclick = claimOrganiserTablet;
     } catch (error) {
       $("#modalContent").innerHTML =
@@ -1057,6 +1096,86 @@
       $("#closePublishedEvents").onclick = () =>
         $("#modalShade").classList.remove("open");
     }
+  }
+  const PRE_IMPORT_BACKUP_KEY = "awayGolfPreImportBackupV1";
+  function organiserBackupPayload() {
+    const data = JSON.parse(JSON.stringify(store));
+    delete data.cloud;
+    data.cloudPlayers = [];
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.58", exportedAt: new Date().toISOString(), data };
+  }
+  function downloadOrganiserBackup(payload) {
+    const stamp = new Date().toISOString().slice(0, 10),
+      name = String(store.event?.name || "Away-Golf").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, ""),
+      blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+      link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${name || "Away-Golf"}-Organiser-Backup-${stamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  }
+  function validateOrganiserBackup(payload) {
+    if (payload?.format !== "Away Golf Organiser Backup" || payload?.backupVersion !== 1 || !payload?.data || !Array.isArray(payload.data.players) || !Array.isArray(payload.data.courses))
+      throw new Error("This is not a valid Away Golf organiser backup file.");
+    return payload.data;
+  }
+  async function applyOrganiserBackup(payload, preserveCurrent = true) {
+    const imported = validateOrganiserBackup(payload);
+    if (preserveCurrent) localStorage.setItem(PRE_IMPORT_BACKUP_KEY, JSON.stringify(organiserBackupPayload()));
+    closeCloudConnection();
+    await releaseRoundWakeLock();
+    store = JSON.parse(JSON.stringify(imported));
+    delete store.cloud;
+    store.cloudPlayers = [];
+    store.players = store.players || [];
+    store.courses = store.courses || [];
+    store.pairHistory = store.pairHistory || {};
+    store.partnerHistory = store.partnerHistory || {};
+    forgetOrganiserEvent();
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    try { await AwayCloud.saveWorkspace({ activePublishedEvent: null }); } catch (_) {}
+    $("#modalShade").classList.remove("open");
+    applyDeviceRole();
+    renderHome();
+    renderPlayersAdmin();
+    renderCoursesAdmin();
+    renderPlayerExperience();
+    renderLeaderboard();
+    nav("home");
+  }
+  function openOrganiserBackup() {
+    let safety = null;
+    try { safety = JSON.parse(localStorage.getItem(PRE_IMPORT_BACKUP_KEY) || "null"); } catch (_) {}
+    const activeCount = store.players.filter((p) => p.rosterActive !== false).length,
+      courseCount = store.courses.length;
+    $("#modalContent").innerHTML = `<h2>Organiser Backup</h2><p>Move your complete planning setup between the Windows folder, desktop app and tablet—or keep an emergency copy.</p><div class="backupSummary"><div><small>PLAYERS</small><b>${activeCount}</b></div><div><small>COURSES</small><b>${courseCount}</b></div><div><small>CURRENT EVENT</small><b>${esc(store.event?.name || "None")}</b></div></div><div class="backupActions"><button class="primary" id="exportOrganiserBackup">Download Backup File</button><label class="backupImportLabel">Import Backup File<input type="file" id="importOrganiserBackup" accept="application/json,.json"></label>${safety ? '<button class="soft" id="undoOrganiserImport">Undo Last Import</button>' : ""}<button class="soft" id="closeOrganiserBackup">Close</button></div><p class="backupSafetyNote"><b>Safe import:</b> Away Golf automatically keeps a copy of the setup currently on this device before replacing it. Online published events and join codes are deliberately not transferred.</p>`;
+    $("#modalShade").classList.add("open");
+    $("#exportOrganiserBackup").onclick = () => downloadOrganiserBackup(organiserBackupPayload());
+    $("#importOrganiserBackup").onchange = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const payload = JSON.parse(await file.text());
+        validateOrganiserBackup(payload);
+        if (!confirm(`Import ${payload.data.event?.name || "this Away Golf setup"}?\n\nThe present setup on this device will be saved automatically so you can undo the import.`)) return (event.target.value = "");
+        await applyOrganiserBackup(payload, true);
+        alert("Organiser backup imported successfully.");
+      } catch (error) {
+        event.target.value = "";
+        alert("The backup could not be imported. " + (error.message || error));
+      }
+    };
+    if ($("#undoOrganiserImport")) $("#undoOrganiserImport").onclick = async () => {
+      if (!confirm("Restore the setup that was on this device before the last import?")) return;
+      try {
+        await applyOrganiserBackup(safety, false);
+        localStorage.removeItem(PRE_IMPORT_BACKUP_KEY);
+        alert("The previous organiser setup has been restored.");
+      } catch (error) { alert("The previous setup could not be restored. " + (error.message || error)); }
+    };
+    $("#closeOrganiserBackup").onclick = () => $("#modalShade").classList.remove("open");
   }
   async function showOrganiserTabletCode() {
     if (!store.cloud?.eventId) return;
@@ -3927,6 +4046,7 @@ Count-back if tied
   }
   $("#eventOptions").onclick = openEventOptions;
   $("#publishedEvents").onclick = openPublishedEvents;
+  $("#organiserBackup").onclick = openOrganiserBackup;
 
   const OATLANDS_TEST_IDS = [
     "p42",

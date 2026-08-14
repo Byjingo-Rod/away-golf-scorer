@@ -222,6 +222,18 @@
     return data || [];
   }
 
+  async function archiveEvent(eventId) {
+    await ensureSignedIn();
+    const { data, error } = await client
+      .from("away_events")
+      .update({ status: "archived" })
+      .eq("id", String(eventId))
+      .select("id,name,join_code")
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
   function subscribe(eventId, onChange) {
     return client
       .channel("away-event-" + eventId)
@@ -273,6 +285,7 @@
     loadLatestOwnedEvent,
     loadRecentOwnedEvents,
     archiveAllOwnedEvents,
+    archiveEvent,
     createOrganiserKey,
     claimOrganiserAccess,
     subscribe,

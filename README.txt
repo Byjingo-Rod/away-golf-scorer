@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.57
+AWAY GOLF SCORER — VERSION 15.58
+
+VERSION 15.58 — ORGANISER BACKUP AND PUBLISHED EVENT SAFETY
+===========================================================
+
+- Exports players, courses, history, event plans and scores into one organiser backup file.
+- Imports a validated organiser backup without transferring a stale device or cloud connection.
+- Creates an automatic local safety copy before every import and permits one-click restoration.
+- Published Events now verifies each cloud record against its actual stored event contents.
+- Shows the real event name, date and field size and warns when an old cloud label is misleading.
+- Allows one incorrect published event to be archived without clearing every other event.
 
 VERSION 15.57 — VIRTUAL CARD CLARITY
 ====================================
