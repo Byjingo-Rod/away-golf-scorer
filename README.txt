@@ -1,4 +1,20 @@
-AWAY GOLF SCORER — VERSION 15.59
+AWAY GOLF SCORER — VERSION 15.60
+
+VERSION 15.60 — FIELD-TEST RELIABILITY
+========================================
+
+- Validates every 18-hole scorecard before it can be used in an event plan.
+- Accepts only Par 3, 4 or 5 and checks distances and primary indexes 1–18.
+- Requires the organiser to confirm Card checked against the official card.
+- Renames the live scoring roles Player and Marker.
+- Shows Shots, Score and Total together without reducing the score numerals.
+- Lists available and previously connected players when joining.
+- Adds one-button Reset Player Connections without deleting scores.
+- Adds a safe Leave Organiser Mode and Join as a Player action.
+- Serialises score uploads and confirms Hole saved online before moving on.
+- Makes emergency self-score recovery editable and blocks incomplete recovery.
+- Adds an audited organiser correction for one isolated official hole.
+- Forces installed apps to take the latest service-worker update on reopening.
 
 VERSION 15.59 — LATE TEE SELECTION SAFETY
 ==========================================

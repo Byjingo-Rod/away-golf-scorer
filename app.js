@@ -451,6 +451,41 @@
         : store.players.find((p) => String(p.id) === String(id));
   const version = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
+  function validateCourseScorecard(c) {
+    const v = version(c) || {},
+      pars = Array.from({ length: 18 }, (_, i) => Number(v.par?.[i])),
+      metres = Array.from({ length: 18 }, (_, i) => Number(v.metres?.[i])),
+      indexes = Array.from({ length: 18 }, (_, i) => {
+        const raw = String(v.index?.[i] ?? "").trim();
+        return raw ? Number(raw.split("/")[0]) : NaN;
+      }),
+      issues = [];
+    pars.forEach((par, i) => {
+      if (!Number.isFinite(par) || par < 3 || par > 5)
+        issues.push(`Hole ${i + 1}: par must be 3, 4 or 5.`);
+    });
+    metres.forEach((distance, i) => {
+      if (!Number.isFinite(distance) || distance <= 0)
+        issues.push(`Hole ${i + 1}: distance is missing.`);
+    });
+    indexes.forEach((index, i) => {
+      if (!Number.isInteger(index) || index < 1 || index > 18)
+        issues.push(`Hole ${i + 1}: handicap index must begin with 1–18.`);
+    });
+    const validIndexes = indexes.filter(
+      (index) => Number.isInteger(index) && index >= 1 && index <= 18,
+    );
+    if (validIndexes.length === 18 && new Set(validIndexes).size !== 18)
+      issues.push("The primary handicap indexes contain a duplicate.");
+    return {
+      ok: issues.length === 0,
+      issues,
+      totalPar: pars.reduce(
+        (sum, par) => sum + (Number.isFinite(par) ? par : 0),
+        0,
+      ),
+    };
+  }
   function ensureCourseData(c) {
     c.address = c.address || "";
     c.clubPhone = c.clubPhone || "";
@@ -575,6 +610,7 @@
     cloudChannel = null,
     cloudReloadTimer = null;
   const cloudRoundTimers = new Map();
+  const cloudRoundChains = new Map();
   const isPlayerDevice = () =>
     store.cloud?.role === "player" && Boolean(store.cloud?.eventId);
   const isFreshMobileDevice = () =>
@@ -741,6 +777,49 @@
       );
     }
   }
+  async function resetCloudPlayers() {
+    if (store.cloud?.role !== "organiser" || !store.cloud?.eventId) return;
+    const joined = (store.cloudPlayers || []).filter((row) => row.joined);
+    if (!joined.length) return alert("No player phone connections need resetting.");
+    if (
+      !confirm(
+        `Reset all ${joined.length} player phone connections?\n\nScores will not be deleted. Every player will be able to join again with the same event code.`,
+      )
+    )
+      return;
+    setCloudMessage("Resetting player connections…", true);
+    try {
+      for (const row of joined)
+        await AwayCloud.releasePlayer(store.cloud.eventId, row.playerId);
+      cloudBusy = false;
+      await syncCloudNow();
+      setCloudMessage("Player connections reset · ready to join");
+    } catch (error) {
+      setCloudMessage("Connection reset did not complete");
+      alert(
+        "The player connections could not all be reset. " +
+          (error.message || error),
+      );
+    }
+  }
+  function leaveOrganiserMode() {
+    if (
+      !confirm(
+        "Leave Organiser Mode on this device and return to player joining?\n\nThe online event and all scores will remain safe. This changes only this device.",
+      )
+    )
+      return;
+    closeCloudConnection();
+    forgetOrganiserEvent();
+    store.event = null;
+    delete store.cloud;
+    store.cloudPlayers = [];
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    applyDeviceRole();
+    renderHome();
+    nav("home");
+    setCloudMessage("Ready to join as a player");
+  }
   async function syncCloudNow() {
     if (!store.cloud?.eventId || cloudBusy) return;
     setCloudMessage("Synchronising…", true);
@@ -869,18 +948,16 @@
         );
         return;
       }
-      const available = rows.filter((r) => !r.already_joined);
       setQuickJoinStatus(`${rows[0].event_name} found. Select your name.`);
       $("#modalContent").innerHTML =
-        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. This links this phone to your score only.</p><label>Your name<select id="cloudJoinPlayer">${available.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" ${available.length ? "" : "disabled"}>Join Event</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>${available.length ? "" : '<p class="cloudWarning">Every player position has already been claimed. Ask the organiser for help.</p>'}`;
+        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. A previously connected player can reconnect on the same phone. On a replacement phone, ask the organiser to release the old connection first.</p><label>Your name<select id="cloudJoinPlayer">${rows.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}${r.already_joined ? " — previously connected" : " — available"}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin">Join or Reconnect</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>`;
       $("#modalShade").classList.add("open");
       $("#cancelCloudJoin").onclick = () => {
         $("#modalShade").classList.remove("open");
         setCloudMessage("Ready");
         setQuickJoinStatus("Enter your event code to join.");
       };
-      if (available.length)
-        $("#confirmCloudJoin").onclick = async () => {
+      $("#confirmCloudJoin").onclick = async () => {
           const playerId = $("#cloudJoinPlayer").value;
           $("#confirmCloudJoin").disabled = true;
           try {
@@ -905,7 +982,12 @@
               "Joining did not complete. Check your connection and try again.",
               true,
             );
-            alert("Joining did not complete. " + (error.message || error));
+            const message = String(error.message || error);
+            alert(
+              /already joined/i.test(message)
+                ? "That player is still connected to another phone. Ask the organiser to press Release Phone beside the player's name, then try again."
+                : "Joining did not complete. " + message,
+            );
           }
         };
     } catch (error) {
@@ -1154,7 +1236,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.59", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.60", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1279,30 +1361,40 @@
     clearTimeout(cloudRoundTimers.get(key));
     setCloudMessage(
       navigator.onLine
-        ? "Score saved · syncing…"
+        ? "Saved on phone · syncing online…"
         : "Score saved on phone · offline",
     );
     cloudRoundTimers.set(
       key,
-      setTimeout(async () => {
-        try {
-          await AwayCloud.saveRound(
-            store.cloud.eventId,
-            +day,
-            String(playerId),
-            JSON.parse(JSON.stringify(scorerStore(day, playerId))),
-          );
-          cloudRoundTimers.delete(key);
-          setCloudMessage("Live · score shared");
-        } catch (_) {
-          setCloudMessage("Score saved on phone · sync will retry");
-          cloudRoundTimers.set(
-            key,
-            setTimeout(() => queueCloudRound(day, playerId), 5000),
-          );
-        }
-      }, 500),
+      setTimeout(() => flushCloudRound(day, playerId), 500),
     );
+  }
+  async function flushCloudRound(day, playerId) {
+    if (!store.cloud?.eventId) return false;
+    const key = `${day}:${playerId}`,
+      eventId = store.cloud.eventId,
+      snapshot = JSON.parse(JSON.stringify(scorerStore(day, playerId)));
+    clearTimeout(cloudRoundTimers.get(key));
+    cloudRoundTimers.delete(key);
+    const previous = cloudRoundChains.get(key) || Promise.resolve(),
+      saving = previous
+        .catch(() => {})
+        .then(() => AwayCloud.saveRound(eventId, +day, String(playerId), snapshot));
+    cloudRoundChains.set(key, saving);
+    try {
+      await saving;
+      if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
+      setCloudMessage("Hole saved online ✓");
+      return true;
+    } catch (_) {
+      if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
+      setCloudMessage("Saved on phone · online sync will retry");
+      cloudRoundTimers.set(
+        key,
+        setTimeout(() => flushCloudRound(day, playerId), 5000),
+      );
+      return false;
+    }
   }
   function renderCloudPanel() {
     const host = $("#cloudPanel"),
@@ -1334,10 +1426,12 @@
         : "";
     if (store.cloud?.role === "organiser" && store.cloud.eventId) {
       const connections = (store.cloudPlayers || []).filter((x) => x.joined);
-      host.innerHTML = `<div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div>`;
+      host.innerHTML = `<div class="organiserModeBanner"><b>This device is in Organiser Mode</b><button class="soft" id="leaveOrganiserMode">Leave Organiser Mode and Join as a Player</button></div><div class="cloudPanelHead"><div><small>LIVE EVENT</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>Share Latest Event Changes</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button><button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Reset Player Connections</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
       $("#retryCloud").onclick = syncCloudNow;
       $("#organiserTabletCode").onclick = showOrganiserTabletCode;
+      $("#resetCloudPlayers").onclick = resetCloudPlayers;
+      $("#leaveOrganiserMode").onclick = leaveOrganiserMode;
       $$("[data-releaseplayer]").forEach(
         (b) => (b.onclick = () => releaseCloudPlayer(b.dataset.releaseplayer)),
       );
@@ -1669,6 +1763,17 @@
       v.slope = c.teeDetails.middle.slope;
       v.scratch = c.teeDetails.middle.scratch;
       v.teeName = "Middle";
+      const cardCheck = validateCourseScorecard(c);
+      if (!cardCheck.ok) {
+        alert(
+          "The scorecard cannot be saved yet:\n\n" +
+            cardCheck.issues.slice(0, 8).join("\n") +
+            (cardCheck.issues.length > 8
+              ? `\n…and ${cardCheck.issues.length - 8} more item(s).`
+              : ""),
+        );
+        return;
+      }
       save();
       $("#modalShade").classList.remove("open");
     };
@@ -1855,6 +1960,7 @@
         preferredLiesArea: "general",
         specialRules: "",
         dayAvailability: {},
+        scorecardsChecked: false,
       },
       invites: new Map(),
       competitions: new Set(),
@@ -2082,6 +2188,7 @@
         (b) =>
           (b.onclick = () => {
             W.event[chosenKey] = b.dataset.pickcourse;
+            W.event.scorecardsChecked = false;
             if (day === 1 && W.event.days === 2 && !W.event.course2)
               W.event.course2 = b.dataset.pickcourse;
             $("#modalShade").classList.remove("open");
@@ -3002,6 +3109,20 @@ Count-back if tied
     );
     const c1 = course(W.event.course1),
       c2 = W.event.days == 2 ? course(W.event.course2) : null;
+    const cardResults = [
+      c1,
+      ...(c2 && String(c2.id) !== String(c1?.id) ? [c2] : []),
+    ]
+      .filter(Boolean)
+      .map((cardCourse) => ({
+        course: cardCourse,
+        result: validateCourseScorecard(cardCourse),
+      }));
+    const expectedCards =
+        W.event.days === 2 && String(c2?.id) !== String(c1?.id) ? 2 : 1,
+      cardsValid =
+        cardResults.length === expectedCards &&
+        cardResults.every((item) => item.result.ok);
     const rules = [];
     rules.push(
       `Preferred Lies: ${W.event.preferredLies ? (W.event.preferredLiesArea === "fairway" ? "Yes — closely mown part of the course" : "Yes — General Area") : "No — play the ball as it lies"}`,
@@ -3056,6 +3177,20 @@ Count-back if tied
             },
           ]
         : []),
+      ...cardResults.map((item) => ({
+        ok: item.result.ok,
+        label: `${item.course.name} Scorecard: ${
+          item.result.ok
+            ? `Valid · Total Par ${item.result.totalPar}`
+            : item.result.issues[0]
+        }`,
+      })),
+      {
+        ok: cardsValid && Boolean(W.event.scorecardsChecked),
+        label: `Course Scorecard Checked Against Official Card: ${
+          W.event.scorecardsChecked ? "Confirmed" : "Confirmation required"
+        }`,
+      },
       {
         ok: invitedCount > 0,
         label: `Players Invited: ${invitedCount} · Confirmed: ${confirmed.length}`,
@@ -3160,6 +3295,8 @@ Count-back if tied
    <div class="checkList">${checks.map((x) => `<div class="${x.ok ? "ok" : "warn"}"><span>${x.ok ? "✓" : "!"}</span>${x.label}</div>`).join("")}</div>
  </div>
 
+ <label class="cardCheckedConfirm ${cardsValid ? "" : "disabled"}"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked ? "checked" : ""} ${cardsValid ? "" : "disabled"}><span><b>Card checked</b> — I have checked the course scorecard against the official card.</span></label>
+
  <div class="startNotice ${allReady ? "oneLine" : ""}">
    ${allReady ? "<b>Everything required for setup is complete but you can make changes to any element until Lock Event is used.</b>" : "<b>A setup item still needs attention.</b><span>Use Back to correct anything marked with ! before proceeding.</span>"}
  </div>
@@ -3171,6 +3308,10 @@ Count-back if tied
     $("#changeStartingTee").onclick = () => {
       W.step = 1;
       renderWizard();
+    };
+    $("#scorecardsChecked").onchange = (event) => {
+      W.event.scorecardsChecked = event.target.checked;
+      renderStep6();
     };
     $$("[data-wizardplayingtee]").forEach(
       (button) =>
@@ -3852,12 +3993,100 @@ Count-back if tied
       store.event.days || 1,
       +(store.event.liveControlDay || 1),
     );
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button><button type="button" id="correctOfficialHole"><b>Correct One Official Hole</b><span>Fix an isolated accepted score or missing putts after checking the manual card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
     $("#modalShade").classList.add("open");
     $("#closeEmergencyRecovery").onclick = closeEmergencyRecovery;
     $("#recoverSelfScores").onclick = () =>
       renderSelfScoreRecovery(day);
     $("#enterVirtualCard").onclick = () => renderVirtualCard(day);
+    $("#correctOfficialHole").onclick = () => renderOfficialHoleCorrection(day);
+  }
+  function officialRecordLocation(day, playerId, hole) {
+    const dayScores = scoringDayStore(day);
+    for (const [scorerId, round] of Object.entries(dayScores)) {
+      const record = round?.[String(hole)];
+      if (
+        String(record?.official?.playerId || "") === String(playerId) &&
+        (scoreEntered(record.official.gross) || scoreEntered(record.official.putts))
+      )
+        return { scorerId, record };
+    }
+    return null;
+  }
+  function renderOfficialHoleCorrection(day, selectedPlayerId, selectedHole = 1) {
+    const ids = dayFieldIds(day)
+        .filter((id) => String(id) !== NO_PARTNER_ID)
+        .map(String),
+      playerId = String(selectedPlayerId || ids[0] || ""),
+      hole = Math.max(1, Math.min(18, +selectedHole || 1)),
+      location = officialRecordLocation(day, playerId, hole),
+      official = location?.record?.official || {};
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER CORRECTION · DAY ${day}</small><h2>Correct One Official Hole</h2><p>Use the signed manual card to correct one accepted official entry. The correction is recorded in the event audit.</p></div><div class="officialCorrectionGrid"><label>Player<select id="correctionPlayer">${ids.map((id) => `<option value="${esc(id)}" ${id === playerId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label><label>Hole<select id="correctionHole">${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === hole ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label><label>Gross strokes<input id="correctionGross" inputmode="text" maxlength="2" value="${esc(official.gross ?? "")}" placeholder="1–20 or P"></label><label>Putts<input id="correctionPutts" inputmode="numeric" maxlength="1" value="${esc(official.putts ?? "")}" placeholder="0–9"></label></div>${location ? `<p class="recoveryNotice">Current official entry found. Marker device: ${esc(player(location.scorerId)?.name || "Organiser recovery")}</p>` : '<p class="emergencyWarning"><b>No official entry is currently stored for this hole.</b><span>Select the correct player and hole, then enter the signed-card values.</span></p>'}<div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="saveOfficialCorrection">Save Organiser Correction</button></div>`;
+    $("#correctionPlayer").onchange = (event) =>
+      renderOfficialHoleCorrection(day, event.target.value, hole);
+    $("#correctionHole").onchange = (event) =>
+      renderOfficialHoleCorrection(day, playerId, +event.target.value);
+    $("#backEmergency").onclick = openEmergencyRecovery;
+    $("#saveOfficialCorrection").onclick = async () => {
+      let gross = $("#correctionGross").value.trim().toUpperCase(),
+        putts = $("#correctionPutts").value.trim();
+      if (gross === "-" || gross === "–") gross = "P";
+      if (
+        !scoreEntered(gross) ||
+        !scoreEntered(putts) ||
+        (gross !== "P" && (!Number.isInteger(+gross) || +gross < 1 || +gross > 20)) ||
+        !Number.isInteger(+putts) ||
+        +putts < 0 ||
+        +putts > 9 ||
+        (gross !== "P" && +putts > +gross)
+      )
+        return alert("Enter gross strokes from 1–20 (or P) and putts from 0–9.");
+      if (
+        !confirm(
+          `Record ${player(playerId)?.name || "Player"} — Hole ${hole}: ${gross} strokes, ${putts} putts as the official organiser correction?`,
+        )
+      )
+        return;
+      const assignedScorer =
+          ids.find(
+            (id) => String(markerTargetFor(id, day)) === String(playerId),
+          ) || playerId,
+        target =
+          location ||
+          ({
+            scorerId: assignedScorer,
+            record: scoreRecord(day, assignedScorer, hole),
+          });
+      target.record.official = {
+        ...(target.record.official || {}),
+        playerId,
+        gross,
+        putts: +putts,
+        organiserCorrected: true,
+        correctedAt: new Date().toISOString(),
+      };
+      if (store.event.roundFinalised?.["day" + day])
+        delete store.event.roundFinalised["day" + day][playerId];
+      const correctedPlayerRound = scorerStore(day, playerId);
+      if (correctedPlayerRound._meta?.finalisedAt)
+        delete correctedPlayerRound._meta.finalisedAt;
+      emergencyLog({
+        type: "organiser-hole-correction",
+        day,
+        playerId,
+        scorerId: target.scorerId,
+        hole,
+        gross,
+        putts: +putts,
+      });
+      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      await flushCloudRound(day, target.scorerId);
+      emergencyFinaliseIfVerified(day, playerId);
+      closeEmergencyRecovery();
+      renderHome();
+      renderLeaderboard();
+      alert("The official hole has been corrected and saved.");
+    };
   }
   function renderSelfScoreRecovery(day, failedScorerId) {
     const ids = dayFieldIds(day)
@@ -3878,14 +4107,42 @@ Count-back if tied
       ? missing
           .map(
             (r) =>
-              `<tr><td>${r.h}</td><td>${esc(r.gross)}</td><td>${scoreEntered(r.putts) ? esc(r.putts) : "—"}</td><td>Missing</td></tr>`,
+              `<tr><td>${r.h}</td><td><input class="recoveryEdit" data-recoverygross="${r.h}" inputmode="text" maxlength="2" value="${esc(r.gross)}" aria-label="Hole ${r.h} gross strokes"></td><td><input class="recoveryEdit" data-recoveryputts="${r.h}" inputmode="numeric" maxlength="1" value="${scoreEntered(r.putts) ? esc(r.putts) : ""}" placeholder="Required" aria-label="Hole ${r.h} putts"></td><td>${scoreEntered(r.gross) && scoreEntered(r.putts) ? "Ready" : "Complete entry"}</td></tr>`,
           )
           .join("")
       : '<tr><td colspan="4">No recoverable missing scores were found.</td></tr>';
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE · DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking →</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare these entries with the manually completed card before accepting them. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th><th>Putts</th><th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div><div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="acceptSelfRecovery" ${missing.length ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
+    const recoveryRowValid = (row) => {
+        const gross = String(row.gross ?? "").toUpperCase(),
+          putts = Number(row.putts);
+        return (
+          scoreEntered(gross) &&
+          scoreEntered(row.putts) &&
+          (gross === "P" ||
+            (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20)) &&
+          Number.isInteger(putts) &&
+          putts >= 0 &&
+          putts <= 9 &&
+          (gross === "P" || putts <= +gross)
+        );
+      },
+      recoveryReady = () =>
+        missing.length > 0 && missing.every(recoveryRowValid);
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE · DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking →</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare every entry with the manually completed card. Fill any missing score or putts before accepting. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th><th>Putts</th><th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div><div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="acceptSelfRecovery" ${recoveryReady() ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
     $("#failedScorer").onchange = (e) =>
       renderSelfScoreRecovery(day, e.target.value);
     $("#backEmergency").onclick = openEmergencyRecovery;
+    $$('[data-recoverygross], [data-recoveryputts]').forEach((input) => {
+      input.oninput = () => {
+        const h = +(input.dataset.recoverygross || input.dataset.recoveryputts),
+          row = missing.find((item) => item.h === h);
+        if (!row) return;
+        if (input.dataset.recoverygross) {
+          const value = input.value.trim().toUpperCase();
+          row.gross = value === "-" || value === "–" ? "P" : value;
+        } else row.putts = input.value.trim();
+        $("#acceptSelfRecovery").disabled = !recoveryReady();
+      };
+    });
     if ($("#acceptSelfRecovery"))
       $("#acceptSelfRecovery").onclick = async () => {
         if (
@@ -5739,8 +5996,12 @@ Count-back if tied
       };
     };
     const scoreSummary = (current, total, playerId) => {
-      const ec = eclecticData(playerId);
-      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><small>SCORE</small><div class="runningScore"><span><em>Hole ${hole}</em><b>${current == null ? "—" : current}</b></span><span><em>Holes 1 - ${hole}</em><b>${total}</b></span>${ec ? `<span><em>Day 1</em><b>${ec.day1Hole == null ? "—" : ec.day1Hole}</b></span><span><em>Eclectic Score<br>Hole 1 - ${hole}</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
+      const ec = eclecticData(playerId),
+        shots = stablefordStrokeCount(
+          indexVal,
+          playerDailyHandicap(playerId, day),
+        );
+      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "—" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day 1</em><b>${ec.day1Hole == null ? "—" : ec.day1Hole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
     };
     const pairStart = ctx.playerIndex < 2 ? 0 : 2,
       pairIds = ctx.group
@@ -5861,8 +6122,8 @@ Count-back if tied
     host.innerHTML = `<div class="scoringPhone">${holeTracker}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
  ${best3On ? `<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current == null ? "—" : best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total == null ? "—" : best3Total}</strong></span></div>` : ""}
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>OFFICIAL SCORE</small><h3>${esc(target?.name || "Marker partner")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div></div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>YOUR SCORE</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div></div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div></div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div></div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div><button class="soft exitRoundBottom" id="exitRound">Exit Round</button></div>`;
     const setField = (id, val) => {
@@ -5962,7 +6223,9 @@ Count-back if tied
       save();
       renderHoleScoring(selected, day);
     };
-    $("#nextHole").onclick = () => {
+    $("#nextHole").onclick = async () => {
+      $("#nextHole").disabled = true;
+      await flushCloudRound(day, selected);
       if (ntp && rec.ntp.confirmedAt) rec.ntp.locked = true;
       if (pos === 17) {
         store.event.playerRoundMode = "verify";
@@ -6983,6 +7246,16 @@ Count-back if tied
       }
     };
   }
-  if ("serviceWorker" in navigator)
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator) {
+    let reloadingForUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForUpdate || !navigator.serviceWorker.controller) return;
+      reloadingForUpdate = true;
+      location.reload();
+    });
+    navigator.serviceWorker
+      .register("sw.js")
+      .then((registration) => registration.update())
+      .catch(() => {});
+  }
 })();

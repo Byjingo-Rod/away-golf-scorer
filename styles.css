@@ -3222,9 +3222,9 @@ body.playerDevice .awakeIndicator.active {
   letter-spacing: 0.08em;
 }
 .runningScore {
-  min-width: 176px;
+  min-width: 204px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid #d9e4dd;
   border-radius: 8px;
   overflow: hidden;
@@ -3254,8 +3254,54 @@ body.playerDevice .awakeIndicator.active {
   line-height: 1.15;
 }
 .scoreSummary.hasEclectic .runningScore {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  min-width: 286px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 330px;
+}
+
+.cardCheckedConfirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #edf7f0;
+  border: 2px solid #24945b;
+  border-radius: 10px;
+  color: #184f37;
+}
+.cardCheckedConfirm.disabled {
+  background: #f3f4f3;
+  border-color: #cdd4cf;
+  color: #6b756e;
+}
+.cardCheckedConfirm input {
+  width: 21px;
+  height: 21px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.organiserModeBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  background: #fff3d8;
+  border: 1px solid #e5c881;
+  border-radius: 8px;
+  color: #6b4d10;
+}
+.organiserModeBanner button {
+  font-size: 10px;
+  padding: 7px 9px;
+}
+.recoveryEdit {
+  min-width: 54px;
+  padding: 7px 5px !important;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 850;
 }
 .holeHero > span {
   font-weight: 850;
@@ -3293,6 +3339,10 @@ body.playerDevice .awakeIndicator.active {
   }
   .scoreSummary.hasEclectic .runningScore {
     min-width: 0;
+  }
+  .organiserModeBanner {
+    align-items: stretch;
+    flex-direction: column;
   }
   .scoreEntryHead:has(.hasEclectic) {
     flex-wrap: wrap;
