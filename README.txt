@@ -1,4 +1,16 @@
-AWAY GOLF SCORER — VERSION 15.61
+AWAY GOLF SCORER — VERSION 15.62
+
+VERSION 15.62 — MY EVENTS WORKSPACE
+====================================
+
+- Keeps multiple Away Golf events safely on the organiser device at the same time.
+- Shows the current event first, followed by other events in date order.
+- Switches events without replacing their plans, scores or cloud connection details.
+- Creates new events without deleting the event previously being planned.
+- Duplicates an event as a clean draft while retaining its planning setup.
+- Archives or restores old events without deleting them.
+- Uses two deliberate confirmations before deleting only the selected event.
+- Includes the complete event collection in Organiser Backup files.
 
 VERSION 15.61 — OFFICIAL CARD ROUND PROGRESS
 ================================================

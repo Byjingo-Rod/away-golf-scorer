@@ -4557,6 +4557,8 @@ body.joinOnlyDevice .playerJoinLanding {
   border-left: 4px solid #bd7b1d;
   border-radius: 8px;
 }
+
+.myEventsHead{display:flex;gap:18px;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.myEventsHead small,.myEventSummary small{font-weight:800;letter-spacing:.08em;color:#a65b16}.myEventsHead h2{margin:3px 0 5px}.myEventsHead p{margin:0;max-width:680px}.myEventList{display:grid;gap:10px;margin:12px 0 16px}.myEventCard{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #ceddd5;border-radius:12px;padding:14px;background:#fff}.myEventCard.current{border:2px solid #17834d;background:#edf8f1}.myEventCard.archived{opacity:.72}.myEventSummary h3{margin:3px 0;font-size:1.05rem}.myEventSummary p{margin:0;color:#516259}.myEventActions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.myEventActions button{white-space:nowrap}.myEventActions .danger{background:#fff4f1;color:#9b301e;border:1px solid #e8b9ae}@media(max-width:720px){.myEventsHead,.myEventCard{display:block}.myEventsHead button{margin-top:12px;width:100%}.myEventActions{justify-content:flex-start;margin-top:12px}.myEventActions button{flex:1 1 42%}}
 .backupSummary {
   display: grid;
   grid-template-columns: 0.7fr 0.7fr 1.6fr;
