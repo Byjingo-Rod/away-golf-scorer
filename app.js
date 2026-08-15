@@ -365,6 +365,45 @@
       joinCode: rememberedLive.joinCode,
       restorePublished: true,
     };
+  store.eventWorkspace = Array.isArray(store.eventWorkspace)
+    ? store.eventWorkspace
+    : [];
+  function workspaceIdFor(event) {
+    if (!event) return "";
+    if (!event.workspaceId) event.workspaceId = uid();
+    return String(event.workspaceId);
+  }
+  function captureCurrentEvent() {
+    if (!store.event) return;
+    const id = workspaceIdFor(store.event);
+    let record = store.eventWorkspace.find((item) => String(item.id) === id);
+    if (!record) {
+      record = { id, createdAt: new Date().toISOString() };
+      store.eventWorkspace.push(record);
+    }
+    record.event = JSON.parse(JSON.stringify(store.event));
+    record.cloud = store.cloud ? JSON.parse(JSON.stringify(store.cloud)) : null;
+    record.cloudPlayers = JSON.parse(JSON.stringify(store.cloudPlayers || []));
+    record.updatedAt = new Date().toISOString();
+    store.activeEventId = id;
+  }
+  function migrateEventWorkspace() {
+    if (store.event) captureCurrentEvent();
+    const active = store.eventWorkspace.find(
+      (item) => String(item.id) === String(store.activeEventId || ""),
+    );
+    if (active?.event) {
+      store.event = JSON.parse(JSON.stringify(active.event));
+      if (active.cloud) store.cloud = JSON.parse(JSON.stringify(active.cloud));
+      else delete store.cloud;
+      store.cloudPlayers = JSON.parse(JSON.stringify(active.cloudPlayers || []));
+    }
+  }
+  migrateEventWorkspace();
+  function persistStore() {
+    captureCurrentEvent();
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+  }
   function normaliseCourseNames() {
     (store.courses || []).forEach((c) => (c.name = gcCourseName(c.name)));
     (store.players || []).forEach((p) =>
@@ -427,7 +466,7 @@
   }
 
   const save = () => {
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    persistStore();
     renderHome();
     renderPlayersAdmin();
     renderCoursesAdmin();
@@ -1026,7 +1065,9 @@
         return;
       }
       closeCloudConnection();
+      captureCurrentEvent();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      store.event.workspaceId = store.event.workspaceId || uid();
       (payload.players || []).forEach((remote) => {
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
@@ -1056,7 +1097,7 @@
         joined: Boolean(row.joined_at),
         joinedAt: row.joined_at || null,
       }));
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      persistStore();
       cloudBusy = false;
       cloudMessage = "Published event recovered";
       watchCloudEvent();
@@ -1086,12 +1127,17 @@
       return;
     setCloudMessage("Opening published event…", true);
     try {
+      captureCurrentEvent();
       const bundle = await AwayCloud.loadEvent(eventId),
         payload = bundle?.event?.event_data || {};
       if (!payload.event)
         throw new Error("The published event plan could not be read.");
       closeCloudConnection();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      let existingRecord = store.eventWorkspace.find(
+        (item) => String(item.cloud?.eventId || "") === String(eventId),
+      );
+      store.event.workspaceId = existingRecord?.id || store.event.workspaceId || uid();
       (payload.players || []).forEach((remote) => {
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
@@ -1133,7 +1179,7 @@
         joined: Boolean(row.joined_at),
         joinedAt: row.joined_at || null,
       }));
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      persistStore();
       cloudBusy = false;
       cloudMessage = "Live event opened";
       $("#modalShade").classList.remove("open");
@@ -1232,11 +1278,134 @@
     }
   }
   const PRE_IMPORT_BACKUP_KEY = "awayGolfPreImportBackupV1";
+  function eventWorkspaceStatus(event) {
+    if (!event) return "Draft";
+    if (event.status === "cancelled") return "Cancelled";
+    if (event.roundClosedAt || event.status === "completed") return "Completed";
+    if (event.publishedAt || event.joinCode) return "Published";
+    if (event.locked) return "Locked";
+    return "Draft";
+  }
+  function eventWorkspaceDate(record) {
+    return record?.event?.date || record?.updatedAt || record?.createdAt || "";
+  }
+  function switchWorkspaceEvent(id) {
+    captureCurrentEvent();
+    const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
+    if (!record?.event) return;
+    closeCloudConnection();
+    store.event = JSON.parse(JSON.stringify(record.event));
+    store.activeEventId = String(record.id);
+    if (record.cloud) store.cloud = JSON.parse(JSON.stringify(record.cloud));
+    else delete store.cloud;
+    store.cloudPlayers = JSON.parse(JSON.stringify(record.cloudPlayers || []));
+    persistStore();
+    $("#modalShade").classList.remove("open");
+    applyDeviceRole();
+    renderHome();
+    renderPlayerExperience();
+    renderLeaderboard();
+    initialiseCloud();
+    nav("home");
+  }
+  function duplicateWorkspaceEvent(id) {
+    captureCurrentEvent();
+    const source = store.eventWorkspace.find((item) => String(item.id) === String(id));
+    if (!source?.event) return;
+    const event = JSON.parse(JSON.stringify(source.event));
+    event.workspaceId = uid();
+    event.name = `${event.name || "Away Golf Event"} — Copy`;
+    event.status = "planned";
+    event.locked = false;
+    event.scoring = { day1: {}, day2: {} };
+    event.roundFinalised = {};
+    delete event.lockedAt;
+    delete event.publishedAt;
+    delete event.roundClosedAt;
+    store.eventWorkspace.push({
+      id: event.workspaceId,
+      event,
+      cloud: null,
+      cloudPlayers: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    switchWorkspaceEvent(event.workspaceId);
+    reopenEventPlan();
+  }
+  function deleteWorkspaceEvent(id) {
+    const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
+    if (!record) return;
+    const name = record.event?.name || "this event";
+    if (!confirm(`Permanently delete ${name}?\n\nOnly this selected event will be removed. Players, courses and every other event will remain.`)) return;
+    if (!confirm(`Final check: delete ${name} now?`)) return;
+    const wasCurrent = String(store.activeEventId || "") === String(id);
+    store.eventWorkspace = store.eventWorkspace.filter((item) => String(item.id) !== String(id));
+    if (wasCurrent) {
+      const next = [...store.eventWorkspace].sort((a, b) => eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a)))[0];
+      if (next) {
+        closeCloudConnection();
+        store.event = JSON.parse(JSON.stringify(next.event));
+        store.activeEventId = String(next.id);
+        if (next.cloud) store.cloud = JSON.parse(JSON.stringify(next.cloud));
+        else delete store.cloud;
+        store.cloudPlayers = JSON.parse(JSON.stringify(next.cloudPlayers || []));
+        persistStore();
+        $("#modalShade").classList.remove("open");
+        applyDeviceRole();
+        renderHome();
+        renderPlayerExperience();
+        renderLeaderboard();
+        initialiseCloud();
+        nav("home");
+        return;
+      }
+      store.event = null;
+      store.activeEventId = null;
+      delete store.cloud;
+      store.cloudPlayers = [];
+    }
+    persistStore();
+    openMyEvents();
+  }
+  function toggleWorkspaceArchive(id) {
+    captureCurrentEvent();
+    const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
+    if (!record) return;
+    record.archived = !record.archived;
+    record.updatedAt = new Date().toISOString();
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    openMyEvents();
+  }
+  function openMyEvents() {
+    captureCurrentEvent();
+    const activeId = String(store.activeEventId || "");
+    const records = [...store.eventWorkspace].sort((a, b) => {
+      if (String(a.id) === activeId) return -1;
+      if (String(b.id) === activeId) return 1;
+      return eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a));
+    });
+    const cards = records.map((record) => {
+      const event = record.event || {}, current = String(record.id) === activeId;
+      const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
+      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
+    }).join("");
+    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
+    $("#modalShade").classList.add("open");
+    $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
+    $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
+    $$('[data-closeevents]').forEach((button) => button.onclick = () => $("#modalShade").classList.remove("open"));
+    $$('[data-switchevent]').forEach((button) => button.onclick = () => switchWorkspaceEvent(button.dataset.switchevent));
+    $$('[data-duplicateevent]').forEach((button) => button.onclick = () => duplicateWorkspaceEvent(button.dataset.duplicateevent));
+    $$('[data-archiveevent]').forEach((button) => button.onclick = () => toggleWorkspaceArchive(button.dataset.archiveevent));
+    $$('[data-deleteevent]').forEach((button) => button.onclick = () => deleteWorkspaceEvent(button.dataset.deleteevent));
+  }
   function organiserBackupPayload() {
+    captureCurrentEvent();
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.61", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.62", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3327,6 +3496,7 @@ Count-back if tied
     };
   }
   function finishEvent() {
+    if (W.newEvent) captureCurrentEvent();
     let confirmed = [...W.invites]
       .filter((x) => x[1] === "accepted")
       .map((x) => String(x[0]));
@@ -3348,6 +3518,7 @@ Count-back if tied
     }
     store.event = {
       ...W.event,
+      workspaceId: W.event.workspaceId || uid(),
       confirmed,
       invitationStatus,
       dayAvailability,
@@ -4535,7 +4706,17 @@ Count-back if tied
       }
     }
     closeCloudConnection();
-    store.event = null;
+    const deletedWorkspaceId = String(store.event?.workspaceId || store.activeEventId || "");
+    store.eventWorkspace = (store.eventWorkspace || []).filter(
+      (item) => String(item.id) !== deletedWorkspaceId,
+    );
+    const nextWorkspaceEvent = [...store.eventWorkspace].sort((a, b) =>
+      eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a)),
+    )[0];
+    store.event = nextWorkspaceEvent?.event
+      ? JSON.parse(JSON.stringify(nextWorkspaceEvent.event))
+      : null;
+    store.activeEventId = nextWorkspaceEvent?.id || null;
     delete store.cloud;
     store.cloudPlayers = [];
     forgetOrganiserEvent();
@@ -4545,9 +4726,10 @@ Count-back if tied
     renderPlayerExperience();
     renderLeaderboard();
     nav("home");
-    alert("Event deleted. Away Golf is ready for a new event.");
+    alert(nextWorkspaceEvent ? "Event deleted. Your next event is now current." : "Event deleted. Away Golf is ready for a new event.");
   }
   $("#eventOptions").onclick = openEventOptions;
+  $("#myEvents").onclick = openMyEvents;
   $("#publishedEvents").onclick = openPublishedEvents;
   $("#organiserBackup").onclick = openOrganiserBackup;
 
@@ -7281,6 +7463,10 @@ Count-back if tied
   renderPlayersAdmin();
   renderCoursesAdmin();
   initialiseCloud();
+  if (!isPlayerDevice() && !sessionStorage.getItem("awayGolfMyEventsShown1562")) {
+    sessionStorage.setItem("awayGolfMyEventsShown1562", "1");
+    setTimeout(openMyEvents, 120);
+  }
   if ($("#quickJoinEvent"))
     $("#quickJoinEvent").onclick = () => lookupCloudEvent();
   if ($("#quickJoinCode")) {
