@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.60
+AWAY GOLF SCORER — VERSION 15.61
+
+VERSION 15.61 — OFFICIAL CARD ROUND PROGRESS
+================================================
+
+- Makes Round Progress follow each player's official marker card rather than the self-check entries stored on that player's phone.
+- Shows recovered players at 18/18 when all official strokes and required putts are present.
+- Treats organiser-accepted emergency recovery and organiser corrections as completion of the recovered official card.
+- Automatically recognises a complete official card when the player's checking card agrees or no checking card was available.
+- Uses Complete consistently for finished players and for the Round Progress counter.
+- Retrospectively corrects completed field-test cards without requiring the organiser to repeat recovery.
 
 VERSION 15.60 — FIELD-TEST RELIABILITY
 ========================================
