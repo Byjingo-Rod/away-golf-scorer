@@ -1236,7 +1236,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.60", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.61", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3857,6 +3857,23 @@ Count-back if tied
         scoringDayStore(day)?.[String(playerId)]?._meta?.finalisedAt,
     );
   }
+  function officialCardProgress(day, playerId) {
+    const puttsRequired = (store.event.competitions || []).includes("teamPutts"),
+      records = Array.from({ length: 18 }, (_, i) =>
+        findOfficialForPlayer(day, playerId, i + 1),
+      ),
+      entered = records.filter((record) =>
+        scoreEntered(record?.gross),
+      ).length,
+      puttsEntered = records.filter((record) =>
+        scoreEntered(record?.putts),
+      ).length;
+    return {
+      entered,
+      puttsEntered,
+      complete: entered === 18 && (!puttsRequired || puttsEntered === 18),
+    };
+  }
   function verificationIssueCount(day, playerId) {
     const c = course(day === 1 ? store.event.course1 : store.event.course2),
       v = version(c) || {},
@@ -3900,12 +3917,38 @@ Count-back if tied
       ctx = playerGroupContext(playerId, day),
       start = setup?.starts?.[ctx?.groupIndex] || 1,
       seq = scoreSequence(start),
+      official = officialCardProgress(day, playerId),
+      entered = official.entered,
       mine = scoringDayStore(day)?.[String(playerId)] || {},
-      entered = seq.filter((h) =>
+      selfEntered = seq.filter((h) =>
         scoreEntered(mine[String(h)]?.self?.gross),
       ).length,
-      finalised = roundFinalisedFor(day, playerId),
-      issues = entered === 18 ? verificationIssueCount(day, playerId) : 0,
+      eventComplete = store.event.status === "complete",
+      verificationIssues = official.complete
+        ? verificationIssueCount(day, playerId)
+        : 0,
+      organiserAccepted = (store.event.emergencyRecoveryLog || []).some(
+        (entry) =>
+          +entry.day === +day &&
+          [
+            entry.playerId,
+            entry.recoveredPlayerId,
+            entry.markedPlayerId,
+          ]
+            .filter(Boolean)
+            .map(String)
+            .includes(String(playerId)),
+      ),
+      finalised =
+        roundFinalisedFor(day, playerId) ||
+        (official.complete &&
+          (eventComplete ||
+            organiserAccepted ||
+            selfEntered === 0 ||
+            verificationIssues === 0)),
+      issues = official.complete && !finalised
+        ? verificationIssues
+        : 0,
       next = seq[Math.min(entered, 17)],
       joined = Boolean(
         (store.cloudPlayers || []).find(
@@ -3934,8 +3977,8 @@ Count-back if tied
     }
     if (finalised) {
       state = "finalised";
-      label = "Finalised";
-      detail = "Round checked and complete";
+      label = "Complete";
+      detail = "Official card complete";
     }
     return {
       playerId: String(playerId),
@@ -3958,9 +4001,19 @@ Count-back if tied
       device: "organiser",
     });
   }
-  function emergencyFinaliseIfVerified(day, playerId) {
+  function emergencyFinaliseIfVerified(
+    day,
+    playerId,
+    organiserAccepted = false,
+  ) {
     const id = String(playerId || "");
-    if (!id || verificationIssueCount(day, id) !== 0) return false;
+    if (
+      !id ||
+      (organiserAccepted
+        ? !officialCardProgress(day, id).complete
+        : verificationIssueCount(day, id) !== 0)
+    )
+      return false;
     const at = new Date().toISOString(),
       round = scorerStore(day, id);
     store.event.roundFinalised = store.event.roundFinalised || {};
@@ -4081,7 +4134,7 @@ Count-back if tied
       });
       localStorage.setItem("awayGolf13", JSON.stringify(store));
       await flushCloudRound(day, target.scorerId);
-      emergencyFinaliseIfVerified(day, playerId);
+      emergencyFinaliseIfVerified(day, playerId, true);
       closeEmergencyRecovery();
       renderHome();
       renderLeaderboard();
@@ -4169,7 +4222,7 @@ Count-back if tied
           recoveredPlayerId: String(markedId),
           holes: missing.map((x) => x.h),
         });
-        emergencyFinaliseIfVerified(day, markedId);
+        emergencyFinaliseIfVerified(day, markedId, true);
         localStorage.setItem("awayGolf13", JSON.stringify(store));
         queueCloudRound(day, failed);
         if (store.cloud?.role === "organiser" && store.cloud?.eventId)
@@ -4290,8 +4343,8 @@ Count-back if tied
         markedPlayerId: String(targetId),
         holes: Array.from({ length: 18 }, (_, i) => i + 1),
       });
-      emergencyFinaliseIfVerified(day, scorer);
-      emergencyFinaliseIfVerified(day, targetId);
+      emergencyFinaliseIfVerified(day, scorer, true);
+      emergencyFinaliseIfVerified(day, targetId, true);
       localStorage.setItem("awayGolf13", JSON.stringify(store));
       queueCloudRound(day, scorer);
       closeEmergencyRecovery();
@@ -4340,7 +4393,7 @@ Count-back if tied
       attention = rows.filter((x) => x.state === "attention").length,
       finalised = rows.filter((x) => x.finalised).length,
       allFinal = Boolean(rows.length && finalised === rows.length);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>FINALISED</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} has been checked and finalised.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to finalise${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Attention means a player has entered all 18 holes but one or more player/marker scores are missing or do not agree. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     $$("[data-liveday]").forEach(
       (b) =>
         (b.onclick = () => {
