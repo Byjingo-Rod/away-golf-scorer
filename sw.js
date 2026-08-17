@@ -1,12 +1,12 @@
-const CACHE = "away-golf-v15-62";
+const CACHE = "away-golf-v15-63";
 const FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=15.62",
-  "./supabase.js?v=15.62",
-  "./cloud.js?v=15.62",
-  "./data.js?v=15.62",
-  "./app.js?v=15.62",
+  "./styles.css?v=15.63",
+  "./supabase.js?v=15.63",
+  "./cloud.js?v=15.63",
+  "./data.js?v=15.63",
+  "./app.js?v=15.63",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

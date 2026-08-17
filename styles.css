@@ -2709,6 +2709,114 @@ body.playerDevice .awakeIndicator.active {
   }
 }
 
+/* v15.63 preview, tee scheduling and scorecard checks */
+.teeScheduleRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(145px, 1fr) minmax(155px, 1fr);
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #d9e7de;
+  border-radius: 10px;
+  background: #f6faf7;
+}
+.twoTeeSetup {
+  display: grid;
+  gap: 8px;
+}
+.twoTeeSetup p {
+  margin: 0 4px;
+  color: #607469;
+  font-size: 12px;
+}
+.handicapEntryHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.thirdTeeToggle,
+.noPartnerConfirmed {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid #bcd7c6;
+  border-radius: 9px;
+  background: #f0f8f3;
+  color: #17633f;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.noPartnerRow {
+  align-items: center;
+}
+.scorecardTotals {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.scorecardTotals > div {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid #bcd7c6;
+  border-radius: 8px;
+  background: #edf7f0;
+  color: #174f37;
+}
+.eventUpdateBanner {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 12px;
+  align-items: center;
+  margin: 10px;
+  padding: 12px;
+  border: 1px solid #e1bd72;
+  border-radius: 10px;
+  background: #fff6df;
+  color: #704b0d;
+}
+.eventUpdateBanner.final {
+  border-color: #9bc8aa;
+  background: #edf8f0;
+  color: #155f3c;
+}
+.eventUpdateBanner span {
+  font-size: 12px;
+}
+.eventUpdateBanner button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.playerFacts.scheduleFacts {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 700px) {
+  .teeScheduleRow,
+  .scorecardTotals {
+    grid-template-columns: 1fr;
+  }
+  .handicapEntryHead {
+    display: grid;
+  }
+  .scorecardTotals > div {
+    grid-template-columns: 1fr auto auto;
+  }
+  .eventUpdateBanner {
+    grid-template-columns: 1fr;
+  }
+  .eventUpdateBanner button {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .playerFacts.scheduleFacts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* v15.1 golfer scoring refinements */
 .playerFacts.twoFacts {
   grid-template-columns: 1fr 1fr;
