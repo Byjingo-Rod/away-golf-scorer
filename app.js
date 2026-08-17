@@ -927,22 +927,46 @@
       store.event.setupStage = store.event.locked ? "final" : "preview";
       if (store.event.locked) store.event.finalUpdateAt = new Date().toISOString();
       else store.event.previewPublishedAt = store.event.previewPublishedAt || new Date().toISOString();
+      // Save the publication marker before contacting the cloud. If a network or
+      // later update fails, the organiser can recover the exact row already made.
+      persistStore();
       const payload = cloudPayload();
-      const result = await AwayCloud.createEvent(
-        store.event.name,
-        payload,
-        cloudPlayerRows(),
-      );
-      await AwayCloud.updateEvent(
-        result.event_id,
-        payload,
-        store.event.locked ? "locked" : "preview",
-      );
+      let result = null;
+      if (!store.event.locked && store.event.previewPublishedAt) {
+        const recent = await AwayCloud.loadRecentOwnedEvents(20);
+        for (const item of recent) {
+          if (item.status !== "setup" || item.name !== store.event.name) continue;
+          const existing = await AwayCloud.loadEvent(item.id);
+          if (
+            existing?.event?.event_data?.event?.previewPublishedAt ===
+              store.event.previewPublishedAt ||
+            (store.event.workspaceId &&
+              existing?.event?.event_data?.event?.workspaceId ===
+                store.event.workspaceId)
+          ) {
+            result = { event_id: item.id, join_code: item.join_code };
+            break;
+          }
+        }
+      }
+      if (!result) {
+        result = await AwayCloud.createEvent(
+          store.event.name,
+          payload,
+          cloudPlayerRows(),
+        );
+      }
       store.cloud = {
         role: "organiser",
         eventId: result.event_id,
         joinCode: result.join_code,
       };
+      // Event Preview deliberately uses the schema's existing `setup` status.
+      // The preview/final distinction lives in event_data.event.setupStage.
+      // A final event still advances to the permitted `locked` status.
+      if (store.event.locked) {
+        await AwayCloud.updateEvent(result.event_id, payload, "locked");
+      }
       await rememberOrganiserWorkspace(result.event_id, result.join_code);
       rememberPublishedEvent({
         eventId: result.event_id,
@@ -967,7 +991,7 @@
       await AwayCloud.updateEvent(
         store.cloud.eventId,
         cloudPayload(),
-        store.event?.locked ? "locked" : "preview",
+        store.event?.locked ? "locked" : "setup",
       );
       localStorage.setItem("awayGolf13", JSON.stringify(store));
       setCloudMessage(store.event.locked ? "All Set · final update shared" : "Preview changes shared");
@@ -1424,7 +1448,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.63", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.64", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),

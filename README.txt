@@ -715,3 +715,9 @@ VERSION 15.50 — PLAYER JOINING PAGE
 - Places the six-character event code box and Find My Event button at the top.
 - Shows visible finding, success and error messages after the code is entered.
 - Explains that no APK download is required and the app can run in the browser.
+VERSION 15.64 — EVENT PREVIEW PUBLICATION HOTFIX
+=================================================
+
+- Fixes Event Preview publication against the existing cloud status rules.
+- Recovers the exact preview row created by an interrupted Version 15.63 attempt.
+- Prevents a retry from creating a duplicate event or joining code.

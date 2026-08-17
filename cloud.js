@@ -180,7 +180,7 @@
 
   async function loadRecentOwnedEvents(limit = 5) {
     await ensureSignedIn();
-    const safeLimit = Math.max(1, Math.min(5, Number(limit) || 5));
+    const safeLimit = Math.max(1, Math.min(20, Number(limit) || 5));
     const { data, error } = await client
       .from("away_events")
       .select("id,join_code,name,status,updated_at")
