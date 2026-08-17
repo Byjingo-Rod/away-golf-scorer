@@ -1,1 +1,44 @@
-Y29uc3QgQ0FDSEUgPSAiYXdheS1nb2xmLXYxNS02MyI7CmNvbnN0IEZJTEVTID0gWwogICIuLyIsCiAgIi4vaW5kZXguaHRtbCIsCiAgIi4vc3R5bGVzLmNzcz92PTE1LjYzIiwKICAiLi9zdXBhYmFzZS5qcz92PTE1LjYzIiwKICAiLi9jbG91ZC5qcz92PTE1LjYzIiwKICAiLi9kYXRhLmpzP3Y9MTUuNjMiLAogICIuL2FwcC5qcz92PTE1LjYzIiwKICAiLi9tYW5pZmVzdC53ZWJtYW5pZmVzdCIsCiAgIi4vaWNvbnMvaWNvbi0xOTIucG5nIiwKICAiLi9pY29ucy9pY29uLTUxMi5wbmciLAogICIuL2Fzc2V0cy9hd2F5LWdvbGYtbWFzY290LnBuZyIsCiAgIi4vYXdheS1nb2xmLW1hc2NvdC1taW5pLnBuZyIsCl07CnNlbGYuYWRkRXZlbnRMaXN0ZW5lcigiaW5zdGFsbCIsIChlKSA9PiB7CiAgc2VsZi5za2lwV2FpdGluZygpOwogIGUud2FpdFVudGlsKGNhY2hlcy5vcGVuKENBQ0hFKS50aGVuKChjKSA9PiBjLmFkZEFsbChGSUxFUykpKTsKfSk7CnNlbGYuYWRkRXZlbnRMaXN0ZW5lcigiYWN0aXZhdGUiLCAoZSkgPT4gewogIGUud2FpdFVudGlsKAogICAgUHJvbWlzZS5hbGwoWwogICAgICBzZWxmLmNsaWVudHMuY2xhaW0oKSwKICAgICAgY2FjaGVzCiAgICAgICAgLmtleXMoKQogICAgICAgIC50aGVuKChrKSA9PgogICAgICAgICAgUHJvbWlzZS5hbGwoCiAgICAgICAgICAgIGsuZmlsdGVyKCh4KSA9PiB4ICE9PSBDQUNIRSkubWFwKCh4KSA9PiBjYWNoZXMuZGVsZXRlKHgpKSwKICAgICAgICAgICksCiAgICAgICAgKSwKICAgIF0pLAogICk7Cn0pOwpzZWxmLmFkZEV2ZW50TGlzdGVuZXIoImZldGNoIiwgKGUpID0+IHsKICBlLnJlc3BvbmRXaXRoKAogICAgZmV0Y2goZS5yZXF1ZXN0KQogICAgICAudGhlbigocikgPT4gewogICAgICAgIGxldCBjb3B5ID0gci5jbG9uZSgpOwogICAgICAgIGNhY2hlcy5vcGVuKENBQ0hFKS50aGVuKChjKSA9PiBjLnB1dChlLnJlcXVlc3QsIGNvcHkpKTsKICAgICAgICByZXR1cm4gcjsKICAgICAgfSkKICAgICAgLmNhdGNoKCgpID0+IGNhY2hlcy5tYXRjaChlLnJlcXVlc3QpKSwKICApOwp9KTsK
+const CACHE = "away-golf-v15-63";
+const FILES = [
+  "./",
+  "./index.html",
+  "./styles.css?v=15.63",
+  "./supabase.js?v=15.63",
+  "./cloud.js?v=15.63",
+  "./data.js?v=15.63",
+  "./app.js?v=15.63",
+  "./manifest.webmanifest",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./assets/away-golf-mascot.png",
+  "./away-golf-mascot-mini.png",
+];
+self.addEventListener("install", (e) => {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)));
+});
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches
+        .keys()
+        .then((k) =>
+          Promise.all(
+            k.filter((x) => x !== CACHE).map((x) => caches.delete(x)),
+          ),
+        ),
+    ]),
+  );
+});
+self.addEventListener("fetch", (e) => {
+  e.respondWith(
+    fetch(e.request)
+      .then((r) => {
+        let copy = r.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return r;
+      })
+      .catch(() => caches.match(e.request)),
+  );
+});
