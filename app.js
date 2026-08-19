@@ -1032,8 +1032,11 @@
       }
       setQuickJoinStatus(`${rows[0].event_name} found. Select your name.`);
       $("#modalContent").innerHTML =
-        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. A previously connected player can reconnect on the same phone. On a replacement phone, ask the organiser to release the old connection first.</p><label>Your name<select id="cloudJoinPlayer">${rows.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}${r.already_joined ? " — previously connected" : " — available"}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin">Join or Reconnect</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>`;
+        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. A previously connected player can reconnect on the same phone. On a replacement phone, ask the organiser to release the old connection first.</p><label>Your name<select id="cloudJoinPlayer"><option value="" selected>Select your name here</option>${rows.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}${r.already_joined ? " — previously connected" : " — available"}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" disabled>Join or Reconnect</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>`;
       $("#modalShade").classList.add("open");
+      $("#cloudJoinPlayer").onchange = () => {
+        $("#confirmCloudJoin").disabled = !$("#cloudJoinPlayer").value;
+      };
       $("#cancelCloudJoin").onclick = () => {
         $("#modalShade").classList.remove("open");
         setCloudMessage("Ready");
@@ -1041,6 +1044,7 @@
       };
       $("#confirmCloudJoin").onclick = async () => {
           const playerId = $("#cloudJoinPlayer").value;
+          if (!playerId) return;
           $("#confirmCloudJoin").disabled = true;
           try {
             const eventId = await AwayCloud.joinEvent(code, playerId);
@@ -1423,17 +1427,27 @@
   function openMyEvents() {
     captureCurrentEvent();
     const activeId = String(store.activeEventId || "");
-    const records = [...store.eventWorkspace].sort((a, b) => {
+    const allRecords = [...store.eventWorkspace].sort((a, b) => {
       if (String(a.id) === activeId) return -1;
       if (String(b.id) === activeId) return 1;
       return eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a));
     });
+    const seenEvents = new Set();
+    const records = allRecords.filter((record) => {
+      const event = record.event || {};
+      const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
+      const key = [String(event.name || "").trim().toLowerCase(), event.date || "", players, eventWorkspaceStatus(event), Boolean(record.archived)].join("|");
+      if (seenEvents.has(key)) return false;
+      seenEvents.add(key);
+      return true;
+    });
+    const hiddenDuplicates = allRecords.length - records.length;
     const cards = records.map((record) => {
       const event = record.event || {}, current = String(record.id) === activeId;
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
       return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
     }).join("");
-    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
+    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div>${hiddenDuplicates ? `<p class="workspaceDedupeNote">${hiddenDuplicates} duplicate local test record${hiddenDuplicates === 1 ? " is" : "s are"} hidden. All original event data remains safely stored.</p>` : ""}<div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
     $("#modalShade").classList.add("open");
     $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
     $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
@@ -1448,7 +1462,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.64", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.65", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2693,7 +2707,7 @@
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
   <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Tee Hcps</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days === 2 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
-  <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3>Invited <span>${invited.length}</span></h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
+  <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
       $("#wpSearch").value = q;
       if (keepSearchFocus) {
         try {
@@ -2713,6 +2727,24 @@
           draw();
         }
       };
+      if ($("#wizardAllGreen")) {
+        $("#wizardAllGreen").onclick = () => {
+          const awaiting = invited.filter(
+            (p) => W.invites.get(String(p.id)) === "awaiting",
+          );
+          if (
+            awaiting.length &&
+            confirm(
+              `Mark all ${awaiting.length} remaining invited player${awaiting.length === 1 ? "" : "s"} as accepted?`,
+            )
+          ) {
+            awaiting.forEach((p) =>
+              W.invites.set(String(p.id), "accepted"),
+            );
+            draw();
+          }
+        };
+      }
       $("#wizardManagePlayers").onclick = () => {
         wizardReturnStep = 2;
         $("#wizardShade").classList.remove("open");
@@ -6421,7 +6453,11 @@ Count-back if tied
         isGross = id.endsWith("Gross"),
         picked = isGross && String(value).toUpperCase() === "P",
         val = picked ? "P" : has ? +value : +base;
-      return `<div class="scoreStepperWrap ${isGross ? "grossControl" : "puttsControl"}"><small>${label}</small><div class="scoreStepper ${isGross ? "scoreFour" : ""} ${has ? "set" : "unset"}"><button type="button" data-step="${id}" data-delta="-1">−</button><button type="button" class="stepValue" data-confirm="${id}" data-base="${base}">${val}</button><button type="button" data-step="${id}" data-delta="1">+</button>${isGross ? `<button type="button" class="pickupBtn ${picked ? "picked" : ""}" data-pickup="${id}" title="Pick up">P</button>` : ""}</div></div>`;
+      return `<div class="scoreStepperWrap ${isGross ? "grossControl" : "puttsControl"}"><small>${label}</small><div class="scoreStepper ${has ? "set" : "unset"}"><button type="button" data-step="${id}" data-delta="-1">−</button><button type="button" class="stepValue" data-confirm="${id}" data-base="${base}">${val}</button><button type="button" data-step="${id}" data-delta="1">+</button></div></div>`;
+    };
+    const pickup = (id, value) => {
+      const picked = String(value).toUpperCase() === "P";
+      return `<button type="button" class="pickupRow ${picked ? "picked" : ""}" data-pickup="${id}">${picked ? "✓ PICK-UP RECORDED (P)" : "P — PICK-UP"}</button>`;
     };
     const timeText = rec.ntp?.confirmedAt
       ? new Date(rec.ntp.confirmedAt).toLocaleTimeString("en-AU", {
@@ -6466,10 +6502,9 @@ Count-back if tied
       ? `<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length === 1 ? "" : "s"}: ${missingHoles.join(", ")}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`
       : "";
     host.innerHTML = `<div class="scoringPhone">${holeTracker}${missingAlert}
- <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div><span class="livePuttsLine">${puttsLine}</span></div>
- ${best3On ? `<div class="best3Live"><b>Best 3 of 4:</b><span>Hole ${hole} <strong>${best3Current == null ? "—" : best3Current}</strong></span><span>Holes 1 - ${hole} <strong>${best3Total == null ? "—" : best3Total}</strong></span></div>` : ""}
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div></div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div></div>
+ <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div><button class="soft exitRoundBottom" id="exitRound">Exit Round</button></div>`;
     const setField = (id, val) => {
@@ -7471,6 +7506,9 @@ Count-back if tied
     })();
     const isExtra = String(setup.ntpExtraPlayer || "") === selected,
       rules = [
+        store.event.preferredLies
+          ? `Preferred Lies — ${store.event.preferredLiesArea === "fairway" ? "Closely Mown Areas Only" : "General Area"}`
+          : "",
         store.event.specialRules || "",
         (store.event.competitions || []).includes("scratch")
           ? scratchRulesText(store.event)
@@ -7527,8 +7565,8 @@ Count-back if tied
            "",
          )}</div><h4>Special Rules</h4><p>${rules ? esc(rules).replace(/\n/g, "<br>") : "No additional special rules for this event."}</p></div>`
      : ""
- }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Got It" : "Got It"}</button></div>
- <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO START" : "START ROUND"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
+ }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
+ <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : "OPEN SCORECARD"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
     $("#checkEventUpdates").onclick = async () => {
       const before = store.event.finalUpdateAt || store.event.lockedAt || "";
       await syncCloudNow();
