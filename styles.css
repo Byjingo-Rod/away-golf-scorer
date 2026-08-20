@@ -5635,7 +5635,7 @@ body.playerDevice .cloudHeader {
   }
 }
 
-/* Version 15.65 — post-live-test refinements (keep last to override legacy scoring rules) */
+/* Version 15.66 — post-live-test refinements (keep last to override legacy scoring rules) */
 .basicEventTools {
   display: flex;
   justify-content: flex-end;
