@@ -1336,7 +1336,7 @@
   function eventWorkspaceDate(record) {
     return record?.event?.date || record?.updatedAt || record?.createdAt || "";
   }
-  function switchWorkspaceEvent(id) {
+  function switchWorkspaceEvent(id, resumePlanning = false) {
     captureCurrentEvent();
     const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
     if (!record?.event) return;
@@ -1354,18 +1354,26 @@
     renderLeaderboard();
     initialiseCloud();
     nav("home");
+    if (resumePlanning) reopenEventPlan();
   }
   function duplicateWorkspaceEvent(id) {
     captureCurrentEvent();
     const source = store.eventWorkspace.find((item) => String(item.id) === String(id));
     if (!source?.event) return;
     const event = JSON.parse(JSON.stringify(source.event));
+    const proposedName = `${event.name || "Away Golf Event"} — Copy`;
+    const newName = prompt("Name the new event:", proposedName);
+    if (newName == null) return;
+    if (!newName.trim()) return alert("Please enter a name for the new event.");
     event.workspaceId = uid();
-    event.name = `${event.name || "Away Golf Event"} — Copy`;
+    event.name = newName.trim();
     event.status = "planned";
     event.locked = false;
+    event.draftWizardStep = 1;
     event.scoring = { day1: {}, day2: {} };
     event.roundFinalised = {};
+    delete event.finalResults;
+    delete event.joinCode;
     delete event.lockedAt;
     delete event.publishedAt;
     delete event.roundClosedAt;
@@ -1377,8 +1385,7 @@
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
-    switchWorkspaceEvent(event.workspaceId);
-    reopenEventPlan();
+    switchWorkspaceEvent(event.workspaceId, true);
   }
   function deleteWorkspaceEvent(id) {
     const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
@@ -1445,7 +1452,8 @@
     const cards = records.map((record) => {
       const event = record.event || {}, current = String(record.id) === activeId;
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
-      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
+      const draft = eventWorkspaceStatus(event) === "Draft";
+      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${draft ? `<button class="primary" data-resumeevent="${esc(record.id)}">Resume Planning</button>` : current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
     }).join("");
     $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div>${hiddenDuplicates ? `<p class="workspaceDedupeNote">${hiddenDuplicates} duplicate local test record${hiddenDuplicates === 1 ? " is" : "s are"} hidden. All original event data remains safely stored.</p>` : ""}<div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
     $("#modalShade").classList.add("open");
@@ -1453,6 +1461,7 @@
     $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
     $$('[data-closeevents]').forEach((button) => button.onclick = () => $("#modalShade").classList.remove("open"));
     $$('[data-switchevent]').forEach((button) => button.onclick = () => switchWorkspaceEvent(button.dataset.switchevent));
+    $$('[data-resumeevent]').forEach((button) => button.onclick = () => switchWorkspaceEvent(button.dataset.resumeevent, true));
     $$('[data-duplicateevent]').forEach((button) => button.onclick = () => duplicateWorkspaceEvent(button.dataset.duplicateevent));
     $$('[data-archiveevent]').forEach((button) => button.onclick = () => toggleWorkspaceArchive(button.dataset.archiveevent));
     $$('[data-deleteevent]').forEach((button) => button.onclick = () => deleteWorkspaceEvent(button.dataset.deleteevent));
@@ -1462,7 +1471,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.65", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.66", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2219,7 +2228,7 @@
     e.singleStablefordFormat =
       e.singleStablefordFormat || (e.days === 2 ? "both" : "daily");
     W = {
-      step: 6,
+      step: Math.min(6, Math.max(1, +e.draftWizardStep || 6)),
       newEvent: false,
       event: e,
       invites: new Map(),
@@ -2242,16 +2251,69 @@
   }
   $("#newEvent").onclick = openWizard;
   $("#cancelWizard").onclick = () => $("#wizardShade").classList.remove("open");
+  function saveWizardDraft(exitAfterSave = false) {
+    syncEventFields();
+    if (!(W.event.name || "").trim()) {
+      if (exitAfterSave)
+        alert("Please name the event before saving it to My Events.");
+      return false;
+    }
+    if (W.newEvent) captureCurrentEvent();
+    const confirmed = [...W.invites]
+        .filter((entry) => entry[1] === "accepted")
+        .map((entry) => String(entry[0])),
+      invitationStatus = Object.fromEntries(
+        [...W.invites].map(([id, status]) => [String(id), status]),
+      ),
+      oldGroups = W.newEvent ? null : store.event?.groupSetup;
+    store.event = {
+      ...W.event,
+      workspaceId: W.event.workspaceId || uid(),
+      confirmed,
+      invitationStatus,
+      dayAvailability: JSON.parse(
+        JSON.stringify(W.event.dayAvailability || {}),
+      ),
+      competitions: [...W.competitions],
+      benefits: JSON.parse(JSON.stringify(W.benefits || {})),
+      status: "draft",
+      locked: false,
+      groupSetup: oldGroups,
+      draftWizardStep: W.step,
+    };
+    W.event.workspaceId = store.event.workspaceId;
+    W.event.draftWizardStep = W.step;
+    W.newEvent = false;
+    delete store.cloud;
+    store.cloudPlayers = [];
+    persistStore();
+    if (exitAfterSave) {
+      $("#wizardShade").classList.remove("open");
+      nav("homePage");
+      renderHome();
+      openMyEvents();
+    }
+    return true;
+  }
+  $("#saveWizardDraft").onclick = () => saveWizardDraft(true);
   $("#backWizard").onclick = () => {
     if (W.step > 1) {
+      saveWizardDraft(false);
       W.step--;
+      W.event.draftWizardStep = W.step;
+      store.event.draftWizardStep = W.step;
+      persistStore();
       renderWizard();
     }
   };
   $("#nextWizard").onclick = () => {
     if (!validateStep()) return;
     if (W.step < 6) {
+      saveWizardDraft(false);
       W.step++;
+      W.event.draftWizardStep = W.step;
+      store.event.draftWizardStep = W.step;
+      persistStore();
       renderWizard();
     } else finishEvent();
   };
@@ -3481,14 +3543,6 @@ Count-back if tied
             },
           ]
         : []),
-      ...cardResults.map((item) => ({
-        ok: item.result.ok,
-        label: `${item.course.name} Scorecard: ${
-          item.result.ok
-            ? `Valid · OUT ${item.result.outPar} / ${item.result.outMetres} m · IN ${item.result.inPar} / ${item.result.inMetres} m · TOTAL ${item.result.totalPar} / ${item.result.totalMetres} m`
-            : item.result.issues[0]
-        }`,
-      })),
       {
         ok: cardsValid && Boolean(W.event.scorecardsChecked),
         label: `Course Scorecard Checked Against Official Card: ${
@@ -3664,6 +3718,7 @@ Count-back if tied
       locked: false,
       groupSetup: oldGroups,
     };
+    delete store.event.draftWizardStep;
     store.template = {
       competitions: [...W.competitions].filter((x) => x !== "eclectic"),
       benefits: W.benefits,
@@ -7138,19 +7193,15 @@ Count-back if tied
   }
   function finalMessageForPlayer(id) {
     const wins = store.event.finalResults?.outcomes?.[String(id)] || [],
-      first = playerFirstName(id);
-    if (!wins.length)
-      return {
-        heading: `Good effort, ${first}.`,
-        message: "Better luck next time!",
-      };
-    const list =
-      wins.length === 1
-        ? wins[0]
-        : `${wins.slice(0, -1).join(", ")} and ${wins[wins.length - 1]}`;
+      first = playerFirstName(id),
+      eventName = String(store.event.name || "")
+        .replace(/^Away Golf\s*[-–—:]\s*/i, "")
+        .trim(),
+      eventPart = eventName ? " — " + eventName : "";
     return {
-      heading: `Well done, ${first}.`,
-      message: `Good win in ${list}!`,
+      heading: "Great having you play Away Golf" + eventPart + ", " + first + ".",
+      message: "Hope you enjoyed the day.",
+      winner: wins.length > 0,
     };
   }
   async function confirmResultsAndCloseEvent() {
@@ -7455,7 +7506,7 @@ Count-back if tied
     store.event.playerPreviewId = selected;
     if (isPlayerDevice() && store.event.finalResults?.confirmedAt) {
       const message = finalMessageForPlayer(selected);
-      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2><p>Hope you enjoyed your day.</p><button class="startRoundBtn" id="viewFinalResults">VIEW FINAL RESULTS</button></div></div>`;
+      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot.png" onerror="this.onerror=null;this.src='away-golf-mascot-mini.png'" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2>${message.winner ? "<p><b>Congratulations on your win.</b></p>" : ""}<button class="startRoundBtn" id="viewFinalResults">VIEW FINAL RESULTS</button></div></div>`;
       $("#viewFinalResults").onclick = () => showPage("leaderboardPage");
       return;
     }
@@ -7473,7 +7524,7 @@ Count-back if tied
       return;
     }
     if (isPlayerDevice() && !playerHasSeenWelcome(selected)) {
-      host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="assets/away-golf-mascot.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name || "today’s Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
+      host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="assets/away-golf-mascot.png" onerror="this.onerror=null;this.src='away-golf-mascot-mini.png'" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name || "today’s Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
       $("#continueFromWelcome").onclick = () => {
         rememberPlayerWelcome(selected);
         store.event.playerRulesOpen = true;

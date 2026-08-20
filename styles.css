@@ -182,10 +182,15 @@ nav button.active {
 }
 .wizardFoot {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 0.8fr 0.8fr 1.45fr 0.8fr;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid #ddd;
+}
+@media (max-width: 620px) {
+  .wizardFoot {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 .grid3 {
   display: grid;
