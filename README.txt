@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.62
+AWAY GOLF SCORER — VERSION 15.67
+
+VERSION 15.67 — RIDGE-READY SCORING
+=====================================
+
+- Removes Exit Round from every live scoring hole, eliminating the risk of pressing it instead of Finish Round.
+- Keeps Previous, Next Hole and Finish Round as the only round-navigation controls.
+- Retains the Version 15.66 two-tee default with an optional third tee.
+- Moves Return down each tee-handicap column before continuing at the top of the next column.
+- Displays automatic OUT, IN and TOTAL metres and par beneath every course scorecard.
+- Includes the Select your name here join prompt, clearer rule acknowledgement and All Green invitation control.
+- Shows Preferred Lies as the first special rule only when it has been enabled for the event.
 
 VERSION 15.62 — MY EVENTS WORKSPACE
 ====================================

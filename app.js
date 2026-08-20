@@ -1462,7 +1462,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.66", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.67", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6506,7 +6506,7 @@ Count-back if tied
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
- <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div><button class="soft exitRoundBottom" id="exitRound">Exit Round</button></div>`;
+ <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div></div>`;
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
@@ -6557,12 +6557,6 @@ Count-back if tied
             setField(id, +btn.dataset.base);
         }),
     );
-    $("#exitRound").onclick = () => {
-      store.event.playerRoundMode = "preview";
-      releaseRoundWakeLock();
-      save();
-      renderPlayerExperience();
-    };
     if ($("#yesNtp"))
       $("#yesNtp").onclick = () => {
         if (!rec.ntp.pending) {

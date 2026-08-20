@@ -2478,12 +2478,6 @@ body.playerDevice .awakeIndicator.active {
   min-height: 46px;
   font-weight: 800;
 }
-.exitRoundBottom {
-  display: block;
-  margin: 8px 0 0 auto;
-  padding: 7px 11px;
-  font-size: 10px;
-}
 .holeTracker {
   background: #fff;
   border: 1px solid #cedbd3;
@@ -5635,7 +5629,7 @@ body.playerDevice .cloudHeader {
   }
 }
 
-/* Version 15.66 — post-live-test refinements (keep last to override legacy scoring rules) */
+/* Version 15.67 — Ridge-ready scoring refinements (keep last to override legacy scoring rules) */
 .basicEventTools {
   display: flex;
   justify-content: flex-end;
