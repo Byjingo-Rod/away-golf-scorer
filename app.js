@@ -1060,7 +1060,9 @@
     const input =
       typeof codeOverride === "string"
         ? null
-        : $("#quickJoinCode") || $("#joinCode");
+        : [$("#joinCode"), $("#quickJoinCode")].find(
+            (candidate) => candidate && String(candidate.value || "").trim(),
+          ) || $("#joinCode") || $("#quickJoinCode");
     const code = String(
       typeof codeOverride === "string" ? codeOverride : input?.value || "",
     )
@@ -1522,7 +1524,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.69", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.70", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1740,14 +1742,14 @@
       };
     $("#joinEventForm").onsubmit = (event) => {
       event.preventDefault();
-      lookupCloudEvent();
+      lookupCloudEvent($("#joinCode")?.value || "");
     };
     // Some installed tablet web apps have proved unreliable at forwarding a
     // button tap to the form submit event. Keep a direct tap path as well;
     // preventDefault stops the same tap from triggering both handlers.
     $("#lookupCloudEvent").onclick = (event) => {
       event.preventDefault();
-      lookupCloudEvent();
+      lookupCloudEvent($("#joinCode")?.value || "");
     };
   }
   async function initialiseCloud() {
@@ -6249,7 +6251,7 @@ Count-back if tied
       back = totals(rows.filter((r) => r.h >= 10)),
       all = totals(rows),
       signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "—");
-    host.innerHTML = `<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name || "Player")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div><img class="completedMascot" src="assets/away-golf-mascot.png" alt="Away Golf golfer"></div>
+    host.innerHTML = `<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name || "Player")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div><img class="completedMascot" src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div>
  <div class="completedGreeting"><b>Well played, ${esc(playerFirstName(selected))}!</b><span>Your scorecard is complete. Final competition messages will appear when the event results are confirmed.</span></div>
  <div class="completedCardBanner"><div><small>DAILY HANDICAP</small><b>${esc(formatPlayingHandicap(hcp))}</b></div><div><small>STARTING TEE</small><b>Hole ${start}</b></div><div><small>STATUS</small><b>✓ Finalised</b></div></div>
  <p class="completedCardHelp">Read-only card. <b>Hcp +/-</b> shows the handicap adjustment used on each hole. A minus adjustment confirms that a plus-handicap player gives a stroke back on that hole.</p>
@@ -7077,20 +7079,20 @@ Count-back if tied
     }
     return rankLeaderRows(rows, !def.lower, Boolean(def.countback));
   }
+  function eventDayComplete(day) {
+    const field = dayFieldIds(day).filter(
+      (id) => String(id) !== NO_PARTNER_ID,
+    );
+    return Boolean(
+      field.length && field.every((id) => roundFinalisedFor(day, id)),
+    );
+  }
   function leaderboardComplete(def, rows) {
-    const dayFinal = (day) => {
-      const field = dayFieldIds(day).filter(
-        (id) => String(id) !== NO_PARTNER_ID,
-      );
-      return Boolean(
-        field.length && field.every((id) => roundFinalisedFor(day, id)),
-      );
-    };
     const finalised = def.day
-      ? dayFinal(def.day)
+      ? eventDayComplete(def.day)
       : store.event.days === 2
-        ? dayFinal(1) && dayFinal(2)
-        : dayFinal(1);
+        ? eventDayComplete(1) && eventDayComplete(2)
+        : eventDayComplete(1);
     if (def.type === "ntp")
       return (
         finalised &&
@@ -7224,6 +7226,19 @@ Count-back if tied
     };
   }
   async function confirmResultsAndCloseEvent() {
+    const requiredDays = Array.from(
+      { length: store.event.days || 1 },
+      (_, index) => index + 1,
+    );
+    const unfinishedDays = requiredDays.filter(
+      (day) => !eventDayComplete(day),
+    );
+    if (unfinishedDays.length) {
+      alert(
+        `The event cannot be closed yet. ${unfinishedDays.map((day) => `Day ${day}`).join(" and ")} scoring is still incomplete.`,
+      );
+      return;
+    }
     const defs = leaderboardDefinitions(),
       incomplete = defs.filter(
         (def) => !summaryCompetitionResult(def).complete,
@@ -7304,7 +7319,33 @@ Count-back if tied
         defs: defs.filter((d) => d.scope === "overall"),
       },
     ].filter((g) => g.defs.length);
-    const organiser = store.cloud?.role !== "player";
+    const organiser = store.cloud?.role !== "player",
+      day1Complete = eventDayComplete(1),
+      day2Complete =
+        store.event.days !== 2 ? true : eventDayComplete(2),
+      eventComplete = day1Complete && day2Complete,
+      eventClosed = Boolean(store.event.finalResults?.confirmedAt);
+    let eventControl = "";
+    if (organiser && eventClosed) {
+      eventControl = `<section class="finishControl"><h3>Event Closed — Messages Ready</h3><p>The confirmed results and personal finishing messages are now available on every connected player phone.</p><div class="finishMessagePreview">${dayFieldIds(1)
+        .filter((id) => String(id) !== NO_PARTNER_ID)
+        .map((id) => {
+          const m = finalMessageForPlayer(id);
+          return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)} ${esc(m.message)}</span></div>`;
+        })
+        .join("")}</div></section>`;
+    } else if (
+      organiser &&
+      store.event.days === 2 &&
+      day1Complete &&
+      !day2Complete
+    ) {
+      eventControl = `<section class="finishControl dayCompleteControl"><h3>✓ Day 1 Complete — Event Remains Open</h3><p>Award and tick off the Day 1 prizes above. Day 2 scoring and the overall event remain open.</p><button class="finishEventBtn" id="openDay2Btn">OPEN DAY 2</button></section>`;
+    } else if (organiser && !eventComplete) {
+      eventControl = `<section class="finishControl eventInProgress"><h3>Event In Progress</h3><p>Complete the remaining scoring before closing the event. Prizes for a completed day can still be awarded above.</p></section>`;
+    } else if (organiser) {
+      eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">CONFIRM RESULTS &amp; CLOSE EVENT</button></section>`;
+    }
     host.innerHTML = `<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · winners and prize giving</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}<div class="summaryGroups">${groups
       .map(
         (g) =>
@@ -7316,21 +7357,7 @@ Count-back if tied
             })
             .join("")}</section>`,
       )
-      .join("")}</div>${
-      organiser
-        ? `<section class="finishControl"><h3>${store.event.finalResults?.confirmedAt ? "Event Closed — Messages Ready" : "Finish the Event"}</h3><p>${store.event.finalResults?.confirmedAt ? "The confirmed results and personal finishing messages are now available on every connected player phone." : "Review the results, record the prizes, then confirm the results and close the event."}</p>${
-            store.event.finalResults?.confirmedAt
-              ? `<div class="finishMessagePreview">${dayFieldIds(1)
-                  .filter((id) => String(id) !== NO_PARTNER_ID)
-                  .map((id) => {
-                    const m = finalMessageForPlayer(id);
-                    return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)} ${esc(m.message)}</span></div>`;
-                  })
-                  .join("")}</div>`
-              : `<button class="finishEventBtn" id="finishEventBtn">CONFIRM RESULTS &amp; CLOSE EVENT</button>`
-          }</section>`
-        : ""
-    }<p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
+      .join("")}</div>${eventControl}<p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
     $$("[data-summaryopen]").forEach((b) => {
       const open = () => {
         const d = defs.find((x) => x.id === b.dataset.summaryopen);
@@ -7376,6 +7403,12 @@ Count-back if tied
     };
     if ($("#finishEventBtn"))
       $("#finishEventBtn").onclick = confirmResultsAndCloseEvent;
+    if ($("#openDay2Btn"))
+      $("#openDay2Btn").onclick = () => {
+        store.event.leaderboardView = 2;
+        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        renderLeaderboard();
+      };
   }
   function renderLeaderboard() {
     const host = $("#leaderboardExperience");
@@ -7525,7 +7558,7 @@ Count-back if tied
     store.event.playerPreviewId = selected;
     if (isPlayerDevice() && store.event.finalResults?.confirmedAt) {
       const message = finalMessageForPlayer(selected);
-      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2><p>Hope you enjoyed your day.</p><button class="startRoundBtn" id="viewFinalResults">VIEW FINAL RESULTS</button></div></div>`;
+      host.innerHTML = `<div class="playerFinish"><img src="away-golf-mascot-mini.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2><p>Hope you enjoyed your day.</p><button class="startRoundBtn" id="viewFinalResults">VIEW FINAL RESULTS</button></div></div>`;
       $("#viewFinalResults").onclick = () => showPage("leaderboardPage");
       return;
     }
@@ -7543,7 +7576,7 @@ Count-back if tied
       return;
     }
     if (isPlayerDevice() && !playerHasSeenWelcome(selected)) {
-      host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="assets/away-golf-mascot.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name || "today’s Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
+      host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name || "today’s Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
       $("#continueFromWelcome").onclick = () => {
         rememberPlayerWelcome(selected);
         store.event.playerRulesOpen = true;
@@ -7697,7 +7730,8 @@ Count-back if tied
     setTimeout(openMyEvents, 120);
   }
   if ($("#quickJoinEvent"))
-    $("#quickJoinEvent").onclick = () => lookupCloudEvent();
+    $("#quickJoinEvent").onclick = () =>
+      lookupCloudEvent($("#quickJoinCode")?.value || "");
   if ($("#quickJoinCode")) {
     $("#quickJoinCode").oninput = (e) => {
       e.target.value = e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -7710,7 +7744,7 @@ Count-back if tied
     $("#quickJoinCode").onkeydown = (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        lookupCloudEvent();
+        lookupCloudEvent($("#quickJoinCode")?.value || "");
       }
     };
   }

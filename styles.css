@@ -5308,17 +5308,21 @@ body.joinOnlyDevice .playerJoinLanding {
 }
 .welcomeMascotWrap {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 14px 10px 0;
+  padding: 24px 10px 12px;
+  background:
+    radial-gradient(circle at 50% 48%, #ffffff20 0 26%, transparent 27%),
+    linear-gradient(150deg, #124d34, #26885a);
 }
 .welcomeMascotWrap img {
   display: block;
-  height: 100%;
-  max-width: 94%;
+  width: auto;
+  height: min(235px, 82%);
+  max-width: 78%;
   object-fit: contain;
-  object-position: center bottom;
+  object-position: center;
   filter: drop-shadow(0 5px 5px #062e2088);
 }
 .welcomeWords {
@@ -5592,6 +5596,13 @@ body.playerDevice .cloudHeader {
 .finishControl h3,
 .finishControl p {
   margin: 0 0 10px;
+}
+.dayCompleteControl {
+  border-color: #75b98c;
+  background: #edf8f0;
+}
+.eventInProgress {
+  background: #f5f7f5;
 }
 .finishEventBtn {
   width: 100%;
