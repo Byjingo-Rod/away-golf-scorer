@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.67
+AWAY GOLF SCORER — VERSION 15.68
+
+VERSION 15.68 — PLAYER CONNECTION RECOVERY
+============================================
+
+- Adds Leave This Event and Join Another for phones retained in an old event.
+- Clears only that device's old local connection; submitted scores remain safe online.
+- Shows Finding Event and a plain-language status while a player code is checked.
+- Stops a stalled cloud request after 12 seconds instead of leaving Join apparently inactive.
+- Restores the entered code after a failed lookup so it can be checked and tried again.
+- Applies the same timeout protection when refreshing an existing event connection.
 
 VERSION 15.67 — RIDGE-READY SCORING
 =====================================

@@ -745,6 +745,18 @@
     cloudBusy = busy;
     renderCloudPanel();
   }
+  function cloudTimeout(promise, milliseconds = 12000) {
+    let timer;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("The cloud connection took too long to respond.")),
+          milliseconds,
+        );
+      }),
+    ]).finally(() => clearTimeout(timer));
+  }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
     const restoreOrganiser =
@@ -873,11 +885,32 @@
     nav("home");
     setCloudMessage("Ready to join as a player");
   }
+  function leavePlayerEvent() {
+    const eventName = store.event?.name || "this event";
+    if (
+      !confirm(
+        `Leave ${eventName} on this device and enter a different event code?\n\nAny scores already sent remain safe online.`,
+      )
+    )
+      return;
+    closeCloudConnection();
+    store.event = null;
+    delete store.cloud;
+    store.cloudPlayers = [];
+    persistStore();
+    applyDeviceRole();
+    renderHome();
+    renderPlayerExperience();
+    renderLeaderboard();
+    nav("home");
+    setCloudMessage("Previous event left · enter the new code");
+    requestAnimationFrame(() => $("#joinCode")?.focus());
+  }
   async function syncCloudNow() {
     if (!store.cloud?.eventId || cloudBusy) return;
     setCloudMessage("Synchronising…", true);
     try {
-      const bundle = await AwayCloud.loadEvent(store.cloud.eventId);
+      const bundle = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
       if (
         bundle?.event?.status === "archived" &&
         store.cloud?.role === "player"
@@ -1021,7 +1054,7 @@
     if (quickButton) quickButton.disabled = true;
     setCloudMessage("Finding event…", true);
     try {
-      const rows = await AwayCloud.invitation(code);
+      const rows = await cloudTimeout(AwayCloud.invitation(code));
       if (!rows.length) {
         setCloudMessage("Ready");
         setQuickJoinStatus(
@@ -1055,7 +1088,7 @@
               playerId: String(playerId),
             };
             localStorage.setItem("awayGolf13", JSON.stringify(store));
-            const bundle = await AwayCloud.loadEvent(eventId);
+            const bundle = await cloudTimeout(AwayCloud.loadEvent(eventId));
             applyRemoteCloud(bundle);
             applyDeviceRole();
             $("#modalShade").classList.remove("open");
@@ -1084,6 +1117,10 @@
       );
       alert("Event lookup did not complete. " + (error.message || error));
     } finally {
+      cloudBusy = false;
+      renderCloudPanel();
+      const restoredInput = $("#joinCode");
+      if (restoredInput && !store.cloud?.eventId) restoredInput.value = code;
       if (quickButton) quickButton.disabled = false;
     }
   }
@@ -1462,7 +1499,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.67", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.68", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1664,12 +1701,13 @@
       return;
     }
     if (store.cloud?.role === "player" && store.cloud.eventId) {
-      host.innerHTML = `<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name || "Player")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name || "the Away Golf event")}</b>. Scores are saved locally first and shared automatically.</p><div class="cloudActions"><button class="primary" id="openMyCard">Open Scoring Card</button>${retryButton}</div>`;
+      host.innerHTML = `<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name || "Player")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name || "the Away Golf event")}</b>. Scores are saved locally first and shared automatically.</p><div class="cloudActions"><button class="primary" id="openMyCard">Open Scoring Card</button>${retryButton}<button class="soft leavePlayerEvent" id="leavePlayerEvent">Leave This Event and Join Another</button></div>`;
       $("#openMyCard").onclick = () => nav("scorePage");
       if ($("#retryCloud")) $("#retryCloud").onclick = syncCloudNow;
+      $("#leavePlayerEvent").onclick = leavePlayerEvent;
       return;
     }
-    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>Join as a Player</button></div>`;
+    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></div><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
     if ($("#publishCloudEvent"))
       $("#publishCloudEvent").onclick = publishCloudEvent;
     if ($("#retryCloud"))

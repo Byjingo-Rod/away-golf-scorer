@@ -3535,6 +3535,19 @@ body.playerDevice .awakeIndicator.active {
   letter-spacing: 0.12em;
   font-weight: 900;
 }
+.panelJoinStatus {
+  margin: 8px 0 0;
+  color: #52685c;
+  font-size: 12px;
+  font-weight: 750;
+}
+.panelJoinStatus.error {
+  color: #963f20;
+}
+.leavePlayerEvent {
+  border-color: #d7b8a8;
+  color: #7c321c;
+}
 .cloudWarning {
   background: #fff1df;
   border: 1px solid #eed3a6;
