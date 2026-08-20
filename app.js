@@ -661,7 +661,8 @@
     cloudBusy = false,
     cloudMessage = "Connecting securely…",
     cloudChannel = null,
-    cloudReloadTimer = null;
+    cloudReloadTimer = null,
+    organiserPollTimer = null;
   const cloudRoundTimers = new Map();
   const cloudRoundChains = new Map();
   const isPlayerDevice = () =>
@@ -952,6 +953,28 @@
       clearTimeout(cloudReloadTimer);
       cloudReloadTimer = setTimeout(syncCloudNow, 450);
     });
+  }
+  async function pollOrganiserConnections() {
+    if (
+      document.hidden ||
+      cloudBusy ||
+      store.cloud?.role !== "organiser" ||
+      !store.cloud?.eventId
+    )
+      return;
+    try {
+      const bundle = await cloudTimeout(
+        AwayCloud.loadEvent(store.cloud.eventId),
+        8000,
+      );
+      applyRemoteCloud(bundle);
+    } catch (_) {
+      // Background refresh must never interrupt the organiser.
+    }
+  }
+  function startOrganiserPolling() {
+    if (organiserPollTimer) return;
+    organiserPollTimer = setInterval(pollOrganiserConnections, 8000);
   }
   async function publishCloudEvent() {
     if (!store.event) return alert("Create an event plan before publishing.");
@@ -1499,7 +1522,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.68", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.69", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1707,7 +1730,7 @@
       $("#leavePlayerEvent").onclick = leavePlayerEvent;
       return;
     }
-    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<div class="joinEventRow"><input id="joinCode" maxlength="6" autocapitalize="characters" placeholder="6-character event code"><button class="soft" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></div><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
+    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<form class="joinEventRow" id="joinEventForm"><input id="joinCode" maxlength="6" autocapitalize="characters" inputmode="text" enterkeyhint="go" placeholder="6-character event code"><button type="submit" class="primary" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></form><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
     if ($("#publishCloudEvent"))
       $("#publishCloudEvent").onclick = publishCloudEvent;
     if ($("#retryCloud"))
@@ -1715,7 +1738,17 @@
         if (store.cloud?.eventId) syncCloudNow();
         else initialiseCloud();
       };
-    $("#lookupCloudEvent").onclick = () => lookupCloudEvent();
+    $("#joinEventForm").onsubmit = (event) => {
+      event.preventDefault();
+      lookupCloudEvent();
+    };
+    // Some installed tablet web apps have proved unreliable at forwarding a
+    // button tap to the form submit event. Keep a direct tap path as well;
+    // preventDefault stops the same tap from triggering both handlers.
+    $("#lookupCloudEvent").onclick = (event) => {
+      event.preventDefault();
+      lookupCloudEvent();
+    };
   }
   async function initialiseCloud() {
     try {
@@ -1775,6 +1808,11 @@
     renderCloudPanel();
   });
   window.addEventListener("offline", renderCloudPanel);
+  window.addEventListener("focus", pollOrganiserConnections);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) pollOrganiserConnections();
+  });
+  startOrganiserPolling();
 
   function renderHome() {
     $("#homeEvent").textContent = store.event?.name || "Not set";
