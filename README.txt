@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.68
+AWAY GOLF SCORER — VERSION 15.69
+
+VERSION 15.69 — TABLET JOIN AND LIVE ORGANISER STATUS
+======================================================
+
+- Makes Join as a Player a true form action for more reliable installed-tablet handling.
+- Adds a direct tablet tap path where an installed web app does not forward form submission correctly.
+- Makes the Join button prominent and retains Enter/Go keyboard joining.
+- Refreshes organiser player connections automatically every eight seconds.
+- Refreshes immediately when the organiser window regains focus or becomes visible.
+- Keeps manual Refresh available and leaves the successful Version 15.68 phone recovery unchanged.
 
 VERSION 15.68 — PLAYER CONNECTION RECOVERY
 ============================================
