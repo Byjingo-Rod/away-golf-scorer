@@ -701,8 +701,10 @@
     delete event.scoring;
     delete event.playerRoundMode;
     delete event.playerHolePos;
+    delete event.playerHolePosByDay;
     delete event.playerPreviewId;
     delete event.playerPreviewDay;
+    delete event.playerActiveScoringDay;
     delete event.playerPreviewAck;
     delete event.playerRulesOpen;
     delete event.leaderboardTab;
@@ -758,6 +760,31 @@
       }),
     ]).finally(() => clearTimeout(timer));
   }
+  function playerScoringDay() {
+    const days = store.event?.days || 1;
+    return Math.max(
+      1,
+      Math.min(
+        days,
+        +(store.event?.playerActiveScoringDay ||
+          store.event?.playerPreviewDay ||
+          1),
+      ),
+    );
+  }
+  function getPlayerHolePos(day) {
+    const saved = store.event?.playerHolePosByDay?.["day" + day];
+    return Math.max(
+      0,
+      Math.min(17, saved == null ? +(store.event?.playerHolePos || 0) : +saved),
+    );
+  }
+  function setPlayerHolePos(day, pos) {
+    store.event.playerHolePosByDay ||= {};
+    const value = Math.max(0, Math.min(17, +pos || 0));
+    store.event.playerHolePosByDay["day" + day] = value;
+    store.event.playerHolePos = value;
+  }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
     const restoreOrganiser =
@@ -771,6 +798,11 @@
           ? {
               playerRoundMode: store.event?.playerRoundMode || "preview",
               playerHolePos: store.event?.playerHolePos || 0,
+              playerHolePosByDay: store.event?.playerHolePosByDay || {},
+              playerPreviewDay: store.event?.playerPreviewDay || 1,
+              playerActiveScoringDay:
+                store.event?.playerActiveScoringDay || 1,
+              playerRulesOpen: store.event?.playerRulesOpen || false,
               playerPreviewAck: store.event?.playerPreviewAck || {},
               leaderboardTab: store.event?.leaderboardTab || "",
               leaderboardView: store.event?.leaderboardView || "",
@@ -803,6 +835,7 @@
       const ownActiveRound =
         store.cloud?.role === "player" &&
         String(row.scorer_player_id) === String(store.cloud.playerId) &&
+        +row.day === playerScoringDay() &&
         ["scoring", "verify"].includes(store.event?.playerRoundMode);
       if (!ownActiveRound)
         scoringDayStore(+row.day)[String(row.scorer_player_id)] =
@@ -1524,7 +1557,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.70", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.71", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5790,6 +5823,18 @@ Count-back if tied
     const history = ntpHistory(day, hole);
     return history[history.length - 1] || null;
   }
+  function ntpNoWinnerRecorded(day, hole) {
+    return Boolean(store.event.ntpNoWinner?.["day" + day]?.[String(hole)]);
+  }
+  function setNtpNoWinnerRecorded(day, hole, recorded) {
+    store.event.ntpNoWinner ||= {};
+    store.event.ntpNoWinner["day" + day] ||= {};
+    if (recorded)
+      store.event.ntpNoWinner["day" + day][String(hole)] = {
+        recordedAt: new Date().toISOString(),
+      };
+    else delete store.event.ntpNoWinner["day" + day][String(hole)];
+  }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
     if (!host) return;
@@ -6343,12 +6388,13 @@ Count-back if tied
         store.event.roundFinalised["day" + day][selected] = at;
         const round = scorerStore(day, selected);
         round._meta = { ...(round._meta || {}), finalisedAt: at };
+        store.event.playerPreviewDay = day;
+        store.event.playerActiveScoringDay = day;
         store.event.playerRoundMode = "preview";
         releaseRoundWakeLock();
         localStorage.setItem("awayGolf13", JSON.stringify(store));
         queueCloudRound(day, selected);
         renderHome();
-        alert("Round finalised for " + player(selected).name + ".");
         renderPlayerExperience();
       };
   }
@@ -6363,7 +6409,7 @@ Count-back if tied
       v = version(c) || {},
       start = setup.starts?.[ctx.groupIndex] || 1,
       seq = scoreSequence(start);
-    let pos = Math.max(0, Math.min(17, store.event.playerHolePos || 0)),
+    let pos = getPlayerHolePos(day),
       hole = seq[pos],
       idx = hole - 1,
       rec = scoreRecord(day, selected, hole),
@@ -6643,6 +6689,7 @@ Count-back if tied
           rec.ntp.pending = false;
           rec.ntp.entrantId = targetId;
           rec.ntp.confirmedAt = new Date().toISOString();
+          setNtpNoWinnerRecorded(day, hole, false);
         }
         save();
         queueCloudRound(day, selected);
@@ -6660,19 +6707,19 @@ Count-back if tied
     $$("[data-gotohole]").forEach(
       (btn) =>
         (btn.onclick = () => {
-          store.event.playerHolePos = +btn.dataset.gotohole;
+          setPlayerHolePos(day, +btn.dataset.gotohole);
           save();
           renderHoleScoring(selected, day);
         }),
     );
     if ($("#firstMissingHole"))
       $("#firstMissingHole").onclick = () => {
-        store.event.playerHolePos = seq.indexOf(missingHoles[0]);
+        setPlayerHolePos(day, seq.indexOf(missingHoles[0]));
         save();
         renderHoleScoring(selected, day);
       };
     $("#prevHole").onclick = () => {
-      store.event.playerHolePos = Math.max(0, pos - 1);
+      setPlayerHolePos(day, Math.max(0, pos - 1));
       save();
       renderHoleScoring(selected, day);
     };
@@ -6685,7 +6732,7 @@ Count-back if tied
         save();
         renderRoundVerification(selected, day);
       } else {
-        store.event.playerHolePos = pos + 1;
+        setPlayerHolePos(day, pos + 1);
         round._meta = round._meta || {};
         round._meta.furthestPos = Math.max(
           +round._meta.furthestPos || 0,
@@ -6836,7 +6883,7 @@ Count-back if tied
       defs = [],
       add = (id, label, type, day = 0, opts = {}) =>
         defs.push({ id, label, type, day, scope: day || "overall", ...opts });
-    if (selected.has("single") || (days === 1 && selected.has("combined")))
+    if (days === 1 && (selected.has("single") || selected.has("combined")))
       add("single-d1", "Single Stableford", "single", 1, { countback: true });
     if (days === 2 && selected.has("combined")) {
       const format =
@@ -7096,11 +7143,11 @@ Count-back if tied
     if (def.type === "ntp")
       return (
         finalised &&
-        dayFieldIds(def.day)
-          .filter((id) => String(id) !== NO_PARTNER_ID)
-          .every((id) =>
-            leaderboardPlayerPoints(def.day, id).every((x) => x != null),
-          )
+        ntpHolesFor(def.day).every(
+          (hole) =>
+            currentNtpHolder(def.day, hole) ||
+            ntpNoWinnerRecorded(def.day, hole),
+        )
       );
     if (def.type === "scratch") {
       const active = rows.filter((r) => !r.disqualified);
@@ -7125,7 +7172,7 @@ Count-back if tied
           ? holders
               .map(
                 (x) =>
-                  `Hole ${x.hole}: ${x.holder ? player(x.holder.id)?.name || "Player" : "Pending"}`,
+                  `Hole ${x.hole}: ${x.holder ? player(x.holder.id)?.name || "Player" : ntpNoWinnerRecorded(def.day, x.hole) ? "No winner recorded" : "Pending"}`,
               )
               .join(" · ")
           : "Pending",
@@ -7307,14 +7354,35 @@ Count-back if tied
     if (store.cloud?.role === "organiser" && store.cloud?.eventId)
       await updateCloudEvent();
   }
+  function prizeSectionAwarded(key) {
+    return Boolean(store.event.prizeSectionsAwarded?.[key]);
+  }
+  async function setPrizeSectionAwarded(key, awarded) {
+    store.event.prizeSectionsAwarded ||= {};
+    if (awarded)
+      store.event.prizeSectionsAwarded[key] = {
+        awardedAt: new Date().toISOString(),
+      };
+    else delete store.event.prizeSectionsAwarded[key];
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    renderLeaderboard();
+    if (store.cloud?.role === "organiser" && store.cloud?.eventId)
+      await updateCloudEvent();
+  }
   function renderLeaderboardSummary(host, defs, viewTabs) {
     const groups = [
       {
+        key: "day1",
         title: store.event.days === 1 ? "Event Results" : "Day 1 Results",
         defs: defs.filter((d) => d.scope === 1),
       },
-      { title: "Day 2 Results", defs: defs.filter((d) => d.scope === 2) },
       {
+        key: "day2",
+        title: "Day 2 Results",
+        defs: defs.filter((d) => d.scope === 2),
+      },
+      {
+        key: "overall",
         title: "Overall Event Results",
         defs: defs.filter((d) => d.scope === "overall"),
       },
@@ -7348,14 +7416,26 @@ Count-back if tied
     }
     host.innerHTML = `<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · winners and prize giving</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}<div class="summaryGroups">${groups
       .map(
-        (g) =>
-          `<section class="summaryCard"><h3>${g.title}</h3>${g.defs
+        (g) => {
+          const results = g.defs.map((d) => ({
+              def: d,
+              result: summaryCompetitionResult(d),
+            })),
+            complete = results.every((item) => item.result.complete),
+            awarded = prizeSectionAwarded(g.key);
+          return `<section class="summaryCard ${awarded ? "sectionAwarded" : ""}"><div class="summaryCardHead"><h3>${g.title}</h3>${organiser ? `<button class="${awarded ? "prizeAwarded" : "prizeAward"}" data-prizesection="${g.key}" data-awarded="${awarded ? "1" : "0"}" ${complete ? "" : "disabled"}>${awarded ? "✓ Prizes Awarded" : "Award Prizes"}</button>` : ""}</div>${results
             .map((d) => {
-              const r = summaryCompetitionResult(d),
-                p = summaryPrizeDetails(d);
-              return `<div class="summaryResult ${p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${r.complete ? "Winner" : "In progress"}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong><small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small></span><span class="summaryActions">${p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">Award Prize</button>` : ""}<em>›</em></span></div>`;
+              const r = d.result,
+                p = summaryPrizeDetails(d.def),
+                status = r.complete
+                  ? "Completed"
+                  : r.text === "Not started"
+                    ? "Not started"
+                    : "In Progress";
+              return `<div class="summaryResult" data-summaryopen="${d.def.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.def.label)}</b><small>${status}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong><small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small></span><span class="summaryActions"><em>›</em></span></div>`;
             })
-            .join("")}</section>`,
+            .join("")}</section>`;
+        },
       )
       .join("")}</div>${eventControl}<p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
     $$("[data-summaryopen]").forEach((b) => {
@@ -7372,29 +7452,26 @@ Count-back if tied
         renderLeaderboard();
       };
       b.onclick = (e) => {
-        if (!e.target.closest("[data-prizeaward]")) open();
+        open();
       };
       b.onkeydown = (e) => {
-        if (
-          (e.key === "Enter" || e.key === " ") &&
-          !e.target.closest("[data-prizeaward]")
-        ) {
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           open();
         }
       };
     });
-    $$("[data-prizeaward]").forEach(
+    $$("[data-prizesection]").forEach(
       (b) =>
         (b.onclick = async (e) => {
           e.stopPropagation();
           const wasAwarded = b.dataset.awarded === "1";
           if (
             wasAwarded &&
-            !confirm("Change this prize back to not yet awarded?")
+            !confirm("Change this section back to prizes not yet awarded?")
           )
             return;
-          await setPrizeAwarded(b.dataset.prizeaward, !wasAwarded);
+          await setPrizeSectionAwarded(b.dataset.prizesection, !wasAwarded);
         }),
     );
     $("#leaderRefresh").onclick = async () => {
@@ -7481,12 +7558,15 @@ Count-back if tied
                       return `<div class="ntpHistoryEntry ${winner ? "winner" : ""}"><span>${winner ? "<b>Winner:</b> " : ""}${esc(player(entry.id)?.name || "Player")}</span><time>${esc(time)}</time></div>`;
                     })
                     .join("")
-                : "<p>No confirmed holder yet</p>"
-            }</section>`;
+                : ntpNoWinnerRecorded(def.day, h)
+                  ? "<p><b>No winner recorded</b></p>"
+                  : "<p>No confirmed holder yet</p>"
+            }${store.cloud?.role !== "player" ? `<button class="soft ntpNoWinnerBtn" data-ntp-nowinner="${h}">${ntpNoWinnerRecorded(def.day, h) ? "Undo no-winner" : "No winner recorded"}</button>` : ""}</section>`;
           })
           .join("") || '<div class="leaderEmpty">No NTP holes selected.</div>';
     } else {
       const rows = calculateLeaderboard(def),
+        competitionFinal = leaderboardComplete(def, rows),
         unit = def.type === "putts" ? "putts" : "pts",
         toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
       body =
@@ -7494,7 +7574,7 @@ Count-back if tied
           .map((r, i) => {
             const waiting =
                 (def.type === "putts" || def.type === "best3") && !r.thru,
-              isFinal = r.thru === r.target,
+              isFinal = competitionFinal && r.thru === r.target,
               score =
                 def.type === "scratch"
                   ? isFinal
@@ -7503,12 +7583,34 @@ Count-back if tied
                   : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
               return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>Withdrawn from this Competition</small></span><span class="leaderScore">—</span><span class="leaderThru">Pick-up on Hole ${r.pickupHole}</span></div>`;
-            return `<div class="leaderRow ${i === 0 && r.thru ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : isFinal ? "Final" : `Thru ${r.thru}`}</span></div>`;
+            const status = waiting
+              ? "Waiting for Marker to Score"
+              : isFinal
+                ? "Final"
+                : def.scope === "overall"
+                  ? ""
+                  : `Thru ${r.thru}`;
+            return `<div class="leaderRow ${i === 0 && r.thru ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${status}</span></div>`;
           })
           .join("") ||
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
     }
     host.innerHTML = `<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · official marker scores update as they arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    $$('[data-ntp-nowinner]').forEach(
+      (b) =>
+        (b.onclick = async () => {
+          const hole = +b.dataset.ntpNowinner;
+          setNtpNoWinnerRecorded(
+            def.day,
+            hole,
+            !ntpNoWinnerRecorded(def.day, hole),
+          );
+          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          renderLeaderboard();
+          if (store.cloud?.role === "organiser" && store.cloud?.eventId)
+            await updateCloudEvent();
+        }),
+    );
     $$("[data-leaderview]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -7548,7 +7650,13 @@ Count-back if tied
     }
     initialiseGroups();
     const days = store.event.days || 1;
-    let day = Math.min(store.event.playerPreviewDay || 1, days);
+    const activeRoundMode = ["scoring", "verify", "completed"].includes(
+      store.event.playerRoundMode,
+    );
+    let day = Math.min(
+      activeRoundMode ? playerScoringDay() : store.event.playerPreviewDay || 1,
+      days,
+    );
     let field = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
     if (store.cloud?.role === "player")
       field = field.filter((id) => String(id) === String(store.cloud.playerId));
@@ -7640,10 +7748,13 @@ Count-back if tied
       canStart = Boolean(
         store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null,
       ),
-      rulesOpen = Boolean(store.event.playerRulesOpen);
+      rulesOpen = Boolean(store.event.playerRulesOpen),
+      eventUpdatePanel = finalised
+        ? `<div class="eventUpdateBanner final completedRoundBanner"><b>Well done – Your confirmed scores have been submitted. Now it’s time to play the 19th Hole!</b></div>`
+        : `<div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span><button class="soft" id="checkEventUpdates">Check for Event Updates</button></div>`;
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${days === 2 ? `<div class="previewDayTabs" aria-label="Select scoring day"><button type="button" class="${day === 1 ? "active" : ""}" data-previewday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-previewday="2">Day 2</button></div>` : ""}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span><button class="soft" id="checkEventUpdates">Check for Event Updates</button></div>
+ ${eventUpdatePanel}
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : teeSelectionIsFinal(day) ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. <span class="vpName">${esc(player(setup.virtualPlayer)?.name || "Virtual Player")} (VP)</span> supplies the missing score where a partner or fourth team member is required.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b> on each NTP hole today. Either shot may qualify.</p>` : ""}</div>` : ""}
@@ -7670,7 +7781,7 @@ Count-back if tied
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
  <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : "OPEN SCORECARD"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
-    $("#checkEventUpdates").onclick = async () => {
+    if ($("#checkEventUpdates")) $("#checkEventUpdates").onclick = async () => {
       const before = store.event.finalUpdateAt || store.event.lockedAt || "";
       await syncCloudNow();
       renderPlayerExperience();
@@ -7714,7 +7825,8 @@ Count-back if tied
       }
       if (!canStart) return;
       store.event.playerRoundMode = "scoring";
-      store.event.playerHolePos = 0;
+      store.event.playerActiveScoringDay = day;
+      setPlayerHolePos(day, 0);
       requestRoundWakeLock();
       save();
       renderPlayerExperience();
