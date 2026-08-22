@@ -3912,26 +3912,12 @@ body.playerDevice nav button[data-nav="scorePage"]:after {
   border-radius: 12px;
   overflow: hidden;
 }
-.summaryCardHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px 8px 14px;
-  background: #eaf3ed;
-}
-.summaryCardHead h3 {
+.summaryCard h3 {
   margin: 0;
-  padding: 0;
+  padding: 11px 14px;
+  background: #eaf3ed;
   color: #214f39;
   font-size: 15px;
-}
-.summaryCardHead button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
-}
-.summaryCard.sectionAwarded .summaryCardHead {
-  background: #dfe8e1;
 }
 .summaryResult {
   width: 100%;
@@ -5749,10 +5735,4 @@ body.playerDevice .cloudHeader {
   border-color: #cbd5cf;
   background: #e5eae6;
   color: #456052;
-}
-.completedRoundBanner {
-  padding: 18px 16px;
-  text-align: center;
-  font-size: 18px;
-  line-height: 1.35;
 }
