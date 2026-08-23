@@ -1,16 +1,17 @@
-const CACHE = "away-golf-v15-74";
+const CACHE = "away-golf-v15-75";
 const FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=15.74",
-  "./supabase.js?v=15.74",
-  "./cloud.js?v=15.74",
-  "./data.js?v=15.74",
-  "./app.js?v=15.74",
+  "./styles.css?v=15.75",
+  "./supabase.js?v=15.75",
+  "./cloud.js?v=15.75",
+  "./data.js?v=15.75",
+  "./app.js?v=15.75",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./away-golf-mascot-mini.png",
+  "./assets/away-golf-mascot-finish.png",
 ];
 self.addEventListener("install", (e) => {
   self.skipWaiting();

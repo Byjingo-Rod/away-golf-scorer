@@ -1,4 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.74
+AWAY GOLF SCORER — VERSION 15.75
+
+VERSION 15.75 — CLEAN PLAYER FAREWELL
+=======================================
+
+- Uses the full-size mascot artwork on the player finish screen so it remains sharp on a phone.
+- Replaces winner lists and non-winner messages with the same simple personal farewell for every player.
+- Removes the View Final Results button from the finish screen.
+- Leaves the organiser's complete results, winners and prize controls unchanged.
+- Preserves all existing event records and scores.
 
 VERSION 15.74 — COMPLETED ROUND FINISH
 =========================================

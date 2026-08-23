@@ -1529,7 +1529,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.74", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.75", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -7217,20 +7217,11 @@ Count-back if tied
     return outcomes;
   }
   function finalMessageForPlayer(id) {
-    const wins = store.event.finalResults?.outcomes?.[String(id)] || [],
-      first = playerFirstName(id);
-    if (!wins.length)
-      return {
-        heading: `Good effort, ${first}.`,
-        message: "Better luck next time!",
-      };
-    const list =
-      wins.length === 1
-        ? wins[0]
-        : `${wins.slice(0, -1).join(", ")} and ${wins[wins.length - 1]}`;
+    const first = playerFirstName(id);
     return {
       heading: `Well done, ${first}.`,
-      message: `Good win in ${list}!`,
+      message:
+        "Thanks for joining this Away Golf Event and I look forward to seeing you at future Events.",
     };
   }
   async function confirmResultsAndCloseEvent() {
@@ -7567,8 +7558,7 @@ Count-back if tied
     store.event.playerPreviewId = selected;
     if (isPlayerDevice() && store.event.finalResults?.confirmedAt) {
       const message = finalMessageForPlayer(selected);
-      host.innerHTML = `<div class="playerFinish"><img src="away-golf-mascot-mini.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2><p>Hope you enjoyed your day.</p><button class="startRoundBtn" id="viewFinalResults">VIEW FINAL RESULTS</button></div></div>`;
-      $("#viewFinalResults").onclick = () => showPage("leaderboardPage");
+      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot-finish.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2></div></div>`;
       return;
     }
     if (store.event.playerRoundMode === "scoring")
