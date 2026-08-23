@@ -1,0 +1,22 @@
+AWAY GOLF SCORER — VERSION 15.74 BACKUP UPDATE
+
+This package is the complete Version 15.74 app.
+
+To update the Windows backup copy:
+
+1. Close Away Golf Scorer and any browser tab showing the backup copy.
+2. Open your existing folder:
+   C:\Users\User\away-golf-scorer
+3. Copy every file and folder from this extracted update folder into the
+   existing away-golf-scorer folder.
+4. When Windows asks, choose Replace the files in the destination.
+5. Open index.html from the updated away-golf-scorer folder.
+6. Confirm that the top of the app says Version 15.74.
+
+Your event planning data is stored separately by the browser/app and is not
+contained in these program files. Replacing the program files does not erase
+that data. Keeping a recent Organiser Backup file is still recommended.
+
+The installed live desktop app updates automatically after Version 15.74 is
+published. This package is for the separate Windows backup folder and can also
+be used to publish the same files to GitHub.

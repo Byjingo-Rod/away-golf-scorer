@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.73
+AWAY GOLF SCORER — VERSION 15.74
+
+VERSION 15.74 — COMPLETED ROUND FINISH
+=========================================
+
+- Replaces the final-details banner with “All Set — your scores are recorded. Time to play the 19th.” when that player's round is complete.
+- Keeps the final-details banner unchanged until the scorecard is genuinely complete.
+- Confirms that Eclectic remains Thru 18 after Day 1 and changes to Final only after Day 2 is complete.
+- Preserves all existing event records and scores.
 
 VERSION 15.73 — TWO-DAY EVENT STABILITY
 ==========================================

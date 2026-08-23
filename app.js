@@ -1529,7 +1529,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.73", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.74", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -7089,7 +7089,7 @@ Count-back if tied
       (id) => String(id) !== NO_PARTNER_ID,
     );
     return Boolean(
-      field.length && field.every((id) => roundFinalisedFor(day, id)),
+      field.length && field.every((id) => livePlayerStatus(day, id).finalised),
     );
   }
   function leaderboardComplete(def, rows) {
@@ -7652,7 +7652,7 @@ Count-back if tied
       rulesOpen = Boolean(store.event.playerRulesOpen);
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${days === 2 ? `<div class="previewDayTabs" aria-label="Select scoring day"><button type="button" class="${day === 1 ? "active" : ""}" data-previewday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-previewday="2">Day 2</button></div>` : ""}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span><button class="soft" id="checkEventUpdates">Check for Event Updates</button></div>
+ <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span><button class="soft" id="checkEventUpdates">Check for Event Updates</button></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : teeSelectionIsFinal(day) ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. <span class="vpName">${esc(player(setup.virtualPlayer)?.name || "Virtual Player")} (VP)</span> supplies the missing score where a partner or fourth team member is required.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b> on each NTP hole today. Either shot may qualify.</p>` : ""}</div>` : ""}
