@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.69
+AWAY GOLF SCORER — VERSION 15.73
+
+VERSION 15.73 — TWO-DAY EVENT STABILITY
+==========================================
+
+- Keeps players on the selected Day 2 screen instead of reverting to Day 1.
+- Keeps two-day leaderboards available without forcing navigation back to scoring.
+- Shows Final for two-day and Eclectic competitions only after Day 2 is complete.
+- Reports completed Day 1 competitions as Completed and unstarted Day 2 competitions as Not started.
+- Keeps aggregate-only Single Stableford out of the separate Day 1 results.
+- Adds prize-awarding controls to completed results in the Results Summary.
+- Preserves all existing event records and scores.
 
 VERSION 15.69 — TABLET JOIN AND LIVE ORGANISER STATUS
 ======================================================
