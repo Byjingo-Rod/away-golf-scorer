@@ -682,7 +682,9 @@
     document.body.classList.toggle("joinOnlyDevice", isFreshMobileDevice());
     if (
       isPlayerDevice() &&
-      !["home", "scorePage"].includes($(".page.active")?.id || "")
+      !["home", "scorePage", "leaderboardPage"].includes(
+        $(".page.active")?.id || "",
+      )
     )
       nav("scorePage");
     updateWakeIndicator();
@@ -1527,7 +1529,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.72", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.73", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2298,7 +2300,7 @@
     if (!store.event) return openWizard();
     const e = JSON.parse(JSON.stringify(store.event));
     e.singleStablefordFormat =
-      e.singleStablefordFormat || (e.days === 2 ? "both" : "daily");
+      e.singleStablefordFormat || (e.days === 2 ? "aggregate" : "daily");
     W = {
       step: 6,
       newEvent: false,
