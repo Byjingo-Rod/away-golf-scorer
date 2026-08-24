@@ -1,11 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.75 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.76 BACKUP UPDATE
 
-This package is the complete Version 15.75 app.
+This package is the complete Version 15.76 app.
 
 1. Close Away Golf Scorer.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.75.
+4. Open index.html and confirm that the heading says Version 15.76.
 
 Replacing the program files does not erase event plans or scores.

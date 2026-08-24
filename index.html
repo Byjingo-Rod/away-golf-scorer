@@ -9,11 +9,11 @@
     <meta name="theme-color" content="#18543a" />
     <title>Away Golf Scorer</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=15.75" />
+    <link rel="stylesheet" href="styles.css?v=15.76" />
   </head>
   <body>
     <header>
-      <div><b>Away Golf Scorer</b><small>Away Golf • Version 15.75</small></div>
+      <div><b>Away Golf Scorer</b><small>Away Golf • Version 15.76</small></div>
       <span id="cloudHeader" class="cloudHeader">Connecting…</span
       ><span id="wakeHeader" class="awakeIndicator"></span
       ><span class="headerMascot" aria-hidden="true"></span>
@@ -49,7 +49,7 @@
           <div class="browserInstallNote">
             <b>No download is required.</b
             ><span
-              >You can score directly from this page, but it is easier to put
+              >You can score directly from this page but it is easier to put
               the app on your phone screen.</span
             ><span class="androidInstallSteps"
               ><b>Android using Chrome:</b> Press the three dots at the top
@@ -88,7 +88,7 @@
         <div class="dashboard">
           <div><small>Event</small><b id="homeEvent">Not set</b></div>
           <div><small>Players #</small><b id="homePlayers">0</b></div>
-          <div><small>Round</small><b>Marker</b></div>
+          <div class="homeRoundBox"><small id="homeRoundLabel">Round</small><b id="homeRound">Marker</b></div>
         </div>
         <div id="cloudPanel" class="card cloudPanel"></div>
         <div id="liveEventControl"></div>
@@ -163,9 +163,9 @@
     <div id="modalShade" class="shade">
       <div class="modal" id="modalContent"></div>
     </div>
-    <script src="supabase.js?v=15.75"></script>
-    <script src="cloud.js?v=15.75"></script>
-    <script src="data.js?v=15.75"></script>
-    <script src="app.js?v=15.75"></script>
+    <script src="supabase.js?v=15.76"></script>
+    <script src="cloud.js?v=15.76"></script>
+    <script src="data.js?v=15.76"></script>
+    <script src="app.js?v=15.76"></script>
   </body>
 </html>

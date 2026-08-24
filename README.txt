@@ -1,4 +1,17 @@
-AWAY GOLF SCORER — VERSION 15.75
+AWAY GOLF SCORER — VERSION 15.76
+
+VERSION 15.76 — RULES ACCESS AND PLAYER HOME
+==============================================
+
+- Makes Today's Special Rules open the complete event rules from Home.
+- Includes the automatic Putting Competition and Scratch Competition rules in the player display.
+- Returns an active player directly to the scorecard without changing the current hole or entered scores.
+- Gives long event names the full width of the player Home summary and shows the player being marked.
+- Removes the redundant Check for Event Updates button from Player View.
+- Keeps the Competitions & Rules control in position when it is opened or closed.
+- Enlarges the completed-scorecard confirmation wording.
+- Corrects the agreed comma style in app wording.
+- Preserves all existing event records and scores.
 
 VERSION 15.75 — CLEAN PLAYER FAREWELL
 =======================================

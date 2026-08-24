@@ -1529,7 +1529,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.75", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.76", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1705,7 +1705,7 @@
         store.event.testKind === "sixteen"
           ? "16-player one-day dress rehearsal"
           : `eight-player ${store.event.days === 1 ? "one-day" : "two-day"} test`;
-      host.innerHTML = `<div class="cloudPanelHead testCloudPanel"><div><small>SAFE LOCAL TEST</small><h3>Oatlands ${label}</h3></div><span class="cloudState">Not published</span></div><p>This test event cannot connect to or replace a live event in the cloud. Use <b>Testing Tools</b> to load test stages, change the test, or restore your previous event.</p><button class="soft" id="testEventTools">Testing Tools</button>`;
+      host.innerHTML = `<div class="cloudPanelHead testCloudPanel"><div><small>SAFE LOCAL TEST</small><h3>Oatlands ${label}</h3></div><span class="cloudState">Not published</span></div><p>This test event cannot connect to or replace a live event in the cloud. Use <b>Testing Tools</b> to load test stages, change the test or restore your previous event.</p><button class="soft" id="testEventTools">Testing Tools</button>`;
       return;
     }
     if (store.event?.status === "cancelled") {
@@ -1828,6 +1828,21 @@
         store.event.confirmed?.length ||
         0
       : 0;
+    const roundLabel = $("#homeRoundLabel"),
+      roundValue = $("#homeRound"),
+      markingId =
+        isPlayerDevice() && store.event
+          ? markerTargetFor(
+              String(store.cloud.playerId),
+              store.event.playerPreviewDay || 1,
+            )
+          : "";
+    if (roundLabel)
+      roundLabel.textContent = isPlayerDevice() ? "Marking" : "Round";
+    if (roundValue)
+      roundValue.textContent = isPlayerDevice()
+        ? player(markingId)?.name || "Awaiting player"
+        : "Marker";
     const options = $("#eventOptions");
     if (options) options.hidden = !store.event;
     applyDeviceRole();
@@ -1854,6 +1869,68 @@
     $("#sidePanel").classList.add("open");
   }
   $("#closeSide").onclick = () => $("#sidePanel").classList.remove("open");
+  function puttingRulesText(event = store.event) {
+    const puttingUnit = event?.puttingFormat === "pairs" ? "pair" : "team",
+      oneDay = (event?.days || 1) === 1;
+    return `Winning ${puttingUnit}
+The lowest total number of putts by a ${puttingUnit} over the round wins.
+
+On-course play
+1. The ball must be on the green to count as a putt.
+2. All balls must be putted into the hole — NO GIMMIES.
+3. Players who have no shots left before they reach the green will place the ball on the green at the point furthest from the hole and take the first putt from that point.
+
+Count-back if tied
+1. The ${puttingUnit} with the lowest number of putts on ${oneDay ? "the back 9" : "the last day"}.
+2. The ${puttingUnit} with the lowest number of putts on ${oneDay ? "the last 6 holes" : "the back 9 on the last day"}.
+3. The ${puttingUnit} with the lowest number of putts on ${oneDay ? "the last 3 holes" : "the last 6 holes"}.${oneDay ? "" : `
+4. The ${puttingUnit} with the lowest number of putts on the last 3 holes.`}`;
+  }
+  function eventRuleSections(event = store.event) {
+    if (!event) return [];
+    const sections = [];
+    if (event.preferredLies)
+      sections.push({
+        title: "Preferred Lies",
+        text: `Preferred Lies — ${event.preferredLiesArea === "fairway" ? "Closely Mown Areas Only" : "General Area"}`,
+      });
+    if ((event.competitions || []).includes("teamPutts"))
+      sections.push({
+        title: "Putting Competition Rules",
+        text: event.puttingRulesCustom || puttingRulesText(event),
+      });
+    if ((event.competitions || []).includes("scratch"))
+      sections.push({
+        title: "Scratch Competition Rules",
+        text: scratchRulesText(event),
+      });
+    if ((event.specialRules || "").trim())
+      sections.push({ title: "Special Rules", text: event.specialRules.trim() });
+    return sections;
+  }
+  function openEventRules() {
+    const sections = eventRuleSections(),
+      activeRound =
+        isPlayerDevice() &&
+        ["scoring", "verify"].includes(store.event?.playerRoundMode);
+    showSide(
+      `<div class="eventRulesView"><small>AWAY GOLF EVENT RULES</small><h2>${esc(store.event?.name || "Today's Rules")}</h2>${
+        sections.length
+          ? sections
+              .map(
+                (section) =>
+                  `<section><h3>${esc(section.title)}</h3><p>${esc(section.text).replace(/\n/g, "<br>")}</p></section>`,
+              )
+              .join("")
+          : '<section><h3>Today’s Rules</h3><p>No additional rules apply to this event.</p></section>'
+      }<button class="primary eventRulesClose" id="closeEventRules">${activeRound ? "BACK TO SCORECARD" : "CLOSE RULES"}</button></div>`,
+    );
+    $("#closeEventRules").onclick = () => {
+      $("#sidePanel").classList.remove("open");
+      if (activeRound) nav("scorePage");
+    };
+  }
+  $("#specialRulesHome").onclick = openEventRules;
   function profileCourseHandicaps(p) {
     const plan =
         typeof W !== "undefined" &&
@@ -3134,7 +3211,7 @@
           desc:
             d == 1
               ? "Highest Stableford score over the round."
-              : "Choose daily winners, the two-day aggregate winner, or both.",
+              : "Choose daily winners, the two-day aggregate winner or both.",
           tag: d == 1 ? "INDIVIDUAL" : "FORMAT CHOICE",
         },
         {
@@ -3312,34 +3389,7 @@
   function renderStep4() {
     const pref = Boolean(W.event.preferredLies),
       putting = W.competitions.has("teamPutts"),
-      oneDay = W.event.days == 1,
-      puttingUnit = W.event.puttingFormat === "pairs" ? "pair" : "team";
-    const defaultRules = oneDay
-      ? `Winning ${puttingUnit}
-The lowest total number of putts by a ${puttingUnit} over the round wins.
-
-On-course play
-1. The ball must be on the green to count as a putt.
-2. All balls must be putted into the hole — NO GIMMIES.
-3. Players who have no shots left before they reach the green will place the ball on the green at the point furthest from the hole and take the first putt from that point.
-
-Count-back if tied
-1. The ${puttingUnit} with the lowest number of putts on the back 9.
-2. The ${puttingUnit} with the lowest number of putts on the last 6 holes.
-3. The ${puttingUnit} with the lowest number of putts on the last 3 holes.`
-      : `Winning ${puttingUnit}
-The lowest total number of putts by a ${puttingUnit} over the round wins.
-
-On-course play
-1. The ball must be on the green to count as a putt.
-2. All balls must be putted into the hole — NO GIMMIES.
-3. Players who have no shots left before they reach the green will place the ball on the green at the point furthest from the hole and take the first putt from that point.
-
-Count-back if tied
-1. The ${puttingUnit} with the lowest number of putts on the last day.
-2. The ${puttingUnit} with the lowest number of putts on the back 9 on the last day.
-3. The ${puttingUnit} with the lowest number of putts on the last 6 holes.
-4. The ${puttingUnit} with the lowest number of putts on the last 3 holes.`;
+      defaultRules = puttingRulesText(W.event);
     const txt = W.event.puttingRulesCustom || defaultRules,
       editing = Boolean(W.editPuttingRules);
     $("#wizardBody").innerHTML =
@@ -4817,7 +4867,7 @@ Count-back if tied
     }
     const cancelled = store.event.status === "cancelled";
     $("#modalContent").innerHTML =
-      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Cancel an event that will not proceed, or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div>`;
+      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Cancel an event that will not proceed or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div>`;
     $("#modalShade").classList.add("open");
     if ($("#cancelCurrentEvent"))
       $("#cancelCurrentEvent").onclick = cancelCurrentEvent;
@@ -4829,7 +4879,7 @@ Count-back if tied
   async function clearPreviousTestEvents() {
     if (
       !confirm(
-        "Clear ALL previous test events?\n\nThis will archive every published event from this organiser, disconnect the current test on phones and tablets, and remove local event scores. Players, courses and scorecards will remain.",
+        "Clear ALL previous test events?\n\nThis will archive every published event from this organiser, disconnect the current test on phones and tablets and remove local event scores. Players, courses and scorecards will remain.",
       )
     )
       return;
@@ -5884,7 +5934,7 @@ Count-back if tied
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
    <div class="teamsTopActions">${store.event.days == 2 ? `<div class="dayTabs" aria-label="Select event day"><button type="button" class="${day === 1 ? "active" : ""}" data-groupday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-groupday="2">Day 2</button></div>` : ""}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee remains changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and, on Day 2, strongly avoids repeating Day 1 combinations."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee remains changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
  ${day === 2 && !locked ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
@@ -7607,17 +7657,7 @@ Count-back if tied
       return np && String(np.affected) === selected ? np : null;
     })();
     const isExtra = String(setup.ntpExtraPlayer || "") === selected,
-      rules = [
-        store.event.preferredLies
-          ? `Preferred Lies — ${store.event.preferredLiesArea === "fairway" ? "Closely Mown Areas Only" : "General Area"}`
-          : "",
-        store.event.specialRules || "",
-        (store.event.competitions || []).includes("scratch")
-          ? scratchRulesText(store.event)
-          : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      ruleSections = eventRuleSections(store.event);
     let displayIds = [selected];
     if (partner) {
       const partnerActual = g.find(
@@ -7642,7 +7682,7 @@ Count-back if tied
       rulesOpen = Boolean(store.event.playerRulesOpen);
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${days === 2 ? `<div class="previewDayTabs" aria-label="Select scoring day"><button type="button" class="${day === 1 ? "active" : ""}" data-previewday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-previewday="2">Day 2</button></div>` : ""}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span><button class="soft" id="checkEventUpdates">Check for Event Updates</button></div>
+ <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : teeSelectionIsFinal(day) ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. <span class="vpName">${esc(player(setup.virtualPlayer)?.name || "Virtual Player")} (VP)</span> supplies the missing score where a partner or fourth team member is required.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b> on each NTP hole today. Either shot may qualify.</p>` : ""}</div>` : ""}
@@ -7665,17 +7705,10 @@ Count-back if tied
          })
          .join(
            "",
-         )}</div><h4>Special Rules</h4><p>${rules ? esc(rules).replace(/\n/g, "<br>") : "No additional special rules for this event."}</p></div>`
+         )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b><p>${esc(section.text).replace(/\n/g, "<br>")}</p></div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
  <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : "OPEN SCORECARD"}</button>${!finalised && !canStart ? '<p class="lockHint">The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules.</p>' : ""}</div></div>`;
-    $("#checkEventUpdates").onclick = async () => {
-      const before = store.event.finalUpdateAt || store.event.lockedAt || "";
-      await syncCloudNow();
-      renderPlayerExperience();
-      if ((store.event.finalUpdateAt || store.event.lockedAt || "") === before && !store.event.locked)
-        setTimeout(() => alert("You have the latest Event Preview. Please check again the day before play."), 50);
-    };
     $("#previewPlayer").onchange = (e) => {
       store.event.playerPreviewId = e.target.value;
       store.event.playerRoundMode = "preview";
@@ -7693,9 +7726,13 @@ Count-back if tied
         }),
     );
     $("#playerRulesBtn").onclick = () => {
+      const oldTop = $("#playerRulesBtn").getBoundingClientRect().top;
       store.event.playerRulesOpen = !rulesOpen;
       save();
       renderPlayerExperience();
+      const newButton = $("#playerRulesBtn");
+      if (newButton)
+        window.scrollBy(0, newButton.getBoundingClientRect().top - oldTop);
     };
     $("#playerGotIt").onclick = () => {
       store.event.playerPreviewAck = store.event.playerPreviewAck || {};

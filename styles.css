@@ -5210,7 +5210,8 @@ body.joinOnlyDevice .playerJoinLanding {
   color: #17583b;
 }
 .completedGreeting span {
-  font-size: 10px;
+  font-size: 13px;
+  line-height: 1.35;
   color: #5e7067;
   margin-top: 2px;
 }
@@ -5242,6 +5243,79 @@ body.joinOnlyDevice .playerJoinLanding {
   .completedTotals {
     grid-template-columns: 1fr;
   }
+}
+
+/* Version 15.76 — player Home and event rules */
+body.playerDevice .dashboard {
+  grid-template-columns: minmax(78px, 0.38fr) minmax(0, 1fr);
+}
+body.playerDevice .dashboard > div:first-child {
+  grid-column: 1 / -1;
+}
+body.playerDevice .dashboard > div {
+  padding: 9px 10px;
+}
+body.playerDevice .dashboard b {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+body.playerDevice .dashboard > div:first-child b {
+  font-size: 19px;
+}
+body.playerDevice .homeRoundBox b {
+  font-size: 16px;
+}
+.eventUpdateBanner {
+  grid-template-columns: 1fr;
+}
+.playerRuleSection {
+  margin: 8px 0 12px;
+  padding: 9px 10px;
+  border-left: 4px solid #2b8a58;
+  border-radius: 7px;
+  background: #f3f8f4;
+}
+.playerRuleSection > b {
+  display: block;
+  margin-bottom: 5px;
+  color: #185c3c;
+}
+.playerRuleSection p {
+  margin: 0;
+}
+.eventRulesView > small {
+  display: block;
+  margin-top: 8px;
+  color: #397156;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+}
+.eventRulesView h2 {
+  margin: 5px 36px 14px 0;
+  color: #174f37;
+}
+.eventRulesView section {
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid #cfe0d5;
+  border-radius: 10px;
+  background: #f5faf6;
+}
+.eventRulesView section h3 {
+  margin: 0 0 7px;
+  font-size: 16px;
+}
+.eventRulesView section p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.48;
+}
+.eventRulesClose {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  margin-top: 8px;
+  padding: 13px;
 }
 .groupPlayer.awaitingPlayer {
   background: #fff7df;

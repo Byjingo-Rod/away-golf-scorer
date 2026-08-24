@@ -76,6 +76,20 @@ The organiser can open a previous event as a reference or copy selected settings
 
 ---
 
+### AGI-002 — Spectator Leaderboard Access
+
+**Status:** Backlog; explicitly deferred until after the first live event
+**Target release:** After Version 1.0
+**Priority:** Review after live-event scoring is proven
+
+**Idea:**
+Add **Spectator — Leaderboard Access Only** at the bottom of the player check-in list. A spectator uses the normal event code but cannot claim a player, open a scorecard or enter or alter scores.
+
+**Reason:**
+Friends who are not playing could follow the live event without being included in the field, groups or connected-player count.
+
+---
+
 ## New Idea Template
 
 ### AGI-___ — Short title
