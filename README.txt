@@ -1,4 +1,20 @@
-AWAY GOLF SCORER — VERSION 15.77
+AWAY GOLF SCORER — VERSION 15.79.1
+
+VERSION 15.79.1 — NTP JACKPOT, STARTING HOLE AND COURSE-CARD CORRECTION
+
+CORRECTED REBUILD
+- Every saved My Events record remains visible.
+- Stores one authoritative scorecard for each course and removes incomplete
+  duplicate course records after redirecting events and handicaps safely.
+- Restores the complete Oatlands two-rating scorecard if the incomplete first
+  15.78 test package was opened.
+- Preserves Oatlands contact details and the correct 5502 m course total.
+
+- Two-day events can select NTP Holes Jackpot. Each earlier NTP with no winner carries its ball prize to the final NTP hole of the event.
+- Results show each NTP winner's actual ball prize, including any accumulated jackpot.
+- A locked single-tee event's Starting Hole can be changed before any score or putt is recorded.
+- The updated Starting Hole is sent to connected phones and every scorecard opens on the new hole.
+- If scoring has begun, the organiser is shown the player device and hole blocking the change.
 
 VERSION 15.77 — PRIZE COUNT-BACKS AND NTP COMPLETION
 

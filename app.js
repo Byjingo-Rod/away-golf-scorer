@@ -422,6 +422,172 @@
     );
   }
   normaliseCourseNames();
+  // A course has one authoritative scorecard. Older builds allowed duplicate
+  // course rows and multiple card versions, which could make a generic seed
+  // card active after the organiser had saved a verified card. Consolidate by
+  // course name, retain the most complete card and redirect every saved ID.
+  function cardQuality(card) {
+    if (!card) return -1;
+    const indexes = Array.isArray(card.index) ? card.index : [],
+      pars = Array.isArray(card.par) ? card.par : [],
+      metres = Array.isArray(card.metres) ? card.metres : [];
+    return (
+      indexes.filter((value) => String(value || "").includes("/")).length * 100 +
+      indexes.filter((value) => String(value || "").trim()).length * 10 +
+      pars.filter((value) => Number(value) > 0).length * 5 +
+      metres.filter((value) => Number(value) > 0).length * 5 +
+      (String(card.confirmedDate || "").trim() ? 25 : 0)
+    );
+  }
+  function courseQuality(courseRecord) {
+    const bestCard = [...(courseRecord.versions || [])].sort(
+      (a, b) => cardQuality(b) - cardQuality(a),
+    )[0];
+    const detailFields = [
+      "region", "clubPhone", "proPhone", "clubEmail", "proEmail",
+      "proName", "address", "mapLink", "website", "notes",
+    ];
+    return (
+      cardQuality(bestCard) +
+      detailFields.filter((key) => String(courseRecord[key] || "").trim()).length * 8
+    );
+  }
+  function remapEventCourseIds(event, idMap) {
+    if (!event) return;
+    for (const key of ["course1", "course2"])
+      if (idMap.has(String(event[key] || "")))
+        event[key] = idMap.get(String(event[key]));
+  }
+  function consolidateCourseCards() {
+    const groups = new Map();
+    for (const item of store.courses || []) {
+      const key = String(item.name || "").trim().toLowerCase();
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
+    }
+    const idMap = new Map(), consolidated = [];
+    for (const records of groups.values()) {
+      const ranked = [...records].sort(
+          (a, b) => courseQuality(b) - courseQuality(a),
+        ),
+        keeper = ranked[0],
+        allCards = ranked.flatMap((item) => item.versions || []),
+        bestCard = [...allCards].sort((a, b) => cardQuality(b) - cardQuality(a))[0];
+      for (const record of records) idMap.set(String(record.id), String(keeper.id));
+      for (const source of ranked.slice(1)) {
+        for (const key of [
+          "region", "clubPhone", "proPhone", "phone", "clubEmail", "proEmail",
+          "email", "proName", "address", "mapLink", "website", "notes",
+        ])
+          if (!String(keeper[key] || "").trim() && String(source[key] || "").trim())
+            keeper[key] = source[key];
+        keeper.teeDetails = keeper.teeDetails || {};
+        for (const tee of ["back", "middle", "front"]) {
+          keeper.teeDetails[tee] = keeper.teeDetails[tee] || {};
+          for (const key of ["slope", "scratch", "par", "length"])
+            if (
+              !String(keeper.teeDetails[tee][key] || "").trim() &&
+              String(source.teeDetails?.[tee]?.[key] || "").trim()
+            )
+              keeper.teeDetails[tee][key] = source.teeDetails[tee][key];
+        }
+      }
+      if (bestCard) {
+        keeper.versions = [bestCard];
+        keeper.activeVersionId = bestCard.id;
+      }
+      consolidated.push(keeper);
+    }
+    store.courses = consolidated;
+    remapEventCourseIds(store.event, idMap);
+    remapEventCourseIds(store.template, idMap);
+    for (const record of store.eventWorkspace || [])
+      remapEventCourseIds(record.event, idMap);
+    for (const person of store.players || []) {
+      const old = person.courseHandicaps || {}, next = {};
+      for (const [courseId, details] of Object.entries(old)) {
+        const mapped = idMap.get(String(courseId)) || String(courseId);
+        if (!next[mapped] || String(details.updatedAt || "") > String(next[mapped].updatedAt || ""))
+          next[mapped] = { ...details, courseId: mapped };
+      }
+      person.courseHandicaps = next;
+    }
+    store.courseFavourites = [
+      ...new Set(
+        (store.courseFavourites || []).map(
+          (id) => idMap.get(String(id)) || String(id),
+        ),
+      ),
+    ];
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+  }
+  consolidateCourseCards();
+  // Version 15.78 recovery: the first test package could expose the packaged
+  // one-index Oatlands card in place of Rod's saved two-index course record.
+  // After duplicate consolidation, repair only the exact incomplete signature.
+  // A genuine organiser-edited card is always left untouched.
+  function repairIncompleteOatlandsCard() {
+    const oatlands = (store.courses || []).find((c) =>
+      /^oatlands gc$/i.test(String(c.name || "").trim()),
+    );
+    if (!oatlands) return false;
+    const card =
+      (oatlands.versions || []).find(
+        (item) => String(item.id) === String(oatlands.activeVersionId || ""),
+      ) || oatlands.versions?.[0];
+    if (!card) return false;
+    const indexes = Array.isArray(card.index) ? card.index.map(String) : [];
+    const metres = Array.isArray(card.metres) ? card.metres.map(Number) : [];
+    const primaryOnly = [
+      "8", "12", "7", "6", "13", "2", "18", "15", "10",
+      "17", "11", "3", "16", "4", "5", "9", "14", "1",
+    ];
+    const metreTotal = metres.reduce(
+      (total, value) => total + (value || 0),
+      0,
+    );
+    const isIncomplete1578Card =
+      indexes.length === 18 &&
+      indexes.every((value, i) => value === primaryOnly[i]) &&
+      (metreTotal === 5503 || metreTotal === 0) &&
+      !String(oatlands.clubPhone || "").trim() &&
+      !String(oatlands.proPhone || "").trim();
+    if (!isIncomplete1578Card) return false;
+
+    oatlands.region = "Sydney";
+    oatlands.clubPhone = "+61 2 9630 4444";
+    oatlands.proPhone = "+61 2 9630 1423";
+    oatlands.phone = oatlands.proPhone;
+    oatlands.clubEmail = "administration@oatlandsgolf.com.au";
+    oatlands.email = oatlands.clubEmail;
+    oatlands.proName = "Jeremy Ward";
+    oatlands.address = "Bettington Rd Oatlands";
+    oatlands.teeDetails = oatlands.teeDetails || {};
+    for (const key of ["back", "middle", "front"])
+      oatlands.teeDetails[key] = {
+        ...(oatlands.teeDetails[key] || {}),
+        slope: "",
+        scratch: "70",
+        par: "70",
+      };
+    oatlands.teeDetails.middle.length = "5502";
+    card.teeName = "Middle";
+    card.slope = "";
+    card.scratch = "70";
+    card.par = [4, 3, 4, 4, 3, 4, 3, 4, 5, 3, 4, 4, 3, 5, 4, 5, 4, 4];
+    card.index = [
+      "8/28", "12/33", "7/25", "6/24", "13/32", "2/21",
+      "18/36", "15/31", "10/27", "17/35", "11/29", "3/23",
+      "16/34", "4/19", "5/22", "9/26", "14/30", "1/20",
+    ];
+    card.metres = [
+      315, 193, 351, 369, 158, 397, 116, 276, 478,
+      117, 301, 316, 137, 466, 366, 495, 272, 379,
+    ];
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    return true;
+  }
+  repairIncompleteOatlandsCard();
   // 15.35 repairs legacy player rows that pre-date the complete seed record.
   // Only blank values are filled, so organiser changes always win.
   const seedPlayersById = new Map(
@@ -591,55 +757,63 @@
   // later, complete organiser-edited card.
   const OATLANDS_CARD_2026 = {
     metres: [
-      316, 193, 351, 369, 158, 397, 116, 276, 478, 117, 301, 316, 137, 466, 366,
+      315, 193, 351, 369, 158, 397, 116, 276, 478, 117, 301, 316, 137, 466, 366,
       495, 272, 379,
     ],
     par: [4, 3, 4, 4, 3, 4, 3, 4, 5, 3, 4, 4, 3, 5, 4, 5, 4, 4],
     index: [
-      "8/28/46",
-      "12/33/51",
-      "7/25/43",
-      "6/24/42",
-      "13/32/50",
-      "2/21/39",
-      "18/36/54",
-      "15/31/49",
-      "10/27/45",
-      "17/35/53",
-      "11/29/47",
-      "3/23/41",
-      "16/34/52",
-      "4/19/37",
-      "5/22/40",
-      "9/26/44",
-      "14/30/48",
-      "1/20/38",
+      "8/28",
+      "12/33",
+      "7/25",
+      "6/24",
+      "13/32",
+      "2/21",
+      "18/36",
+      "15/31",
+      "10/27",
+      "17/35",
+      "11/29",
+      "3/23",
+      "16/34",
+      "4/19",
+      "5/22",
+      "9/26",
+      "14/30",
+      "1/20",
     ],
   };
-  const oatlandsCourse = (store.courses || []).find((c) =>
-    /^oatlands(?: gc| golf club)?$/i.test(String(c.name || "").trim()),
-  );
-  if (oatlandsCourse) {
+  function enforceAuthoritativeOatlandsCard() {
+    const oatlandsCourse = (store.courses || []).find((c) =>
+      /^oatlands(?: gc| golf club)?$/i.test(String(c.name || "").trim()),
+    );
+    if (!oatlandsCourse) return false;
     ensureCourseData(oatlandsCourse);
-    const ov = version(oatlandsCourse) || {},
-      placeholder = !(ov.metres || []).some((x) => Number(x) > 0);
-    if (placeholder) {
+    const ov = version(oatlandsCourse) || {
+      id: oatlandsCourse.activeVersionId || `oatlands-card-${Date.now()}`,
+    },
+      cardMatches =
+        JSON.stringify(ov.metres || []) === JSON.stringify(OATLANDS_CARD_2026.metres) &&
+        JSON.stringify(ov.par || []) === JSON.stringify(OATLANDS_CARD_2026.par) &&
+        JSON.stringify(ov.index || []) === JSON.stringify(OATLANDS_CARD_2026.index);
+    if (
+      oatlandsCourse.scorecardAuthorityVersion !== "15.79-oatlands-v1" ||
+      !cardMatches ||
+      (oatlandsCourse.versions || []).length !== 1
+    ) {
       ov.metres = [...OATLANDS_CARD_2026.metres];
       ov.par = [...OATLANDS_CARD_2026.par];
       ov.index = [...OATLANDS_CARD_2026.index];
-      ov.slope = "126";
-      ov.scratch = "70.0";
+      ov.slope = "";
+      ov.scratch = "70";
       ov.teeName = "Middle";
       oatlandsCourse.region = oatlandsCourse.region || "Sydney";
       oatlandsCourse.address =
-        oatlandsCourse.address || "94 Bettington Road, Oatlands NSW 2117";
-      oatlandsCourse.clubPhone = oatlandsCourse.clubPhone || "(02) 9630 4444";
-      oatlandsCourse.proPhone = oatlandsCourse.proPhone || "(02) 9630 1423";
+      oatlandsCourse.address || "Bettington Rd Oatlands";
+      oatlandsCourse.clubPhone = oatlandsCourse.clubPhone || "+61 2 9630 4444";
+      oatlandsCourse.proPhone = oatlandsCourse.proPhone || "+61 2 9630 1423";
       oatlandsCourse.phone = oatlandsCourse.proPhone;
       oatlandsCourse.clubEmail =
-        oatlandsCourse.clubEmail || "admin@oatlandsgolf.com.au";
-      oatlandsCourse.proEmail =
-        oatlandsCourse.proEmail || "golfoperations@oatlandsgolf.com.au";
+        oatlandsCourse.clubEmail || "administration@oatlandsgolf.com.au";
       oatlandsCourse.email = oatlandsCourse.clubEmail;
       oatlandsCourse.proName = oatlandsCourse.proName || "Jeremy Ward";
       oatlandsCourse.website =
@@ -648,13 +822,19 @@
         ...(oatlandsCourse.teeDetails.middle || {}),
         name: "Middle",
         colour: "White",
-        slope: "126",
-        scratch: "70.0",
+        slope: "",
+        scratch: "70",
         par: "70",
-        length: "5503",
+        length: "5502",
       };
+      oatlandsCourse.versions = [ov];
+      oatlandsCourse.activeVersionId = ov.id;
+      oatlandsCourse.scorecardAuthorityVersion = "15.79-oatlands-v1";
+      return true;
     }
+    return false;
   }
+  enforceAuthoritativeOatlandsCard();
   localStorage.setItem("awayGolf13", JSON.stringify(store));
 
   let cloudReady = false,
@@ -800,6 +980,8 @@
         if (i >= 0) store.courses[i] = remote;
         else store.courses.push(remote);
       });
+      consolidateCourseCards();
+      enforceAuthoritativeOatlandsCard();
       if (store.cloud?.role === "player")
         store.event.playerPreviewId = String(store.cloud.playerId);
       if (restoreOrganiser) delete store.cloud.restorePublished;
@@ -1196,6 +1378,8 @@
         if (i >= 0) store.courses[i] = remote;
         else store.courses.push(remote);
       });
+      consolidateCourseCards();
+      enforceAuthoritativeOatlandsCard();
       store.event.scoring = { day1: {}, day2: {} };
       (bundle.scores || []).forEach((row) => {
         store.event.scoring["day" + row.day] =
@@ -1266,6 +1450,8 @@
         if (i >= 0) store.courses[i] = remote;
         else store.courses.push(remote);
       });
+      consolidateCourseCards();
+      enforceAuthoritativeOatlandsCard();
       store.event.scoring = { day1: {}, day2: {} };
       (bundle.scores || []).forEach((row) => {
         const key = "day" + row.day;
@@ -1499,22 +1685,16 @@
       if (String(b.id) === activeId) return 1;
       return eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a));
     });
-    const seenEvents = new Set();
-    const records = allRecords.filter((record) => {
-      const event = record.event || {};
-      const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
-      const key = [String(event.name || "").trim().toLowerCase(), event.date || "", players, eventWorkspaceStatus(event), Boolean(record.archived)].join("|");
-      if (seenEvents.has(key)) return false;
-      seenEvents.add(key);
-      return true;
-    });
-    const hiddenDuplicates = allRecords.length - records.length;
+    // Every workspace record is valuable organiser data. Two events can share a
+    // name, date, field size and status while containing different groups,
+    // handicaps or competition settings, so never hide records heuristically.
+    const records = allRecords;
     const cards = records.map((record) => {
       const event = record.event || {}, current = String(record.id) === activeId;
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
       return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
     }).join("");
-    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div>${hiddenDuplicates ? `<p class="workspaceDedupeNote">${hiddenDuplicates} duplicate local test record${hiddenDuplicates === 1 ? " is" : "s are"} hidden. All original event data remains safely stored.</p>` : ""}<div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
+    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><button class="primary" id="newEventFromWorkspace">+ New Event</button></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div><button class="soft" id="closeMyEvents">Close</button>`;
     $("#modalShade").classList.add("open");
     $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
     $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
@@ -1529,7 +1709,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.77", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.79.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2358,6 +2538,7 @@ Count-back if tied
         singleStablefordFormat: "aggregate",
         scratchMaxHcp: 10,
         ntpDay1Count: 1,
+        ntpJackpot: false,
         preferredLies: false,
         preferredLiesArea: "general",
         specialRules: "",
@@ -2433,6 +2614,7 @@ Count-back if tied
           : t.par3Format || "daily";
     W.event.ntpDay1Count = t.ntpDay1Count || 1;
     W.event.ntpDay2Count = t.ntpDay2Count || 2;
+    W.event.ntpJackpot = Boolean(t.ntpJackpot);
   }
   function wizardDayPlayers(day) {
     const accepted = [...W.invites.entries()]
@@ -3324,7 +3506,7 @@ Count-back if tied
         .map((c) => {
           let on = W.competitions.has(c.id),
             disabled = c.unavailable;
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label><small>If an earlier NTP has no winner, its ball prize carries to the final NTP hole of the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -3370,6 +3552,7 @@ Count-back if tied
       if (t.name === "p3") W.event.par3Format = t.value;
       if (t.name === "n1") W.event.ntpDay1Count = +t.value;
       if (t.name === "n2") W.event.ntpDay2Count = +t.value;
+      if (t.id === "ntpJackpot") W.event.ntpJackpot = t.checked;
       if (t.id === "scratchMaxHcp") {
         W.event.scratchMaxHcp = Number.isFinite(+t.value) ? +t.value : 10;
         renderStep3();
@@ -3808,6 +3991,7 @@ Count-back if tied
       par3Format: W.event.par3Format || "daily",
       ntpDay1Count: W.event.ntpDay1Count || 1,
       ntpDay2Count: W.event.ntpDay2Count || 2,
+      ntpJackpot: Boolean(W.event.ntpJackpot),
     };
     localStorage.setItem(
       "awayGolfOrganiserTemplateV1",
@@ -4251,19 +4435,26 @@ Count-back if tied
     return s[k];
   }
   const scoreEntered = (value) => value !== "" && value != null;
-  function dayHasScoreEntries(day) {
+  function firstDayScoreEntry(day) {
     const rounds = store.event?.scoring?.["day" + day] || {};
-    return Object.values(rounds).some((round) =>
-      Object.entries(round || {}).some(([hole, rec]) => {
-        if (!/^([1-9]|1[0-8])$/.test(hole)) return false;
-        return [
-          rec?.self?.gross,
-          rec?.self?.putts,
-          rec?.official?.gross,
-          rec?.official?.putts,
-        ].some(scoreEntered);
-      }),
-    );
+    for (const [scorerId, round] of Object.entries(rounds)) {
+      for (const [hole, rec] of Object.entries(round || {})) {
+        if (!/^([1-9]|1[0-8])$/.test(hole)) continue;
+        if (
+          [
+            rec?.self?.gross,
+            rec?.self?.putts,
+            rec?.official?.gross,
+            rec?.official?.putts,
+          ].some(scoreEntered)
+        )
+          return { scorerId: String(scorerId), hole: +hole };
+      }
+    }
+    return null;
+  }
+  function dayHasScoreEntries(day) {
+    return Boolean(firstDayScoreEntry(day));
   }
   function teeHandicapsComplete(day, tee, event = store.event) {
     const map = teeHandicapsFor(day, tee, event),
@@ -5183,7 +5374,9 @@ Count-back if tied
         scores[id][h].official.putts = scores[partner[id]][h].self.putts;
     });
     const ntps =
-      day === 1
+      day === 1 && store.event?.ntpJackpot
+        ? []
+        : day === 1
         ? [
             {
               hole: 2,
@@ -5282,6 +5475,7 @@ Count-back if tied
       puttingFormat: "team",
       par3Format: "aggregate",
       ntpDay2Count: 2,
+      ntpJackpot: true,
       ntpSelections: { day1: [2], day2: [5, 10] },
       benefits: {
         combined: { balls: 3, plus: true },
@@ -5827,6 +6021,12 @@ Count-back if tied
   function ntpHolesFor(day) {
     return (store.event.ntpSelections?.["day" + day] || []).map(Number);
   }
+  function ntpHolesInPlayingOrder(day) {
+    const holes = ntpHolesFor(day);
+    if (startMethodFor(store.event, day) !== "single") return holes;
+    const sequence = scoreSequence(startHolesFor(store.event, day)[0] || 1);
+    return holes.sort((a, b) => sequence.indexOf(a) - sequence.indexOf(b));
+  }
   function ntpHistory(day, hole) {
     const entries = [];
     Object.entries(scoringDayStore(day)).forEach(([scorerId, holes]) => {
@@ -5844,6 +6044,54 @@ Count-back if tied
   function currentNtpHolder(day, hole) {
     const history = ntpHistory(day, hole);
     return history[history.length - 1] || null;
+  }
+  function ntpEventSlots() {
+    const slots = [];
+    for (let day = 1; day <= (store.event?.days || 1); day++)
+      ntpHolesInPlayingOrder(day).forEach((hole) => slots.push({ day, hole }));
+    return slots;
+  }
+  function sameNtpSlot(a, b) {
+    return Boolean(a && b && a.day === b.day && a.hole === b.hole);
+  }
+  function ntpBaseBalls() {
+    const balls = +(store.event?.benefits?.ntp?.balls || 0);
+    return Number.isFinite(balls) ? balls : 0;
+  }
+  function ntpPrizeBalls(day, hole) {
+    const base = ntpBaseBalls(),
+      slots = ntpEventSlots(),
+      slot = { day, hole },
+      finalSlot = slots[slots.length - 1];
+    if (!base || !store.event?.ntpJackpot || !sameNtpSlot(slot, finalSlot))
+      return base;
+    const carried = slots
+      .slice(0, -1)
+      .filter(
+        (x) => eventDayComplete(x.day) && !currentNtpHolder(x.day, x.hole),
+      ).length;
+    return base * (1 + carried);
+  }
+  function ntpPrizeText(day, hole) {
+    const balls = ntpPrizeBalls(day, hole);
+    return balls ? `${balls} Ball${balls === 1 ? "" : "s"}` : "";
+  }
+  function ntpSummaryLine(day, hole, complete) {
+    const holder = currentNtpHolder(day, hole),
+      prize = ntpPrizeText(day, hole);
+    if (holder)
+      return `Hole ${hole}: ${player(holder.id)?.name || "Player"}${prize ? ` — ${prize}` : ""}`;
+    if (!complete) return `Hole ${hole}: Pending`;
+    const slots = ntpEventSlots(),
+      slot = { day, hole },
+      finalSlot = slots[slots.length - 1];
+    if (
+      store.event?.ntpJackpot &&
+      finalSlot &&
+      !sameNtpSlot(slot, finalSlot)
+    )
+      return `Hole ${hole}: No Winner — Prize jackpots to Hole ${finalSlot.hole} Day ${finalSlot.day}`;
+    return `Hole ${hole}: No one recorded as NTP. Prize not awarded.`;
   }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
@@ -5918,9 +6166,18 @@ Count-back if tied
     ensureEventTeePlanning(store.event);
     const selectedTee = selectedEventTee(day),
       teeFinal = teeSelectionIsFinal(day),
-      teeScoringStarted = dayHasScoreEntries(day),
+      scoreEntry = firstDayScoreEntry(day),
+      teeScoringStarted = Boolean(scoreEntry),
       selectedTeeComplete = teeHandicapsComplete(day, selectedTee),
-      teePanel = `<div class="eventTeePanel ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${EVENT_TEE_LABELS[selectedTee]} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : `Provisional selection. ${enabledEventTees(store.event).length === 3 ? "All three" : "Both"} handicap sets remain stored.`}</p></div><div class="eventTeeButtons">${enabledEventTees(store.event).map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${EVENT_TEE_LABELS[tee]}<small>${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${locked && teeFinal && !teeScoringStarted ? '<button type="button" class="soft reopenTeeBtn" id="reopenEventTee">Change Tee Before Scoring</button>' : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`;
+      teePanel = `<div class="eventTeePanel ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${EVENT_TEE_LABELS[selectedTee]} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : `Provisional selection. ${enabledEventTees(store.event).length === 3 ? "All three" : "Both"} handicap sets remain stored.`}</p></div><div class="eventTeeButtons">${enabledEventTees(store.event).map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${EVENT_TEE_LABELS[tee]}<small>${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${locked && teeFinal && !teeScoringStarted ? '<button type="button" class="soft reopenTeeBtn" id="reopenEventTee">Change Tee Before Scoring</button>' : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
+      startingHole = +(startHolesFor(store.event, day)[0] || 1),
+      scoringBlocker = scoreEntry
+        ? `${player(scoreEntry.scorerId)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
+        : "",
+      startingHolePanel =
+        locked && method === "single"
+          ? `<div class="eventTeePanel startingHolePanel ${teeScoringStarted ? "locked" : ""}"><div><small>${store.event.days === 1 ? "STARTING HOLE" : `DAY ${day} STARTING HOLE`}</small><h3>Hole ${startingHole}</h3><p>${teeScoringStarted ? `Starting hole cannot be changed. ${esc(scoringBlocker)}` : "If the club changes the starting hole, update it here before anyone begins scoring."}</p></div><div class="startingHoleChange"><label>New Starting Hole<select id="lockedStartHole" ${teeScoringStarted ? "disabled" : ""}>${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === startingHole ? "selected" : ""}>Hole ${i + 1}</option>`).join("")}</select></label><button type="button" class="primary" id="applyStartingHole" ${teeScoringStarted ? "disabled" : ""}>APPLY STARTING HOLE</button></div></div>`
+          : "";
     const affected = ctx?.affected ? player(ctx.affected) : null;
     const shortNotice = ctx
       ? `<div class="virtualNotice">
@@ -5934,10 +6191,11 @@ Count-back if tied
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
    <div class="teamsTopActions">${store.event.days == 2 ? `<div class="dayTabs" aria-label="Select event day"><button type="button" class="${day === 1 ? "active" : ""}" data-groupday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-groupday="2">Day 2</button></div>` : ""}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee remains changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
  ${day === 2 && !locked ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
+ ${startingHolePanel}
  <div class="groupGrid">${groups
    .map(
      (g, gi) => `<div class="playingGroup">
@@ -6049,6 +6307,33 @@ Count-back if tied
           await updateCloudEvent();
         renderTeamsPage();
         renderPlayerExperience();
+      };
+    if ($("#applyStartingHole"))
+      $("#applyStartingHole").onclick = async () => {
+        const blocker = firstDayScoreEntry(day);
+        if (blocker)
+          return alert(
+            `The starting hole cannot be changed. ${player(blocker.scorerId)?.name || "A player"} has an entry recorded on Hole ${blocker.hole}.`,
+          );
+        const nextHole = +$("#lockedStartHole").value;
+        if (nextHole === startingHole) return;
+        if (
+          !confirm(
+            `Change ${store.event.days === 1 ? "the event" : `Day ${day}`} starting hole from Hole ${startingHole} to Hole ${nextHole}?\n\nEvery connected scorecard will open at Hole ${nextHole}.`,
+          )
+        )
+          return;
+        store.event.startHoles = store.event.startHoles || {};
+        store.event.startHoles[key] = [nextHole];
+        setup.starts = setup.groups.map(() => nextHole);
+        if (store.event.ntpSelections?.[key])
+          store.event.ntpSelections[key] = ntpHolesInPlayingOrder(day);
+        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        if (store.cloud?.role === "organiser" && store.cloud.eventId)
+          await updateCloudEvent();
+        renderTeamsPage();
+        renderPlayerExperience();
+        renderHome();
       };
     if (locked) return;
     $("#backToEventSetup").onclick = reopenEventPlan;
@@ -7172,7 +7457,7 @@ Count-back if tied
   }
   function summaryCompetitionResult(def) {
     if (def.type === "ntp") {
-      const holders = ntpHolesFor(def.day).map((h) => ({
+      const holders = ntpHolesInPlayingOrder(def.day).map((h) => ({
           hole: h,
           holder: currentNtpHolder(def.day, h),
         })),
@@ -7182,12 +7467,7 @@ Count-back if tied
         complete,
         status: complete ? "Completed" : "In Progress",
         text: holders.length
-          ? holders
-              .map(
-                (x) =>
-                  `Hole ${x.hole}: ${x.holder ? player(x.holder.id)?.name || "Player" : complete ? "No one recorded as NTP. Prize not awarded." : "Pending"}`,
-              )
-              .join(" · ")
+          ? holders.map((x) => ntpSummaryLine(def.day, x.hole, complete)).join(" · ")
           : "Pending",
         awardable: hasWinner,
       };
@@ -7341,10 +7621,14 @@ Count-back if tied
   function summaryPrizeDetails(def) {
     const id = leaderboardBenefitId(def),
       text = competitionBenefitText(id, store.event.benefits),
-      configured = text !== "Prize not set";
+      configured = text !== "Prize not set",
+      displayText =
+        def.type === "ntp" && store.event?.ntpJackpot && configured
+          ? "Shown by NTP hole above"
+          : text;
     return {
       id,
-      text,
+      text: displayText,
       configured,
       awarded: Boolean(store.event.prizesAwarded?.[def.id]),
     };
@@ -7519,8 +7803,9 @@ Count-back if tied
     const tabs = `<div class="leaderTabs">${visible.map((d) => `<button data-leadertab="${d.id}" class="${d.id === active ? "active" : ""}">${esc(d.label)}</button>`).join("")}</div>`;
     let body = "";
     if (def.type === "ntp") {
+      const ntpComplete = leaderboardComplete(def, []);
       body =
-        ntpHolesFor(def.day)
+        ntpHolesInPlayingOrder(def.day)
           .map((h) => {
             const history = ntpHistory(def.day, h);
             return `<section class="ntpHistoryBlock"><h4>Hole ${h}</h4>${
@@ -7536,7 +7821,7 @@ Count-back if tied
                     })
                     .join("")
                 : "<p>No confirmed holder yet</p>"
-            }</section>`;
+            }<p class="ntpPrizeResult">${esc(ntpSummaryLine(def.day, h, ntpComplete))}</p></section>`;
           })
           .join("") || '<div class="leaderEmpty">No NTP holes selected.</div>';
     } else {

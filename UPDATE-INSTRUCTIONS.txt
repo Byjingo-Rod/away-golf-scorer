@@ -1,18 +1,25 @@
-AWAY GOLF SCORER — VERSION 15.77 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.79.1 BACKUP UPDATE
 
-This package is the complete Version 15.77 app.
+This package is the complete Version 15.79.1 app.
+It replaces the withdrawn first 15.78 package and includes the Oatlands data
+recovery, single-authoritative-course-card protection and My Events visibility
+corrections.
+This rebuild has a new internal cache identity so the browser cannot reuse the
+withdrawn first 15.78 JavaScript file.
 
 1. Close Away Golf Scorer.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.77.
+4. Open index.html and confirm that the heading says Version 15.79.1.
 
 Replacing the program files does not erase event plans or scores.
 
-VERSION 15.77 CHANGES
+VERSION 15.79 CHANGES
 
-- Automatic count-back for Team and Pairs Putting ties.
-- Automatic count-back for Par 3 Pairs ties, including multiway ties.
-- Completed NTP holes with no recorded holder show:
-  "No one recorded as NTP. Prize not awarded."
+- Two-day events can use NTP Holes Jackpot.
+- Unclaimed earlier NTP ball prizes carry to the final NTP hole.
+- NTP results show the actual prize including accumulated jackpot balls.
+- The organiser can change a locked single-tee event's Starting Hole before scoring begins.
+- Connected phones and every group scorecard receive the new Starting Hole.
+- Any score or putt still recorded blocks the change and identifies the player device and hole involved.
