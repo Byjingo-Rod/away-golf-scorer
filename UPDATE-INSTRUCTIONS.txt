@@ -1,11 +1,18 @@
-AWAY GOLF SCORER — VERSION 15.76 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.77 BACKUP UPDATE
 
-This package is the complete Version 15.76 app.
+This package is the complete Version 15.77 app.
 
 1. Close Away Golf Scorer.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.76.
+4. Open index.html and confirm that the heading says Version 15.77.
 
 Replacing the program files does not erase event plans or scores.
+
+VERSION 15.77 CHANGES
+
+- Automatic count-back for Team and Pairs Putting ties.
+- Automatic count-back for Par 3 Pairs ties, including multiway ties.
+- Completed NTP holes with no recorded holder show:
+  "No one recorded as NTP. Prize not awarded."

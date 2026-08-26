@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.76
+AWAY GOLF SCORER — VERSION 15.77
+
+VERSION 15.77 — PRIZE COUNT-BACKS AND NTP COMPLETION
+
+- Team and Pairs Putting ties now use automatic count-back: back nine, last six, last three, then Hole 18 backwards.
+- Par 3 Pairs ties now use the last Par 3 then each earlier Par 3 working backwards, including multiway ties.
+- Completed NTP holes with no recorded holder now say "No one recorded as NTP. Prize not awarded."
 
 VERSION 15.76 — RULES ACCESS AND PLAYER HOME
 ==============================================

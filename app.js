@@ -1529,7 +1529,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.76", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.77", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6923,7 +6923,7 @@ Count-back if tied
           `${store.event.puttingFormat === "pairs" ? "Pairs" : "Team"} Putting${suffix}`,
           "putts",
           day,
-          { lower: true },
+          { lower: true, countback: true },
         );
       if (selected.has("best3of4"))
         add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day);
@@ -6937,7 +6937,9 @@ Count-back if tied
     }
     if (selected.has("par3")) {
       if (days === 2 && store.event.par3Format === "aggregate")
-        add("par3-agg", "Par 3 Pairs — 2 Days", "par3aggregate");
+        add("par3-agg", "Par 3 Pairs — 2 Days", "par3aggregate", 0, {
+          countback: true,
+        });
       else
         for (let day = 1; day <= days; day++)
           add(
@@ -6945,6 +6947,7 @@ Count-back if tied
             `Par 3 Pairs${days === 1 ? "" : ` — Day ${day}`}`,
             "par3",
             day,
+            { countback: true },
           );
     }
     if (selected.has("eclectic"))
@@ -7173,7 +7176,8 @@ Count-back if tied
           hole: h,
           holder: currentNtpHolder(def.day, h),
         })),
-        complete = leaderboardComplete(def, []);
+        complete = leaderboardComplete(def, []),
+        hasWinner = holders.some((x) => Boolean(x.holder));
       return {
         complete,
         status: complete ? "Completed" : "In Progress",
@@ -7181,10 +7185,11 @@ Count-back if tied
           ? holders
               .map(
                 (x) =>
-                  `Hole ${x.hole}: ${x.holder ? player(x.holder.id)?.name || "Player" : "Pending"}`,
+                  `Hole ${x.hole}: ${x.holder ? player(x.holder.id)?.name || "Player" : complete ? "No one recorded as NTP. Prize not awarded." : "Pending"}`,
               )
               .join(" · ")
           : "Pending",
+        awardable: hasWinner,
       };
     }
     const rows = calculateLeaderboard(def),
@@ -7402,7 +7407,7 @@ Count-back if tied
             .map((d) => {
               const r = summaryCompetitionResult(d),
                 p = summaryPrizeDetails(d);
-              return `<div class="summaryResult ${p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong><small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small></span><span class="summaryActions">${p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
+              return `<div class="summaryResult ${p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong><small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small></span><span class="summaryActions">${p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && r.complete && p.configured && r.awardable !== false ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
             })
             .join("")}</section>`,
       )
