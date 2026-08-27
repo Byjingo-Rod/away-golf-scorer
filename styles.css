@@ -2675,6 +2675,41 @@ body.playerDevice .awakeIndicator.active {
   max-width: 760px;
   margin: 10px auto;
 }
+.markedVerifyCard {
+  margin-top: 10px;
+}
+.markedVerifyCard .verifyRow.mismatch {
+  cursor: pointer;
+  border: 1px solid #e6a28f;
+}
+.markedVerifyCard .verifyRow.mismatch:hover,
+.markedVerifyCard .verifyRow.mismatch:focus {
+  outline: 2px solid #b5402a;
+  outline-offset: 1px;
+}
+.bothCardsAgree {
+  max-width: 760px;
+  margin: 10px auto;
+  padding: 12px;
+  border: 2px solid #24945b;
+  border-radius: 10px;
+  background: #edf8f1;
+  color: #15583b;
+  text-align: center;
+  font-weight: 900;
+}
+.verifyRefresh {
+  display: block;
+  margin: 10px auto;
+}
+.verificationReturnBar {
+  max-width: 760px;
+  margin: 10px auto 0;
+}
+.ntpJackpotHelp {
+  display: block;
+  margin-top: 7px;
+}
 @media (max-width: 700px) {
   .dailyHandicapGrid {
     grid-template-columns: 1fr 1fr;
@@ -4673,7 +4708,7 @@ body.joinOnlyDevice .playerJoinLanding {
   border-radius: 8px;
 }
 
-.myEventsHead{display:flex;gap:18px;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.myEventsHead small,.myEventSummary small{font-weight:800;letter-spacing:.08em;color:#a65b16}.myEventsHead h2{margin:3px 0 5px}.myEventsHead p{margin:0;max-width:680px}.myEventList{display:grid;gap:10px;margin:12px 0 16px}.myEventCard{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #ceddd5;border-radius:12px;padding:14px;background:#fff}.myEventCard.current{border:2px solid #17834d;background:#edf8f1}.myEventCard.archived{opacity:.72}.myEventSummary h3{margin:3px 0;font-size:1.05rem}.myEventSummary p{margin:0;color:#516259}.myEventActions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.myEventActions button{white-space:nowrap}.myEventActions .danger{background:#fff4f1;color:#9b301e;border:1px solid #e8b9ae}@media(max-width:720px){.myEventsHead,.myEventCard{display:block}.myEventsHead button{margin-top:12px;width:100%}.myEventActions{justify-content:flex-start;margin-top:12px}.myEventActions button{flex:1 1 42%}}
+.myEventsHead{display:flex;gap:18px;justify-content:space-between;align-items:flex-start;margin-bottom:16px}.myEventsHead small,.myEventSummary small{font-weight:800;letter-spacing:.08em;color:#a65b16}.myEventsHead h2{margin:3px 0 5px}.myEventsHead p{margin:0;max-width:680px}.myEventsHeadActions{display:flex;gap:8px;align-items:center;flex:0 0 auto}.myEventList{display:grid;gap:10px;margin:12px 0 16px}.myEventCard{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #ceddd5;border-radius:12px;padding:14px;background:#fff}.myEventCard.current{border:2px solid #17834d;background:#edf8f1}.myEventCard.archived{opacity:.72}.myEventSummary h3{margin:3px 0;font-size:1.05rem}.myEventSummary p{margin:0;color:#516259}.myEventActions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px}.myEventActions button{white-space:nowrap}.myEventActions .danger{background:#fff4f1;color:#9b301e;border:1px solid #e8b9ae}@media(max-width:720px){.myEventsHead,.myEventCard{display:block}.myEventsHeadActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.myEventsHead button{margin-top:12px;width:100%}.myEventActions{justify-content:flex-start;margin-top:12px}.myEventActions button{flex:1 1 42%}}
 .backupSummary {
   display: grid;
   grid-template-columns: 0.7fr 0.7fr 1.6fr;

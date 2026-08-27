@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.79.1 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.81 BACKUP UPDATE
 
-This package is the complete Version 15.79.1 app.
+This package is the complete Version 15.81 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,9 +11,22 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.79.1.
+4. Open index.html and confirm that the heading says Version 15.81.
 
 Replacing the program files does not erase event plans or scores.
+
+VERSION 15.81 CHANGES
+- Presents daily-only, aggregate-only and combined Single Stableford results
+  according to the format selected during event setup.
+- Removes duplicate daily Single Stableford rows.
+- Shows aggregate-only daily leaders without prize wording or prize buttons.
+- Labels the overall result with the aggregate two-day score.
+- Moves My Events Close beside New Event.
+
+VERSION 15.80 CHANGES
+- Two-card checking is required before Complete Round.
+- Two-day Stableford leg rows no longer offer separate prizes.
+- NTP Jackpot help text spacing corrected.
 
 VERSION 15.79 CHANGES
 

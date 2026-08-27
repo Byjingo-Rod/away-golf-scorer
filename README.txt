@@ -1,4 +1,24 @@
-AWAY GOLF SCORER — VERSION 15.79.1
+AWAY GOLF SCORER — VERSION 15.81
+
+VERSION 15.81 — SINGLE STABLEFORD RESULTS PRESENTATION
+
+- Daily-only two-day events show one prize-winning Single Stableford result
+  for each day and no overall aggregate result.
+- Aggregate-only events show the daily leaders without prize wording or prize
+  buttons, then the prize-winning aggregate result under Overall Event Results.
+- Events running both formats show one prize-winning daily result for each day
+  and the prize-winning aggregate result under Overall Event Results.
+- Removes duplicate daily Single Stableford rows from two-day results.
+- Moves the My Events Close button beside New Event at the top of the window.
+
+VERSION 15.80 — TWO-CARD ROUND CHECKING
+
+- A player must confirm both their own card and the card they marked before
+  completing the round.
+- Red disagreements on the marked card open the relevant scoring hole.
+- Day 1 and Day 2 legs of the two-day Stableford show results without separate
+  Award Prize buttons; the overall two-day event retains its prize control.
+- Added spacing below the NTP Holes Jackpot option.
 
 VERSION 15.79.1 — NTP JACKPOT, STARTING HOLE AND COURSE-CARD CORRECTION
 
