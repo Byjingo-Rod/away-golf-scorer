@@ -1,4 +1,22 @@
-AWAY GOLF SCORER — VERSION 15.81
+AWAY GOLF SCORER — VERSION 15.82.2
+
+VERSION 15.82.2 — DRAFT CLOUD-SEPARATION HOTFIX
+
+- Discards a stale published-event connection carried inside an older draft workspace record.
+- Guarantees that selecting The Ridge draft cannot reopen Another 2 Day test.
+
+VERSION 15.82.1 — MY EVENTS LIVE-EVENT HOTFIX
+
+- Keeps a selected local draft current instead of immediately reopening the previously remembered published event.
+
+VERSION 15.82 — EMERGENCY MISSING PLAYER
+
+- Removes a selected late withdrawal before play and randomly assigns a locked virtual player from outside the short group.
+- Changes the remaining three golfers to a closed marking loop and automatically includes the virtual score in multiplayer competitions.
+- Rotates the extra NTP attempt between different real players when two NTP holes are selected.
+- Adds the arrangement to Special Rules and a compact, view-only dropdown below the hole navigation buttons.
+- Repairs My Events switching when an archived current event carries a stale workspace identity.
+- Preserves the horizontal Leaderboard competition-strip position after selecting a result.
 
 VERSION 15.81 — SINGLE STABLEFORD RESULTS PRESENTATION
 

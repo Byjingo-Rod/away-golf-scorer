@@ -2474,6 +2474,24 @@ body.playerDevice .awakeIndicator.active {
   gap: 9px;
   margin-top: 12px;
 }
+.virtualGlance {
+  margin-top: 10px;
+  border: 1px solid #9bc7ae;
+  border-radius: 10px;
+  background: #f2faf5;
+  color: #174d32;
+}
+.virtualGlance summary {
+  cursor: pointer;
+  padding: 11px 13px;
+  font-weight: 800;
+}
+.virtualGlance div {
+  display: grid;
+  gap: 4px;
+  padding: 0 13px 12px;
+}
+.virtualGlance span { font-size: 0.86rem; }
 .holeNav button {
   min-height: 46px;
   font-weight: 800;

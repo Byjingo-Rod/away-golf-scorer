@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.81 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.82.2 BACKUP UPDATE
 
-This package is the complete Version 15.81 app.
+This package is the complete Version 15.82.2 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,17 +11,27 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.81.
+4. Open index.html and confirm that the heading says Version 15.82.2.
+
+VERSION 15.82.2 CHANGES
+- A draft ignores and removes any stale published-event connection carried by an older backup.
+- Selecting The Ridge cannot reopen Another 2 Day test.
+
+VERSION 15.82.1 CHANGES
+- Selecting a local draft clears the remembered published-event reopening instruction.
+- The selected event therefore remains current instead of flashing briefly and being replaced.
 
 Replacing the program files does not erase event plans or scores.
 
-VERSION 15.81 CHANGES
-- Presents daily-only, aggregate-only and combined Single Stableford results
-  according to the format selected during event setup.
-- Removes duplicate daily Single Stableford rows.
-- Shows aggregate-only daily leaders without prize wording or prize buttons.
-- Labels the overall result with the aggregate two-day score.
-- Moves My Events Close beside New Event.
+VERSION 15.82 CHANGES
+- Select the player who did not arrive before scoring begins.
+- The app removes that player, selects a locked virtual player from outside the
+  short group and changes the remaining three players to a closed marking loop.
+- With two NTP holes, the extra attempts rotate between two different golfers.
+- Special Rules explain the arrangement; a compact dropdown below Previous and
+  Next Hole shows whether the virtual score for that hole has been verified.
+- My Events now switches away from an archived current event reliably.
+- The Leaderboard competition strip keeps its horizontal position.
 
 VERSION 15.80 CHANGES
 - Two-card checking is required before Complete Round.

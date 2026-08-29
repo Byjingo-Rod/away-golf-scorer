@@ -1595,11 +1595,26 @@
     if (!record?.event) return;
     closeCloudConnection();
     store.event = JSON.parse(JSON.stringify(record.event));
+    // The selected workspace record is authoritative. Older saved copies could
+    // carry a stale workspaceId and be captured back over the previous event.
+    store.event.workspaceId = String(record.id);
     store.activeEventId = String(record.id);
-    if (record.cloud) store.cloud = JSON.parse(JSON.stringify(record.cloud));
-    else delete store.cloud;
+    const selectedIsPublished = Boolean(
+      record.event.publishedAt || record.event.joinCode,
+    );
+    if (record.cloud && selectedIsPublished)
+      store.cloud = JSON.parse(JSON.stringify(record.cloud));
+    else {
+      delete store.cloud;
+      // A draft must never inherit a stale cloud record carried by an older
+      // organiser backup. Otherwise the draft appears briefly before the old
+      // published event reopens and takes its place.
+      record.cloud = null;
+      record.cloudPlayers = [];
+      forgetOrganiserEvent();
+    }
     store.cloudPlayers = JSON.parse(JSON.stringify(record.cloudPlayers || []));
-    persistStore();
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
     $("#modalShade").classList.remove("open");
     applyDeviceRole();
     renderHome();
@@ -1709,7 +1724,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.81", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.82.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2084,8 +2099,15 @@ Count-back if tied
         title: "Scratch Competition Rules",
         text: scratchRulesText(event),
       });
-    if ((event.specialRules || "").trim())
-      sections.push({ title: "Special Rules", text: event.specialRules.trim() });
+    const emergencyRules = Object.keys(event.emergencyReplacements || {})
+      .sort()
+      .map((key) => event.emergencyReplacements[key]?.ruleText)
+      .filter(Boolean);
+    const specialText = [event.specialRules?.trim(), ...emergencyRules]
+      .filter(Boolean)
+      .join("\n\n");
+    if (specialText)
+      sections.push({ title: "Special Rules", text: specialText });
     return sections;
   }
   function openEventRules() {
@@ -4204,13 +4226,14 @@ Count-back if tied
   function dayFieldIds(day) {
     if (!store.event) return [];
     const key = "day" + day;
+    const missing = String(store.event.emergencyReplacements?.[key]?.missingPlayerId || "");
     if (store.event.dayFields?.[key])
-      return store.event.dayFields[key].map(String);
+      return store.event.dayFields[key].map(String).filter((id) => id !== missing);
     const ids = (store.event.confirmed || []).map(String);
-    if (store.event.days === 1) return ids;
+    if (store.event.days === 1) return ids.filter((id) => id !== missing);
     return ids.filter(
       (id) => store.event.dayAvailability?.[id]?.[day] !== false,
-    );
+    ).filter((id) => id !== missing);
   }
   function noPartnerContext(groups, day) {
     const all = dayFieldIds(day),
@@ -4225,8 +4248,9 @@ Count-back if tied
       .slice(pairStart, pairStart + 2)
       .find((id) => String(id) !== NO_PARTNER_ID);
     const realInGroup = g.filter((id) => String(id) !== NO_PARTNER_ID);
+    const inShortGroup = new Set(realInGroup.map(String));
     const candidates = all.filter(
-      (id) => String(id) !== NO_PARTNER_ID && String(id) !== String(affected),
+      (id) => String(id) !== NO_PARTNER_ID && !inShortGroup.has(String(id)),
     );
     return {
       groupIndex: shortIndex,
@@ -4253,7 +4277,12 @@ Count-back if tied
       !ctx.candidates.map(String).includes(String(setup.virtualPlayer))
     )
       setup.virtualPlayer = chooseRandom(ctx.candidates);
-    if ((store.event.competitions || []).includes("ntp")) {
+    const emergency = store.event.emergencyReplacements?.["day" + day];
+    if (emergency) {
+      setup.virtualPlayer = emergency.virtualPlayerId;
+      setup.ntpExtraPlayers = emergency.ntpExtraPlayers || {};
+      setup.ntpExtraPlayer = null;
+    } else if ((store.event.competitions || []).includes("ntp")) {
       const eligible = ctx.realInGroup.map(String);
       if (
         !setup.ntpExtraPlayer ||
@@ -4267,13 +4296,15 @@ Count-back if tied
     store.event.groupSetup = store.event.groupSetup || {};
     for (let day = 1; day <= store.event.days; day++) {
       const key = "day" + day,
-        ids = dayFieldIds(day);
+        ids = dayFieldIds(day),
+        emergency = store.event.emergencyReplacements?.[key],
+        expectedIds = emergency ? [...ids, NO_PARTNER_ID] : ids;
       const current = store.event.groupSetup[key];
       const same =
         current &&
         current.groups &&
         current.groups.flat().map(String).sort().join("|") ===
-          ids.map(String).sort().join("|");
+          expectedIds.map(String).sort().join("|");
       if (!same) {
         // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
         // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
@@ -4968,6 +4999,46 @@ Count-back if tied
     };
     inputs[0]?.focus();
   }
+  function emergencyRuleText(day, virtualId, affectedId, ntpExtraPlayers) {
+    const prefix = store.event.days === 2 ? `Day ${day}: ` : "";
+    const base = `${prefix}We are a player short for our Away Golf Event today. ${player(virtualId)?.name || "A player"} has been randomly selected to be the virtual player to partner ${player(affectedId)?.name || "the player with the missing partner"} in all multiplayer competitions.`;
+    const shots = Object.entries(ntpExtraPlayers || {}).map(([hole, id]) => `${player(id)?.name || "A player"} has been randomly selected to have 2 shots on the NTP hole ${hole}.`);
+    return [base, ...shots].join(" ");
+  }
+  function openMissingPlayerReplacement(day) {
+    initialiseGroups();
+    const key = "day" + day, setup = store.event.groupSetup?.[key];
+    if (!setup || store.event.emergencyReplacements?.[key] || firstDayScoreEntry(day)) {
+      alert(store.event.emergencyReplacements?.[key] ? "An emergency replacement has already been applied for this day." : "A missing-player replacement can only be applied before scoring begins.");
+      return;
+    }
+    const ids = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>BEFORE PLAY · DAY ${day}</small><h2>Emergency Missing Player</h2><p>Select the player who has not arrived. Check the complete arrangement before applying it.</p></div><label class="emergencySelect">Select Missing Player<select id="missingPlayerSelect"><option value="">Choose player…</option>${ids.map((id) => `<option value="${esc(id)}">${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label><div id="missingPlayerPreview"></div><div class="emergencyActions"><button class="soft" id="cancelMissingPlayer">Cancel</button><button class="primary" id="applyMissingPlayer" disabled>Apply Emergency Replacement</button></div>`;
+    $("#modalShade").classList.add("open");
+    let proposal = null;
+    const propose = (missingId) => {
+      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId)), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
+      if (groupIndex < 0 || !affectedId || !virtualId || realInGroup.length !== 3) return null;
+      const shuffled = shuffleCopy(realInGroup);
+      ntpHolesInPlayingOrder(day).slice(0, 2).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i]);
+      return { missingId: String(missingId), groupIndex, missingIndex, affectedId: String(affectedId), virtualId: String(virtualId), ntpExtraPlayers };
+    };
+    $("#missingPlayerSelect").onchange = (e) => {
+      proposal = propose(e.target.value); $("#applyMissingPlayer").disabled = !proposal;
+      $("#missingPlayerPreview").innerHTML = proposal ? `<div class="emergencyWarning"><b>${esc(player(proposal.missingId)?.name)} will be removed from today’s draw.</b><span>${esc(player(proposal.virtualId)?.name)} will be the locked virtual player for ${esc(player(proposal.affectedId)?.name)}. The remaining three players will mark each other.</span>${Object.entries(proposal.ntpExtraPlayers).map(([hole, id]) => `<span>Hole ${hole} NTP extra attempt: ${esc(player(id)?.name)}</span>`).join("")}</div>` : "";
+    };
+    $("#cancelMissingPlayer").onclick = () => $("#modalShade").classList.remove("open");
+    $("#applyMissingPlayer").onclick = async () => {
+      if (!proposal || !confirm(`Apply the emergency replacement for ${player(proposal.missingId)?.name}?`)) return;
+      setup.groups[proposal.groupIndex][proposal.missingIndex] = NO_PARTNER_ID;
+      Object.assign(setup, { missingPlayerId: proposal.missingId, virtualPlayer: proposal.virtualId, ntpExtraPlayers: proposal.ntpExtraPlayers });
+      store.event.emergencyReplacements = store.event.emergencyReplacements || {};
+      store.event.emergencyReplacements[key] = { missingPlayerId: proposal.missingId, virtualPlayerId: proposal.virtualId, affectedPlayerId: proposal.affectedId, groupIndex: proposal.groupIndex, ntpExtraPlayers: proposal.ntpExtraPlayers, appliedAt: new Date().toISOString(), ruleText: emergencyRuleText(day, proposal.virtualId, proposal.affectedId, proposal.ntpExtraPlayers) };
+      persistStore();
+      if (store.cloud?.role === "organiser" && store.cloud.eventId) await updateCloudEvent();
+      $("#modalShade").classList.remove("open"); renderHome(); renderTeamsPage(); renderPlayerExperience();
+    };
+  }
   function renderLiveEventControl() {
     const host = $("#liveEventControl"),
       basic = $("#basicEventProgress");
@@ -5007,7 +5078,7 @@ Count-back if tied
       attention = rows.filter((x) => x.state === "attention").length,
       finalised = rows.filter((x) => x.finalised).length,
       allFinal = Boolean(rows.length && finalised === rows.length);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     $$("[data-liveday]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -5021,6 +5092,7 @@ Count-back if tied
       renderLiveEventControl();
     };
     $("#emergencyRecovery").onclick = openEmergencyRecovery;
+    $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
     if ($("#openPrizeSummary"))
       $("#openPrizeSummary").onclick = () => {
         store.event.leaderboardView = "summary";
@@ -5991,6 +6063,10 @@ Count-back if tied
       me = String(pid),
       pos = g.indexOf(me);
     if (pos < 0) return null;
+    // A genuine late withdrawal leaves three golfers. They mark in one closed
+    // loop so every visible Player and Marker is a real golfer in that group.
+    if (ctx.setup.missingPlayerId && g.length === 3)
+      return String(g[(pos + 1) % 3]);
     // Prefer the 4BBB partner because the two golfers naturally mark/verify each other.
     if ((store.event.competitions || []).includes("fourball")) {
       const pairStart = ctx.playerIndex < 2 ? 0 : 2;
@@ -6921,7 +6997,7 @@ Count-back if tied
         ? best3Values.reduce((a, b) => a + b, 0)
         : null,
       best3On = (store.event.competitions || []).includes("best3of4");
-    const isExtra = String(setup.ntpExtraPlayer || "") === String(selected);
+    const isExtra = String(setup.ntpExtraPlayers?.[String(hole)] || setup.ntpExtraPlayer || "") === String(selected);
     const stepper = (id, label, value, base, min, max) => {
       const has = value !== "" && value != null,
         isGross = id.endsWith("Gross"),
@@ -6975,12 +7051,21 @@ Count-back if tied
     const missingAlert = missingHoles.length
       ? `<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length === 1 ? "" : "s"}: ${missingHoles.join(", ")}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`
       : "";
+    const emergency = store.event.emergencyReplacements?.["day" + day],
+      showVirtualGlance = emergency && +emergency.groupIndex === +ctx.groupIndex,
+      virtualEntry = showVirtualGlance ? playerHoleEntry(day, emergency.virtualPlayerId, hole) : null,
+      virtualPoints = showVirtualGlance
+        ? stablefordPoints(virtualEntry?.gross, par, indexVal, playerDailyHandicap(emergency.virtualPlayerId, day))
+        : null,
+      virtualGlance = showVirtualGlance
+        ? `<details class="virtualGlance"><summary>Virtual Player Information</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>The locked contribution is included automatically.</span>` : `<b>Awaiting verified score on Hole ${hole}</b><span>The pair and team totals will update automatically.</span>`}</div></details>`
+        : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${holeTracker}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
- <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div></div>`;
+ <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
@@ -7843,6 +7928,7 @@ Count-back if tied
   }
   function renderLeaderboard() {
     const host = $("#leaderboardExperience");
+    const previousTabScroll = host?.querySelector(".leaderTabs")?.scrollLeft ?? +(store.event?.leaderboardScrollLeft || 0);
     if (!host) return;
     if (!store.event) {
       host.innerHTML =
@@ -7942,6 +8028,8 @@ Count-back if tied
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
     }
     host.innerHTML = `<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · official marker scores update as they arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    const tabStrip = host.querySelector(".leaderTabs");
+    if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
     $$("[data-leaderview]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -7957,6 +8045,7 @@ Count-back if tied
     $$("[data-leadertab]").forEach(
       (b) =>
         (b.onclick = () => {
+          store.event.leaderboardScrollLeft = b.parentElement?.scrollLeft || 0;
           store.event.leaderboardTab = b.dataset.leadertab;
           localStorage.setItem("awayGolf13", JSON.stringify(store));
           renderLeaderboard();
@@ -8039,7 +8128,10 @@ Count-back if tied
       const np = noPartnerContext(setup.groups, day);
       return np && String(np.affected) === selected ? np : null;
     })();
-    const isExtra = String(setup.ntpExtraPlayer || "") === selected,
+    const extraNtpHoles = Object.entries(setup.ntpExtraPlayers || {})
+        .filter(([, id]) => String(id) === selected)
+        .map(([hole]) => hole),
+      isExtra = extraNtpHoles.length > 0 || String(setup.ntpExtraPlayer || "") === selected,
       ruleSections = eventRuleSections(store.event);
     let displayIds = [selected];
     if (partner) {
@@ -8068,7 +8160,7 @@ Count-back if tied
  <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : teeSelectionIsFinal(day) ? esc(EVENT_TEE_LABELS[selectedEventTee(day)]) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
- ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. <span class="vpName">${esc(player(setup.virtualPlayer)?.name || "Virtual Player")} (VP)</span> supplies the missing score where a partner or fourth team member is required.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b> on each NTP hole today. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(
