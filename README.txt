@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.82.2
+AWAY GOLF SCORER — VERSION 15.83
+
+VERSION 15.83 — TIMED SCORECARD OPENING
+
+- Keeps every scorecard locked until 15 minutes before the event's first tee time.
+- Opens all groups together, including events with two tees or a shotgun start.
+- Adds an organiser Open Scoring Now override and bypasses the clock in Testing Tools.
+- Keeps emergency missing-player replacement available until the affected group records its first score.
+- Adds the scoring-opening rule automatically to every event's Rules and Information.
 
 VERSION 15.82.2 — DRAFT CLOUD-SEPARATION HOTFIX
 
