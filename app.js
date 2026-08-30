@@ -1725,7 +1725,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.83", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.83.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2739,13 +2739,32 @@ Count-back if tied
     if (!event || scoringIsOpen(day, event)) return;
     const opens = scoringOpeningTime(day, event);
     if (!opens) return;
-    const delay = Math.max(0, opens.getTime() - Date.now()) + 150;
+    const remaining = Math.max(0, opens.getTime() - Date.now());
+    const delay = Math.min(remaining + 150, 5000);
     scoringOpenTimer = setTimeout(() => {
+      scoringOpenTimer = null;
+      if (scoringIsOpen(day, event)) {
+        renderLiveEventControl();
+        renderPlayerExperience();
+      } else scheduleScoringOpening(day, event);
+    }, delay);
+  }
+  function refreshScoringOpeningOnWake() {
+    if (document.visibilityState !== "visible" || !store.event) return;
+    const day = Math.min(
+      store.event.days || 1,
+      +(store.event.playerPreviewDay || store.event.liveControlDay || 1),
+    );
+    if (scoringIsOpen(day)) {
+      clearTimeout(scoringOpenTimer);
       scoringOpenTimer = null;
       renderLiveEventControl();
       renderPlayerExperience();
-    }, Math.min(delay, 2147483647));
+    } else scheduleScoringOpening(day);
   }
+  document.addEventListener("visibilitychange", refreshScoringOpeningOnWake);
+  window.addEventListener("focus", refreshScoringOpeningOnWake);
+  window.addEventListener("pageshow", refreshScoringOpeningOnWake);
   function validateStep() {
     if (W.step === 1) {
       syncEventFields();

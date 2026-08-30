@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.83 BACKUP UPDATE
+AWAY GOLF SCORER — VERSION 15.83.1 BACKUP UPDATE
 
-This package is the complete Version 15.83 app.
+This package is the complete Version 15.83.1 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,7 +11,11 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.83.
+4. Open index.html and confirm that the heading says Version 15.83.1.
+
+VERSION 15.83.1 CHANGES
+- Waiting phones recheck the opening time every five seconds.
+- A sleeping phone rechecks immediately when it wakes or returns to the app.
 
 VERSION 15.83 CHANGES
 - All scorecards open together 15 minutes before the first tee time.

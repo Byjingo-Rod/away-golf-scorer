@@ -1,4 +1,9 @@
-AWAY GOLF SCORER — VERSION 15.83
+AWAY GOLF SCORER — VERSION 15.83.1
+
+VERSION 15.83.1 — MOBILE SCORING-OPEN REFRESH
+
+- Rechecks the scoring-opening time every five seconds while a locked scorecard is waiting.
+- Rechecks immediately whenever a phone wakes or the app returns to the foreground.
 
 VERSION 15.83 — TIMED SCORECARD OPENING
 
