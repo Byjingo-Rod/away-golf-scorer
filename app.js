@@ -1739,7 +1739,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.84", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.84.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4935,6 +4935,11 @@ Count-back if tied
       localStorage.setItem("awayGolf13", JSON.stringify(store));
       await flushCloudRound(day, target.scorerId);
       await updateCloudEvent();
+      if (
+        verificationIssueCount(day, playerId) === 0 &&
+        markedScorecardVerification(day, playerId).mismatches.length === 0
+      )
+        emergencyFinaliseIfVerified(day, playerId, false);
       renderHome();
       renderLeaderboard();
       alert("The official hole has been corrected and saved.");

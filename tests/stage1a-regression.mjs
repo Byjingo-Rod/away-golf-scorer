@@ -45,5 +45,10 @@ assert.match(source, /const uploaded = await flushCloudRound\(day, selected\)/);
 assert.match(source, /const refreshed = await syncCloudNow\(\)/);
 assert.match(source, /The event cannot be closed until the latest online scorecards/);
 assert.match(source, /UNCONFIRMED HOLES/);
+assert.match(
+  source,
+  /verificationIssueCount\(day, playerId\) === 0[\s\S]*emergencyFinaliseIfVerified\(day, playerId, false\)/,
+  "a resolved organiser correction must restore Complete status",
+);
 
 console.log("Stage 1A regression checks passed.");

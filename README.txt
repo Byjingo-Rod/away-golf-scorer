@@ -1,4 +1,7 @@
-AWAY GOLF SCORER — VERSION 15.84
+AWAY GOLF SCORER — VERSION 15.84.1
+
+VERSION 15.84.1 — ORGANISER CORRECTION COMPLETION
+- When a saved organiser correction resolves every discrepancy, a previously completed player card automatically returns to Complete.
 
 VERSION 15.84 — AFTER THE RIDGE SCORE INTEGRITY
 - Organiser card corrections are stored as authoritative event records and cannot be replaced by an older marker-phone upload.
