@@ -1,17 +1,34 @@
-AWAY GOLF SCORER — VERSION 15.84.1 CONTROLLED TEST UPDATE
+AWAY GOLF SCORER — VERSION 15.85.2 CONTROLLED TEST UPDATE
 
-This package is the complete Version 15.84.1 controlled-test app.
+This package is the complete Version 15.85.2 controlled-test app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
 This rebuild has a new internal cache identity so the browser cannot reuse the
 withdrawn first 15.78 JavaScript file.
 
-1. Close Away Golf Scorer.
+1. Close every Away Golf Scorer browser tab and window.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.84.1.
+4. Open index.html and confirm that the heading says Version 15.85.2.
+
+VERSION 15.85.2 CHANGES
+- Makes the newest open app tab the sole writer of organiser data.
+- Prevents an older open tab with a stale event list from overwriting newer saved events.
+- Labels an older tab “Older tab — close this copy” when a newer tab takes control.
+
+VERSION 15.85.1 CHANGES
+- Uses a compact two-day event date such as Thu 10 – Fri 11 Sep 2026.
+- Reduces the date type slightly so the complete range fits neatly.
+- Uses a new cache identity so the browser cannot retain the earlier display.
+
+VERSION 15.85 CHANGES
+- Replaces Round / Marker on the Home summary with the event date.
+- Adds live blue discrepancy warnings when both cards have arrived but strokes or putts disagree.
+- Shows the warning on both affected phones and opens the blue hole directly for correction.
+- Keeps red for missing entries and green for complete entries with no known disagreement.
+- Prevents a remembered live cloud event from attaching to and replacing an unpublished draft workspace.
 
 VERSION 15.84.1 CHANGES
 - Returns a corrected, fully agreeing card to Complete without requiring the player to finalise it again.

@@ -89,6 +89,10 @@ header small {
   display: block;
   font-size: 20px;
 }
+.dashboard .homeRoundBox b {
+  font-size: 16px;
+  line-height: 1.15;
+}
 .pageHead {
   display: flex;
   justify-content: space-between;
@@ -2529,6 +2533,10 @@ body.playerDevice .awakeIndicator.active {
   background: #08783f;
   color: #fff;
 }
+.holeTrackerKey i.mismatch {
+  background: #1769aa;
+  color: #fff;
+}
 .holeTrackerKey i.missing {
   background: #c62828;
   color: #fff;
@@ -2562,6 +2570,11 @@ body.playerDevice .awakeIndicator.active {
 .holeTrack.missing {
   background: #c62828;
   border-color: #a91e1e;
+  color: #fff;
+}
+.holeTrack.mismatch {
+  background: #1769aa;
+  border-color: #0f548b;
   color: #fff;
 }
 .holeTrack.current {
@@ -2602,6 +2615,29 @@ body.playerDevice .awakeIndicator.active {
   border: 0;
   border-radius: 7px;
   background: #a91e1e;
+  color: #fff;
+  padding: 8px 9px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.mismatchHoleAlert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 9px 10px;
+  background: #eaf4ff;
+  border: 2px solid #1769aa;
+  color: #103f68;
+}
+.mismatchHoleAlert div { display: flex; flex-direction: column; }
+.mismatchHoleAlert strong { font-size: 13px; }
+.mismatchHoleAlert span { font-size: 9px; margin-top: 2px; }
+.mismatchHoleAlert button {
+  border: 0;
+  border-radius: 7px;
+  background: #1769aa;
   color: #fff;
   padding: 8px 9px;
   font-size: 10px;
@@ -2747,11 +2783,13 @@ body.playerDevice .awakeIndicator.active {
   .scoreInputs input {
     font-size: 20px;
   }
-  .missingHoleAlert {
+  .missingHoleAlert,
+  .mismatchHoleAlert {
     align-items: stretch;
     flex-direction: column;
   }
-  .missingHoleAlert button {
+  .missingHoleAlert button,
+  .mismatchHoleAlert button {
     min-height: 42px;
   }
 }

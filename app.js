@@ -319,7 +319,44 @@
       template: null,
     };
   }
+  // Only the newest open app tab may persist the organiser workspace. Without
+  // this lease, an older tab can later write its stale in-memory event list
+  // over changes made in a newer tab.
+  const AWAY_GOLF_WRITER_LEASE_KEY = "awayGolfActiveWriterV1";
+  const appTabId =
+    globalThis.crypto?.randomUUID?.() ||
+    `away-tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(AWAY_GOLF_WRITER_LEASE_KEY, appTabId);
+  let appTabSuperseded = false;
   let store;
+
+  function markSupersededTab() {
+    if (appTabSuperseded) return;
+    appTabSuperseded = true;
+    const cloudHeader = document.getElementById("cloudHeader");
+    if (cloudHeader) {
+      cloudHeader.textContent = "Older tab — close this copy";
+      cloudHeader.classList.add("offline");
+    }
+  }
+
+  function writeLocalStore() {
+    if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) !== appTabId) {
+      markSupersededTab();
+      return false;
+    }
+    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    return true;
+  }
+
+  window.addEventListener("storage", (event) => {
+    if (
+      event.key === AWAY_GOLF_WRITER_LEASE_KEY &&
+      event.newValue &&
+      event.newValue !== appTabId
+    )
+      markSupersededTab();
+  });
   try {
     store = JSON.parse(localStorage.getItem("awayGolf13") || "null");
   } catch (e) {}
@@ -362,13 +399,20 @@
     delete store.cloud;
     store.cloudPlayers = [];
     forgetOrganiserEvent();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     sessionStorage.setItem("awayGolfRetired1539", "1");
   }
   // Keep the organiser PC attached to its published event independently of the
   // editable local workspace. A player device must always retain its own role.
   const rememberedLive = rememberedOrganiserEvent();
-  if (rememberedLive?.eventId && store.cloud?.role !== "player")
+  const currentCanResumeCloud = Boolean(
+    !store.event || store.event.publishedAt || store.event.joinCode,
+  );
+  if (
+    rememberedLive?.eventId &&
+    store.cloud?.role !== "player" &&
+    currentCanResumeCloud
+  )
     store.cloud = {
       role: "organiser",
       eventId: rememberedLive.eventId,
@@ -392,8 +436,24 @@
       store.eventWorkspace.push(record);
     }
     record.event = JSON.parse(JSON.stringify(store.event));
-    record.cloud = store.cloud ? JSON.parse(JSON.stringify(store.cloud)) : null;
-    record.cloudPlayers = JSON.parse(JSON.stringify(store.cloudPlayers || []));
+    const eventIsPublished = Boolean(
+      store.event.publishedAt || store.event.joinCode,
+    );
+    // A draft is local planning data. Never attach whichever cloud event the
+    // organiser device happened to remember, because that live event could
+    // replace the draft after the next reload.
+    record.cloud =
+      eventIsPublished && store.cloud
+        ? JSON.parse(JSON.stringify(store.cloud))
+        : null;
+    record.cloudPlayers = eventIsPublished
+      ? JSON.parse(JSON.stringify(store.cloudPlayers || []))
+      : [];
+    if (!eventIsPublished && store.cloud?.role === "organiser") {
+      delete store.cloud;
+      store.cloudPlayers = [];
+      forgetOrganiserEvent();
+    }
     record.updatedAt = new Date().toISOString();
     store.activeEventId = id;
   }
@@ -412,7 +472,7 @@
   migrateEventWorkspace();
   function persistStore() {
     captureCurrentEvent();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
   }
   function normaliseCourseNames() {
     (store.courses || []).forEach((c) => (c.name = gcCourseName(c.name)));
@@ -520,7 +580,7 @@
         ),
       ),
     ];
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
   }
   consolidateCourseCards();
   // Version 15.78 recovery: the first test package could expose the packaged
@@ -585,7 +645,7 @@
       315, 193, 351, 369, 158, 397, 116, 276, 478,
       117, 301, 316, 137, 466, 366, 495, 272, 379,
     ];
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     return true;
   }
   repairIncompleteOatlandsCard();
@@ -638,7 +698,7 @@
     );
     if (!store.event.competitions.includes("single"))
       store.event.competitions.push("single");
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
   }
 
   const save = () => {
@@ -836,7 +896,7 @@
     return false;
   }
   enforceAuthoritativeOatlandsCard();
-  localStorage.setItem("awayGolf13", JSON.stringify(store));
+  writeLocalStore();
 
   let cloudReady = false,
     cloudBusy = false,
@@ -1009,7 +1069,7 @@
       joined: Boolean(row.joined_at),
       joinedAt: row.joined_at || null,
     }));
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     renderHome();
     if (document.querySelector("#scorePage.active")) renderPlayerExperience();
     if (document.querySelector("#leaderboardPage.active")) renderLeaderboard();
@@ -1075,7 +1135,7 @@
     store.event = null;
     delete store.cloud;
     store.cloudPlayers = [];
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     applyDeviceRole();
     renderHome();
     nav("home");
@@ -1115,7 +1175,7 @@
         store.event = null;
         delete store.cloud;
         store.cloudPlayers = [];
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         applyDeviceRole();
         renderHome();
         renderPlayerExperience();
@@ -1227,7 +1287,7 @@
         name: store.event.name,
       });
       watchCloudEvent();
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final event published" : "Event Preview published");
       renderCloudPanel();
     } catch (error) {
@@ -1251,7 +1311,7 @@
         cloudPayload(),
         store.event?.locked ? "locked" : "setup",
       );
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final update shared" : "Preview changes shared");
     } catch (error) {
       setCloudMessage("Update delayed — use Retry Sync");
@@ -1314,7 +1374,7 @@
               joinCode: code,
               playerId: String(playerId),
             };
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             const bundle = await cloudTimeout(AwayCloud.loadEvent(eventId));
             applyRemoteCloud(bundle);
             applyDeviceRole();
@@ -1629,7 +1689,7 @@
       forgetOrganiserEvent();
     }
     store.cloudPlayers = JSON.parse(JSON.stringify(record.cloudPlayers || []));
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     applyDeviceRole();
     renderHome();
@@ -1704,7 +1764,7 @@
     if (!record) return;
     record.archived = !record.archived;
     record.updatedAt = new Date().toISOString();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     openMyEvents();
   }
   function openMyEvents() {
@@ -1739,7 +1799,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.84.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.85.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1771,7 +1831,7 @@
     store.pairHistory = store.pairHistory || {};
     store.partnerHistory = store.partnerHistory || {};
     forgetOrganiserEvent();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     try { await AwayCloud.saveWorkspace({ activePublishedEvent: null }); } catch (_) {}
     $("#modalShade").classList.remove("open");
     applyDeviceRole();
@@ -2007,7 +2067,7 @@
             restorePublished: true,
           };
           rememberOrganiserEvent(live.eventId, live.joinCode);
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
         }
       }
       if (store.cloud?.eventId) {
@@ -2048,11 +2108,11 @@
             )
           : "";
     if (roundLabel)
-      roundLabel.textContent = isPlayerDevice() ? "Marking" : "Round";
+      roundLabel.textContent = isPlayerDevice() ? "Marking" : "Event date";
     if (roundValue)
       roundValue.textContent = isPlayerDevice()
         ? player(markingId)?.name || "Awaiting player"
-        : "Marker";
+        : homeEventDate(store.event);
     const options = $("#eventOptions");
     if (options) options.hidden = !store.event;
     applyDeviceRole();
@@ -2332,7 +2392,7 @@ Count-back if tied
         i = ids.indexOf(String(c.id));
       if (e.target.checked && i < 0) store.courseFavourites.push(String(c.id));
       if (!e.target.checked && i >= 0) store.courseFavourites.splice(i, 1);
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       renderCoursesAdmin();
     };
     const entryOrder = [];
@@ -2912,7 +2972,7 @@ Count-back if tied
               i = store.courseFavourites.map(String).indexOf(id);
             if (i >= 0) store.courseFavourites.splice(i, 1);
             else store.courseFavourites.push(id);
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             draw();
           }),
       );
@@ -3328,7 +3388,7 @@ Count-back if tied
               d2[id] = d1[id];
           });
       }
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       $("#modalShade").classList.remove("open");
       renderStep2();
     };
@@ -3425,7 +3485,7 @@ Count-back if tied
             });
         });
       selectEventTee(day, selectedEventTee(day, W.event), W.event);
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       $("#modalShade").classList.remove("open");
       renderStep2();
     };
@@ -4932,7 +4992,7 @@ Count-back if tied
         gross,
         putts: +putts,
       });
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       await flushCloudRound(day, target.scorerId);
       await updateCloudEvent();
       if (
@@ -5035,7 +5095,7 @@ Count-back if tied
           holes: missing.map((x) => x.h),
         });
         emergencyFinaliseIfVerified(day, markedId, true);
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         queueCloudRound(day, failed);
         if (store.cloud?.role === "organiser" && store.cloud?.eventId)
           await updateCloudEvent();
@@ -5163,7 +5223,7 @@ Count-back if tied
       });
       emergencyFinaliseIfVerified(day, scorer, true);
       emergencyFinaliseIfVerified(day, targetId, true);
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       queueCloudRound(day, scorer);
       closeEmergencyRecovery();
       renderHome();
@@ -5267,7 +5327,7 @@ Count-back if tied
       (b) =>
         (b.onclick = () => {
           store.event.liveControlDay = +b.dataset.liveday;
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderLiveEventControl();
         }),
     );
@@ -5291,7 +5351,7 @@ Count-back if tied
     if ($("#openPrizeSummary"))
       $("#openPrizeSummary").onclick = () => {
         store.event.leaderboardView = "summary";
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         nav("leaderboardPage");
       };
   }
@@ -5340,7 +5400,7 @@ Count-back if tied
       forgetOrganiserEvent();
       localStorage.removeItem("awayGolfTestBackupV1");
       localStorage.removeItem("awayGolfRidgeTestBackupV1");
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       $("#modalShade").classList.remove("open");
       applyDeviceRole();
       renderHome();
@@ -5385,7 +5445,7 @@ Count-back if tied
       }
     }
     closeCloudConnection();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     renderPlayerExperience();
@@ -5430,7 +5490,7 @@ Count-back if tied
     delete store.cloud;
     store.cloudPlayers = [];
     forgetOrganiserEvent();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     renderPlayerExperience();
@@ -5843,7 +5903,7 @@ Count-back if tied
         : [];
     e.liveControlDay = stage >= 2 && e.days === 2 ? 2 : 1;
     e.leaderboardView = "summary";
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     nav("home");
@@ -5922,7 +5982,7 @@ Count-back if tied
         (c) => c.id !== "test-oatlands-full-rounds",
       );
     localStorage.removeItem("awayGolfTestBackupV1");
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     renderCoursesAdmin();
@@ -6152,7 +6212,7 @@ Count-back if tied
       joined: true,
       joinedAt: `2026-08-22T${String(7 + Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 6).padStart(2, "0")}:00+10:00`,
     }));
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     renderLeaderboard();
@@ -6190,7 +6250,7 @@ Count-back if tied
     store.cloud = backup.cloud || undefined;
     store.cloudPlayers = backup.cloudPlayers || [];
     localStorage.removeItem("awayGolfRidgeTestBackupV1");
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     $("#modalShade").classList.remove("open");
     renderHome();
     renderLeaderboard();
@@ -6514,7 +6574,7 @@ Count-back if tied
         (b.onclick = () => {
           store.event.activeGroupDay = +b.dataset.groupday;
           store.event.swapPlayer = null;
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderTeamsPage();
         }),
     );
@@ -6523,7 +6583,7 @@ Count-back if tied
         (button.onclick = () => {
           if (teeSelectionIsFinal(day) || dayHasScoreEntries(day)) return;
           selectEventTee(day, button.dataset.eventtee);
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderTeamsPage();
         }),
     );
@@ -6545,7 +6605,7 @@ Count-back if tied
         store.event.teeSelectionFinalised["day" + day] = true;
         selectEventTee(day, tee);
         recordEventHandicapHistory(day);
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         if (store.cloud?.role === "organiser" && store.cloud.eventId)
           await updateCloudEvent();
         renderTeamsPage();
@@ -6557,7 +6617,7 @@ Count-back if tied
           return alert("The tee cannot be changed because scoring has begun.");
         if (!confirm("Reopen the playing tee selection before scoring? Players will be held at the start screen until you finalise it again.")) return;
         store.event.teeSelectionFinalised["day" + day] = false;
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         if (store.cloud?.role === "organiser" && store.cloud.eventId)
           await updateCloudEvent();
         renderTeamsPage();
@@ -6583,7 +6643,7 @@ Count-back if tied
         setup.starts = setup.groups.map(() => nextHole);
         if (store.event.ntpSelections?.[key])
           store.event.ntpSelections[key] = ntpHolesInPlayingOrder(day);
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         if (store.cloud?.role === "organiser" && store.cloud.eventId)
           await updateCloudEvent();
         renderTeamsPage();
@@ -6600,7 +6660,7 @@ Count-back if tied
       setup.starts = defaultStarts(setup.groups, method, day);
       setup.saved = false;
       ensureShortTeamSelections(setup, day);
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       renderTeamsPage();
     };
     $("#randomiseGroups").onclick = () => {
@@ -6611,14 +6671,14 @@ Count-back if tied
       setup.starts = defaultStarts(setup.groups, method, day);
       setup.saved = false;
       ensureShortTeamSelections(setup, day);
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       renderTeamsPage();
     };
     $("#manualMode").onclick = () => {
       store.event.drawMode = "manual";
       store.event.manualMode = true;
       store.event.swapPlayer = null;
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       renderTeamsPage();
     };
     $$("[data-swapplayer]").forEach(
@@ -6629,13 +6689,13 @@ Count-back if tied
           const id = String(btn.dataset.swapplayer);
           if (!store.event.swapPlayer) {
             store.event.swapPlayer = id;
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             renderTeamsPage();
             return;
           }
           if (String(store.event.swapPlayer) === id) {
             store.event.swapPlayer = null;
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             renderTeamsPage();
             return;
           }
@@ -6656,7 +6716,7 @@ Count-back if tied
             ensureShortTeamSelections(setup, day);
           }
           store.event.swapPlayer = null;
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderTeamsPage();
         }),
     );
@@ -6682,7 +6742,7 @@ Count-back if tied
             val = raw == null ? null : plus ? -raw : raw;
           if (val == null) {
             h[id] = "";
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             renderTeamsPage();
             return;
           }
@@ -6691,7 +6751,7 @@ Count-back if tied
             const d2 = eventDayHandicaps(2);
             if (d2[id] === "" || d2[id] == null) d2[id] = val;
           }
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderTeamsPage();
         }),
     );
@@ -6749,6 +6809,31 @@ Count-back if tied
       month: "long",
       year: "numeric",
     });
+  }
+  function homeEventDate(event) {
+    if (!event?.date) return "Not set";
+    const start = new Date(event.date + "T12:00:00"),
+      days = Math.max(1, +event.days || 1),
+      shortPart = (date) =>
+        date.toLocaleDateString("en-AU", {
+          weekday: "short",
+          day: "numeric",
+        });
+    if (days === 1)
+      return start.toLocaleDateString("en-AU", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    const end = new Date(start);
+    end.setDate(start.getDate() + days - 1);
+    return `${shortPart(start)} – ${end.toLocaleDateString("en-AU", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })}`;
   }
   function playerGroupContext(pid, day) {
     const setup = store.event?.groupSetup?.["day" + day];
@@ -7022,7 +7107,7 @@ Count-back if tied
         store.event.returnToMarkedVerification = false;
         store.event.playerRoundMode = "preview";
         releaseRoundWakeLock();
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         queueCloudRound(day, selected);
         renderHome();
         alert("Both cards agree. Round complete.");
@@ -7233,28 +7318,55 @@ Count-back if tied
           (scoreEntered(r.official?.putts) && scoreEntered(r.self?.putts)))
       );
     };
+    const liveMismatch = (h) => {
+      const own = round[String(h)]?.self || {},
+        ownOfficial = findOfficialForPlayer(day, selected, h),
+        marked = round[String(h)]?.official || {},
+        markedPlayer = String(marked.playerId || targetId || ""),
+        markedCheck = scoringDayStore(day)?.[markedPlayer]?.[String(h)]?.self || {},
+        entriesArrived = (left, right) =>
+          scoreEntered(left?.gross) &&
+          scoreEntered(left?.putts) &&
+          scoreEntered(right?.gross) &&
+          scoreEntered(right?.putts),
+        disagrees = (left, right) =>
+          String(left.gross).toUpperCase() !== String(right.gross).toUpperCase() ||
+          +left.putts !== +right.putts;
+      return (
+        (entriesArrived(own, ownOfficial) && disagrees(own, ownOfficial)) ||
+        (markedPlayer &&
+          entriesArrived(marked, markedCheck) &&
+          disagrees(marked, markedCheck))
+      );
+    };
     round._meta = round._meta || {};
     const furthestPos = Math.max(pos, +round._meta.furthestPos || 0);
     round._meta.furthestPos = furthestPos;
     const missingHoles = seq
       .slice(0, furthestPos)
       .filter((h) => !holeComplete(h));
+    const mismatchHoles = seq.filter((h) => liveMismatch(h));
     const holeStatus = (h) =>
       h === hole
         ? "current"
-        : holeComplete(h)
+        : liveMismatch(h)
+          ? "mismatch"
+          : holeComplete(h)
           ? "complete"
           : seq.indexOf(h) < furthestPos
             ? "missing"
             : "upcoming";
-    const holeTracker = `<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Scored</span><span><i class="missing">!</i> Missed</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq
+    const holeTracker = `<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="missing">!</i> Missing</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq
       .map((h, i) => {
         const state = holeStatus(h);
-        return `<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : state === "missing" ? "<small>!</small>" : ""}</button>`;
+        return `<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : ["missing", "mismatch"].includes(state) ? "<small>!</small>" : ""}</button>`;
       })
       .join("")}</div></div>`;
     const missingAlert = missingHoles.length
       ? `<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length === 1 ? "" : "s"}: ${missingHoles.join(", ")}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`
+      : "";
+    const mismatchAlert = mismatchHoles.length
+      ? `<div class="mismatchHoleAlert"><div><strong>Hole${mismatchHoles.length === 1 ? "" : "s"} ${mismatchHoles.join(", ")} need${mismatchHoles.length === 1 ? "s" : ""} checking</strong><span>Your score or putts does not agree with the other card. Please check it now.</span></div><button type="button" id="firstMismatchHole">Check now</button></div>`
       : "";
     const emergency = store.event.emergencyReplacements?.["day" + day],
       showVirtualGlance = emergency && +emergency.groupIndex === +ctx.groupIndex,
@@ -7265,12 +7377,18 @@ Count-back if tied
       virtualGlance = showVirtualGlance
         ? `<details class="virtualGlance"><summary>Virtual Player Information</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>The locked contribution is included automatically.</span>` : `<b>Awaiting verified score on Hole ${hole}</b><span>The pair and team totals will update automatically.</span>`}</div></details>`
         : "";
-    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${holeTracker}${missingAlert}
+    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${holeTracker}${mismatchAlert}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
+    if ($("#firstMismatchHole"))
+      $("#firstMismatchHole").onclick = () => {
+        store.event.playerHolePos = seq.indexOf(mismatchHoles[0]);
+        save();
+        renderHoleScoring(selected, day);
+      };
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
@@ -7280,7 +7398,7 @@ Count-back if tied
       if (round._meta?.finalisedAt) delete round._meta.finalisedAt;
       if (store.event.roundFinalised?.["day" + day])
         delete store.event.roundFinalised["day" + day][selected];
-      localStorage.setItem("awayGolf13", JSON.stringify(store));
+      writeLocalStore();
       queueCloudRound(day, selected);
       renderHoleScoring(selected, day);
     };
@@ -7983,7 +8101,7 @@ Count-back if tied
       outcomes: buildFinalPlayerMessages(defs),
     };
     store.event.status = "complete";
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     await updateCloudEvent();
     renderLeaderboard();
     renderHome();
@@ -8029,7 +8147,7 @@ Count-back if tied
         awardedAt: new Date().toISOString(),
       };
     else delete store.event.prizesAwarded[defId];
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeLocalStore();
     renderLeaderboard();
     if (store.cloud?.role === "organiser" && store.cloud?.eventId)
       await updateCloudEvent();
@@ -8096,7 +8214,7 @@ Count-back if tied
               : 1
             : d?.scope || 1;
         store.event.leaderboardTab = b.dataset.summaryopen;
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         renderLeaderboard();
       };
       b.onclick = (e) => {
@@ -8134,7 +8252,7 @@ Count-back if tied
     if ($("#openDay2Btn"))
       $("#openDay2Btn").onclick = () => {
         store.event.leaderboardView = 2;
-        localStorage.setItem("awayGolf13", JSON.stringify(store));
+        writeLocalStore();
         renderLeaderboard();
       };
   }
@@ -8175,7 +8293,7 @@ Count-back if tied
               b.dataset.leaderview === "summary"
                 ? "summary"
                 : +b.dataset.leaderview;
-            localStorage.setItem("awayGolf13", JSON.stringify(store));
+            writeLocalStore();
             renderLeaderboard();
           }),
       );
@@ -8250,7 +8368,7 @@ Count-back if tied
               ? "summary"
               : +b.dataset.leaderview;
           store.event.leaderboardTab = "";
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderLeaderboard();
         }),
     );
@@ -8259,7 +8377,7 @@ Count-back if tied
         (b.onclick = () => {
           store.event.leaderboardScrollLeft = b.parentElement?.scrollLeft || 0;
           store.event.leaderboardTab = b.dataset.leadertab;
-          localStorage.setItem("awayGolf13", JSON.stringify(store));
+          writeLocalStore();
           renderLeaderboard();
         }),
     );

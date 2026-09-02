@@ -1,4 +1,22 @@
-AWAY GOLF SCORER — VERSION 15.84.1
+AWAY GOLF SCORER — VERSION 15.85.2
+
+VERSION 15.85.2 — SAFE MULTI-TAB WRITES
+- The newest Away Golf Scorer tab becomes the only tab allowed to save the organiser workspace.
+- An older tab is made read-only and clearly labelled, so stale in-memory events cannot overwrite the current event list.
+- Keeps the compact two-day date range introduced in Version 15.85.1.
+
+VERSION 15.85.1 — COMPACT EVENT DATE AND FRESH CACHE
+- A two-day event uses a compact date range such as “Thu 10 – Fri 11 Sep 2026”.
+- The event-date value uses smaller type so it fits the Home summary cleanly.
+- A new cache identity forces browsers to load the corrected display files.
+
+VERSION 15.85 — LIVE DISCREPANCY WARNING
+- The Home summary displays the event date instead of the unhelpful Round / Marker value.
+- During play, the hole strip compares each player's checking entry with the corresponding official marker entry as cloud records arrive.
+- Blue with an exclamation mark identifies a hole where strokes or putts disagree; both affected phones receive the warning automatically.
+- The blue warning names the hole and opens it directly for immediate checking.
+- Red remains reserved for an entry this phone left incomplete; green means complete with no known disagreement.
+- Unpublished drafts cannot retain or resume an unrelated remembered cloud event, preventing a previous live event from replacing a saved plan.
 
 VERSION 15.84.1 — ORGANISER CORRECTION COMPLETION
 - When a saved organiser correction resolves every discrepancy, a previously completed player card automatically returns to Complete.
