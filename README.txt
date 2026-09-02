@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.83.1
+AWAY GOLF SCORER — VERSION 15.84
+
+VERSION 15.84 — AFTER THE RIDGE SCORE INTEGRITY
+- Organiser card corrections are stored as authoritative event records and cannot be replaced by an older marker-phone upload.
+- “Correct a Player’s Card” shows Select Hole beside a persistent Unconfirmed Holes worklist.
+- A complete marker card no longer counts as a completed round when the player checking card is absent.
+- Normal completion requires both cards to agree; emergency completion requires an explicit recorded recovery.
+- The latest round must save online and current cloud cards must reload before COMPLETE ROUND succeeds.
+- The organiser must freshly reload cloud scorecards before closing the event.
 
 VERSION 15.83.1 — MOBILE SCORING-OPEN REFRESH
 

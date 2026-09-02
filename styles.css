@@ -5698,6 +5698,33 @@ body.playerDevice .cloudHeader {
 .virtualCardNames small { color: #687970; font-size: 9px; font-weight: 900; }
 .recoveryNotice,
 .fastEntryHelp { color: #5b6d63; font-size: 12px; }
+.correctionWorklist {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(240px, 2fr);
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+.correctionHolePick,
+.unconfirmedHoles {
+  padding: 11px 12px;
+  border: 1px solid #cfded4;
+  border-radius: 9px;
+  background: #f7faf8;
+}
+.correctionHolePick { font-weight: 900; }
+.correctionHolePick select { display: block; width: 100%; margin-top: 5px; }
+.unconfirmedHoles small,
+.unconfirmedHoles b { display: block; }
+.unconfirmedHoles small { color: #8a4b0f; font-size: 9px; font-weight: 950; letter-spacing: .07em; }
+.unconfirmedHoles b { margin-top: 7px; color: #713c0a; font-size: 17px; line-height: 1.35; }
+.officialCorrectionGrid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 10px;
+}
+.officialCorrectionGrid label { font-weight: 900; }
+.officialCorrectionGrid select,
+.officialCorrectionGrid input { display: block; width: 100%; margin-top: 5px; }
 .emergencyTableWrap { overflow: auto; max-height: 46vh; border: 1px solid #d5e0d9; border-radius: 9px; }
 .emergencyTable { width: 100%; border-collapse: collapse; }
 .emergencyTable th { position: sticky; top: 0; z-index: 1; background: #eaf2ed; }
@@ -5726,6 +5753,8 @@ body.playerDevice .cloudHeader {
   .recoveryRelationship { grid-template-columns: 1fr; }
   .recoveryRelationship strong { text-align: center; }
   .virtualCardNames { grid-template-columns: 1fr; }
+  .correctionWorklist,
+  .officialCorrectionGrid { grid-template-columns: 1fr; }
   .modal:has(.virtualCard) { width: calc(100vw - 12px); max-width: none; padding: 10px; }
   .virtualCard th,
   .virtualCard td { padding: 5px 3px; font-size: 10px; }

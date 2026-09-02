@@ -943,6 +943,13 @@
   }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
+    if (payload.event?.organiserCorrections) {
+      store.event = store.event || {};
+      store.event.organiserCorrections = mergeOrganiserCorrections(
+        store.event.organiserCorrections,
+        payload.event.organiserCorrections,
+      );
+    }
     const restoreOrganiser =
       store.cloud?.role === "organiser" &&
       store.cloud.restorePublished &&
@@ -1096,7 +1103,7 @@
     requestAnimationFrame(() => $("#joinCode")?.focus());
   }
   async function syncCloudNow() {
-    if (!store.cloud?.eventId || cloudBusy) return;
+    if (!store.cloud?.eventId || cloudBusy) return false;
     setCloudMessage("Synchronising…", true);
     try {
       const bundle = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
@@ -1127,12 +1134,14 @@
       setCloudMessage(
         `Live · updated ${new Date().toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}`,
       );
+      return bundle;
     } catch (error) {
       setCloudMessage(
         navigator.onLine
           ? "Sync delayed — use Retry Sync"
           : "Offline — scores remain saved on this phone",
       );
+      return false;
     }
   }
   function watchCloudEvent() {
@@ -1230,6 +1239,11 @@
     if (!store.cloud?.eventId || store.cloud.role !== "organiser") return;
     setCloudMessage("Updating event…", true);
     try {
+      const latest = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
+      store.event.organiserCorrections = mergeOrganiserCorrections(
+        store.event.organiserCorrections,
+        latest?.event?.event_data?.event?.organiserCorrections,
+      );
       store.event.setupStage = store.event.locked ? "final" : "preview";
       if (store.event.locked) store.event.finalUpdateAt = new Date().toISOString();
       await AwayCloud.updateEvent(
@@ -1725,7 +1739,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.83.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.84", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4595,6 +4609,57 @@ Count-back if tied
         scoringDayStore(day)?.[String(playerId)]?._meta?.finalisedAt,
     );
   }
+  function mergeOrganiserCorrections(local = {}, remote = {}) {
+    const merged = JSON.parse(JSON.stringify(local || {}));
+    Object.entries(remote || {}).forEach(([dayKey, players]) => {
+      merged[dayKey] = merged[dayKey] || {};
+      Object.entries(players || {}).forEach(([playerId, holes]) => {
+        merged[dayKey][playerId] = merged[dayKey][playerId] || {};
+        Object.entries(holes || {}).forEach(([hole, correction]) => {
+          const current = merged[dayKey][playerId][hole];
+          if (
+            !current ||
+            (Date.parse(correction?.correctedAt || 0) || 0) >=
+              (Date.parse(current?.correctedAt || 0) || 0)
+          )
+            merged[dayKey][playerId][hole] = JSON.parse(
+              JSON.stringify(correction),
+            );
+        });
+      });
+    });
+    return merged;
+  }
+  function organiserCorrectionFor(day, playerId, hole) {
+    return store.event?.organiserCorrections?.["day" + day]?.[
+      String(playerId)
+    ]?.[String(hole)] || null;
+  }
+  function recordOrganiserCorrection(day, playerId, hole, values) {
+    store.event.organiserCorrections =
+      store.event.organiserCorrections || {};
+    const correctionDay =
+        (store.event.organiserCorrections["day" + day] ||= {}),
+      correctionPlayer = (correctionDay[String(playerId)] ||= {});
+    correctionPlayer[String(hole)] = {
+      ...values,
+      playerId: String(playerId),
+      organiserCorrected: true,
+      correctedAt: values.correctedAt || new Date().toISOString(),
+    };
+    return correctionPlayer[String(hole)];
+  }
+  function explicitlyRecoveredPlayer(day, playerId) {
+    return (store.event.emergencyRecoveryLog || []).some((entry) => {
+      if (+entry.day !== +day) return false;
+      const id = String(playerId);
+      if (entry.type === "self-score-copy")
+        return String(entry.recoveredPlayerId) === id;
+      if (entry.type === "virtual-player-marker-card")
+        return [entry.scorerId, entry.markedPlayerId].map(String).includes(id);
+      return false;
+    });
+  }
   function officialCardProgress(day, playerId) {
     const puttsRequired = (store.event.competitions || []).includes("teamPutts"),
       records = Array.from({ length: 18 }, (_, i) =>
@@ -4632,6 +4697,23 @@ Count-back if tied
       return !(scoreMatch && puttsMatch);
     }).length;
   }
+  function verificationIssueHoles(day, playerId) {
+    const mine = scoringDayStore(day)?.[String(playerId)] || {},
+      puttsRequired = (store.event.competitions || []).includes("teamPutts");
+    return Array.from({ length: 18 }, (_, i) => i + 1).filter((h) => {
+      const self = mine[String(h)]?.self || {},
+        off = findOfficialForPlayer(day, playerId, h);
+      if (!off || !scoreEntered(self.gross) || !scoreEntered(off.gross))
+        return true;
+      return !(
+        String(off.gross).toUpperCase() === String(self.gross).toUpperCase() &&
+        (!puttsRequired ||
+          (scoreEntered(off.putts) &&
+            scoreEntered(self.putts) &&
+            +off.putts === +self.putts))
+      );
+    });
+  }
   function livePlayerStatus(day, playerId) {
     const setup = store.event.groupSetup?.["day" + day],
       ctx = playerGroupContext(playerId, day),
@@ -4640,9 +4722,6 @@ Count-back if tied
       official = officialCardProgress(day, playerId),
       entered = official.entered,
       mine = scoringDayStore(day)?.[String(playerId)] || {},
-      selfEntered = seq.filter((h) =>
-        scoreEntered(mine[String(h)]?.self?.gross),
-      ).length,
       eventComplete = store.event.status === "complete",
       verificationIssues = official.complete
         ? verificationIssueCount(day, playerId)
@@ -4650,24 +4729,12 @@ Count-back if tied
       markedVerificationIssues = official.complete
         ? markedScorecardVerification(day, playerId).mismatches.length
         : 0,
-      organiserAccepted = (store.event.emergencyRecoveryLog || []).some(
-        (entry) =>
-          +entry.day === +day &&
-          [
-            entry.playerId,
-            entry.recoveredPlayerId,
-            entry.markedPlayerId,
-          ]
-            .filter(Boolean)
-            .map(String)
-            .includes(String(playerId)),
-      ),
+      emergencyFinalised = explicitlyRecoveredPlayer(day, playerId),
       finalised =
         eventComplete ||
-        (official.complete && (organiserAccepted || selfEntered === 0)) ||
         (roundFinalisedFor(day, playerId) &&
-          verificationIssues === 0 &&
-          markedVerificationIssues === 0),
+          ((emergencyFinalised && official.complete) ||
+            (verificationIssues === 0 && markedVerificationIssues === 0))),
       issues = official.complete && !finalised
         ? verificationIssues + markedVerificationIssues
         : 0,
@@ -4770,6 +4837,9 @@ Count-back if tied
     );
     $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button><button type="button" id="correctOfficialHole"><b>Correct One Official Hole</b><span>Fix an isolated accepted score or missing putts after checking the manual card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
     $("#modalShade").classList.add("open");
+    $("#correctOfficialHole b").textContent = "Correct a Player’s Card";
+    $("#correctOfficialHole span").textContent =
+      "Select a player, work through every unconfirmed hole and save authoritative organiser corrections.";
     $("#closeEmergencyRecovery").onclick = closeEmergencyRecovery;
     $("#recoverSelfScores").onclick = () =>
       renderSelfScoreRecovery(day);
@@ -4795,8 +4865,10 @@ Count-back if tied
       playerId = String(selectedPlayerId || ids[0] || ""),
       hole = Math.max(1, Math.min(18, +selectedHole || 1)),
       location = officialRecordLocation(day, playerId, hole),
-      official = location?.record?.official || {};
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER CORRECTION · DAY ${day}</small><h2>Correct One Official Hole</h2><p>Use the signed manual card to correct one accepted official entry. The correction is recorded in the event audit.</p></div><div class="officialCorrectionGrid"><label>Player<select id="correctionPlayer">${ids.map((id) => `<option value="${esc(id)}" ${id === playerId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label><label>Hole<select id="correctionHole">${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === hole ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label><label>Gross strokes<input id="correctionGross" inputmode="text" maxlength="2" value="${esc(official.gross ?? "")}" placeholder="1–20 or P"></label><label>Putts<input id="correctionPutts" inputmode="numeric" maxlength="1" value="${esc(official.putts ?? "")}" placeholder="0–9"></label></div>${location ? `<p class="recoveryNotice">Current official entry found. Marker device: ${esc(player(location.scorerId)?.name || "Organiser recovery")}</p>` : '<p class="emergencyWarning"><b>No official entry is currently stored for this hole.</b><span>Select the correct player and hole, then enter the signed-card values.</span></p>'}<div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="saveOfficialCorrection">Save Organiser Correction</button></div>`;
+      correction = organiserCorrectionFor(day, playerId, hole),
+      official = correction || location?.record?.official || {},
+      unconfirmed = verificationIssueHoles(day, playerId);
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER CORRECTION · DAY ${day}</small><h2>Correct a Player’s Card</h2><p>Use the signed card to correct an official entry. Organiser corrections are kept separately so an older phone upload cannot replace them.</p></div><div class="correctionWorklist"><label class="correctionHolePick">Select Hole<select id="correctionHole">${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === hole ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label><div class="unconfirmedHoles"><small>UNCONFIRMED HOLES</small><b>${unconfirmed.length ? unconfirmed.join(", ") : "None — all holes agree"}</b></div></div><div class="officialCorrectionGrid"><label>Player<select id="correctionPlayer">${ids.map((id) => `<option value="${esc(id)}" ${id === playerId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label><label>Gross strokes<input id="correctionGross" inputmode="text" maxlength="2" value="${esc(official.gross ?? "")}" placeholder="1–20 or P"></label><label>Putts<input id="correctionPutts" inputmode="numeric" maxlength="1" value="${esc(official.putts ?? "")}" placeholder="0–9"></label></div>${correction ? '<p class="recoveryNotice"><b>Authoritative organiser correction saved for this hole.</b></p>' : location ? `<p class="recoveryNotice">Current official entry found. Marker device: ${esc(player(location.scorerId)?.name || "Organiser recovery")}</p>` : '<p class="emergencyWarning"><b>No official entry is currently stored for this hole.</b><span>Select the correct player and hole, then enter the signed-card values.</span></p>'}<div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="saveOfficialCorrection">Save Organiser Correction</button></div>`;
     $("#correctionPlayer").onchange = (event) =>
       renderOfficialHoleCorrection(day, event.target.value, hole);
     $("#correctionHole").onchange = (event) =>
@@ -4840,6 +4912,12 @@ Count-back if tied
         organiserCorrected: true,
         correctedAt: new Date().toISOString(),
       };
+      recordOrganiserCorrection(day, playerId, hole, {
+        gross,
+        putts: +putts,
+        scorerId: String(target.scorerId),
+        correctedAt: target.record.official.correctedAt,
+      });
       if (store.event.roundFinalised?.["day" + day])
         delete store.event.roundFinalised["day" + day][playerId];
       const correctedPlayerRound = scorerStore(day, playerId);
@@ -4856,11 +4934,11 @@ Count-back if tied
       });
       localStorage.setItem("awayGolf13", JSON.stringify(store));
       await flushCloudRound(day, target.scorerId);
-      emergencyFinaliseIfVerified(day, playerId, true);
-      closeEmergencyRecovery();
+      await updateCloudEvent();
       renderHome();
       renderLeaderboard();
       alert("The official hole has been corrected and saved.");
+      renderOfficialHoleCorrection(day, playerId, hole);
     };
   }
   function renderSelfScoreRecovery(day, failedScorerId) {
@@ -4928,7 +5006,7 @@ Count-back if tied
           return;
         missing.forEach((r) => {
           const rec = scoreRecord(day, failed, r.h);
-          if (!findOfficialForPlayer(day, markedId, r.h))
+          if (!findOfficialForPlayer(day, markedId, r.h)) {
             rec.official = {
               playerId: String(markedId),
               gross: r.gross,
@@ -4936,6 +5014,13 @@ Count-back if tied
               emergencyRecovered: true,
               recoveredAt: new Date().toISOString(),
             };
+            recordOrganiserCorrection(day, markedId, r.h, {
+              gross: r.gross,
+              putts: +r.putts,
+              scorerId: String(failed),
+              emergencyRecovered: true,
+            });
+          }
         });
         emergencyLog({
           type: "self-score-copy",
@@ -5057,6 +5142,12 @@ Count-back if tied
           putts: +r.officialPutts,
           emergencyEntered: true,
         };
+        recordOrganiserCorrection(day, targetId, r.h, {
+          gross: r.officialGross,
+          putts: +r.officialPutts,
+          scorerId: String(scorer),
+          emergencyEntered: true,
+        });
       });
       emergencyLog({
         type: "virtual-player-marker-card",
@@ -6665,6 +6756,8 @@ Count-back if tied
     return null;
   }
   function findOfficialForPlayer(day, playerId, hole) {
+    const correction = organiserCorrectionFor(day, playerId, hole);
+    if (correction) return { ...correction, authoritative: true };
     const d = scoringDayStore(day),
       pid = String(playerId);
     for (const [scorerId, holes] of Object.entries(d)) {
@@ -6897,8 +6990,16 @@ Count-back if tied
       };
     if ($("#finaliseRound"))
       $("#finaliseRound").onclick = async () => {
-        await flushCloudRound(day, selected);
-        await syncCloudNow();
+        const uploaded = await flushCloudRound(day, selected);
+        if (!uploaded) {
+          alert("Round completion is waiting for this phone’s latest scores to save online. Check the connection and try again.");
+          return;
+        }
+        const refreshed = await syncCloudNow();
+        if (!refreshed) {
+          alert("Round completion requires a fresh online score check. Press Refresh when the connection is restored.");
+          return;
+        }
         const ownStillWrong = scorecardVerificationRows(day, selected).some((r) => !r.match),
           markedStillWrong = markedScorecardVerification(day, selected).mismatches.length;
         if (ownStillWrong || markedStillWrong) {
@@ -7836,6 +7937,13 @@ Count-back if tied
     };
   }
   async function confirmResultsAndCloseEvent() {
+    if (store.cloud?.eventId) {
+      const refreshed = await syncCloudNow();
+      if (!refreshed) {
+        alert("The event cannot be closed until the latest online scorecards have been reloaded successfully.");
+        return;
+      }
+    }
     const requiredDays = Array.from(
       { length: store.event.days || 1 },
       (_, index) => index + 1,
