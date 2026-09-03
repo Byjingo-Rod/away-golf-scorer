@@ -323,12 +323,75 @@
   // this lease, an older tab can later write its stale in-memory event list
   // over changes made in a newer tab.
   const AWAY_GOLF_WRITER_LEASE_KEY = "awayGolfActiveWriterV1";
+  const AWAY_GOLF_WORKSPACE_JOURNAL_KEY = "awayGolfWorkspaceJournalV1";
   const appTabId =
     globalThis.crypto?.randomUUID?.() ||
     `away-tab-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   localStorage.setItem(AWAY_GOLF_WRITER_LEASE_KEY, appTabId);
   let appTabSuperseded = false;
+  let workspaceShrinkAuthorised = false;
   let store;
+
+  function savedWorkspaceCount(value) {
+    return Array.isArray(value?.eventWorkspace)
+      ? value.eventWorkspace.length
+      : value?.event
+        ? 1
+        : 0;
+  }
+
+  function readWorkspaceJournal() {
+    try {
+      return JSON.parse(
+        localStorage.getItem(AWAY_GOLF_WORKSPACE_JOURNAL_KEY) || "null",
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function restoreWorkspaceFromJournalIfShrunk() {
+    const journal = readWorkspaceJournal(),
+      saved = journal?.data;
+    if (
+      !saved ||
+      workspaceShrinkAuthorised ||
+      savedWorkspaceCount(saved) <= savedWorkspaceCount(store)
+    )
+      return false;
+    store.eventWorkspace = JSON.parse(
+      JSON.stringify(saved.eventWorkspace || []),
+    );
+    store.activeEventId = saved.activeEventId || null;
+    store.event = saved.event
+      ? JSON.parse(JSON.stringify(saved.event))
+      : null;
+    if (saved.cloud) store.cloud = JSON.parse(JSON.stringify(saved.cloud));
+    else delete store.cloud;
+    store.cloudPlayers = JSON.parse(
+      JSON.stringify(saved.cloudPlayers || []),
+    );
+    return true;
+  }
+
+  function writeWorkspaceJournal() {
+    localStorage.setItem(
+      AWAY_GOLF_WORKSPACE_JOURNAL_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        data: {
+          event: store.event ? JSON.parse(JSON.stringify(store.event)) : null,
+          eventWorkspace: JSON.parse(
+            JSON.stringify(store.eventWorkspace || []),
+          ),
+          activeEventId: store.activeEventId || null,
+          cloud: store.cloud ? JSON.parse(JSON.stringify(store.cloud)) : null,
+          cloudPlayers: JSON.parse(JSON.stringify(store.cloudPlayers || [])),
+        },
+      }),
+    );
+    workspaceShrinkAuthorised = false;
+  }
 
   function markSupersededTab() {
     if (appTabSuperseded) return;
@@ -345,7 +408,9 @@
       markSupersededTab();
       return false;
     }
+    restoreWorkspaceFromJournalIfShrunk();
     localStorage.setItem("awayGolf13", JSON.stringify(store));
+    writeWorkspaceJournal();
     return true;
   }
 
@@ -382,6 +447,7 @@
       }
     } catch (e) {}
   }
+  restoreWorkspaceFromJournalIfShrunk();
   try {
     store.template =
       JSON.parse(
@@ -459,6 +525,7 @@
     return `exact:${JSON.stringify(event)}`;
   }
   function consolidateWorkspaceCloudDuplicates() {
+    const previousCount = store.eventWorkspace.length;
     const activeId = String(store.activeEventId || "");
     const byCloud = new Map();
     const result = [];
@@ -483,6 +550,7 @@
       }
     }
     store.eventWorkspace = result;
+    if (result.length < previousCount) workspaceShrinkAuthorised = true;
   }
   consolidateWorkspaceCloudDuplicates();
   function workspaceIdFor(event) {
@@ -1895,6 +1963,7 @@
     if (!confirm(`Permanently delete ${name}?\n\nOnly this selected event will be removed. Players, courses and every other event will remain.`)) return;
     if (!confirm(`Final check: delete ${name} now?`)) return;
     const wasCurrent = String(store.activeEventId || "") === String(id);
+    workspaceShrinkAuthorised = true;
     store.eventWorkspace = store.eventWorkspace.filter((item) => String(item.id) !== String(id));
     if (wasCurrent) {
       const next = [...store.eventWorkspace].sort((a, b) => eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a)))[0];
@@ -1964,7 +2033,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -1988,6 +2057,7 @@
     if (preserveCurrent) localStorage.setItem(PRE_IMPORT_BACKUP_KEY, JSON.stringify(organiserBackupPayload()));
     closeCloudConnection();
     await releaseRoundWakeLock();
+    workspaceShrinkAuthorised = true;
     store = JSON.parse(JSON.stringify(imported));
     delete store.cloud;
     store.cloudPlayers = [];
@@ -2809,6 +2879,7 @@ Count-back if tied
         scratchMaxHcp: 10,
         ntpDay1Count: 1,
         ntpJackpot: false,
+        ntpJackpotMode: "final",
         preferredLies: false,
         preferredLiesArea: "general",
         specialRules: "",
@@ -2885,6 +2956,7 @@ Count-back if tied
     W.event.ntpDay1Count = t.ntpDay1Count || 1;
     W.event.ntpDay2Count = t.ntpDay2Count || 2;
     W.event.ntpJackpot = Boolean(t.ntpJackpot);
+    W.event.ntpJackpotMode = t.ntpJackpotMode === "rolling" ? "rolling" : "final";
   }
   function wizardDayPlayers(day) {
     const accepted = [...W.invites.entries()]
@@ -3835,7 +3907,7 @@ Count-back if tied
         .map((c) => {
           let on = W.competitions.has(c.id),
             disabled = c.unavailable;
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label><small class="ntpJackpotHelp">If an earlier NTP has no winner, its ball prize carries to the final NTP hole of the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -3881,7 +3953,11 @@ Count-back if tied
       if (t.name === "p3") W.event.par3Format = t.value;
       if (t.name === "n1") W.event.ntpDay1Count = +t.value;
       if (t.name === "n2") W.event.ntpDay2Count = +t.value;
-      if (t.id === "ntpJackpot") W.event.ntpJackpot = t.checked;
+      if (t.id === "ntpJackpot") {
+        W.event.ntpJackpot = t.checked;
+        renderStep3();
+      }
+      if (t.name === "ntpJackpotMode") W.event.ntpJackpotMode = t.value;
       if (t.id === "scratchMaxHcp") {
         W.event.scratchMaxHcp = Number.isFinite(+t.value) ? +t.value : 10;
         renderStep3();
@@ -4321,6 +4397,7 @@ Count-back if tied
       ntpDay1Count: W.event.ntpDay1Count || 1,
       ntpDay2Count: W.event.ntpDay2Count || 2,
       ntpJackpot: Boolean(W.event.ntpJackpot),
+      ntpJackpotMode: W.event.ntpJackpotMode === "rolling" ? "rolling" : "final",
     };
     localStorage.setItem(
       "awayGolfOrganiserTemplateV1",
@@ -5564,6 +5641,7 @@ Count-back if tied
         await AwayCloud.saveWorkspace({ activePublishedEvent: null });
       } catch (_) {}
       closeCloudConnection();
+      workspaceShrinkAuthorised = true;
       store.event = null;
       delete store.cloud;
       store.cloudPlayers = [];
@@ -5647,6 +5725,7 @@ Count-back if tied
     }
     closeCloudConnection();
     const deletedWorkspaceId = String(store.event?.workspaceId || store.activeEventId || "");
+    workspaceShrinkAuthorised = true;
     store.eventWorkspace = (store.eventWorkspace || []).filter(
       (item) => String(item.id) !== deletedWorkspaceId,
     );
@@ -6543,19 +6622,39 @@ Count-back if tied
     const balls = +(store.event?.benefits?.ntp?.balls || 0);
     return Number.isFinite(balls) ? balls : 0;
   }
-  function ntpPrizeBalls(day, hole) {
+  function ntpJackpotState(day, hole) {
     const base = ntpBaseBalls(),
       slots = ntpEventSlots(),
-      slot = { day, hole },
-      finalSlot = slots[slots.length - 1];
-    if (!base || !store.event?.ntpJackpot || !sameNtpSlot(slot, finalSlot))
-      return base;
-    const carried = slots
-      .slice(0, -1)
-      .filter(
-        (x) => eventDayComplete(x.day) && !currentNtpHolder(x.day, x.hole),
-      ).length;
-    return base * (1 + carried);
+      targetIndex = slots.findIndex(
+        (slot) => +slot.day === +day && +slot.hole === +hole,
+      ),
+      jackpotOn = Boolean(store.event?.ntpJackpot),
+      mode = store.event?.ntpJackpotMode === "rolling" ? "rolling" : "final",
+      finalIndex = slots.length - 1;
+    let carried = 0;
+    if (!base || targetIndex < 0 || !jackpotOn)
+      return { base, carried: 0, prize: base, resolved: false, mode };
+    for (let index = 0; index < targetIndex; index++) {
+      const slot = slots[index],
+        holder = currentNtpHolder(slot.day, slot.hole),
+        resolved = eventDayComplete(slot.day);
+      if (holder) {
+        if (mode === "rolling") carried = 0;
+        continue;
+      }
+      if (resolved) carried += base;
+    }
+    if (mode === "final" && targetIndex !== finalIndex) carried = 0;
+    return {
+      base,
+      carried,
+      prize: base + carried,
+      resolved: eventDayComplete(day),
+      mode,
+    };
+  }
+  function ntpPrizeBalls(day, hole) {
+    return ntpJackpotState(day, hole).prize;
   }
   function ntpPrizeText(day, hole) {
     const balls = ntpPrizeBalls(day, hole);
@@ -6563,20 +6662,25 @@ Count-back if tied
   }
   function ntpSummaryLine(day, hole, complete) {
     const holder = currentNtpHolder(day, hole),
-      prize = ntpPrizeText(day, hole);
+      state = ntpJackpotState(day, hole),
+      prize = ntpPrizeText(day, hole),
+      carryText = state.carried
+        ? ` (${state.base} + ${state.carried} jackpot)`
+        : "";
     if (holder)
-      return `Hole ${hole}: ${player(holder.id)?.name || "Player"}${prize ? ` — ${prize}` : ""}`;
-    if (!complete) return `Hole ${hole}: Pending`;
+      return `Hole ${hole}: ${complete ? "Winner" : "Current holder"} — ${player(holder.id)?.name || "Player"}${prize ? ` — ${prize}${carryText}` : ""}`;
+    if (!complete)
+      return `Hole ${hole}: Pending${prize ? ` — ${prize}${carryText} available` : ""}`;
     const slots = ntpEventSlots(),
       slot = { day, hole },
-      finalSlot = slots[slots.length - 1];
-    if (
-      store.event?.ntpJackpot &&
-      finalSlot &&
-      !sameNtpSlot(slot, finalSlot)
-    )
-      return `Hole ${hole}: No Winner — Prize jackpots to Hole ${finalSlot.hole} Day ${finalSlot.day}`;
-    return `Hole ${hole}: No one recorded as NTP. Prize not awarded.`;
+      slotIndex = slots.findIndex((item) => sameNtpSlot(item, slot)),
+      nextSlot = slots[slotIndex + 1];
+    if (store.event?.ntpJackpot && nextSlot) {
+      const destination =
+        state.mode === "rolling" ? nextSlot : slots[slots.length - 1];
+      return `Hole ${hole}: No Winner — ${prize || "Prize"} carries to Hole ${destination.hole}${store.event.days === 2 ? ` Day ${destination.day}` : ""}`;
+    }
+    return `Hole ${hole}: No Winner${prize ? ` — ${prize}` : "Prize"} not awarded`;
   }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
@@ -7316,7 +7420,12 @@ Count-back if tied
       metres = v.metres?.[idx] || "";
     const ntp = ntpHolesFor(day).includes(hole),
       holder = currentNtpHolder(day, hole),
-      holderName = holder ? player(holder.id)?.name : "";
+      holderName = holder ? player(holder.id)?.name : "",
+      ntpState = ntp ? ntpJackpotState(day, hole) : null,
+      ntpPrize = ntp ? ntpPrizeText(day, hole) : "",
+      ntpPrizeStatus = ntpPrize
+        ? `${ntpPrize}${ntpState?.carried ? ` (${ntpState.base} + ${ntpState.carried} jackpot)` : ""}`
+        : "";
     const sfOff = stablefordPoints(
         rec.official.gross,
         par,
@@ -7564,7 +7673,7 @@ Count-back if tied
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
- ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
+ ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {

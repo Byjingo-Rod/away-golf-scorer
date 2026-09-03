@@ -1,4 +1,20 @@
-AWAY GOLF SCORER — VERSION 15.86.1
+AWAY GOLF SCORER — VERSION 15.86.3
+
+VERSION 15.86.3 — PROTECTED EVENT WORKSPACE JOURNAL
+
+- Keeps an independent protected copy of the complete My Events workspace.
+- Automatically restores the protected copy if startup attempts to replace it with an older, smaller event list.
+- Preserves the current event and its exact cloud identity together with the event list.
+- Allows intentional deletion and controlled cleanup only through confirmed organiser actions.
+- Uses a new service-worker cache identity for a clean update.
+
+VERSION 15.86.2 — NTP JACKPOT CHOICES AND STATUS
+
+- Offers Final NTP Jackpot for the traditional event-ending big prize.
+- Offers Rolling Jackpot to carry to the next NTP and reset when won.
+- Existing jackpot events retain Final NTP Jackpot behaviour.
+- Shows Pending, Current holder, Winner, carried jackpot and unawarded status clearly.
+- Shows the current ball prize, including any jackpot, on player scorecards.
 
 VERSION 15.86.1 — EXACT EVENT RESTORATION
 - A remembered cloud event can reopen only when its event ID or joining code matches the current saved event.
