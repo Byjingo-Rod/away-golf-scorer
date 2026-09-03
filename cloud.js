@@ -78,6 +78,16 @@
     return data;
   }
 
+  async function spectateEvent(code) {
+    await ensureSignedIn();
+    const { data, error } = await client.rpc("spectate_away_event", {
+      p_join_code: String(code || "").trim().toUpperCase(),
+    });
+    if (error) throw error;
+    if (!data) throw new Error("No current event was found for that code.");
+    return data;
+  }
+
   async function loadEvent(eventId) {
     await ensureSignedIn();
     const [eventResult, playersResult, scoresResult] = await Promise.all([
@@ -277,6 +287,7 @@
     updateEvent,
     invitation,
     joinEvent,
+    spectateEvent,
     loadEvent,
     saveRound,
     releasePlayer,

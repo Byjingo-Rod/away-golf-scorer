@@ -3714,6 +3714,23 @@ body.playerDevice nav button[data-nav="coursesPage"],
 body.playerDevice nav button[data-nav="teamsPage"] {
   display: none;
 }
+body.spectatorDevice #newEvent,
+body.spectatorDevice nav button[data-nav="playersPage"],
+body.spectatorDevice nav button[data-nav="coursesPage"],
+body.spectatorDevice nav button[data-nav="teamsPage"],
+body.spectatorDevice nav button[data-nav="scorePage"] {
+  display: none;
+}
+body.spectatorDevice nav {
+  grid-template-columns: 1fr 1fr;
+}
+body.spectatorDevice .heroActions {
+  grid-template-columns: 1fr;
+}
+body.spectatorDevice .heroActions button:not(#specialRulesHome),
+body.spectatorDevice #basicEventProgress {
+  display: none;
+}
 body.playerDevice nav {
   grid-template-columns: 1fr 1fr;
 }

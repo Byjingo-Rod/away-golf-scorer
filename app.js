@@ -497,7 +497,7 @@
   }
   if (
     rememberedLive?.eventId &&
-    store.cloud?.role !== "player" &&
+    !["player", "spectator"].includes(store.cloud?.role) &&
     !store.cloud?.eventId &&
     currentEventMatchesRememberedLive(rememberedLive)
   )
@@ -1050,6 +1050,8 @@
   const cloudRoundChains = new Map();
   const isPlayerDevice = () =>
     store.cloud?.role === "player" && Boolean(store.cloud?.eventId);
+  const isSpectatorDevice = () =>
+    store.cloud?.role === "spectator" && Boolean(store.cloud?.eventId);
   const isFreshMobileDevice = () =>
     !store.event &&
     !store.cloud?.eventId &&
@@ -1062,14 +1064,14 @@
   }
   function applyDeviceRole() {
     document.body.classList.toggle("playerDevice", isPlayerDevice());
+    document.body.classList.toggle("spectatorDevice", isSpectatorDevice());
     document.body.classList.toggle("joinOnlyDevice", isFreshMobileDevice());
     if (
-      isPlayerDevice() &&
+      (isPlayerDevice() || isSpectatorDevice()) &&
       !["home", "scorePage", "leaderboardPage"].includes(
         $(".page.active")?.id || "",
       )
-    )
-      nav("scorePage");
+    ) nav(isSpectatorDevice() ? "leaderboardPage" : "scorePage");
     updateWakeIndicator();
   }
   function cloudPlayerIds() {
@@ -1164,6 +1166,36 @@
     store.event.leaderboardView = "";
     return true;
   }
+
+  function resetDuplicatedEventRuntime(event) {
+    event.scoring = { day1: {}, day2: {} };
+    event.roundFinalised = { day1: {}, day2: {} };
+    event.prizesAwarded = {};
+    event.playerRoundMode = "preview";
+    event.playerHolePos = 0;
+    event.playerPreviewDay = 1;
+    event.playerPreviewId = "";
+    event.playerRulesOpen = false;
+    event.playerPreviewAck = {};
+    event.liveControlDay = 1;
+    event.leaderboardTab = "";
+    event.leaderboardView = "";
+    delete event.finalResults;
+    delete event.roundClosedAt;
+    delete event.scoringOpenedEarly;
+    delete event.playerStartingHoleNotice;
+    delete event.playerVerificationStage;
+    delete event.returnToMarkedVerification;
+    delete event.organiserCorrections;
+    delete event.emergencyRecoveryLog;
+    delete event.emergencyReplacements;
+    delete event.finalUpdateAt;
+    delete event.previewPublishedAt;
+    delete event.setupStage;
+    delete event.joinCode;
+    delete event.cancelledAt;
+    return event;
+  }
   function eventStartingHoleForPlayer(event, playerId, day) {
     const setup = event?.groupSetup?.["day" + day];
     if (!setup?.groups?.length) return null;
@@ -1208,7 +1240,7 @@
       store.cloud?.role === "organiser" &&
       store.cloud.restorePublished &&
       payload.event;
-    if ((store.cloud?.role === "player" || restoreOrganiser) && payload.event) {
+    if ((store.cloud?.role === "player" || store.cloud?.role === "spectator" || restoreOrganiser) && payload.event) {
       const localScoring = store.event?.scoring || { day1: {}, day2: {} };
       const localUi =
         store.cloud?.role === "player"
@@ -1234,7 +1266,13 @@
                   }
                 : store.event?.playerStartingHoleNotice || null,
             }
-          : {};
+          : store.cloud?.role === "spectator"
+            ? {
+                leaderboardTab: store.event?.leaderboardTab || "",
+                leaderboardView: store.event?.leaderboardView || "",
+                liveControlDay: store.event?.liveControlDay || 1,
+              }
+            : {};
       store.event = {
         ...JSON.parse(JSON.stringify(payload.event)),
         ...localUi,
@@ -1374,10 +1412,14 @@
     if (!store.cloud?.eventId || cloudBusy) return false;
     setCloudMessage("Synchronising…", true);
     try {
-      const bundle = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
+      const bundle = await cloudTimeout(
+        isSpectatorDevice()
+          ? AwayCloud.spectateEvent(store.cloud.joinCode)
+          : AwayCloud.loadEvent(store.cloud.eventId),
+      );
       if (
         bundle?.event?.status === "archived" &&
-        store.cloud?.role === "player"
+        ["player", "spectator"].includes(store.cloud?.role)
       ) {
         closeCloudConnection();
         store.event = null;
@@ -1413,7 +1455,7 @@
     }
   }
   function watchCloudEvent() {
-    if (!store.cloud?.eventId || cloudChannel) return;
+    if (!store.cloud?.eventId || cloudChannel || isSpectatorDevice()) return;
     cloudChannel = AwayCloud.subscribe(store.cloud.eventId, () => {
       clearTimeout(cloudReloadTimer);
       cloudReloadTimer = setTimeout(syncCloudNow, 450);
@@ -1448,13 +1490,15 @@
     if (
       document.hidden ||
       cloudBusy ||
-      store.cloud?.role !== "player" ||
+      !["player", "spectator"].includes(store.cloud?.role) ||
       !store.cloud?.eventId
     )
       return;
     try {
       const bundle = await cloudTimeout(
-        AwayCloud.loadEvent(store.cloud.eventId),
+        isSpectatorDevice()
+          ? AwayCloud.spectateEvent(store.cloud.joinCode)
+          : AwayCloud.loadEvent(store.cloud.eventId),
         8000,
       );
       applyRemoteCloud(bundle);
@@ -1584,7 +1628,7 @@
       }
       setQuickJoinStatus(`${rows[0].event_name} found. Select your name.`);
       $("#modalContent").innerHTML =
-        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name. A previously connected player can reconnect on the same phone. On a replacement phone, ask the organiser to release the old connection first.</p><label>Your name<select id="cloudJoinPlayer"><option value="" selected>Select your name here</option>${rows.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}${r.already_joined ? " — previously connected" : " — available"}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" disabled>Join or Reconnect</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>`;
+        `<h2>Join ${esc(rows[0].event_name)}</h2><p>Select your own name to score, or watch the event without making any changes.</p><label>Your name<select id="cloudJoinPlayer"><option value="" selected>Select your name here</option>${rows.map((r) => `<option value="${esc(r.player_id)}">${esc(r.display_name)}${r.already_joined ? " — previously connected" : " — available"}</option>`).join("")}</select></label><div class="rowBtns" style="margin-top:14px"><button class="primary" id="confirmCloudJoin" disabled>Join or Reconnect</button><button class="soft" id="watchCloudEvent">Watch as Spectator</button><button class="soft" id="cancelCloudJoin">Cancel</button></div>`;
       $("#modalShade").classList.add("open");
       $("#cloudJoinPlayer").onchange = () => {
         $("#confirmCloudJoin").disabled = !$("#cloudJoinPlayer").value;
@@ -1593,6 +1637,27 @@
         $("#modalShade").classList.remove("open");
         setCloudMessage("Ready");
         setQuickJoinStatus("Enter your event code to join.");
+      };
+      $("#watchCloudEvent").onclick = async () => {
+        $("#watchCloudEvent").disabled = true;
+        try {
+          const bundle = await cloudTimeout(AwayCloud.spectateEvent(code));
+          if (!bundle?.event?.id) throw new Error("The event could not be opened.");
+          preparePhoneForJoinedEvent(bundle.event.id);
+          store.cloud = {
+            role: "spectator",
+            eventId: String(bundle.event.id),
+            joinCode: code,
+          };
+          applyRemoteCloud(bundle);
+          applyDeviceRole();
+          $("#modalShade").classList.remove("open");
+          setCloudMessage("Watching live · read only");
+          nav("leaderboardPage");
+        } catch (error) {
+          $("#watchCloudEvent").disabled = false;
+          alert("Spectator View could not open. " + (error.message || error));
+        }
       };
       $("#confirmCloudJoin").onclick = async () => {
           const playerId = $("#cloudJoinPlayer").value;
@@ -1940,11 +2005,9 @@
     event.name = `${event.name || "Away Golf Event"} — Copy`;
     event.status = "planned";
     event.locked = false;
-    event.scoring = { day1: {}, day2: {} };
-    event.roundFinalised = {};
+    resetDuplicatedEventRuntime(event);
     delete event.lockedAt;
     delete event.publishedAt;
-    delete event.roundClosedAt;
     store.eventWorkspace.push({
       id: event.workspaceId,
       event,
@@ -2033,7 +2096,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.3", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2150,6 +2213,7 @@
   }
   function queueCloudRound(day, playerId) {
     if (!store.cloud?.eventId) return;
+    if (isSpectatorDevice()) return;
     if (
       store.cloud.role === "player" &&
       String(store.cloud.playerId) !== String(playerId)
@@ -2242,6 +2306,13 @@
       $("#leavePlayerEvent").onclick = leavePlayerEvent;
       return;
     }
+    if (store.cloud?.role === "spectator" && store.cloud.eventId) {
+      host.innerHTML = `<div class="cloudPanelHead"><div><small>SPECTATOR VIEW</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>You are watching this event live. Spectator View is read only and cannot alter scores, players, prizes or event settings.</p><div class="cloudActions"><button class="primary" id="openSpectatorLeaderboard">View Live Leaderboard</button><button class="soft" id="refreshSpectator">Refresh</button><button class="soft leavePlayerEvent" id="leaveSpectatorEvent">Leave This Event</button></div>`;
+      $("#openSpectatorLeaderboard").onclick = () => nav("leaderboardPage");
+      $("#refreshSpectator").onclick = syncCloudNow;
+      $("#leaveSpectatorEvent").onclick = leavePlayerEvent;
+      return;
+    }
     host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<form class="joinEventRow" id="joinEventForm"><input id="joinCode" maxlength="6" autocapitalize="characters" inputmode="text" enterkeyhint="go" placeholder="6-character event code"><button type="submit" class="primary" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></form><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
     if ($("#publishCloudEvent"))
       $("#publishCloudEvent").onclick = publishCloudEvent;
@@ -2281,7 +2352,7 @@
       }
       if (
         !store.cloud?.eventId &&
-        store.cloud?.role !== "player" &&
+        !["player", "spectator"].includes(store.cloud?.role) &&
         !store.event?.testMode
       ) {
         let live = null;
@@ -2360,6 +2431,8 @@
     renderLiveEventControl();
   }
   function nav(id) {
+    if (isSpectatorDevice() && !["home", "leaderboardPage"].includes(id))
+      id = "leaderboardPage";
     if (
       isPlayerDevice() &&
       !["home", "scorePage", "leaderboardPage"].includes(id)
@@ -5532,7 +5605,7 @@ Count-back if tied
       basic.style.display = "none";
       return;
     }
-    if (!store.event?.locked || isPlayerDevice()) {
+    if (!store.event?.locked || isPlayerDevice() || isSpectatorDevice()) {
       host.innerHTML = "";
       basic.style.display = "";
       return;
@@ -8462,7 +8535,7 @@ Count-back if tied
         defs: defs.filter((d) => d.scope === "overall"),
       },
     ].filter((g) => g.defs.length);
-    const organiser = store.cloud?.role !== "player",
+    const organiser = !["player", "spectator"].includes(store.cloud?.role),
       day1Complete = eventDayComplete(1),
       day2Complete =
         store.event.days !== 2 ? true : eventDayComplete(2),

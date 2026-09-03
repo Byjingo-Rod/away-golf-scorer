@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.86.3
+AWAY GOLF SCORER — VERSION 15.86.4
+
+VERSION 15.86.4 — CLEAN DUPLICATES AND SPECTATOR VIEW
+
+- Duplicating an event preserves its plan but clears every score, completion flag, result, prize and phone position.
+- Spectators can use the normal event code without selecting a player name.
+- Spectator View is read only and shows the live event rules, progress and leaderboards.
+- Spectators cannot score, edit the event, change prizes or occupy a player connection.
 
 VERSION 15.86.3 — PROTECTED EVENT WORKSPACE JOURNAL
 

@@ -4,7 +4,7 @@ import fs from "node:fs";
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.86\.3/);
+assert.match(html, /Version 15\.86\.4/);
 assert.match(app, /ntpJackpotMode: "final"/);
 assert.match(app, /name="ntpJackpotMode" value="final"/);
 assert.match(app, /name="ntpJackpotMode" value="rolling"/);
