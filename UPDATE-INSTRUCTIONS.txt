@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.85.4 CONTROLLED TEST UPDATE
+AWAY GOLF SCORER — VERSION 15.86.1 CONTROLLED TEST UPDATE
 
-This package is the complete Version 15.85.4 controlled-test app.
+This package is the complete Version 15.86.1 controlled-test app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,7 +11,19 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.85.4.
+4. Open index.html and confirm that the heading says Version 15.86.1.
+
+VERSION 15.86.1 CHANGES
+- Restores a remembered cloud event only when its identity matches the saved current event.
+- Removes the unsafe rule that treated every locked event as resumable from old cloud memory.
+- Consolidates exact local duplicate records even when an older copy lacks a cloud ID.
+
+VERSION 15.86 CHANGES
+- Lets the organiser change a locked single-tee starting hole until scoring begins.
+- Moves every connected scorecard to the new starting hole when the update arrives.
+- Shows a clear starting-hole-changed notice on the phone.
+- Adds periodic and foreground refresh as a fallback if realtime delivery is delayed.
+- Keeps the control locked once any score entry exists.
 
 VERSION 15.85.4 CHANGES
 - Stops a reopened published event being appended repeatedly to My Events.

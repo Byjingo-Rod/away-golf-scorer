@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.85.4
+AWAY GOLF SCORER — VERSION 15.86.1
+
+VERSION 15.86.1 — EXACT EVENT RESTORATION
+- A remembered cloud event can reopen only when its event ID or joining code matches the current saved event.
+- Being locked is no longer sufficient to let an old cloud event replace another event at startup.
+- Exact duplicate local event records are consolidated even if an older record lacks cloud identity.
+
+VERSION 15.86 — RELIABLE STARTING-HOLE UPDATES
+- A locked single-tee event can change starting hole until the first score is entered.
+- Connected phones receive the change live, return to the new starting hole and show a clear acknowledgement notice.
+- Visible player phones also check the event periodically and whenever they return to the foreground, covering delayed realtime delivery.
+- A starting-hole update cannot overwrite any score: the organiser control locks as soon as scoring begins.
 
 VERSION 15.85.4 — WORKSPACE IDENTITY REPAIR
 - Reuses the existing local record when the same published cloud event reopens.

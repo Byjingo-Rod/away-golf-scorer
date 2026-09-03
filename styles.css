@@ -2644,6 +2644,37 @@ body.playerDevice .awakeIndicator.active {
   font-weight: 900;
   white-space: nowrap;
 }
+.startingHoleAlert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 10px;
+  background: #fff7d9;
+  border: 2px solid #c98216;
+  color: #704209;
+}
+.startingHoleAlert div {
+  display: flex;
+  flex-direction: column;
+}
+.startingHoleAlert strong {
+  font-size: 14px;
+}
+.startingHoleAlert span {
+  margin-top: 2px;
+  font-size: 10px;
+}
+.startingHoleAlert button {
+  border: 0;
+  border-radius: 7px;
+  background: #9a5b0d;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+}
 .leaderRow.waitingMarker {
   grid-template-columns: 42px minmax(0, 1fr) 42px minmax(128px, auto);
 }
@@ -2784,12 +2815,14 @@ body.playerDevice .awakeIndicator.active {
     font-size: 20px;
   }
   .missingHoleAlert,
-  .mismatchHoleAlert {
+  .mismatchHoleAlert,
+  .startingHoleAlert {
     align-items: stretch;
     flex-direction: column;
   }
   .missingHoleAlert button,
-  .mismatchHoleAlert button {
+  .mismatchHoleAlert button,
+  .startingHoleAlert button {
     min-height: 42px;
   }
 }

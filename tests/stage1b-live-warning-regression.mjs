@@ -23,8 +23,10 @@ assert.match(css, /\.holeTrack\.mismatch\s*\{/);
 assert.match(css, /\.mismatchHoleAlert\s*\{/);
 assert.match(css, /\.dashboard \.homeRoundBox b\s*\{[\s\S]*font-size: 16px/);
 
-assert.match(app, /const currentCanResumeCloud = Boolean\(/);
-assert.match(app, /!store\.event \|\| store\.event\.publishedAt \|\| store\.event\.joinCode/);
+assert.match(app, /function currentEventMatchesRememberedLive\(live\)/);
+assert.match(app, /localEventId && localEventId === eventId/);
+assert.match(app, /joinCode && localJoinCode === joinCode/);
+assert.doesNotMatch(app, /!store\.event \|\| store\.event\.publishedAt \|\| store\.event\.joinCode/);
 assert.match(app, /const eventIsPublished = Boolean\(/);
 assert.match(app, /record\.cloud =\s*eventIsPublished && store\.cloud/s);
 assert.match(app, /if \(!eventIsPublished && store\.cloud\?\.role === "organiser"\)/);

@@ -5,10 +5,22 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 
 assert.match(app, /function consolidateWorkspaceCloudDuplicates\(\)/);
 assert.match(app, /function workspaceCloudIdentity\(record\)/);
+assert.match(app, /function workspaceExactIdentity\(record\)/);
+assert.match(
+  app,
+  /workspaceCloudIdentity\(record\) \|\| workspaceExactIdentity\(record\)/,
+  "exact local clones must consolidate even when an old record lacks cloud identity",
+);
 assert.match(
   app,
   /String\(item\.cloud\?\.eventId \|\| ""\) === currentCloudId/,
   "capture must reuse a record with the same cloud event ID",
+);
+assert.match(app, /function currentEventMatchesRememberedLive\(live\)/);
+assert.doesNotMatch(
+  app,
+  /store\.event\?\.locked \|\| !store\.event/,
+  "a locked event alone must never authorise remembered-cloud restoration",
 );
 assert.match(app, /store\.event\.workspaceId = id;/);
 assert.match(

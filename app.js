@@ -405,13 +405,35 @@
   // Keep the organiser PC attached to its published event independently of the
   // editable local workspace. A player device must always retain its own role.
   const rememberedLive = rememberedOrganiserEvent();
-  const currentCanResumeCloud = Boolean(
-    !store.event || store.event.publishedAt || store.event.joinCode,
-  );
+  function currentEventMatchesRememberedLive(live) {
+    if (!live?.eventId || !store.event) return !store.event;
+    const eventId = String(live.eventId || ""),
+      joinCode = String(live.joinCode || "").toUpperCase(),
+      activeId = String(
+        store.event.workspaceId || store.activeEventId || "",
+      ),
+      activeRecord = (store.eventWorkspace || []).find(
+        (item) => String(item.id) === activeId,
+      ),
+      localEventId = String(
+        store.cloud?.eventId || activeRecord?.cloud?.eventId || "",
+      ),
+      localJoinCode = String(
+        store.cloud?.joinCode ||
+          activeRecord?.cloud?.joinCode ||
+          store.event.joinCode ||
+          "",
+      ).toUpperCase();
+    return Boolean(
+      (localEventId && localEventId === eventId) ||
+        (joinCode && localJoinCode === joinCode),
+    );
+  }
   if (
     rememberedLive?.eventId &&
     store.cloud?.role !== "player" &&
-    currentCanResumeCloud
+    !store.cloud?.eventId &&
+    currentEventMatchesRememberedLive(rememberedLive)
   )
     store.cloud = {
       role: "organiser",
@@ -430,12 +452,19 @@
     ).toUpperCase();
     return joinCode ? `code:${joinCode}` : "";
   }
+  function workspaceExactIdentity(record) {
+    if (!record?.event) return "";
+    const event = JSON.parse(JSON.stringify(record.event));
+    delete event.workspaceId;
+    return `exact:${JSON.stringify(event)}`;
+  }
   function consolidateWorkspaceCloudDuplicates() {
     const activeId = String(store.activeEventId || "");
     const byCloud = new Map();
     const result = [];
     for (const record of store.eventWorkspace) {
-      const key = workspaceCloudIdentity(record);
+      const key =
+        workspaceCloudIdentity(record) || workspaceExactIdentity(record);
       if (!key || !byCloud.has(key)) {
         result.push(record);
         if (key) byCloud.set(key, record);
@@ -1067,8 +1096,36 @@
     store.event.leaderboardView = "";
     return true;
   }
+  function eventStartingHoleForPlayer(event, playerId, day) {
+    const setup = event?.groupSetup?.["day" + day];
+    if (!setup?.groups?.length) return null;
+    const groupIndex = setup.groups.findIndex((group) =>
+      (group || []).some((id) => String(id) === String(playerId)),
+    );
+    if (groupIndex < 0) return null;
+    const fallback = event?.startHoles?.["day" + day]?.[0] || 1;
+    return +(setup.starts?.[groupIndex] || fallback);
+  }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
+    const activePageId = document.querySelector(".page.active")?.id || "home";
+    const playerId = String(store.cloud?.playerId || "");
+    const playerDay = Math.min(
+      +(store.event?.playerPreviewDay || 1),
+      +(payload.event?.days || store.event?.days || 1),
+    );
+    const previousStartingHole =
+      store.cloud?.role === "player"
+        ? eventStartingHoleForPlayer(store.event, playerId, playerDay)
+        : null;
+    const remoteStartingHole =
+      store.cloud?.role === "player"
+        ? eventStartingHoleForPlayer(payload.event, playerId, playerDay)
+        : null;
+    const startingHoleChanged =
+      previousStartingHole != null &&
+      remoteStartingHole != null &&
+      previousStartingHole !== remoteStartingHole;
     const localWorkspaceId = String(
       store.event?.workspaceId || store.activeEventId || "",
     );
@@ -1089,13 +1146,25 @@
         store.cloud?.role === "player"
           ? {
               playerRoundMode: store.event?.playerRoundMode || "preview",
-              playerHolePos: store.event?.playerHolePos || 0,
+              playerHolePos: startingHoleChanged
+                ? 0
+                : store.event?.playerHolePos || 0,
               playerPreviewDay: store.event?.playerPreviewDay || 1,
               playerPreviewId: store.event?.playerPreviewId || "",
               playerRulesOpen: Boolean(store.event?.playerRulesOpen),
               playerPreviewAck: store.event?.playerPreviewAck || {},
               leaderboardTab: store.event?.leaderboardTab || "",
               leaderboardView: store.event?.leaderboardView || "",
+              playerStartingHoleNotice: startingHoleChanged
+                ? {
+                    day: playerDay,
+                    from: previousStartingHole,
+                    hole: remoteStartingHole,
+                    changedAt:
+                      payload.event?.startingHoleUpdate?.changedAt ||
+                      new Date().toISOString(),
+                  }
+                : store.event?.playerStartingHoleNotice || null,
             }
           : {};
       store.event = {
@@ -1209,7 +1278,7 @@
     writeLocalStore();
     applyDeviceRole();
     renderHome();
-    nav("home");
+    nav(store.cloud?.role === "player" ? activePageId : "home");
     setCloudMessage("Ready to join as a player");
   }
   function leavePlayerEvent() {
@@ -1296,6 +1365,9 @@
         8000,
       );
       applyRemoteCloud(bundle);
+      setCloudMessage(
+        `Live · updated ${new Date().toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}`,
+      );
     } catch (_) {
       // Background refresh must never interrupt the organiser.
     }
@@ -1303,6 +1375,27 @@
   function startOrganiserPolling() {
     if (organiserPollTimer) return;
     organiserPollTimer = setInterval(pollOrganiserConnections, 8000);
+  }
+  async function pollPlayerEvent() {
+    if (
+      document.hidden ||
+      cloudBusy ||
+      store.cloud?.role !== "player" ||
+      !store.cloud?.eventId
+    )
+      return;
+    try {
+      const bundle = await cloudTimeout(
+        AwayCloud.loadEvent(store.cloud.eventId),
+        8000,
+      );
+      applyRemoteCloud(bundle);
+    } catch (_) {
+      // Realtime remains primary; the next poll or focus will try again.
+    }
+  }
+  function startPlayerPolling() {
+    setInterval(pollPlayerEvent, 10000);
   }
   async function publishCloudEvent() {
     if (!store.event) return alert("Create an event plan before publishing.");
@@ -1871,7 +1964,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.85.4", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2128,9 +2221,7 @@
         } catch (_) {}
         if (String(live?.joinCode || "").toUpperCase() === RETIRED_TEST_CODE)
           live = null;
-        const mayRestorePublished = Boolean(
-          store.event?.locked || !store.event,
-        );
+        const mayRestorePublished = currentEventMatchesRememberedLive(live);
         if (live?.eventId && mayRestorePublished) {
           store.cloud = {
             role: "organiser",
@@ -2157,11 +2248,18 @@
     renderCloudPanel();
   });
   window.addEventListener("offline", renderCloudPanel);
-  window.addEventListener("focus", pollOrganiserConnections);
+  window.addEventListener("focus", () => {
+    pollOrganiserConnections();
+    pollPlayerEvent();
+  });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) pollOrganiserConnections();
+    if (!document.hidden) {
+      pollOrganiserConnections();
+      pollPlayerEvent();
+    }
   });
   startOrganiserPolling();
+  startPlayerPolling();
 
   function renderHome() {
     $("#homeEvent").textContent = store.event?.name || "Not set";
@@ -6713,6 +6811,12 @@ Count-back if tied
         store.event.startHoles = store.event.startHoles || {};
         store.event.startHoles[key] = [nextHole];
         setup.starts = setup.groups.map(() => nextHole);
+        store.event.startingHoleUpdate = {
+          day,
+          from: startingHole,
+          hole: nextHole,
+          changedAt: new Date().toISOString(),
+        };
         if (store.event.ntpSelections?.[key])
           store.event.ntpSelections[key] = ntpHolesInPlayingOrder(day);
         writeLocalStore();
@@ -7449,7 +7553,14 @@ Count-back if tied
       virtualGlance = showVirtualGlance
         ? `<details class="virtualGlance"><summary>Virtual Player Information</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>The locked contribution is included automatically.</span>` : `<b>Awaiting verified score on Hole ${hole}</b><span>The pair and team totals will update automatically.</span>`}</div></details>`
         : "";
-    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${holeTracker}${mismatchAlert}${missingAlert}
+    const startingHoleNotice = store.event.playerStartingHoleNotice,
+      showStartingHoleNotice =
+        +startingHoleNotice?.day === +day &&
+        +startingHoleNotice?.hole === +start;
+    const startingHoleAlert = showStartingHoleNotice
+      ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
+      : "";
+    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
@@ -7458,6 +7569,12 @@ Count-back if tied
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {
         store.event.playerHolePos = seq.indexOf(mismatchHoles[0]);
+        save();
+        renderHoleScoring(selected, day);
+      };
+    if ($("#dismissStartingHoleAlert"))
+      $("#dismissStartingHoleAlert").onclick = () => {
+        store.event.playerStartingHoleNotice = null;
         save();
         renderHoleScoring(selected, day);
       };
