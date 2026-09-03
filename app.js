@@ -422,6 +422,40 @@
   store.eventWorkspace = Array.isArray(store.eventWorkspace)
     ? store.eventWorkspace
     : [];
+  function workspaceCloudIdentity(record) {
+    const eventId = String(record?.cloud?.eventId || "");
+    if (eventId) return `event:${eventId}`;
+    const joinCode = String(
+      record?.cloud?.joinCode || record?.event?.joinCode || "",
+    ).toUpperCase();
+    return joinCode ? `code:${joinCode}` : "";
+  }
+  function consolidateWorkspaceCloudDuplicates() {
+    const activeId = String(store.activeEventId || "");
+    const byCloud = new Map();
+    const result = [];
+    for (const record of store.eventWorkspace) {
+      const key = workspaceCloudIdentity(record);
+      if (!key || !byCloud.has(key)) {
+        result.push(record);
+        if (key) byCloud.set(key, record);
+        continue;
+      }
+      const kept = byCloud.get(key);
+      const useCurrent = String(record.id) === activeId;
+      const useNewer =
+        !useCurrent &&
+        String(kept.id) !== activeId &&
+        String(record.updatedAt || "") > String(kept.updatedAt || "");
+      if (useCurrent || useNewer) {
+        const index = result.indexOf(kept);
+        if (index >= 0) result[index] = record;
+        byCloud.set(key, record);
+      }
+    }
+    store.eventWorkspace = result;
+  }
+  consolidateWorkspaceCloudDuplicates();
   function workspaceIdFor(event) {
     if (!event) return "";
     if (!event.workspaceId) event.workspaceId = uid();
@@ -429,11 +463,22 @@
   }
   function captureCurrentEvent() {
     if (!store.event) return;
-    const id = workspaceIdFor(store.event);
+    let id = workspaceIdFor(store.event);
     let record = store.eventWorkspace.find((item) => String(item.id) === id);
+    const currentCloudId =
+      store.cloud?.role === "organiser"
+        ? String(store.cloud.eventId || "")
+        : "";
+    if (!record && currentCloudId)
+      record = store.eventWorkspace.find(
+        (item) => String(item.cloud?.eventId || "") === currentCloudId,
+      );
     if (!record) {
       record = { id, createdAt: new Date().toISOString() };
       store.eventWorkspace.push(record);
+    } else {
+      id = String(record.id);
+      store.event.workspaceId = id;
     }
     record.event = JSON.parse(JSON.stringify(store.event));
     const eventIsPublished = Boolean(
@@ -1001,8 +1046,32 @@
       }),
     ]).finally(() => clearTimeout(timer));
   }
+  function preparePhoneForJoinedEvent(eventId) {
+    const previousEventId = String(store.cloud?.eventId || "");
+    const nextEventId = String(eventId || "");
+    if (previousEventId && previousEventId === nextEventId) return false;
+    if (!store.event) return true;
+
+    // Phone scorecards belong to one cloud event only. A duplicated or newly
+    // joined event must never inherit scores or navigation state from the
+    // previous event. Existing online scores for the new event are loaded
+    // immediately afterwards by applyRemoteCloud.
+    store.event.scoring = { day1: {}, day2: {} };
+    store.event.playerRoundMode = "preview";
+    store.event.playerHolePos = 0;
+    store.event.playerPreviewDay = 1;
+    store.event.playerPreviewId = "";
+    store.event.playerRulesOpen = false;
+    store.event.playerPreviewAck = {};
+    store.event.leaderboardTab = "";
+    store.event.leaderboardView = "";
+    return true;
+  }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
+    const localWorkspaceId = String(
+      store.event?.workspaceId || store.activeEventId || "",
+    );
     if (payload.event?.organiserCorrections) {
       store.event = store.event || {};
       store.event.organiserCorrections = mergeOrganiserCorrections(
@@ -1034,6 +1103,8 @@
         ...localUi,
         scoring: localScoring,
       };
+      if (restoreOrganiser && localWorkspaceId)
+        store.event.workspaceId = localWorkspaceId;
       (payload.players || []).forEach((remote) => {
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
@@ -1368,6 +1439,7 @@
           $("#confirmCloudJoin").disabled = true;
           try {
             const eventId = await AwayCloud.joinEvent(code, playerId);
+            preparePhoneForJoinedEvent(eventId);
             store.cloud = {
               role: "player",
               eventId,
@@ -1799,7 +1871,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.85.2", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.85.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),

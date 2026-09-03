@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.85.2
+AWAY GOLF SCORER — VERSION 15.85.4
+
+VERSION 15.85.4 — WORKSPACE IDENTITY REPAIR
+- Reuses the existing local record when the same published cloud event reopens.
+- Consolidates repeated local cards that point to one cloud event.
+- Preserves the local workspace identity when organiser data refreshes from the cloud.
+
+VERSION 15.85.3 — CLEAN SCORECARD ON EVENT CHANGE
+- Joining a different cloud event clears the phone's previous local scorecard before the new event loads.
+- Reconnecting to the same event preserves legitimate scores already held on the phone.
+- Existing online scores for the newly joined event are then restored from the cloud normally.
 
 VERSION 15.85.2 — SAFE MULTI-TAB WRITES
 - The newest Away Golf Scorer tab becomes the only tab allowed to save the organiser workspace.
