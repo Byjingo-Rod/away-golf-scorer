@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.86.5
+AWAY GOLF SCORER — VERSION 15.86.6
+
+VERSION 15.86.6 — CLEAN PLAYER-PHONE STARTUP
+
+- A phone prepared for player use now opens directly to Player Entry after restarting.
+- Prevents the empty My Events window from opening automatically on that phone.
+- Clears the previous event code and status message when a player leaves an event.
 
 VERSION 15.86.5 — FEDERAL PREPARATION AND DEVICE CLEANUP
 

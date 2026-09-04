@@ -1406,7 +1406,10 @@
     renderLeaderboard();
     nav("home");
     setCloudMessage("Previous event left · enter the new code");
-    requestAnimationFrame(() => $("#joinCode")?.focus());
+    const quickCode = $("#quickJoinCode");
+    if (quickCode) quickCode.value = "";
+    setQuickJoinStatus("Enter the six-character event code.");
+    requestAnimationFrame(() => quickCode?.focus());
   }
   async function syncCloudNow() {
     if (!store.cloud?.eventId || cloudBusy) return false;
@@ -2102,7 +2105,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.6", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -9041,7 +9044,11 @@ Count-back if tied
   renderPlayersAdmin();
   renderCoursesAdmin();
   initialiseCloud();
-  if (!isPlayerDevice() && !sessionStorage.getItem("awayGolfMyEventsShown1562")) {
+  if (
+    !isPlayerDevice() &&
+    !isFreshMobileDevice() &&
+    !sessionStorage.getItem("awayGolfMyEventsShown1562")
+  ) {
     sessionStorage.setItem("awayGolfMyEventsShown1562", "1");
     setTimeout(openMyEvents, 120);
   }
