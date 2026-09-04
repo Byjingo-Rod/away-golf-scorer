@@ -1951,10 +1951,16 @@
     }
   }
   const PRE_IMPORT_BACKUP_KEY = "awayGolfPreImportBackupV1";
+  const PRE_DEVICE_CLEAR_BACKUP_KEY = "awayGolfPreDeviceClearBackupV1";
   function eventWorkspaceStatus(event) {
     if (!event) return "Draft";
     if (event.status === "cancelled") return "Cancelled";
-    if (event.roundClosedAt || event.status === "completed") return "Completed";
+    if (
+      event.roundClosedAt ||
+      event.status === "complete" ||
+      event.status === "completed"
+    )
+      return "Completed";
     if (event.publishedAt || event.joinCode) return "Published";
     if (event.locked) return "Locked";
     return "Draft";
@@ -2081,7 +2087,7 @@
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
       return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
     }).join("");
-    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>Keep several events in planning at the same time. The current event is shown first; switching does not alter any other event.</p></div><div class="myEventsHeadActions"><button class="primary" id="newEventFromWorkspace">+ New Event</button><button class="soft" id="closeMyEvents">Close</button></div></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div>`;
+    $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>These organiser events are saved on this device only. Changes made on another phone, tablet or PC do not remove this device's saved copies.</p></div><div class="myEventsHeadActions"><button class="primary" id="newEventFromWorkspace">+ New Event</button><button class="soft" id="closeMyEvents">Close</button></div></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div>`;
     $("#modalShade").classList.add("open");
     $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
     $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
@@ -2096,7 +2102,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.4", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.5", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2950,6 +2956,7 @@ Count-back if tied
         puttingFormat: "team",
         singleStablefordFormat: "aggregate",
         scratchMaxHcp: 10,
+        scratchScoringMode: "stroke",
         ntpDay1Count: 1,
         ntpJackpot: false,
         ntpJackpotMode: "final",
@@ -3020,6 +3027,10 @@ Count-back if tied
     W.event.scratchMaxHcp = Number.isFinite(+t.scratchMaxHcp)
       ? +t.scratchMaxHcp
       : 10;
+    W.event.scratchScoringMode =
+      t.scratchScoringMode === "maxDoubleBogey"
+        ? "maxDoubleBogey"
+        : "stroke";
     W.event.par3Format =
       t.par3Format === "day2pair"
         ? "aggregate"
@@ -3975,6 +3986,10 @@ Count-back if tied
     W.event.scratchMaxHcp = Number.isFinite(+W.event.scratchMaxHcp)
       ? +W.event.scratchMaxHcp
       : 10;
+    W.event.scratchScoringMode =
+      W.event.scratchScoringMode === "maxDoubleBogey"
+        ? "maxDoubleBogey"
+        : "stroke";
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${defs
         .map((c) => {
@@ -4005,7 +4020,7 @@ Count-back if tied
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
         "beforeend",
-        `<div class="ntpBox scratchLimitBox"><label><b>Set Max Scratch Hcp</b><input id="scratchMaxHcp" type="number" step="1" value="${W.event.scratchMaxHcp}"></label><small>Players with a daily handicap of ${W.event.scratchMaxHcp} or less are included automatically. Players above ${W.event.scratchMaxHcp} are not included.</small></div>`,
+        `<div class="ntpBox scratchLimitBox"><label><b>Set Max Scratch Hcp</b><input id="scratchMaxHcp" type="number" step="1" value="${W.event.scratchMaxHcp}"></label><small>Players with a daily handicap of ${W.event.scratchMaxHcp} or less are included automatically. Players above ${W.event.scratchMaxHcp} are not included.</small><div class="scratchScoringMode"><b>Scratch Scoring</b><label><input style="width:auto" type="radio" name="scratchScoringMode" value="stroke" ${W.event.scratchScoringMode !== "maxDoubleBogey" ? "checked" : ""}> Pure Stroke — every stroke counts; a P withdraws the player from Scratch</label><label><input style="width:auto" type="radio" name="scratchScoringMode" value="maxDoubleBogey" ${W.event.scratchScoringMode === "maxDoubleBogey" ? "checked" : ""}> Maximum Double Bogey — the highest score is 2 over par; a P records 2 over par</label></div></div>`,
       );
     const ntpComp = $('[data-comp="ntp"]')?.closest(".comp");
     if (ntpComp && W.competitions.has("ntp") && W.event.days === 1)
@@ -4023,6 +4038,8 @@ Count-back if tied
           t.dataset.bextra;
       if (t.name === "singleFormat") W.event.singleStablefordFormat = t.value;
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
+      if (t.name === "scratchScoringMode")
+        W.event.scratchScoringMode = t.value;
       if (t.name === "p3") W.event.par3Format = t.value;
       if (t.name === "n1") W.event.ntpDay1Count = +t.value;
       if (t.name === "n2") W.event.ntpDay2Count = +t.value;
@@ -4466,6 +4483,10 @@ Count-back if tied
       scratchMaxHcp: Number.isFinite(+W.event.scratchMaxHcp)
         ? +W.event.scratchMaxHcp
         : 10,
+      scratchScoringMode:
+        W.event.scratchScoringMode === "maxDoubleBogey"
+          ? "maxDoubleBogey"
+          : "stroke",
       par3Format: W.event.par3Format || "daily",
       ntpDay1Count: W.event.ntpDay1Count || 1,
       ntpDay2Count: W.event.ntpDay2Count || 2,
@@ -4974,7 +4995,11 @@ Count-back if tied
   }
   function scratchRulesText(event = store.event) {
     const max = scratchHandicapLimit(event) ?? 10;
-    return `This event includes a Scratch Competition. Any player with a daily handicap of ${max} or less is included in the Scratch Competition. Any player with a daily handicap greater than ${max} is not included. Any player included in the competition must play every hole to completion. A PICK-UP will result in disqualification from the Scratch Competition.`;
+    const scoring =
+      event?.scratchScoringMode === "maxDoubleBogey"
+        ? "Scoring is capped at double bogey (2 over par) on each hole. A PICK-UP (P) records a score of 2 over par for that hole."
+        : "Pure Stroke scoring applies: every stroke counts. Every hole must be played to completion and a PICK-UP (P) results in disqualification from the Scratch Competition.";
+    return `This event includes a Scratch Competition. Any player with a daily handicap of ${max} or less is included in the Scratch Competition. Any player with a daily handicap greater than ${max} is not included. ${scoring}`;
   }
   function scratchPickupHole(day, playerId) {
     for (let h = 1; h <= 18; h++) {
@@ -4982,6 +5007,19 @@ Count-back if tied
       if (String(gross ?? "").toUpperCase() === "P") return h;
     }
     return null;
+  }
+  function scratchGrossScores(day, playerId, card) {
+    const maximumDoubleBogey =
+      store.event?.scratchScoringMode === "maxDoubleBogey";
+    return Array.from({ length: 18 }, (_, i) => {
+      const gross = findOfficialForPlayer(day, playerId, i + 1)?.gross;
+      if (String(gross ?? "").toUpperCase() === "P")
+        return maximumDoubleBogey ? +(card?.par?.[i] || 0) + 2 : null;
+      if (gross === "" || gross == null) return null;
+      return maximumDoubleBogey
+        ? Math.min(+gross, +(card?.par?.[i] || 0) + 2)
+        : +gross;
+    });
   }
   function roundFinalisedFor(day, playerId) {
     return Boolean(
@@ -5689,14 +5727,71 @@ Count-back if tied
     }
     const cancelled = store.event.status === "cancelled";
     $("#modalContent").innerHTML =
-      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Cancel an event that will not proceed or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div>`;
+      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Cancel an event that will not proceed or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
     $("#modalShade").classList.add("open");
     if ($("#cancelCurrentEvent"))
       $("#cancelCurrentEvent").onclick = cancelCurrentEvent;
     $("#deleteCurrentEvent").onclick = deleteCurrentEvent;
     $("#clearPreviousTests").onclick = clearPreviousTestEvents;
+    $("#preparePlayerDevice").onclick = prepareDeviceForPlayerUse;
     $("#closeEventOptions").onclick = () =>
       $("#modalShade").classList.remove("open");
+  }
+  async function prepareDeviceForPlayerUse() {
+    if (!confirm("Prepare THIS device for player use?\n\nAll organiser events saved on this device will be removed. Players and courses will remain. Supabase, the organiser PC and every other device will be unchanged.")) return;
+    if (!confirm("Final check: remove this device's organiser-event list now?")) return;
+    try {
+      localStorage.setItem(
+        PRE_DEVICE_CLEAR_BACKUP_KEY,
+        JSON.stringify(organiserBackupPayload()),
+      );
+      closeCloudConnection();
+      await releaseRoundWakeLock();
+      workspaceShrinkAuthorised = true;
+      store.eventWorkspace = [];
+      store.activeEventId = null;
+      store.event = null;
+      delete store.cloud;
+      store.cloudPlayers = [];
+      forgetOrganiserEvent();
+      localStorage.removeItem(RECENT_PUBLISHED_KEY);
+      localStorage.removeItem("awayGolfTestBackupV1");
+      localStorage.removeItem("awayGolfRidgeTestBackupV1");
+      writeLocalStore();
+      $("#modalShade").classList.remove("open");
+      applyDeviceRole();
+      renderHome();
+      renderPlayerExperience();
+      renderLeaderboard();
+      nav("home");
+      updateDeviceClearRecoveryButton();
+      alert("This device is ready for player use. Its organiser events were cleared locally; Supabase and all other devices were unchanged. Enter the new event code when it is supplied.");
+    } catch (error) {
+      alert("This device was not cleared. " + (error.message || error));
+    }
+  }
+  function updateDeviceClearRecoveryButton() {
+    const button = $("#restoreClearedOrganiserEvents");
+    if (button)
+      button.hidden = !localStorage.getItem(PRE_DEVICE_CLEAR_BACKUP_KEY);
+  }
+  async function restoreClearedOrganiserEvents() {
+    let safety = null;
+    try {
+      safety = JSON.parse(
+        localStorage.getItem(PRE_DEVICE_CLEAR_BACKUP_KEY) || "null",
+      );
+    } catch (_) {}
+    if (!safety) return updateDeviceClearRecoveryButton();
+    if (!confirm("Restore the organiser events that were cleared from this device?\n\nThis restores only the local backup and does not publish anything.")) return;
+    try {
+      await applyOrganiserBackup(safety, false);
+      localStorage.removeItem(PRE_DEVICE_CLEAR_BACKUP_KEY);
+      updateDeviceClearRecoveryButton();
+      alert("The organiser events on this device have been restored.");
+    } catch (error) {
+      alert("The organiser events could not be restored. " + (error.message || error));
+    }
   }
   async function clearPreviousTestEvents() {
     if (
@@ -8143,9 +8238,12 @@ Count-back if tied
           return max == null || (hcp != null && hcp <= max);
         })
         .map((id) => {
-          const scores = gross(def.day, id),
+          const scores = scratchGrossScores(def.day, id, v),
             r = leaderRow(id, player(id)?.name || "Player", "", scores),
-            pickup = scratchPickupHole(def.day, id);
+            pickup =
+              store.event?.scratchScoringMode === "maxDoubleBogey"
+                ? null
+                : scratchPickupHole(def.day, id);
           r.grossTotal = r.total;
           r.total = scores.reduce(
             (n, g, i) => n + (g == null ? 0 : g - (+v.par?.[i] || 0)),
@@ -8950,6 +9048,9 @@ Count-back if tied
   if ($("#quickJoinEvent"))
     $("#quickJoinEvent").onclick = () =>
       lookupCloudEvent($("#quickJoinCode")?.value || "");
+  updateDeviceClearRecoveryButton();
+  if ($("#restoreClearedOrganiserEvents"))
+    $("#restoreClearedOrganiserEvents").onclick = restoreClearedOrganiserEvents;
   if ($("#quickJoinCode")) {
     $("#quickJoinCode").oninput = (e) => {
       e.target.value = e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase();

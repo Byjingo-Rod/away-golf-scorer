@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.86.4 CONTROLLED TEST UPDATE
+AWAY GOLF SCORER — VERSION 15.86.5 FEDERAL PREPARATION UPDATE
 
-This package is the complete Version 15.86.4 controlled-test app.
+This package is the complete Version 15.86.5 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,22 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.86.4.
+4. Open index.html and confirm that the heading says Version 15.86.5.
 
-5. Before testing Spectator View, run supabase_v15_86_4_spectator.sql once in
-   the Supabase SQL Editor.
+No new Supabase SQL is required for Version 15.86.5. If the Version 15.86.4
+Spectator SQL was already installed, do not run it again.
+
+VERSION 15.86.5 CHANGES
+
+- Gives the six-character event-code field and Join as a Player button a 50:50 share on larger screens.
+- Changes the Home summary heading from Players # to Players.
+- Correctly labels a closed event Completed in My Events.
+- Adds Pure Stroke and Maximum Double Bogey choices for Scratch.
+- In Maximum Double Bogey Scratch, P records par plus two and a larger numeric score is capped at par plus two.
+- Adds Prepare This Device for Player Use under Event Options.
+- That cleanup requires two confirmations, removes only the local organiser-event list and never changes Supabase or another device.
+- Saves a local recovery copy and offers Restore Organiser Events on This Device after cleanup.
+- Clearly explains that each device has its own My Events list.
 
 VERSION 15.86.4 CHANGES
 

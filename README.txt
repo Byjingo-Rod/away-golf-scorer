@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.86.4
+AWAY GOLF SCORER — VERSION 15.86.5
+
+VERSION 15.86.5 — FEDERAL PREPARATION AND DEVICE CLEANUP
+
+- Gives the six-character event-code field and Join as a Player button equal width on larger screens.
+- Changes the Home summary heading from Players # to Players.
+- Shows events closed with the saved complete status as Completed in My Events.
+- Gives Scratch a choice between Pure Stroke and Maximum Double Bogey scoring.
+- In Maximum Double Bogey Scratch, a P records par plus two and numeric scores are capped at par plus two.
+- Adds a two-confirmation, device-only way to prepare an old organiser phone for player use.
+- Keeps a local recovery copy before clearing that phone's organiser-event list.
+- Explains in My Events that organiser-event lists are stored separately on each device.
 
 VERSION 15.86.4 — CLEAN DUPLICATES AND SPECTATOR VIEW
 

@@ -9,11 +9,11 @@
     <meta name="theme-color" content="#18543a" />
     <title>Away Golf Scorer</title>
     <link rel="manifest" href="manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=15.86.4" />
+    <link rel="stylesheet" href="styles.css?v=15.86.5" />
   </head>
   <body>
     <header>
-      <div><b>Away Golf Scorer</b><small>Away Golf • Version 15.86.4</small></div>
+      <div><b>Away Golf Scorer</b><small>Away Golf • Version 15.86.5</small></div>
       <span id="cloudHeader" class="cloudHeader">Connecting…</span
       ><span id="wakeHeader" class="awakeIndicator"></span
       ><span class="headerMascot" aria-hidden="true"></span>
@@ -46,6 +46,9 @@
           >
             Secure connection ready
           </div>
+          <button class="soft" id="restoreClearedOrganiserEvents" hidden>
+            Restore Organiser Events on This Device
+          </button>
           <div class="browserInstallNote">
             <b>No download is required.</b
             ><span
@@ -87,7 +90,7 @@
         </div>
         <div class="dashboard">
           <div><small>Event</small><b id="homeEvent">Not set</b></div>
-          <div><small>Players #</small><b id="homePlayers">0</b></div>
+          <div><small>Players</small><b id="homePlayers">0</b></div>
           <div class="homeRoundBox"><small id="homeRoundLabel">Event date</small><b id="homeRound">Not set</b></div>
         </div>
         <div id="cloudPanel" class="card cloudPanel"></div>
@@ -163,9 +166,9 @@
     <div id="modalShade" class="shade">
       <div class="modal" id="modalContent"></div>
     </div>
-    <script src="supabase.js?v=15.86.4"></script>
-    <script src="cloud.js?v=15.86.4"></script>
-    <script src="data.js?v=15.86.4"></script>
-    <script src="app.js?v=15.86.4"></script>
+    <script src="supabase.js?v=15.86.5"></script>
+    <script src="cloud.js?v=15.86.5"></script>
+    <script src="data.js?v=15.86.5"></script>
+    <script src="app.js?v=15.86.5"></script>
   </body>
 </html>
