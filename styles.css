@@ -1706,6 +1706,35 @@ nav button.active {
   align-items: flex-start;
   gap: 12px;
 }
+.specialRulesEditor {
+  min-height: 120px;
+  margin: 0;
+  padding: 10px 12px 10px 30px;
+  border: 1px solid #b9c8bf;
+  border-radius: 8px;
+  background: #fff;
+  color: #243a2e;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.specialRulesEditor:focus {
+  border-color: #17613f;
+  outline: 2px solid #17613f22;
+}
+.specialRulesEditor li + li {
+  margin-top: 0.55em;
+}
+.specialRulesList {
+  margin: 0;
+  padding-left: 1.35rem;
+  line-height: 1.45;
+}
+.specialRulesList li + li {
+  margin-top: 0.55em;
+}
+.teamsSavedBanner {
+  border-color: #2f855a;
+}
 .puttingRuleText {
   white-space: pre-wrap;
   line-height: 1.45;
@@ -3929,9 +3958,29 @@ body.playerDevice nav button[data-nav="scorePage"]:after {
 .leaderTitle h3 {
   margin: 0;
 }
+.leaderTitle > div > span {
+  display: block;
+  margin-top: 2px;
+}
 .leaderTitle span {
   font-size: 10px;
   color: #607269;
+}
+.leaderTitle .par3Total {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid #c8dacf;
+  border-radius: 7px;
+  background: #fff;
+  color: #24543d;
+  font-size: 11px;
+  font-weight: 700;
+}
+.leaderTitle .par3Total b {
+  font-size: 15px;
+}
+.eclecticGainRow .leaderName small {
+  font-size: 10px;
 }
 .leaderRow {
   display: grid;

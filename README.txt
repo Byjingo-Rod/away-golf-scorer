@@ -1,10 +1,13 @@
-AWAY GOLF SCORER — VERSION 15.86.6
+AWAY GOLF SCORER — VERSION 15.86.8
 
-VERSION 15.86.6 — CLEAN PLAYER-PHONE STARTUP
+VERSION 15.86.8 — PHONE LEADERBOARD RATIONALISATION
 
-- A phone prepared for player use now opens directly to Player Entry after restarting.
-- Prevents the empty My Events window from opening automatically on that phone.
-- Clears the previous event code and status message when a player leaves an event.
+- Removes the two-day Single Stableford table from Day 1 and the Day 1 Single table from Day 2.
+- Shows Points Gained on the Day 2 Eclectic leaderboard against the same holes on Day 1.
+- Shows the number of Par 3 holes prominently on Par 3 leaderboards.
+- Gives Special Rules proper hanging bullet indents.
+- Replaces detailed scorecard statistics in Final Check with each day's first tee hole.
+- Retains the Version 15.86.7 saved-team lock correction.
 
 VERSION 15.86.5 — FEDERAL PREPARATION AND DEVICE CLEANUP
 

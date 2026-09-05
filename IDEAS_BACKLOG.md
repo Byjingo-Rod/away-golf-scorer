@@ -90,6 +90,54 @@ Friends who are not playing could follow the live event without being included i
 
 ---
 
+### AGI-003 — Bullet-Point Special Rules
+
+**Status:** Included in Version 15.86.7
+**Target release:** Version 15.86.7
+**Priority:** Review with other findings from the Federal event
+
+**Idea:**
+Format organiser-entered Special Rules as a bulleted list. The first rule begins with a bullet, and pressing Enter starts the next bullet automatically.
+
+**Presentation:**
+
+- use normal line spacing when one bullet wraps onto another line;
+- add slightly more vertical space between separate bullet points;
+- preserve the same clear bullet formatting wherever players read the rules, including the preview, final event and player acknowledgement screens.
+
+**Reason:**
+Each instruction will be visually distinct and easier for players to scan on a phone.
+
+---
+
+### AGI-004 — Put Each Day's First Tee Time Beside Its Course in Final Check
+
+**Status:** Included in Version 15.86.7
+**Target release:** Version 15.86.7
+**Priority:** High — accurate tee times are critical event information
+
+**Idea:**
+Revise the two-column **Final Check** so each day's first tee time appears in the same line as that day's course.
+
+**Changes:**
+
+- remove **First Tee Time** from the **Start Date** line;
+- remove the word **Course** from the Day 1 and Day 2 headings to preserve room for long course names;
+- show the Day 1 course and its first tee time in the left column;
+- show the Day 2 course and its first tee time in the right column.
+
+**Example:**
+
+- Left: **Day 1: Federal GC · First Tee Time: 11:30**
+- Right: **Day 2: Federal GC · First Tee Time: 08:28**
+
+The layout must also accommodate longer names such as **Shoalhaven Heads GC** without obscuring the tee time.
+
+**Reason:**
+Placing the course and tee time together makes the organiser explicitly verify the correct starting time for each day, particularly in a two-day event.
+
+---
+
 ## New Idea Template
 
 ### AGI-___ — Short title

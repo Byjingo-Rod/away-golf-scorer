@@ -2105,7 +2105,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.6", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.8", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2478,6 +2478,27 @@ Count-back if tied
 3. The ${puttingUnit} with the lowest number of putts on ${oneDay ? "the last 3 holes" : "the last 6 holes"}.${oneDay ? "" : `
 4. The ${puttingUnit} with the lowest number of putts on the last 3 holes.`}`;
   }
+  function specialRuleLines(text) {
+    return String(text || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim().replace(/^(?:[•*-]|\d+[.)])\s*/, ""))
+      .filter(Boolean);
+  }
+  function specialRulesEditorHtml(text) {
+    const lines = specialRuleLines(text);
+    return (lines.length ? lines : [""])
+      .map((line) => `<li>${esc(line) || "<br>"}</li>`)
+      .join("");
+  }
+  function specialRulesListHtml(text) {
+    const lines = specialRuleLines(text);
+    return `<ul class="specialRulesList">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
+  }
+  function eventRuleBodyHtml(section) {
+    return section.bullets
+      ? specialRulesListHtml(section.text)
+      : `<p>${esc(section.text).replace(/\n/g, "<br>")}</p>`;
+  }
   function eventRuleSections(event = store.event) {
     if (!event) return [];
     const sections = [{
@@ -2503,11 +2524,11 @@ Count-back if tied
       .sort()
       .map((key) => event.emergencyReplacements[key]?.ruleText)
       .filter(Boolean);
-    const specialText = [event.specialRules?.trim(), ...emergencyRules]
-      .filter(Boolean)
-      .join("\n\n");
+    const specialText = [event.specialRules, ...emergencyRules]
+      .flatMap(specialRuleLines)
+      .join("\n");
     if (specialText)
-      sections.push({ title: "Special Rules", text: specialText });
+      sections.push({ title: "Special Rules", text: specialText, bullets: true });
     return sections;
   }
   function openEventRules() {
@@ -2521,7 +2542,7 @@ Count-back if tied
           ? sections
               .map(
                 (section) =>
-                  `<section><h3>${esc(section.title)}</h3><p>${esc(section.text).replace(/\n/g, "<br>")}</p></section>`,
+                  `<section><h3>${esc(section.title)}</h3>${eventRuleBodyHtml(section)}</section>`,
               )
               .join("")
           : '<section><h3>Today’s Rules</h3><p>No additional rules apply to this event.</p></section>'
@@ -4078,7 +4099,7 @@ Count-back if tied
  <div class="ruleCard preferredCard"><h4>Preferred Lies</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? "Preferred lies are in use for this event." : "Default for every new event is play the ball as it lies."}</div><button type="button" class="soft" id="changePreferred">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select id="prefArea"><option value="general" ${W.event.preferredLiesArea === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesArea === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>
  ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
  ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
- <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add only extra instructions that players need for this event.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><textarea id="specialRules" rows="6" placeholder="e.g. Local event rule, special competition instruction, course condition...">${esc(W.event.specialRules || "")}</textarea></div>
+ <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add each separate instruction as a bullet point. Press Enter for the next bullet.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><ul id="specialRules" class="specialRulesEditor" contenteditable="true" role="textbox" aria-label="Special Rules">${specialRulesEditorHtml(W.event.specialRules)}</ul></div>
  <div class="rulesPreview ${W.rulesPreviewAck ? "acknowledged" : ""}"><div><b>Player acknowledgement</b><span>${W.rulesPreviewAck ? "Acknowledgement recorded for this preview." : "Players see the event rules before scoring begins."}</span></div><button type="button" class="gotItPreview" id="gotItPreview">${W.rulesPreviewAck ? "✓ Got It" : "Got It"}</button></div>`;
     $("#changePreferred").onclick = () => {
       W.event.preferredLies = !W.event.preferredLies;
@@ -4096,7 +4117,9 @@ Count-back if tied
     if ($("#puttingRulesEdit"))
       $("#puttingRulesEdit").oninput = (e) =>
         (W.event.puttingRulesCustom = e.target.value);
-    $("#specialRules").oninput = (e) => (W.event.specialRules = e.target.value);
+    const specialRulesEditor = $("#specialRules");
+    specialRulesEditor.oninput = (e) =>
+      (W.event.specialRules = specialRuleLines(e.target.innerText).join("\n"));
     $("#clearSpecial").onclick = () => {
       W.event.specialRules = "";
       renderStep4();
@@ -4278,35 +4301,52 @@ Count-back if tied
       },
       {
         ok: Boolean(W.event.date),
-        label: `Start Date: ${displayDate(W.event.date)} · ${startMethodFor(W.event, 1) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 1)[0]}`,
+        label: `Start Date: ${displayDate(W.event.date)}`,
       },
       {
         ok: Boolean(W.event.course1),
         label:
           W.event.days === 1
-            ? `Course: ${c1?.name || "Not selected"}`
-            : `Day 1 Course: ${c1?.name || "Not selected"}`,
+            ? `Course: ${c1?.name || "Not selected"} · ${startMethodFor(W.event, 1) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 1)[0]}`
+            : `Day 1: ${c1?.name || "Not selected"} · ${startMethodFor(W.event, 1) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 1)[0]}`,
       },
       ...(W.event.days === 2
         ? [
             {
               ok: Boolean(W.event.course2),
-              label: `Day 2 Course: ${c2?.name || "Not selected"}`,
+              label: `Day 2: ${c2?.name || "Not selected"} · ${startMethodFor(W.event, 2) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 2)[0]}`,
             },
           ]
         : []),
-      ...cardResults.map((item) => ({
-        ok: item.result.ok,
-        label: `${item.course.name} Scorecard: ${
-          item.result.ok
-            ? `Valid · OUT ${item.result.outPar} / ${item.result.outMetres} m · IN ${item.result.inPar} / ${item.result.inMetres} m · TOTAL ${item.result.totalPar} / ${item.result.totalMetres} m`
-            : item.result.issues[0]
-        }`,
-      })),
+      {
+        ok: Array.from({ length: W.event.days }, (_, i) =>
+          startHolesFor(W.event, i + 1).length > 0,
+        ).every(Boolean),
+        label: `First Tee: ${Array.from(
+          { length: W.event.days },
+          (_, i) => {
+            const hole = +(startHolesFor(W.event, i + 1)[0] || 1),
+              suffix = [11, 12, 13].includes(hole % 100)
+                ? "th"
+                : hole % 10 === 1
+                  ? "st"
+                  : hole % 10 === 2
+                    ? "nd"
+                    : hole % 10 === 3
+                      ? "rd"
+                      : "th";
+            return `${W.event.days === 1 ? "" : `Day ${i + 1}: `}${hole}${suffix}`;
+          },
+        ).join(" · ")}`,
+      },
       {
         ok: cardsValid && Boolean(W.event.scorecardsChecked),
         label: `Course Scorecard Checked Against Official Card: ${
-          W.event.scorecardsChecked ? "Confirmed" : "Confirmation required"
+          cardsValid && W.event.scorecardsChecked
+            ? "Confirmed"
+            : cardsValid
+              ? "Confirmation required"
+              : "Course data needs correction"
         }`,
       },
       {
@@ -4476,7 +4516,7 @@ Count-back if tied
       benefits: W.benefits,
       status: "planned",
       locked: false,
-      groupSetup: oldGroups,
+      groupSetup: oldGroups || {},
     };
     store.template = {
       competitions: [...W.competitions].filter((x) => x !== "eclectic"),
@@ -4500,8 +4540,8 @@ Count-back if tied
       "awayGolfOrganiserTemplateV1",
       JSON.stringify(store.template),
     );
-    // Rebuild groups if the daily fields have changed.
-    store.event.groupSetup = {};
+    // Preserve saved group arrangements. initialiseGroups only rebuilds a day
+    // when that day's actual player membership has changed.
     initialiseGroups();
     save();
     $("#wizardShade").classList.remove("open");
@@ -6870,6 +6910,7 @@ Count-back if tied
       key = "day" + day,
       setup = store.event.groupSetup[key],
       groups = setup.groups;
+    const teamsSaved = Boolean(setup.saved);
     const cname =
       course(day === 1 ? store.event.course1 : store.event.course2)?.name ||
       "Course";
@@ -6880,10 +6921,10 @@ Count-back if tied
     const extra = setup.ntpExtraPlayer ? player(setup.ntpExtraPlayer) : null;
     const startControl = (gi) => {
       if (method === "shotgun")
-        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked ? "disabled" : ""}>${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${+setup.starts[gi] === i + 1 ? "selected" : ""}>Hole ${i + 1}</option>`).join("")}</select></label>`;
+        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked || teamsSaved ? "disabled" : ""}>${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${+setup.starts[gi] === i + 1 ? "selected" : ""}>Hole ${i + 1}</option>`).join("")}</select></label>`;
       if (method === "two") {
         const tees = store.event.twoTeeStarts?.["day" + day] || [1, 10];
-        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked ? "disabled" : ""}>${tees.map((h) => `<option value="${h}" ${+setup.starts[gi] === +h ? "selected" : ""}>Hole ${h}</option>`).join("")}</select></label>`;
+        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked || teamsSaved ? "disabled" : ""}>${tees.map((h) => `<option value="${h}" ${+setup.starts[gi] === +h ? "selected" : ""}>Hole ${h}</option>`).join("")}</select></label>`;
       }
       if (method === "single")
         return `<span class="startOrder">Starting Hole ${startHolesFor(store.event, day)[0]}</span>`;
@@ -6897,7 +6938,7 @@ Count-back if tied
       return `<div class="groupPlayer ${selected ? "swapSelected" : ""} ${np ? "noPartnerGroupPlayer" : ""} ${awaiting ? "awaitingPlayer" : ""}">
      <div class="slotNo">${pi + 1}</div>
      <div class="groupPlayerName"><b>${esc(p?.name || "Unknown")}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.golfLink || "")}</small></div>
-     ${locked || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
+     ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
    </div>`;
     };
     const pairName = (id) => {
@@ -6951,8 +6992,8 @@ Count-back if tied
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
    <div class="teamsTopActions">${store.event.days == 2 ? `<div class="dayTabs" aria-label="Select event day"><button type="button" class="${day === 1 ? "active" : ""}" data-groupday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-groupday="2">Day 2</button></div>` : ""}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and groups are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
- ${day === 2 && !locked ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
+ ${day === 2 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
  ${startingHolePanel}
@@ -6963,7 +7004,7 @@ Count-back if tied
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ctx && ctx.groupIndex === gi ? `<div class="vpAssignment"><b>Virtual Player:</b> <span class="vpName">${esc(vp?.name || "Not selected")} (VP)</span>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : ""}
    ${
-     !locked &&
+     !locked && !teamsSaved &&
      store.event.swapPlayer &&
      g.some((id) => String(id) === String(store.event.swapPlayer))
        ? `<div class="manualHistory">${
@@ -6994,7 +7035,7 @@ Count-back if tied
  }
  ${shortNotice}
  ${
-   !locked && store.event.swapPlayer
+   !locked && !teamsSaved && store.event.swapPlayer
      ? `<div class="swapAdvice"><b>Manual placement history — ${esc(player(store.event.swapPlayer)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
          .map((g, gi) => {
            let rows = playerHistoryAgainstGroup(
@@ -7009,8 +7050,8 @@ Count-back if tied
      : ""
  }
  <div class="groupsFoot">
-   <div class="groupSaveState">${setup.saved ? (store.event.days === 1 ? "✓ Groups saved" : "✓ Day " + day + " groups saved") : store.event.days === 1 ? "Groups not yet saved" : "Day " + day + " groups not yet saved"}</div>
-   ${locked ? "" : `<button class="primary saveGroups" id="saveGroups">${store.event.days === 1 ? "Save Groups" : `Save Day ${day} Groups`}</button>`}
+   <div class="groupSaveState">${teamsSaved ? (store.event.days === 1 ? "🔒 Teams locked" : "🔒 Day " + day + " teams locked") : store.event.days === 1 ? "Teams not yet saved" : "Day " + day + " teams not yet saved"}</div>
+   ${locked ? "" : teamsSaved ? `<button class="soft unlockGroups" id="unlockGroups">${store.event.days === 1 ? "Unlock Teams" : `Unlock Day ${day} Teams`}</button>` : `<button class="primary saveGroups" id="saveGroups">${store.event.days === 1 ? "Save Teams" : `Save Day ${day} Teams`}</button>`}
  </div>
  ${locked ? "" : `<div class="lockEventPanel"><div><b>Final event control</b><span>Send the confirmed groups, tee times, tee and handicaps as the final update.</span></div><button class="lockEventBtn" id="lockEvent" ${lockReady ? "" : "disabled"}>ALL SET — FINAL UPDATE</button></div>`}`;
 
@@ -7103,7 +7144,20 @@ Count-back if tied
       };
     if (locked) return;
     $("#backToEventSetup").onclick = reopenEventPlan;
-    $("#historyBalanced").onclick = () => {
+    if ($("#unlockGroups"))
+      $("#unlockGroups").onclick = () => {
+        if (
+          !confirm(
+            `Unlock ${store.event.days === 1 ? "these teams" : `Day ${day} teams`} for editing?\n\nThey will stay in their current positions until you make a change.`,
+          )
+        )
+          return;
+        setup.saved = false;
+        store.event.swapPlayer = null;
+        save();
+        renderTeamsPage();
+      };
+    if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
       store.event.drawMode = "history";
       store.event.manualMode = false;
       store.event.swapPlayer = null;
@@ -7114,7 +7168,7 @@ Count-back if tied
       writeLocalStore();
       renderTeamsPage();
     };
-    $("#randomiseGroups").onclick = () => {
+    if ($("#randomiseGroups")) $("#randomiseGroups").onclick = () => {
       store.event.drawMode = "random";
       store.event.manualMode = false;
       store.event.swapPlayer = null;
@@ -7125,7 +7179,7 @@ Count-back if tied
       writeLocalStore();
       renderTeamsPage();
     };
-    $("#manualMode").onclick = () => {
+    if ($("#manualMode")) $("#manualMode").onclick = () => {
       store.event.drawMode = "manual";
       store.event.manualMode = true;
       store.event.swapPlayer = null;
@@ -7174,6 +7228,7 @@ Count-back if tied
     $$("[data-groupstart]").forEach(
       (s) =>
         (s.onchange = () => {
+          if (teamsSaved) return;
           setup.starts[+s.dataset.groupstart] = +s.value;
           setup.saved = false;
           save();
@@ -7213,7 +7268,7 @@ Count-back if tied
           if (inp) inp.onchange();
         }),
     );
-    $("#saveGroups").onclick = () => {
+    if ($("#saveGroups")) $("#saveGroups").onclick = () => {
       setup.saved = true;
       store.event.swapPlayer = null;
       ensureShortTeamSelections(setup, day);
@@ -8143,7 +8198,6 @@ Count-back if tied
             : "Single Stableford";
       add("combined-leg-d1", day1Label, "single", 1, {
         countback: true,
-        showOnDay2: true,
         awardable: !aggregateOnly,
         aggregateLeg: aggregateOnly,
       });
@@ -8355,19 +8409,31 @@ Count-back if tied
     if (def.type === "eclectic")
       rows = field(1)
         .filter((id) => field(2).includes(id))
-        .map((id) =>
-          leaderRow(
+        .map((id) => {
+          const d1 = points(1, id),
+            d2 = points(2, id),
+            r = leaderRow(
             id,
             player(id)?.name || "Player",
-            "Best score on each hole",
+            "",
             Array.from({ length: 18 }, (_, i) => {
-              const vals = [points(1, id)[i], points(2, id)[i]].filter(
+              const vals = [d1[i], d2[i]].filter(
                 (x) => x != null,
               );
               return vals.length ? Math.max(...vals) : null;
             }),
-          ),
-        );
+          );
+          r.pointsGained = d2.reduce(
+            (total, value, i) =>
+              total +
+              (value == null || d1[i] == null
+                ? 0
+                : Math.max(0, value - d1[i])),
+            0,
+          );
+          r.thru = d2.filter((value) => value != null).length;
+          return r;
+        });
     if (def.type === "scratch") {
       const active = rankLeaderRows(
         rows.filter((r) => !r.disqualified),
@@ -8774,8 +8840,7 @@ Count-back if tied
     const visible = defs.filter(
       (d) =>
         d.scope === +view ||
-        d.scope === "overall" ||
-        (+view === 2 && d.showOnDay2),
+        (d.scope === "overall" && !(+view === 1 && d.type === "combined")),
     );
     let active = store.event.leaderboardTab || visible[0]?.id;
     if (!visible.some((d) => d.id === active)) active = visible[0]?.id;
@@ -8824,12 +8889,20 @@ Count-back if tied
                   : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
               return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>Withdrawn from this Competition</small></span><span class="leaderScore">—</span><span class="leaderThru">Pick-up on Hole ${r.pickupHole}</span></div>`;
-            return `<div class="leaderRow ${i === 0 && r.thru ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : isFinal ? "Final" : `Thru ${r.thru}`}</span></div>`;
+            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${i === 0 && r.thru ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : isFinal ? "Final" : `Thru ${r.thru}`}</span></div>`;
           })
           .join("") ||
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
     }
-    host.innerHTML = `<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · official marker scores update as they arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    const par3Day = +view === 2 ? 2 : 1,
+      par3Version = version(
+        course(par3Day === 1 ? store.event.course1 : store.event.course2),
+      ) || {},
+      par3Count = (par3Version.par || []).filter((par) => +par === 3).length,
+      par3Total = ["par3", "par3aggregate"].includes(def.type)
+        ? `<span class="par3Total">Total Par 3 Holes <b>${par3Count}</b></span>`
+        : "";
+    host.innerHTML = `<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · official marker scores update as they arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");
     if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
     $$("[data-leaderview]").forEach(
@@ -8988,7 +9061,7 @@ Count-back if tied
          })
          .join(
            "",
-         )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b><p>${esc(section.text).replace(/\n/g, "<br>")}</p></div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
+         )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b>${eventRuleBodyHtml(section)}</div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
  <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? "VIEW COMPLETED SCORECARD" : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : "OPEN SCORECARD"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} — 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
