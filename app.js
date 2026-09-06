@@ -1209,6 +1209,27 @@
     if (groupIndex < 0) return null;
     return groupStartingHole(event, day, groupIndex);
   }
+  function renderPlayerExperienceAfterCloudRefresh() {
+    if (!document.querySelector("#scorePage.active")) return;
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    const pageScrollTop = scrollingElement?.scrollTop || window.scrollY || 0;
+    const rulesScrollTop = document.querySelector("#playerExperience .playerRulesPanel")?.scrollTop || 0;
+    const restoreScrollPositions = () => {
+      const page = document.scrollingElement || document.documentElement;
+      const rules = document.querySelector("#playerExperience .playerRulesPanel");
+      if (pageScrollTop) {
+        if (page) page.scrollTop = pageScrollTop;
+        else window.scrollTo(0, pageScrollTop);
+      }
+      if (rules) rules.scrollTop = rulesScrollTop;
+    };
+    renderPlayerExperience();
+    restoreScrollPositions();
+    // Mobile browsers can apply their own scroll anchoring after innerHTML is
+    // replaced. Restore both the page and its independently scrolling Rules
+    // panel once more on the next paint.
+    requestAnimationFrame(restoreScrollPositions);
+  }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
     const activePageId = document.querySelector(".page.active")?.id || "home";
@@ -1320,7 +1341,7 @@
     }));
     writeLocalStore();
     renderHome();
-    if (document.querySelector("#scorePage.active")) renderPlayerExperience();
+    renderPlayerExperienceAfterCloudRefresh();
     if (document.querySelector("#leaderboardPage.active")) renderLeaderboard();
   }
   async function releaseCloudPlayer(playerId) {
@@ -2115,7 +2136,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.11", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.13", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),

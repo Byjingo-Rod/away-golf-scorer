@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.86.11
+AWAY GOLF SCORER — VERSION 15.86.13
+
+VERSION 15.86.13 — INNER RULES PANEL READING POSITION
+
+- Cloud refreshes retain the scroll position inside the independently scrolling Competitions & Rules panel.
+- Supersedes Version 15.86.12, which preserved only the outside browser page.
+
+VERSION 15.86.12 — PHONE RULES READING POSITION
+
+- Background cloud refreshes retain the player's exact scroll position while the event rules are open.
+- Players can read long rules without the page repeatedly jumping back to the beginning.
 
 VERSION 15.86.11 — PUBLISHED PREVIEW IDENTITY CORRECTION
 
