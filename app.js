@@ -1085,6 +1085,7 @@
   }
   function cloudPayload() {
     const event = JSON.parse(JSON.stringify(store.event || {}));
+    synchroniseSingleTeeGroupStarts(event);
     delete event.scoring;
     delete event.playerRoundMode;
     delete event.playerHolePos;
@@ -1203,8 +1204,7 @@
       (group || []).some((id) => String(id) === String(playerId)),
     );
     if (groupIndex < 0) return null;
-    const fallback = event?.startHoles?.["day" + day]?.[0] || 1;
-    return +(setup.starts?.[groupIndex] || fallback);
+    return groupStartingHole(event, day, groupIndex);
   }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
@@ -2105,7 +2105,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.8", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.9", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3102,6 +3102,26 @@ Count-back if tied
       return [+(a[0] || 1)];
     }
     return [];
+  }
+  function groupStartingHole(event, day, groupIndex) {
+    const key = "day" + day,
+      fallback = +(startHolesFor(event, day)[0] || 1);
+    // A single-tee event has one authoritative starting hole for every group.
+    // This must win over any older group-level value retained after revisiting
+    // Event Setup and changing the starting hole.
+    if (startMethodFor(event, day) === "single") return fallback;
+    return +(event?.groupSetup?.[key]?.starts?.[groupIndex] || fallback);
+  }
+  function synchroniseSingleTeeGroupStarts(event) {
+    if (!event?.groupSetup) return event;
+    for (let day = 1; day <= +(event.days || 1); day++) {
+      if (startMethodFor(event, day) !== "single") continue;
+      const setup = event.groupSetup["day" + day];
+      if (!setup?.groups?.length) continue;
+      const start = +(startHolesFor(event, day)[0] || 1);
+      setup.starts = setup.groups.map(() => start);
+    }
+    return event;
   }
   function startTimesFor(e, day) {
     const saved = e?.startTimes?.["day" + day];
@@ -4869,6 +4889,7 @@ Count-back if tied
       }
       ensureShortTeamSelections(store.event.groupSetup[key], day);
     }
+    synchroniseSingleTeeGroupStarts(store.event);
     store.event.activeGroupDay = store.event.activeGroupDay || 1;
     store.event.drawMode = store.event.drawMode || "history";
     store.event.manualMode = store.event.drawMode === "manual";
@@ -7535,7 +7556,7 @@ Count-back if tied
       setup = ctx?.setup,
       c = course(day === 1 ? store.event.course1 : store.event.course2);
     if (!ctx) return renderPlayerExperience();
-    const start = setup.starts?.[ctx.groupIndex] || 1,
+    const start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start),
       puttsRequired = (store.event.competitions || []).includes("teamPutts"),
       ownRows = scorecardVerificationRows(day, selected),
@@ -7629,7 +7650,7 @@ Count-back if tied
     const setup = ctx.setup,
       c = course(day === 1 ? store.event.course1 : store.event.course2),
       v = version(c) || {},
-      start = setup.starts?.[ctx.groupIndex] || 1,
+      start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start);
     let pos = Math.max(0, Math.min(17, store.event.playerHolePos || 0)),
       hole = seq[pos],
@@ -8990,7 +9011,7 @@ Count-back if tied
     const g = ctx.group,
       setup = ctx.setup,
       c = course(day === 1 ? store.event.course1 : store.event.course2),
-      start = setup.starts?.[ctx.groupIndex],
+      start = groupStartingHole(store.event, day, ctx.groupIndex),
       startText = `Hole ${start}`,
       teeTime = groupTeeTime(day, ctx.groupIndex),
       previewStage = !store.event.locked;

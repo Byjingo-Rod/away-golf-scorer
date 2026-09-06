@@ -16,7 +16,10 @@ function functionSource(name) {
 }
 
 const eventStartingHoleForPlayer = Function(
-  `return (${functionSource("eventStartingHoleForPlayer")})`,
+  `${functionSource("startMethodFor")}
+   ${functionSource("startHolesFor")}
+   ${functionSource("groupStartingHole")}
+   return (${functionSource("eventStartingHoleForPlayer")});`,
 )();
 
 const event = {

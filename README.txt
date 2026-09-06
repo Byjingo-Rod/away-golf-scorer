@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.86.8
+AWAY GOLF SCORER — VERSION 15.86.9
+
+VERSION 15.86.9 — EMERGENCY SINGLE-TEE STARTING-HOLE CORRECTION
+
+- A changed single-tee starting hole is now synchronised into every saved group before publishing.
+- Player preview, live scoring and round verification now use the event's authoritative single starting hole.
+- Existing locked teams and tee times remain unchanged.
 
 VERSION 15.86.8 — PHONE LEADERBOARD RATIONALISATION
 

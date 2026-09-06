@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.86.8 PHONE LEADERBOARD RATIONALISATION
+AWAY GOLF SCORER — VERSION 15.86.9 EMERGENCY STARTING-HOLE CORRECTION
 
-This package is the complete Version 15.86.8 app.
+This package is the complete Version 15.86.9 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,16 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.86.8.
+4. Open index.html and confirm that the heading says Version 15.86.9.
 
-No new Supabase SQL is required for Version 15.86.8. If the Version 15.86.4
+No new Supabase SQL is required for Version 15.86.9. If the Version 15.86.4
 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.86.9 CHANGES
+
+- Repairs stale group-level starting holes when a single-tee start was changed during Event Setup.
+- Phone preview and scoring now always follow the event's authoritative single starting hole.
+- Teams, partners and tee times are not altered.
 
 VERSION 15.86.8 CHANGES
 
