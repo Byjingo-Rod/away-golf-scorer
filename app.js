@@ -579,7 +579,10 @@
     }
     record.event = JSON.parse(JSON.stringify(store.event));
     const eventIsPublished = Boolean(
-      store.event.publishedAt || store.event.joinCode,
+      store.event.publishedAt ||
+        store.event.previewPublishedAt ||
+        store.event.finalUpdateAt ||
+        store.event.joinCode,
     );
     // A draft is local planning data. Never attach whichever cloud event the
     // organiser device happened to remember, because that live event could
@@ -1771,6 +1774,9 @@
         joined: Boolean(row.joined_at),
         joinedAt: row.joined_at || null,
       }));
+      // This is an intentional switch to the recovered cloud workspace. Do not
+      // let the anti-shrink journal restore the previous disconnected state.
+      workspaceShrinkAuthorised = true;
       persistStore();
       cloudBusy = false;
       cloudMessage = "Published event recovered";
@@ -1838,6 +1844,7 @@
       const code = String(
         joinCode || bundle.event?.join_code || "",
       ).toUpperCase();
+      store.event.joinCode = code;
       store.cloud = {
         role: "organiser",
         eventId: String(eventId),
@@ -1855,6 +1862,9 @@
         joined: Boolean(row.joined_at),
         joinedAt: row.joined_at || null,
       }));
+      // Opening an existing published event intentionally changes the active
+      // cloud workspace. Preserve that organiser connection on this write.
+      workspaceShrinkAuthorised = true;
       persistStore();
       cloudBusy = false;
       cloudMessage = "Live event opened";
@@ -2105,7 +2115,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.9", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.11", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),

@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.86.9 EMERGENCY STARTING-HOLE CORRECTION
+AWAY GOLF SCORER — VERSION 15.86.11 PUBLISHED PREVIEW IDENTITY HOTFIX
 
-This package is the complete Version 15.86.9 app.
+This package is the complete Version 15.86.11 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,20 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.86.9.
+4. Open index.html and confirm that the heading says Version 15.86.11.
 
-No new Supabase SQL is required for Version 15.86.9. If the Version 15.86.4
+No new Supabase SQL is required for Version 15.86.11. If the Version 15.86.4
 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.86.11 CHANGES
+
+- Published previews are recognised as published during workspace saving.
+- Reopening an existing event retains its join code and organiser controls.
+
+VERSION 15.86.10 CHANGES
+
+- Opening an existing published event now retains organiser mode and its join code.
+- Organiser tablet access can be created after reopening the published event.
 
 VERSION 15.86.9 CHANGES
 

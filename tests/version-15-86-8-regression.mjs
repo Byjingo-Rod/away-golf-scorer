@@ -6,9 +6,9 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(index, /Version 15\.86\.9/);
-assert.match(app, /appVersion: "15\.86\.9"/);
-assert.match(sw, /away-golf-v15-86-9/);
+assert.match(index, /Version 15\.86\.11/);
+assert.match(app, /appVersion: "15\.86\.11"/);
+assert.match(sw, /away-golf-v15-86-11/);
 
 // Saved teams still survive another pass through the event wizard.
 assert.match(app, /groupSetup: oldGroups \|\| \{\}/);

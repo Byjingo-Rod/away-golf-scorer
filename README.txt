@@ -1,4 +1,16 @@
-AWAY GOLF SCORER — VERSION 15.86.9
+AWAY GOLF SCORER — VERSION 15.86.11
+
+VERSION 15.86.11 — PUBLISHED PREVIEW IDENTITY CORRECTION
+
+- A published preview is no longer misclassified as a local Draft during workspace saving.
+- Opening Federal retains its join code and organiser controls through the complete save cycle.
+- Organiser-tablet access is then available from the reopened event.
+
+VERSION 15.86.10 — PUBLISHED EVENT ORGANISER RECONNECTION
+
+- Opening an existing published event now retains organiser mode and its join code.
+- The organiser can create a tablet access code immediately after reopening the event.
+- Version 15.86.9's emergency single-tee starting-hole correction remains included.
 
 VERSION 15.86.9 — EMERGENCY SINGLE-TEE STARTING-HOLE CORRECTION
 
