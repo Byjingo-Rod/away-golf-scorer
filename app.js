@@ -615,6 +615,11 @@
     }
   }
   migrateEventWorkspace();
+  normaliseTwoDaySingleStableford(store.event);
+  (store.eventWorkspace || []).forEach((record) =>
+    normaliseTwoDaySingleStableford(record?.event),
+  );
+  writeLocalStore();
   function persistStore() {
     captureCurrentEvent();
     writeLocalStore();
@@ -1086,8 +1091,18 @@
     );
     return [...ids].filter((id) => player(id));
   }
-  function cloudPayload() {
-    const event = JSON.parse(JSON.stringify(store.event || {}));
+  function normaliseTwoDaySingleStableford(event) {
+    if (!event || +event.days !== 2 || !Array.isArray(event.competitions)) return;
+    // Two-day Stableford is represented by `combined`, with its daily,
+    // aggregate or both format stored separately. A legacy `single` entry can
+    // otherwise survive beside it and reappear on player phones as an unwanted
+    // one-day competition with an old prize.
+    if (event.competitions.includes("combined"))
+      event.competitions = event.competitions.filter((id) => id !== "single");
+  }
+  function cloudPayload(sourceEvent = store.event) {
+    const event = JSON.parse(JSON.stringify(sourceEvent || {}));
+    normaliseTwoDaySingleStableford(event);
     synchroniseSingleTeeGroupStarts(event);
     delete event.scoring;
     delete event.playerRoundMode;
@@ -1232,6 +1247,7 @@
   }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
+    normaliseTwoDaySingleStableford(payload.event);
     const activePageId = document.querySelector(".page.active")?.id || "home";
     const playerId = String(store.cloud?.playerId || "");
     const playerDay = Math.min(
@@ -1260,9 +1276,21 @@
         payload.event.organiserCorrections,
       );
     }
-    const restoreOrganiser =
+    const remoteFinalTime = Date.parse(
+        payload.event?.finalUpdateAt || payload.event?.lockedAt || "",
+      ) || 0,
+      localFinalTime = Date.parse(
+        store.event?.finalUpdateAt || store.event?.lockedAt || "",
+      ) || 0,
+      newerFinalOrganiser =
+        store.cloud?.role === "organiser" &&
+        payload.event?.locked &&
+        (!store.event?.locked || remoteFinalTime > localFinalTime),
+      restoreOrganiser =
       store.cloud?.role === "organiser" &&
-      store.cloud.restorePublished &&
+      (store.cloud.restorePublished ||
+        store.cloud.secondaryOrganiser ||
+        newerFinalOrganiser) &&
       payload.event;
     if ((store.cloud?.role === "player" || store.cloud?.role === "spectator" || restoreOrganiser) && payload.event) {
       const localScoring = store.event?.scoring || { day1: {}, day2: {} };
@@ -1603,6 +1631,25 @@
     setCloudMessage("Updating event…", true);
     try {
       const latest = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
+      const latestEvent = latest?.event?.event_data?.event,
+        latestFinalTime = Date.parse(
+          latestEvent?.finalUpdateAt || latestEvent?.lockedAt || "",
+        ) || 0,
+        localFinalTime = Date.parse(
+          store.event?.finalUpdateAt || store.event?.lockedAt || "",
+        ) || 0;
+      if (
+        latestEvent?.locked &&
+        (!store.event?.locked || latestFinalTime > localFinalTime)
+      ) {
+        cloudBusy = false;
+        applyRemoteCloud(latest);
+        setCloudMessage("Newer final update received — review before sending");
+        alert(
+          "A newer final event update was already online. This device has loaded it instead of replacing it with older event details.",
+        );
+        return;
+      }
       store.event.organiserCorrections = mergeOrganiserCorrections(
         store.event.organiserCorrections,
         latest?.event?.event_data?.event?.organiserCorrections,
@@ -2136,7 +2183,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.13", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.14", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2242,6 +2289,12 @@
       $("#claimOrganiserTablet").textContent = "Connecting…";
       const eventId = await AwayCloud.claimOrganiserAccess(join, access);
       await openPublishedEvent(eventId, join, "the published event");
+      // A connected organiser tablet is a secondary live console. Keep its
+      // event plan aligned with the cloud copy published by the planning PC so
+      // an older tablet snapshot cannot overwrite later setup changes.
+      store.cloud.secondaryOrganiser = true;
+      persistStore();
+      await syncCloudNow();
     } catch (error) {
       $("#claimOrganiserTablet").disabled = false;
       $("#claimOrganiserTablet").textContent = "Connect Tablet";
@@ -4569,6 +4622,7 @@ Count-back if tied
       locked: false,
       groupSetup: oldGroups || {},
     };
+    normaliseTwoDaySingleStableford(store.event);
     store.template = {
       competitions: [...W.competitions].filter((x) => x !== "eclectic"),
       benefits: W.benefits,

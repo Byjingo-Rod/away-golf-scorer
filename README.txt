@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.86.13
+AWAY GOLF SCORER — VERSION 15.86.14
+
+VERSION 15.86.14 — AUTHORITATIVE POST-PUBLISH UPDATES
+
+- Keeps a connected organiser tablet aligned with the authoritative cloud event
+  published by the planning PC.
+- Prevents an older tablet snapshot from restoring superseded tee times,
+  handicaps, competition choices or an unlocked event state.
+- Removes a legacy one-day Single Stableford entry whenever the two-day
+  Stableford format is selected, while retaining the chosen daily, aggregate or
+  both format under the two-day competition.
+- No Supabase SQL change is required.
 
 VERSION 15.86.13 — INNER RULES PANEL READING POSITION
 

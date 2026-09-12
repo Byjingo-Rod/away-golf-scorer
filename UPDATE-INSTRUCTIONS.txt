@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.86.13 PHONE RULES PANEL HOTFIX
+AWAY GOLF SCORER — VERSION 15.86.14 POST-PUBLISH UPDATE FIX
 
-This package is the complete Version 15.86.13 app.
+This package is the complete Version 15.86.14 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,19 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.86.13.
+4. Open index.html and confirm that the heading says Version 15.86.14.
 
-No new Supabase SQL is required for Version 15.86.13. If the Version 15.86.4
+No new Supabase SQL is required for Version 15.86.14. If the Version 15.86.4
 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.86.14 CHANGES
+
+- A connected organiser tablet now keeps accepting the authoritative cloud
+  event plan from the planning PC.
+- This prevents old tablet data from replacing changed tee times, handicaps,
+  competitions or the final lock.
+- Two-day events no longer retain and display an obsolete one-day Single
+  Stableford competition beside the selected two-day format.
 
 VERSION 15.86.13 CHANGES
 
