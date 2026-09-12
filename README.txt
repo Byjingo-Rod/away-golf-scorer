@@ -1,4 +1,15 @@
-AWAY GOLF SCORER — VERSION 15.86.14
+AWAY GOLF SCORER — VERSION 15.86.15
+
+VERSION 15.86.15 — PICK-UP TOTALS AND AUTOMATIC FINALISATION
+
+- Counts a Stableford pick-up in displayed gross-stroke totals as the first
+  gross score worth zero points: par plus two plus the player's handicap
+  strokes on that hole.
+- Automatically treats a round as finalised once all 18 gross scores and,
+  where required, putts agree on both the player's and marker's cards.
+- Removes the redundant manual Complete Round step so the organiser can reach
+  completed results and prize awarding as soon as every card agrees.
+- Missing entries and score or putt discrepancies continue to block completion.
 
 VERSION 15.86.14 — AUTHORITATIVE POST-PUBLISH UPDATES
 

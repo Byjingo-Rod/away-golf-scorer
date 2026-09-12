@@ -2183,7 +2183,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.14", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.15", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5171,9 +5171,13 @@ Count-back if tied
     });
   }
   function roundFinalisedFor(day, playerId) {
+    const id = String(playerId);
     return Boolean(
-      store.event?.roundFinalised?.["day" + day]?.[String(playerId)] ||
-        scoringDayStore(day)?.[String(playerId)]?._meta?.finalisedAt,
+      store.event?.roundFinalised?.["day" + day]?.[id] ||
+        scoringDayStore(day)?.[id]?._meta?.finalisedAt ||
+        (officialCardProgress(day, id).complete &&
+          verificationIssueCount(day, id) === 0 &&
+          markedScorecardVerification(day, id).mismatches.length === 0),
     );
   }
   function mergeOrganiserCorrections(local = {}, remote = {}) {
@@ -7533,8 +7537,9 @@ Count-back if tied
     const totals = (list) =>
       list.reduce(
         (t, r) => {
-          if (String(r.gross).toUpperCase() !== "P" && scoreEntered(r.gross))
-            t.gross += +r.gross || 0;
+          if (String(r.gross).toUpperCase() === "P")
+            t.gross += r.par + 2 + r.adjustment;
+          else if (scoreEntered(r.gross)) t.gross += +r.gross || 0;
           if (scoreEntered(r.putts)) t.putts += +r.putts || 0;
           if (r.points != null) t.points += r.points;
           return t;
@@ -7653,10 +7658,22 @@ Count-back if tied
           : "mine",
       marked = markedScorecardVerification(day, selected),
       targetName = player(marked.targetId)?.name || "the player you marked";
+    if (
+      ownMismatches.length === 0 &&
+      marked.mismatches.length === 0 &&
+      officialCardProgress(day, selected).complete
+    ) {
+      store.event.playerVerificationStage = "mine";
+      store.event.returnToMarkedVerification = false;
+      store.event.playerRoundMode = "completed";
+      releaseRoundWakeLock();
+      save();
+      return renderCompletedScorecard(selected, day);
+    }
     const ownCard = `<div class="verifyCard"><h3>${ownMismatches.length ? `${ownMismatches.length} hole${ownMismatches.length === 1 ? "" : "s"} need attention` : puttsRequired ? "✓ Your card: all 18 scores and putts agree" : "✓ Your card: all 18 scores agree"}</h3><p>Your ${puttsRequired ? "scores and putts are" : "scores are"} compared with the official entries made by your marker.</p><div class="verifyRows">${ownRows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}"><b>Hole ${r.h}</b><span>Marker: ${r.off === "" ? "—" : r.off}${r.offPts != null ? ` (${r.offPts} pt${r.offPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.offPutts === "" ? "—" : r.offPutts}</small>` : ""}</span><span>You: ${r.self === "" ? "—" : r.self}${r.selfPts != null ? ` (${r.selfPts} pt${r.selfPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.selfPutts === "" ? "—" : r.selfPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — Marker ${r.off === "" ? "—" : r.off}, You ${r.self === "" ? "—" : r.self}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — Marker ${r.offPutts === "" ? "—" : r.offPutts}, You ${r.selfPutts === "" ? "—" : r.selfPutts}</em>` : ""}</div>`).join("")}</div></div>`;
     const markedCard = `<div class="verifyCard markedVerifyCard"><h3>${marked.mismatches.length ? `Card marked for ${esc(targetName)} — ${marked.mismatches.length} hole${marked.mismatches.length === 1 ? "" : "s"} need attention` : `✓ Card marked for ${esc(targetName)}: all 18 agree`}</h3><p>Your marker entries are compared with ${esc(playerFirstName(marked.targetId))}’s checking entries.</p><div class="verifyRows">${marked.rows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}" ${r.match ? "" : `data-fixmarked="${r.h}" role="button" tabindex="0"`}><b>Hole ${r.h}</b><span>You: ${r.marked === "" ? "—" : r.marked}${puttsRequired ? `<small>Putts: ${r.markedPutts === "" ? "—" : r.markedPutts}</small>` : ""}</span><span>${esc(playerFirstName(marked.targetId))}: ${r.checked === "" ? "—" : r.checked}${puttsRequired ? `<small>Putts: ${r.checkedPutts === "" ? "—" : r.checkedPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — You ${r.marked === "" ? "—" : r.marked}, ${esc(playerFirstName(marked.targetId))} ${r.checked === "" ? "—" : r.checked}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — You ${r.markedPutts === "" ? "—" : r.markedPutts}, ${esc(playerFirstName(marked.targetId))} ${r.checkedPutts === "" ? "—" : r.checkedPutts}</em>` : ""}</div>`).join("")}</div></div>`;
     host.innerHTML = `<div class="roundTop"><button class="soft" id="backToRound">← Back to Round</button><div><h2>Round Verification</h2><p>${esc(player(selected)?.name || "")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div></div>${stage === "mine" ? ownCard : markedCard}
- ${stage === "mine" && ownMismatches.length ? `<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official entry. All 18 holes must agree before continuing.</div>` : stage === "mine" ? `<button class="startRoundBtn" id="continueToMarkedCard">CONTINUE — CHECK CARD I MARKED</button>` : marked.mismatches.length ? `<div class="verificationAdvice"><b>Tap a red hole</b> to check the score you entered. If your entry is correct, wait for ${esc(playerFirstName(marked.targetId))} to correct their checking score, then press Refresh.</div><button class="soft verifyRefresh" id="refreshMarkedCard">Refresh</button>` : `<div class="bothCardsAgree">✓ Both cards agree</div><button class="startRoundBtn" id="finaliseRound">COMPLETE ROUND</button>`}`;
+ ${stage === "mine" && ownMismatches.length ? `<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official entry. All 18 holes must agree before continuing.</div>` : stage === "mine" ? `<button class="startRoundBtn" id="continueToMarkedCard">CONTINUE — CHECK CARD I MARKED</button>` : `<div class="verificationAdvice"><b>Tap a red hole</b> to check the score you entered. If your entry is correct, wait for ${esc(playerFirstName(marked.targetId))} to correct their checking score, then press Refresh.</div><button class="soft verifyRefresh" id="refreshMarkedCard">Refresh</button>`}`;
     $("#backToRound").onclick = () => {
       store.event.playerVerificationStage = "mine";
       store.event.playerRoundMode = "scoring";
@@ -7689,41 +7706,6 @@ Count-back if tied
       $("#refreshMarkedCard").onclick = async () => {
         await syncCloudNow();
         renderRoundVerification(selected, day);
-      };
-    if ($("#finaliseRound"))
-      $("#finaliseRound").onclick = async () => {
-        const uploaded = await flushCloudRound(day, selected);
-        if (!uploaded) {
-          alert("Round completion is waiting for this phone’s latest scores to save online. Check the connection and try again.");
-          return;
-        }
-        const refreshed = await syncCloudNow();
-        if (!refreshed) {
-          alert("Round completion requires a fresh online score check. Press Refresh when the connection is restored.");
-          return;
-        }
-        const ownStillWrong = scorecardVerificationRows(day, selected).some((r) => !r.match),
-          markedStillWrong = markedScorecardVerification(day, selected).mismatches.length;
-        if (ownStillWrong || markedStillWrong) {
-          alert("A score changed during checking. Please review the red hole before completing the round.");
-          return renderRoundVerification(selected, day);
-        }
-        const at = new Date().toISOString();
-        store.event.roundFinalised = store.event.roundFinalised || {};
-        store.event.roundFinalised["day" + day] =
-          store.event.roundFinalised["day" + day] || {};
-        store.event.roundFinalised["day" + day][selected] = at;
-        const round = scorerStore(day, selected);
-        round._meta = { ...(round._meta || {}), finalisedAt: at };
-        store.event.playerVerificationStage = "mine";
-        store.event.returnToMarkedVerification = false;
-        store.event.playerRoundMode = "preview";
-        releaseRoundWakeLock();
-        writeLocalStore();
-        queueCloudRound(day, selected);
-        renderHome();
-        alert("Both cards agree. Round complete.");
-        renderPlayerExperience();
       };
   }
   function renderHoleScoring(selected, day) {
