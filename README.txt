@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.86.15
+AWAY GOLF SCORER — VERSION 15.86.16
+
+VERSION 15.86.16 — CLEAN NEW EVENTS AND VISIBLE SETUP RECORD
+
+- Clears all scoring, finalisation, prize and live-event remnants whenever a
+  completely new event is created, preventing false “Scoring has begun” warnings.
+- Repeats the successfully checked Final Check information beneath Groups &
+  Teams, where it remains available throughout planning, publication and play.
+- The retained setup record shows only confirmed green-tick items.
 
 VERSION 15.86.15 — PICK-UP TOTALS AND AUTOMATIC FINALISATION
 

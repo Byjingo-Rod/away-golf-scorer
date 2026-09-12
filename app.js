@@ -615,6 +615,10 @@
     }
   }
   migrateEventWorkspace();
+  clearImpossibleDraftRuntime(store.event);
+  (store.eventWorkspace || []).forEach((record) =>
+    clearImpossibleDraftRuntime(record?.event),
+  );
   normaliseTwoDaySingleStableford(store.event);
   (store.eventWorkspace || []).forEach((record) =>
     normaliseTwoDaySingleStableford(record?.event),
@@ -1099,6 +1103,16 @@
     // one-day competition with an old prize.
     if (event.competitions.includes("combined"))
       event.competitions = event.competitions.filter((id) => id !== "single");
+  }
+  function clearImpossibleDraftRuntime(event) {
+    if (!event || event.locked || event.status !== "planned") return;
+    event.scoring = { day1: {}, day2: {} };
+    event.roundFinalised = { day1: {}, day2: {} };
+    event.prizesAwarded = {};
+    delete event.finalResults;
+    delete event.roundClosedAt;
+    delete event.organiserCorrections;
+    delete event.emergencyRecoveryLog;
   }
   function cloudPayload(sourceEvent = store.event) {
     const event = JSON.parse(JSON.stringify(sourceEvent || {}));
@@ -2183,7 +2197,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.15", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.16", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4622,6 +4636,7 @@ Count-back if tied
       locked: false,
       groupSetup: oldGroups || {},
     };
+    if (W.newEvent) resetDuplicatedEventRuntime(store.event);
     normaliseTwoDaySingleStableford(store.event);
     store.template = {
       competitions: [...W.competitions].filter((x) => x !== "eclectic"),
@@ -7003,6 +7018,111 @@ Count-back if tied
     }
     return `Hole ${hole}: No Winner${prize ? ` — ${prize}` : "Prize"} not awarded`;
   }
+  function teamsFinalCheckHtml() {
+    const event = store.event;
+    if (!event) return "";
+    const displayDate = (iso) => {
+        const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        return match ? `${match[3]}/${match[2]}/${match[1]}` : iso || "Not entered";
+      },
+      teamText = (ids) =>
+        ids.length && ids.length % 4 === 0
+          ? `${ids.length / 4} team${ids.length === 4 ? "" : "s"} of 4`
+          : `${ids.length} playing positions`,
+      joinHoles = (holes) => {
+        const labels = (holes || []).map((hole) => `Hole ${hole}`);
+        return labels.length < 2
+          ? labels[0] || "Not selected"
+          : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+      },
+      confirmed = (event.confirmed || []).filter(
+        (id) => String(id) !== NO_PARTNER_ID,
+      ),
+      invited = Object.entries(event.invitationStatus || {}).filter(
+        ([id, status]) =>
+          String(id) !== NO_PARTNER_ID &&
+          ["accepted", "awaiting"].includes(status),
+      ).length,
+      cards = [
+        course(event.course1),
+        ...(event.days === 2 && String(event.course2) !== String(event.course1)
+          ? [course(event.course2)]
+          : []),
+      ].filter(Boolean),
+      cardsChecked =
+        Boolean(event.scorecardsChecked) &&
+        cards.length > 0 &&
+        cards.every((item) => validateCourseScorecard(item).ok),
+      firstTeeText = Array.from({ length: event.days || 1 }, (_, index) => {
+        const day = index + 1,
+          hole = +(startHolesFor(event, day)[0] || 1),
+          suffix = [11, 12, 13].includes(hole % 100)
+            ? "th"
+            : hole % 10 === 1
+              ? "st"
+              : hole % 10 === 2
+                ? "nd"
+                : hole % 10 === 3
+                  ? "rd"
+                  : "th";
+        return `${event.days === 1 ? "" : `Day ${day}: `}${hole}${suffix}`;
+      }).join(" · "),
+      checks = [
+        { ok: Boolean(event.name), label: `Event Name: ${event.name}` },
+        { ok: Boolean(event.date), label: `Start Date: ${displayDate(event.date)}` },
+        ...Array.from({ length: event.days || 1 }, (_, index) => {
+          const day = index + 1,
+            eventCourse = course(day === 1 ? event.course1 : event.course2),
+            timeLabel = startMethodFor(event, day) === "shotgun" ? "Shotgun Time" : "First Tee Time";
+          return {
+            ok: Boolean(eventCourse),
+            label: `${event.days === 1 ? "Course" : `Day ${day}`}: ${eventCourse?.name || "Not selected"} · ${timeLabel}: ${startTimesFor(event, day)[0]}`,
+          };
+        }),
+        { ok: Boolean(firstTeeText), label: `First Tee: ${firstTeeText}` },
+        {
+          ok: cardsChecked,
+          label: "Course Scorecard Checked Against Official Card: Confirmed",
+        },
+        {
+          ok: confirmed.length > 0,
+          label: `Players Invited: ${invited || confirmed.length} · Confirmed: ${confirmed.length}`,
+        },
+        ...Array.from({ length: event.days || 1 }, (_, index) => {
+          const day = index + 1,
+            tees = enabledEventTees(event),
+            complete = tees.every((tee) => teeHandicapsComplete(day, tee, event));
+          return {
+            ok: complete,
+            label: `${event.days === 1 ? "" : `Day ${day} `}${tees.map((tee) => EVENT_TEE_LABELS[tee]).join(", ")} Tee Handicaps: Complete`,
+          };
+        }),
+        {
+          ok: Array.from({ length: event.days || 1 }, (_, index) =>
+            dayFieldIds(index + 1).length > 0,
+          ).every(Boolean),
+          label:
+            event.days === 1
+              ? `Daily Field Selected: ${teamText(dayFieldIds(1))}`
+              : `Daily Fields Selected: Day 1 — ${teamText(dayFieldIds(1))}; Day 2 — ${teamText(dayFieldIds(2))}`,
+        },
+        {
+          ok: (event.competitions || []).length > 0,
+          label: `Competitions Selected: ${(event.competitions || []).length}`,
+        },
+        ...((event.competitions || []).includes("ntp")
+          ? [{
+              ok: (event.ntpSelections?.day1 || []).length > 0 &&
+                (event.days === 1 || (event.ntpSelections?.day2 || []).length > 0),
+              label:
+                event.days === 1
+                  ? `NTP Holes Selected: ${joinHoles(event.ntpSelections?.day1)}`
+                  : `NTP Holes Selected: Day 1 — ${joinHoles(event.ntpSelections?.day1)}; Day 2 — ${joinHoles(event.ntpSelections?.day2)}`,
+            }]
+          : []),
+      ].filter((check) => check.ok);
+    return `<div class="finalCheck teamsFinalCheck"><h4>Final Check — Event Setup Record</h4><div class="checkList">${checks.map((check) => `<div class="ok"><span>✓</span>${esc(check.label)}</div>`).join("")}</div></div>`;
+  }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
     if (!host) return;
@@ -7163,6 +7283,7 @@ Count-back if tied
    <div class="groupSaveState">${teamsSaved ? (store.event.days === 1 ? "🔒 Teams locked" : "🔒 Day " + day + " teams locked") : store.event.days === 1 ? "Teams not yet saved" : "Day " + day + " teams not yet saved"}</div>
    ${locked ? "" : teamsSaved ? `<button class="soft unlockGroups" id="unlockGroups">${store.event.days === 1 ? "Unlock Teams" : `Unlock Day ${day} Teams`}</button>` : `<button class="primary saveGroups" id="saveGroups">${store.event.days === 1 ? "Save Teams" : `Save Day ${day} Teams`}</button>`}
  </div>
+ ${teamsFinalCheckHtml()}
  ${locked ? "" : `<div class="lockEventPanel"><div><b>Final event control</b><span>Send the confirmed groups, tee times, tee and handicaps as the final update.</span></div><button class="lockEventBtn" id="lockEvent" ${lockReady ? "" : "disabled"}>ALL SET — FINAL UPDATE</button></div>`}`;
 
     $$("[data-groupday]").forEach(
