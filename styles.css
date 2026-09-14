@@ -610,9 +610,18 @@ nav button.active {
   text-align: left;
 }
 .teeTable input,
+.teeTable select,
 .editScoreTable input {
   padding: 6px;
   margin: 0;
+}
+.teeTable th:first-child,
+.teeTable td:first-child {
+  width: 12%;
+}
+.teeTable th:nth-child(2),
+.teeTable td:nth-child(2) {
+  width: 18%;
 }
 .editScoreTable input {
   min-width: 58px;
@@ -2074,6 +2083,38 @@ nav button.active {
 .phonePartner b {
   font-size: 15px;
   color: #18543a;
+}
+.completeDraw {
+  margin: 10px;
+  border: 1px solid #d8e2dc;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.completeDraw summary {
+  cursor: pointer;
+  padding: 11px 13px;
+  color: #18543a;
+  font-weight: 850;
+}
+.completeDraw > div {
+  padding: 0 13px 10px;
+}
+.completeDraw > div > strong {
+  display: block;
+  padding: 7px 0;
+  border-top: 1px solid #e6ece8;
+}
+.completeDraw section {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid #edf1ee;
+  font-size: 11px;
+}
+.completeDraw section span {
+  color: #405349;
 }
 .specialInstruction {
   margin: 10px 10px 0;
@@ -3817,6 +3858,21 @@ body.playerDevice .playerPreviewTop > div:first-child h2:after {
   padding: 6px 9px;
   font-size: 10px;
 }
+.connectedSpectators {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px 9px;
+  border-top: 1px solid #dfe8e2;
+  background: #f5f9f6;
+  border-radius: 8px;
+}
+.connectedSpectators span {
+  color: #51695b;
+  font-size: 11px;
+  font-weight: 750;
+}
 
 /* 15.7 putting formats and live team competition totals */
 .puttingFormatBox label {
@@ -5235,6 +5291,12 @@ body.joinOnlyDevice .playerJoinLanding {
 .planTeeDay button.active {
   background: #176c46;
   color: #fff;
+}
+.planTeeDay button small {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 650;
 }
 @media (max-width: 760px) {
   .eventTeePanel {

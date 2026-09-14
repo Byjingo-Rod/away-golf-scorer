@@ -90,7 +90,7 @@
 
   async function loadEvent(eventId) {
     await ensureSignedIn();
-    const [eventResult, playersResult, scoresResult] = await Promise.all([
+    const [eventResult, playersResult, scoresResult, spectatorResult] = await Promise.all([
       client
         .from("away_events")
         .select("id,join_code,name,status,event_data,revision,updated_at")
@@ -104,6 +104,7 @@
         .from("away_round_scores")
         .select("day,scorer_player_id,score_data,revision,updated_at")
         .eq("event_id", eventId),
+      client.rpc("away_event_spectator_count", { p_event_id: eventId }),
     ]);
     if (eventResult.error) throw eventResult.error;
     if (playersResult.error) throw playersResult.error;
@@ -112,6 +113,7 @@
       event: eventResult.data,
       players: playersResult.data || [],
       scores: scoresResult.data || [],
+      spectatorCount: spectatorResult.error ? 0 : +(spectatorResult.data || 0),
     };
   }
 
