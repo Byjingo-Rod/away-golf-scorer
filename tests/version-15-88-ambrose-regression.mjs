@@ -30,7 +30,16 @@ assert.match(app, /def\.type === "ambrose"/);
 assert.match(css, /\.ambroseDriveChoices/);
 assert.match(css, /\.ambroseFinalScore/);
 assert.match(app, /Hole \$\{hole\} is incomplete/);
+assert.match(app, /class="stepValue" id="ambroseGross"/);
+assert.match(app, /targetPosition > position/);
+assert.match(app, /Tap another player to correct the selected drive/);
 assert.match(app, /is your marker/);
 assert.match(app, /is your scorer/);
+assert.match(app, /ambroseRoleAssignments/);
+assert.match(app, /data-ambrosescorer/);
+assert.match(app, /data-ambrosemarker/);
+assert.match(app, /Appoint immediately before play/);
+assert.match(app, /Honour scoring — no marker/);
+assert.match(app, /function ambroseTeamHasEntries/);
 
 console.log("Version 15.88 Ambrose regression checks passed.");

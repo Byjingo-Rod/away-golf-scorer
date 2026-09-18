@@ -2231,7 +2231,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.88.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.88.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -7456,6 +7456,17 @@ Count-back if tied
         two = g.slice(2, 4).map(pairName).join(" & ");
       return `<div class="partnerBlock"><div class="partnerHeading">Partners in 4BBB</div><div class="pairSummary"><span>${one || "—"}</span><span>${two || "—"}</span></div></div>`;
     };
+    const ambroseRoleBlock = (g, gi) => {
+      if (!ambroseIsOn()) return "";
+      const team = g.map(String).filter((id) => id && id !== NO_PARTNER_ID),
+        roles = ambroseRoles(day, gi),
+        started = ambroseTeamHasEntries(day, gi),
+        options = (selectedId, excludeId = "") => team
+          .filter((id) => id !== excludeId)
+          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`)
+          .join("");
+      return `<div class="ambroseTeamRoles"><div><b>Ambrose Team Roles</b><small>${started ? "Scoring has started — appointments are locked." : "Appoint immediately before play."}</small></div><label>Scorer<select data-ambrosescorer="${gi}" ${started ? "disabled" : ""}>${options(roles.scorerId)}</select></label>${store.event.ambroseScoringMode === "scorerOnly" ? '<span class="ambroseHonour">Honour scoring — no marker</span>' : `<label>Marker<select data-ambrosemarker="${gi}" ${started ? "disabled" : ""}>${options(roles.markerId, roles.scorerId)}</select></label>`}</div>`;
+    };
     const allSaved = Array.from(
       { length: store.event.days },
       (_, i) => store.event.groupSetup["day" + (i + 1)]?.saved,
@@ -7509,6 +7520,7 @@ Count-back if tied
      (g, gi) => `<div class="playingGroup">
    <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}</div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
+   ${ambroseRoleBlock(g, gi)}
    ${ctx && ctx.groupIndex === gi ? ambroseIsOn() ? `<div class="vpAssignment"><b>Three-player Ambrose team</b>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : `<div class="vpAssignment"><b>Virtual Player:</b> <span class="vpName">${esc(vp?.name || "Not selected")} (VP)</span>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : ""}
    ${
      !locked && !teamsSaved &&
@@ -7650,6 +7662,29 @@ Count-back if tied
         renderPlayerExperience();
         renderHome();
       };
+    const saveAmbroseRole = async (groupIndex, field, playerId) => {
+      if (ambroseTeamHasEntries(day, groupIndex))
+        return alert("These appointments cannot be changed because this team has started scoring.");
+      store.event.ambroseRoleAssignments ||= {};
+      store.event.ambroseRoleAssignments[key] ||= {};
+      const assignment = store.event.ambroseRoleAssignments[key][groupIndex] ||= {};
+      assignment[field] = String(playerId);
+      const team = ambroseTeam(day, groupIndex),
+        roles = ambroseRoles(day, groupIndex);
+      if (field === "scorerId" && assignment.markerId === assignment.scorerId)
+        assignment.markerId = team.find((id) => id !== assignment.scorerId) || "";
+      if (field === "markerId" && assignment.markerId === roles.scorerId)
+        assignment.markerId = team.find((id) => id !== roles.scorerId) || "";
+      writeLocalStore();
+      if (store.cloud?.role === "organiser" && store.cloud.eventId)
+        await updateCloudEvent();
+      renderTeamsPage();
+      renderPlayerExperience();
+    };
+    $$('[data-ambrosescorer]').forEach((select) => select.onchange = () =>
+      saveAmbroseRole(+select.dataset.ambrosescorer, "scorerId", select.value));
+    $$('[data-ambrosemarker]').forEach((select) => select.onchange = () =>
+      saveAmbroseRole(+select.dataset.ambrosemarker, "markerId", select.value));
     if (locked) return;
     $("#backToEventSetup").onclick = reopenEventPlan;
     if ($("#unlockGroups"))
@@ -7868,13 +7903,30 @@ Count-back if tied
       .filter((id) => id && id !== NO_PARTNER_ID);
   }
   function ambroseRoles(day, groupIndex) {
-    const team = ambroseTeam(day, groupIndex);
+    const team = ambroseTeam(day, groupIndex),
+      assigned = store.event?.ambroseRoleAssignments?.["day" + day]?.[groupIndex] || {},
+      assignedScorer = String(assigned.scorerId || ""),
+      scorerId = team.includes(assignedScorer) ? assignedScorer : team[0] || "",
+      assignedMarker = String(assigned.markerId || ""),
+      defaultMarker = team.find((id) => id !== scorerId) || "";
     return {
-      scorerId: team[0] || "",
+      scorerId,
       markerId:
-        store.event?.ambroseScoringMode === "scorerOnly" ? "" : team[1] || "",
+        store.event?.ambroseScoringMode === "scorerOnly"
+          ? ""
+          : team.includes(assignedMarker) && assignedMarker !== scorerId
+            ? assignedMarker
+            : defaultMarker,
       team,
     };
+  }
+  function ambroseTeamHasEntries(day, groupIndex) {
+    return ambroseTeam(day, groupIndex).some((playerId) =>
+      Array.from({ length: 18 }, (_, index) => index + 1).some((hole) => {
+        const record = scorerStore(day, playerId)?.[String(hole)];
+        return scoreEntered(record?.self?.gross) || Boolean(record?.ambrose?.drivePlayerId);
+      }),
+    );
   }
   function ambroseEntry(day, scorerId, hole) {
     const rec = scoreRecord(day, scorerId, hole);
@@ -8301,8 +8353,8 @@ Count-back if tied
       ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
       <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>METRES</small><b>${metres}</b></div></div>
       <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(player(selected)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span><em>Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
-        <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
-        <div class="ambroseDrive"><b>Whose drive was selected?</b><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(player(id)?.name || "Player")}</span><small><b>+</b>${driveId === id ? `<strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong>` : ""}</small></button>`).join("")}</div></div>
+        <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" class="stepValue" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
+        <div class="ambroseDrive"><b>Whose drive was selected?</b><small>Tap another player to correct the selected drive.</small><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(player(id)?.name || "Player")}</span><small><b>+</b>${driveId === id ? `<strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong>` : ""}</small></button>`).join("")}</div></div>
       </div>
       ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(player(holder.id)?.name || "Player")}` : "No name recorded yet"}${extraNtpPlayerId ? ` · ${esc(player(extraNtpPlayerId)?.name || "One player")} has the extra NTP tee shot` : ""}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(player(id)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
       <div class="holeNav"><button class="soft" id="prevHole" ${position === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${position === 17 ? "FINISH TEAM CARD" : "Next Hole →"}</button></div>
@@ -8334,8 +8386,9 @@ Count-back if tied
       return true;
     };
     $$('[data-ambrosehole]').forEach((button) => button.onclick = () => {
-      if (+button.dataset.ambrosehole !== position && warnIncompleteEntry()) return;
-      store.event.playerHolePos = +button.dataset.ambrosehole;
+      const targetPosition = +button.dataset.ambrosehole;
+      if (targetPosition > position && warnIncompleteEntry()) return;
+      store.event.playerHolePos = targetPosition;
       save();
       renderAmbroseScoring(selected, day);
     });
@@ -8345,7 +8398,6 @@ Count-back if tied
     });
     if ($("#undoAmbroseNtp")) $("#undoAmbroseNtp").onclick = () => { record.ntp = {}; writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day); };
     $("#prevHole").onclick = () => {
-      if (warnIncompleteEntry()) return;
       store.event.playerHolePos = Math.max(0, position - 1);
       save();
       renderAmbroseScoring(selected, day);

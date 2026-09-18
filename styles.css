@@ -6197,6 +6197,12 @@ body.playerDevice .cloudHeader {
 .ambroseSetup > label, .ambroseNtpChoice label { display:flex; align-items:center; gap:.45rem; }
 .ambroseNtpChoice { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; padding-top:.55rem; border-top:1px solid #cad8d0; }
 .ambroseNtpChoice small { flex-basis:100%; }
+.ambroseTeamRoles { display:grid; grid-template-columns:minmax(180px,1fr) repeat(2,minmax(150px,.65fr)); gap:.65rem; align-items:end; padding:.75rem; border-top:1px solid #d7e2dc; background:#f7faf8; }
+.ambroseTeamRoles > div { display:grid; gap:.15rem; }
+.ambroseTeamRoles small { color:#66766e; }
+.ambroseTeamRoles label { display:grid; gap:.2rem; font-size:.78rem; font-weight:800; color:#557065; }
+.ambroseTeamRoles select { margin:0; }
+.ambroseHonour { align-self:center; color:#075d37; font-weight:800; }
 .ambrosePhone { max-width:760px; margin:0 auto; }
 .ambroseRole { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:.9rem 1rem; margin-bottom:.75rem; border-radius:14px; background:#e9f4ed; }
 .ambroseRole small { color:#557065; font-weight:800; letter-spacing:.06em; }
@@ -6206,6 +6212,7 @@ body.playerDevice .cloudHeader {
 .ambroseGross { display:grid; gap:.4rem; margin:1rem 0; }
 .ambroseGross .scoreStepper { max-width:360px; }
 .ambroseDrive > b { display:block; margin-bottom:.55rem; }
+.ambroseDrive > small { display:block; margin:-.3rem 0 .55rem; color:#66766e; }
 .ambroseDriveChoices, .ambroseNtpNames { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; }
 .ambroseDriveChoices button, .ambroseNtpNames button { text-align:left; padding:.7rem; border:1px solid #bfd0c6; border-radius:10px; background:#f5faf7; color:#075d37; }
 .ambroseDriveChoices button { display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
@@ -6226,4 +6233,5 @@ body.playerDevice .cloudHeader {
 @media (max-width:560px) {
   .ambroseDriveChoices, .ambroseNtpNames { grid-template-columns:1fr; }
   .ambroseRole { align-items:flex-start; }
+  .ambroseTeamRoles { grid-template-columns:1fr; }
 }
