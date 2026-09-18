@@ -14,6 +14,8 @@ assert.match(app, /function renderAmbroseScoring/);
 assert.match(app, /Whose drive was selected\?/);
 assert.match(app, /ambroseMinimumDrives/);
 assert.match(app, /ambroseScoringMode/);
+assert.match(app, /Required drives per player/);
+assert.match(app, /\[2, 3, 4\]/);
 assert.match(app, /Scorer Only/);
 assert.match(app, /Scorer and Marker/);
 assert.match(app, /name="ambroseNtpCount" value="0"/);
@@ -27,5 +29,8 @@ assert.match(app, /values\.reduce[\s\S]*team\.length \* 2/);
 assert.match(app, /def\.type === "ambrose"/);
 assert.match(css, /\.ambroseDriveChoices/);
 assert.match(css, /\.ambroseFinalScore/);
+assert.match(app, /Hole \$\{hole\} is incomplete/);
+assert.match(app, /is your marker/);
+assert.match(app, /is your scorer/);
 
 console.log("Version 15.88 Ambrose regression checks passed.");

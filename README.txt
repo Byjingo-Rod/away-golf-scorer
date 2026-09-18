@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.88
+AWAY GOLF SCORER — VERSION 15.88.1
 
-VERSION 15.88 — AMBROSE TEST BUILD
+VERSION 15.88.1 — AMBROSE TEST BUILD
 
 - Adds Ambrose as a separate team-stroke event that runs only with optional
   Nearest the Pin.
