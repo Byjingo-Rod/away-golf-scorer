@@ -1,3 +1,21 @@
+AWAY GOLF SCORER — VERSION 15.87
+
+VERSION 15.87 — YELLOW BALL
+
+- Adds Yellow Ball as a daily team competition.
+- Lets a two-day organiser select Day 1, Day 2 or both days.
+- Rotates the ball through each group in playing order, including shotgun and
+  other non-first-hole starts.
+- Highlights the nominated player’s name bright yellow without adding another
+  scorecard column.
+- Uses that player’s agreed Stableford score automatically and stops the team’s
+  Yellow Ball tally when the ball is recorded lost.
+- Shows players only their own team’s live Yellow Ball points and ball status.
+  Opposing scores—and every score on organiser and spectator screens—remain
+  hidden until every scorecard for that day is complete.
+- Adds Release All Phones while retaining each individual Release Phone button.
+- Explains when a one-team event has no eligible emergency replacement.
+
 AWAY GOLF SCORER — VERSION 15.86.16
 
 VERSION 15.86.16 — CLEAN NEW EVENTS AND VISIBLE SETUP RECORD

@@ -157,6 +157,7 @@
     fourball: "4BBB Stableford",
     teamPutts: "Putting Competition",
     best3of4: "Best 3 of 4 Stableford",
+    yellowBall: "Yellow Ball",
     par3: "Par 3 Competition",
     ntp: "Nearest the Pin",
     scratch: "Scratch",
@@ -1448,19 +1449,19 @@
     if (!joined.length) return alert("No player phone connections need resetting.");
     if (
       !confirm(
-        `Reset all ${joined.length} player phone connections?\n\nScores will not be deleted. Every player will be able to join again with the same event code.`,
+        `Release all ${joined.length} player phone connections?\n\nScores will not be deleted. Every player will be able to join again with the same event code.`,
       )
     )
       return;
-    setCloudMessage("Resetting player connections…", true);
+    setCloudMessage("Releasing all phone connections…", true);
     try {
       for (const row of joined)
         await AwayCloud.releasePlayer(store.cloud.eventId, row.playerId);
       cloudBusy = false;
       await syncCloudNow();
-      setCloudMessage("Player connections reset · ready to join");
+      setCloudMessage("All phones released · ready to join");
     } catch (error) {
-      setCloudMessage("Connection reset did not complete");
+      setCloudMessage("Phone release did not complete");
       alert(
         "The player connections could not all be reset. " +
           (error.message || error),
@@ -2427,7 +2428,7 @@
         : "";
     if (store.cloud?.role === "organiser" && store.cloud.eventId) {
       const connections = (store.cloudPlayers || []).filter((x) => x.joined);
-      host.innerHTML = `<div class="organiserModeBanner"><b>This device is in Organiser Mode</b><button class="soft" id="leaveOrganiserMode">Leave Organiser Mode and Join as a Player</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button><button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Reset Player Connections</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
+      host.innerHTML = `<div class="organiserModeBanner"><b>This device is in Organiser Mode</b><button class="soft" id="leaveOrganiserMode">Leave Organiser Mode and Join as a Player</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button><button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
       $("#retryCloud").onclick = syncCloudNow;
       $("#organiserTabletCode").onclick = showOrganiserTabletCode;
@@ -4099,6 +4100,15 @@ Count-back if tied
           tag: "4-PERSON TEAM",
         },
         {
+          id: "yellowBall",
+          name: "Yellow Ball",
+          desc:
+            d == 1
+              ? "The team ball rotates through the playing group. Its Stableford score is recorded until it is lost or the round is complete."
+              : "Choose Day 1, Day 2 or both days for the rotating team ball event.",
+          tag: "TEAM ROTATION",
+        },
+        {
           id: "par3",
           name: "Par 3 Competition",
           desc:
@@ -4197,6 +4207,8 @@ Count-back if tied
           x.checked
             ? W.competitions.add(x.dataset.comp)
             : W.competitions.delete(x.dataset.comp);
+          if (x.checked && x.dataset.comp === "yellowBall")
+            W.event.yellowBallDays = W.event.days === 2 ? [1, 2] : [1];
           renderStep3();
         }),
     );
@@ -4209,6 +4221,20 @@ Count-back if tied
           renderStep3();
         }),
     );
+    const yellowBallComp = $('[data-comp="yellowBall"]')?.closest(".comp");
+    if (
+      yellowBallComp &&
+      W.competitions.has("yellowBall") &&
+      W.event.days === 2
+    ) {
+      const yellowDays = Array.isArray(W.event.yellowBallDays)
+        ? W.event.yellowBallDays.map(Number)
+        : [1, 2];
+      yellowBallComp.insertAdjacentHTML(
+        "beforeend",
+        `<div class="ntpBox yellowBallDays"><b>Yellow Ball Days</b><label><input style="width:auto" type="checkbox" data-yellowballday="1" ${yellowDays.includes(1) ? "checked" : ""}> Day 1</label><label><input style="width:auto" type="checkbox" data-yellowballday="2" ${yellowDays.includes(2) ? "checked" : ""}> Day 2</label><small>Select either day or both days.</small></div>`,
+      );
+    }
     const scratchComp = $('[data-comp="scratch"]')?.closest(".comp");
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
@@ -4234,6 +4260,19 @@ Count-back if tied
       if (t.name === "scratchScoringMode")
         W.event.scratchScoringMode = t.value;
       if (t.name === "p3") W.event.par3Format = t.value;
+      if (t.dataset.yellowballday) {
+        const day = +t.dataset.yellowballday,
+          selectedDays = new Set(
+            (W.event.yellowBallDays || [1, 2]).map(Number),
+          );
+        t.checked ? selectedDays.add(day) : selectedDays.delete(day);
+        if (!selectedDays.size) {
+          selectedDays.add(day);
+          t.checked = true;
+          alert("Yellow Ball must be played on at least one day.");
+        }
+        W.event.yellowBallDays = [...selectedDays].sort();
+      }
       if (t.name === "n1") W.event.ntpDay1Count = +t.value;
       if (t.name === "n2") W.event.ntpDay2Count = +t.value;
       if (t.id === "ntpJackpot") {
@@ -5912,7 +5951,11 @@ Count-back if tied
     };
     $("#missingPlayerSelect").onchange = (e) => {
       proposal = propose(e.target.value); $("#applyMissingPlayer").disabled = !proposal;
-      $("#missingPlayerPreview").innerHTML = proposal ? `<div class="emergencyWarning"><b>${esc(player(proposal.missingId)?.name)} will be removed from today’s draw.</b><span>${esc(player(proposal.virtualId)?.name)} will be the locked virtual player for ${esc(player(proposal.affectedId)?.name)}. The remaining three players will mark each other.</span>${Object.entries(proposal.ntpExtraPlayers).map(([hole, id]) => `<span>Hole ${hole} NTP extra attempt: ${esc(player(id)?.name)}</span>`).join("")}</div>` : "";
+      $("#missingPlayerPreview").innerHTML = proposal
+        ? `<div class="emergencyWarning"><b>${esc(player(proposal.missingId)?.name)} will be removed from today’s draw.</b><span>${esc(player(proposal.virtualId)?.name)} will be the locked virtual player for ${esc(player(proposal.affectedId)?.name)}. The remaining three players will mark each other.</span>${Object.entries(proposal.ntpExtraPlayers).map(([hole, id]) => `<span>Hole ${hole} NTP extra attempt: ${esc(player(id)?.name)}</span>`).join("")}</div>`
+        : e.target.value
+          ? '<div class="emergencyWarning"><b>No emergency replacement is available.</b><span>This event has only one team, so there is no eligible player outside the missing player’s team.</span></div>'
+          : "";
     };
     $("#cancelMissingPlayer").onclick = () => $("#modalShade").classList.remove("open");
     $("#applyMissingPlayer").onclick = async () => {
@@ -7711,6 +7754,57 @@ Count-back if tied
     }
     return null;
   }
+  function yellowBallIsOn(day, event = store.event) {
+    if (!(event?.competitions || []).includes("yellowBall")) return false;
+    if ((event.days || 1) === 1) return +day === 1;
+    const selectedDays = Array.isArray(event.yellowBallDays)
+      ? event.yellowBallDays.map(Number)
+      : [1, 2];
+    return selectedDays.includes(+day);
+  }
+  function yellowBallTeam(day, groupIndex, event = store.event) {
+    const setup = event?.groupSetup?.["day" + day],
+      group = setup?.groups?.[groupIndex] || [];
+    return group
+      .map(String)
+      .filter((id) => id && id !== NO_PARTNER_ID);
+  }
+  function yellowBallPlayerForHole(day, groupIndex, hole, event = store.event) {
+    const team = yellowBallTeam(day, groupIndex, event);
+    if (!team.length) return "";
+    const start = groupStartingHole(event, day, groupIndex),
+      position = scoreSequence(start).indexOf(+hole);
+    return position < 0 ? "" : team[position % team.length];
+  }
+  function yellowBallLoss(day, groupIndex, event = store.event) {
+    const team = yellowBallTeam(day, groupIndex, event),
+      start = groupStartingHole(event, day, groupIndex),
+      sequence = scoreSequence(start),
+      rounds = event?.scoring?.["day" + day] || {};
+    let loss = null;
+    for (const [scorerId, round] of Object.entries(rounds)) {
+      if (!team.includes(String(scorerId))) continue;
+      for (const [holeText, record] of Object.entries(round || {})) {
+        const hole = +holeText,
+          position = sequence.indexOf(hole);
+        if (
+          position < 0 ||
+          !record?.yellowBall?.lost ||
+          String(record.yellowBall.playerId || "") !==
+            yellowBallPlayerForHole(day, groupIndex, hole, event)
+        )
+          continue;
+        if (!loss || position < loss.position)
+          loss = {
+            hole,
+            position,
+            playerId: String(record.yellowBall.playerId),
+            scorerId: String(scorerId),
+          };
+      }
+    }
+    return loss;
+  }
   function findOfficialForPlayer(day, playerId, hole) {
     const correction = organiserCorrectionFor(day, playerId, hole);
     if (correction) return { ...correction, authoritative: true };
@@ -8135,7 +8229,25 @@ Count-back if tied
       best3Total = best3Values.every((x) => x != null)
         ? best3Values.reduce((a, b) => a + b, 0)
         : null,
-      best3On = (store.event.competitions || []).includes("best3of4");
+      best3On = (store.event.competitions || []).includes("best3of4"),
+      yellowBallOn = yellowBallIsOn(day),
+      yellowBallPlayerId = yellowBallOn
+        ? yellowBallPlayerForHole(day, ctx.groupIndex, hole)
+        : "",
+      yellowBallTeamLoss = yellowBallOn
+        ? yellowBallLoss(day, ctx.groupIndex)
+        : null,
+      yellowBallActive =
+        yellowBallOn &&
+        (!yellowBallTeamLoss || pos <= yellowBallTeamLoss.position),
+      yellowBallLostHere = Boolean(
+        rec.yellowBall?.lost &&
+          String(rec.yellowBall.playerId || "") === String(yellowBallPlayerId),
+      ),
+      yellowBallClass = (playerId) =>
+        yellowBallActive && String(playerId) === String(yellowBallPlayerId)
+          ? "yellowBallTurn"
+          : "";
     const isExtra = String(setup.ntpExtraPlayers?.[String(hole)] || setup.ntpExtraPlayer || "") === String(selected);
     const stepper = (id, label, value, base, min, max) => {
       const has = value !== "" && value != null,
@@ -8235,8 +8347,8 @@ Count-back if tied
       : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3>${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><h3>${esc(p.name)}</h3></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallActive && String(selected) === String(yellowBallPlayerId) ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : ""}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
@@ -8320,6 +8432,27 @@ Count-back if tied
         rec.ntp.entrantId = null;
         rec.ntp.pending = false;
         save();
+        queueCloudRound(day, selected);
+        renderHoleScoring(selected, day);
+      };
+    if ($("#yellowBallLost"))
+      $("#yellowBallLost").onclick = () => {
+        if (yellowBallLostHere) {
+          delete rec.yellowBall;
+        } else {
+          if (
+            !confirm(
+              `Confirm that ${player(yellowBallPlayerId)?.name || "the nominated player"} lost the Yellow Ball on Hole ${hole}? Yellow Ball scoring for this team will stop before this hole.`,
+            )
+          )
+            return;
+          rec.yellowBall = {
+            lost: true,
+            playerId: String(yellowBallPlayerId),
+            at: new Date().toISOString(),
+          };
+        }
+        writeLocalStore();
         queueCloudRound(day, selected);
         renderHoleScoring(selected, day);
       };
@@ -8566,6 +8699,8 @@ Count-back if tied
         );
       if (selected.has("best3of4"))
         add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day);
+      if (selected.has("yellowBall") && yellowBallIsOn(day))
+        add(`yellow-ball-d${day}`, `Yellow Ball${suffix}`, "yellowBall", day);
       if (selected.has("scratch"))
         add(`scratch-d${day}`, `Scratch${suffix}`, "scratch", day, {
           lower: true,
@@ -8697,6 +8832,54 @@ Count-back if tied
           }),
         ),
       );
+    if (def.type === "yellowBall") {
+      rows = leaderboardUnits(def.day, "team").map((u, groupIndex) => {
+        const team = yellowBallTeam(def.day, groupIndex),
+          start = groupStartingHole(store.event, def.day, groupIndex),
+          sequence = scoreSequence(start),
+          loss = yellowBallLoss(def.day, groupIndex),
+          holes = sequence.map((hole, position) => {
+            if (loss && position >= loss.position) return null;
+            const nominated = yellowBallPlayerForHole(
+              def.day,
+              groupIndex,
+              hole,
+            );
+            return leaderboardPlayerPoints(def.day, nominated)[hole - 1];
+          }),
+          row = leaderRow(
+            u.id,
+            `Team ${groupIndex + 1}`,
+            team.map((id) => player(id)?.name || "Player").join(", "),
+            holes,
+          );
+        row.loss = loss;
+        row.survived = loss ? loss.position : row.thru;
+        return row;
+      });
+      rows.sort(
+        (a, b) =>
+          b.survived - a.survived ||
+          b.total - a.total ||
+          a.name.localeCompare(b.name),
+      );
+      rows.forEach((row, index) => {
+        const previous = rows[index - 1],
+          next = rows[index + 1],
+          same =
+            previous &&
+            previous.survived === row.survived &&
+            previous.total === row.total;
+        row.rank = same ? previous.rank : index + 1;
+        row.tied = Boolean(
+          same ||
+            (next &&
+              next.survived === row.survived &&
+              next.total === row.total),
+        );
+      });
+      return rows;
+    }
     if (def.type === "par3") {
       const v =
           version(
@@ -8799,6 +8982,10 @@ Count-back if tied
       field.length && field.every((id) => livePlayerStatus(day, id).finalised),
     );
   }
+  function yellowBallViewerGroupIndex(day) {
+    if (store.cloud?.role !== "player" || !store.cloud?.playerId) return -1;
+    return playerGroupContext(String(store.cloud.playerId), day)?.groupIndex ?? -1;
+  }
   function leaderboardComplete(def, rows) {
     const finalised = def.day
       ? eventDayComplete(def.day)
@@ -8820,6 +9007,8 @@ Count-back if tied
         finalised && active.length && active.every((r) => r.thru === r.target),
       );
     }
+    if (def.type === "yellowBall")
+      return Boolean(finalised && rows.length);
     return Boolean(
       finalised && rows.length && rows.every((r) => r.thru === r.target),
     );
@@ -8844,7 +9033,14 @@ Count-back if tied
     const rows = calculateLeaderboard(def),
       top = rows.find((r) => !r.disqualified),
       complete = leaderboardComplete(def, rows);
-    if (!top || !top.thru)
+    if (def.type === "yellowBall" && !complete)
+      return {
+        complete: false,
+        status: "In Progress",
+        text: "Result announced at the end of play",
+        awardable: def.awardable !== false,
+      };
+    if (!top || (!top.thru && def.type !== "yellowBall"))
       return {
         complete: false,
         status: "Not Started",
@@ -8856,6 +9052,7 @@ Count-back if tied
       };
     const teamMembers =
       (def.type === "best3" ||
+        def.type === "yellowBall" ||
         (def.type === "putts" && store.event.puttingFormat !== "pairs")) &&
       top.detail
         ? ` (${top.detail})`
@@ -8871,7 +9068,11 @@ Count-back if tied
         ? complete
           ? `${top.grossTotal} strokes (${scratchScore})`
           : `${scratchScore} · Thru ${top.thru}`
-        : `${top.total} ${def.type === "putts" ? "putts" : "pts"}`;
+        : def.type === "yellowBall"
+          ? top.loss
+            ? `${top.total} pts · ball lost on Hole ${top.loss.hole}`
+            : `${top.total} pts · all 18 holes completed`
+          : `${top.total} ${def.type === "putts" ? "putts" : "pts"}`;
     const resultText = def.aggregateLeg
       ? `${top.name} led Day ${def.day} of the two-day event — ${result}${top.cb ? " CB" : ""}`
       : def.aggregateResult
@@ -8899,8 +9100,18 @@ Count-back if tied
     const winners = rows.filter((row) => row.rank === 1);
     if (["single", "combined", "scratch", "eclectic"].includes(def.type))
       return winners.map((row) => String(row.id));
+    if (def.type === "yellowBall")
+      return [
+        ...new Set(
+          winners.flatMap((row) => {
+            const groupIndex = +String(row.id).replace(/^d\d+g/, "");
+            return yellowBallTeam(def.day, groupIndex);
+          }),
+        ),
+      ].map(String);
     const kind =
       def.type === "best3" ||
+      def.type === "yellowBall" ||
       (def.type === "putts" && store.event.puttingFormat !== "pairs")
         ? "team"
         : "pair";
@@ -8994,6 +9205,7 @@ Count-back if tied
         fourball: "fourball",
         putts: "teamPutts",
         best3: "best3of4",
+        yellowBall: "yellowBall",
         scratch: "scratch",
         ntp: "ntp",
         par3: "par3",
@@ -9215,11 +9427,34 @@ Count-back if tied
         unit = def.type === "putts" ? "putts" : "pts",
         toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
       body =
-        rows
+        def.type === "yellowBall" && !competitionComplete
+          ? (() => {
+              const viewerGroup = yellowBallViewerGroupIndex(def.day);
+              if (viewerGroup < 0)
+                return '<div class="leaderEmpty yellowBallHidden"><b>Result announced at the end of play</b><span>Yellow Ball standings remain hidden until every scorecard for the day is complete.</span></div>';
+              return [...rows]
+                .sort(
+                  (a, b) =>
+                    +String(a.id).replace(/^d\d+g/, "") -
+                    +String(b.id).replace(/^d\d+g/, ""),
+                )
+                .map((r) => {
+                  const groupIndex = +String(r.id).replace(/^d\d+g/, ""),
+                    ownTeam = groupIndex === viewerGroup,
+                    ownStatus = r.loss
+                      ? `Ball lost on Hole ${r.loss.hole} · ${r.survived} holes survived`
+                      : `Ball alive · Thru ${r.thru}`;
+                  return `<div class="leaderRow ${ownTeam ? "yellowBallOwnTeam" : "yellowBallOpponent"}"><span class="leaderRank">${ownTeam ? "YOU" : "—"}</span><span class="leaderName">${esc(r.name)}${r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${ownTeam ? `${r.total} <small>pts</small>` : "—"}</span><span class="leaderThru">${ownTeam ? ownStatus : "Score hidden until end of play"}</span></div>`;
+                })
+                .join("");
+            })()
+          : rows
           .map((r, i) => {
             const waiting =
                 (def.type === "putts" || def.type === "best3") && !r.thru,
-              isFinal = competitionComplete && r.thru === r.target,
+              isFinal =
+                competitionComplete &&
+                (def.type === "yellowBall" || r.thru === r.target),
               score =
                 def.type === "scratch"
                   ? isFinal
@@ -9228,7 +9463,17 @@ Count-back if tied
                   : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
               return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>Withdrawn from this Competition</small></span><span class="leaderScore">—</span><span class="leaderThru">Pick-up on Hole ${r.pickupHole}</span></div>`;
-            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${i === 0 && r.thru ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : isFinal ? "Final" : `Thru ${r.thru}`}</span></div>`;
+            const progress =
+              def.type === "yellowBall"
+                ? r.loss
+                  ? `Ball lost · Hole ${r.loss.hole} · ${r.survived} survived`
+                  : isFinal
+                    ? "Final · Ball completed 18 holes"
+                    : `Ball alive · Thru ${r.thru}`
+                : isFinal
+                  ? "Final"
+                  : `Thru ${r.thru}`;
+            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${i === 0 && (r.thru || def.type === "yellowBall") ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : progress}</span></div>`;
           })
           .join("") ||
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
@@ -9351,7 +9596,11 @@ Count-back if tied
         .filter(([, id]) => String(id) === selected)
         .map(([hole]) => hole),
       isExtra = extraNtpHoles.length > 0 || String(setup.ntpExtraPlayer || "") === selected,
-      ruleSections = eventRuleSections(store.event);
+      ruleSections = eventRuleSections(store.event),
+      yellowBallOn = yellowBallIsOn(day),
+      openingYellowBallPlayer = yellowBallOn
+        ? yellowBallPlayerForHole(day, ctx.groupIndex, start)
+        : "";
     let displayIds = [selected];
     if (partner) {
       const partnerActual = g.find(
@@ -9380,9 +9629,9 @@ Count-back if tied
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
  <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day)) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day)) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
- <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
+ <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}
- ${isAffected || isExtra ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${isAffected ? `<p>You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra || yellowBallOn ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(
