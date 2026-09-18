@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.87 YELLOW BALL TEST BUILD
+AWAY GOLF SCORER — VERSION 15.88 AMBROSE TEST BUILD
 
-This package is the complete Version 15.87 app.
+This package is the complete Version 15.88 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,23 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.87.
+4. Open index.html and confirm that the heading says Version 15.88.
 
-No new Supabase SQL is required for Version 15.87. If the Version 15.86.4
+No new Supabase SQL is required for Version 15.88. If the Version 15.86.4
 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.88 CHANGES
+
+- Adds Ambrose as a separate event with one team stroke score and selected
+  drive recorded on every hole.
+- Supports Scorer Only and Scorer and Marker checking modes.
+- Supports teams of four and teams of three, including the correct team
+  handicap divisor and the extra NTP attempt for a three-player team.
+- Allows 0, 1 or 2 NTP holes. The app selects the holes automatically and the
+  organiser can use Change as before.
+- The team scorer records which player signed the NTP card; the app stores the
+  player and time in the existing NTP history.
+- Adds an Ambrose leaderboard using gross, team handicap and net score.
 
 VERSION 15.87 CHANGES
 

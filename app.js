@@ -157,6 +157,7 @@
     fourball: "4BBB Stableford",
     teamPutts: "Putting Competition",
     best3of4: "Best 3 of 4 Stableford",
+    ambrose: "Ambrose",
     yellowBall: "Yellow Ball",
     par3: "Par 3 Competition",
     ntp: "Nearest the Pin",
@@ -2230,7 +2231,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.86.16", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.88", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2615,6 +2616,13 @@ Count-back if tied
       .map((line) => line.trim().replace(/^(?:[•*-]|\d+[.)])\s*/, ""))
       .filter(Boolean);
   }
+  function ambroseRulesText(event = store.event) {
+    const minimum = +event?.ambroseMinimumDrives || 0,
+      checking = event?.ambroseScoringMode === "scorerOnly"
+        ? "One nominated team scorer records the card."
+        : "The nominated scorer and marker each record the team score and selected drive; both cards must agree.";
+    return `All players tee off. The team selects one ball and all players play the next shot from that position. Continue until the hole is completed. Record one team stroke score and the player whose drive was selected on every hole. ${minimum ? `At least ${minimum} drive${minimum === 1 ? "" : "s"} from every player must be selected during the round. ` : ""}${checking}`;
+  }
   function specialRulesEditorHtml(text) {
     const lines = specialRuleLines(text);
     return (lines.length ? lines : [""])
@@ -2650,6 +2658,11 @@ Count-back if tied
       sections.push({
         title: "Scratch Competition Rules",
         text: scratchRulesText(event),
+      });
+    if ((event.competitions || []).includes("ambrose"))
+      sections.push({
+        title: "Ambrose Rules",
+        text: ambroseRulesText(event),
       });
     const emergencyRules = Object.keys(event.emergencyReplacements || {})
       .sort()
@@ -3128,6 +3141,8 @@ Count-back if tied
         singleStablefordFormat: "aggregate",
         scratchMaxHcp: 10,
         scratchScoringMode: "stroke",
+        ambroseScoringMode: "scorerMarker",
+        ambroseMinimumDrives: 3,
         ntpDay1Count: 1,
         ntpJackpot: false,
         ntpJackpotMode: "final",
@@ -3202,6 +3217,12 @@ Count-back if tied
       t.scratchScoringMode === "maxDoubleBogey"
         ? "maxDoubleBogey"
         : "stroke";
+    W.event.ambroseScoringMode =
+      t.ambroseScoringMode === "scorerOnly" ? "scorerOnly" : "scorerMarker";
+    W.event.ambroseMinimumDrives = Math.max(
+      0,
+      Math.min(6, +t.ambroseMinimumDrives || 3),
+    );
     W.event.par3Format =
       t.par3Format === "day2pair"
         ? "aggregate"
@@ -4100,6 +4121,12 @@ Count-back if tied
           tag: "4-PERSON TEAM",
         },
         {
+          id: "ambrose",
+          name: "Ambrose",
+          desc: "One team stroke score per hole. Record the selected drive and optionally use a second card to check it.",
+          tag: "TEAM STROKE",
+        },
+        {
           id: "yellowBall",
           name: "Yellow Ball",
           desc:
@@ -4182,6 +4209,11 @@ Count-back if tied
   function renderStep3() {
     let defs = compDefinitions(),
       ec = defs.find((x) => x.id === "eclectic");
+    const ambroseOn = W.competitions.has("ambrose");
+    if (ambroseOn)
+      [...W.competitions].forEach((id) => {
+        if (!["ambrose", "ntp"].includes(id)) W.competitions.delete(id);
+      });
     if (ec?.unavailable) W.competitions.delete("eclectic");
     let templateText = store.template
       ? "Your previous event choices are loaded as the starting point. Change only what is different this time."
@@ -4197,7 +4229,7 @@ Count-back if tied
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${defs
         .map((c) => {
           let on = W.competitions.has(c.id),
-            disabled = c.unavailable;
+            disabled = c.unavailable || (ambroseOn && !["ambrose", "ntp"].includes(c.id));
           return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
@@ -4209,6 +4241,13 @@ Count-back if tied
             : W.competitions.delete(x.dataset.comp);
           if (x.checked && x.dataset.comp === "yellowBall")
             W.event.yellowBallDays = W.event.days === 2 ? [1, 2] : [1];
+          if (x.checked && x.dataset.comp === "ambrose") {
+            W.competitions = new Set(["ambrose"]);
+            W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerMarker";
+            W.event.ambroseMinimumDrives = +W.event.ambroseMinimumDrives || 3;
+            W.event.ntpDay1Count = 0;
+            W.event.ntpDay2Count = 0;
+          }
           renderStep3();
         }),
     );
@@ -4233,6 +4272,12 @@ Count-back if tied
       yellowBallComp.insertAdjacentHTML(
         "beforeend",
         `<div class="ntpBox yellowBallDays"><b>Yellow Ball Days</b><label><input style="width:auto" type="checkbox" data-yellowballday="1" ${yellowDays.includes(1) ? "checked" : ""}> Day 1</label><label><input style="width:auto" type="checkbox" data-yellowballday="2" ${yellowDays.includes(2) ? "checked" : ""}> Day 2</label><small>Select either day or both days.</small></div>`,
+      );
+    const ambroseComp = $('[data-comp="ambrose"]')?.closest(".comp");
+    if (ambroseComp && W.competitions.has("ambrose"))
+      ambroseComp.insertAdjacentHTML(
+        "beforeend",
+        `<div class="ntpBox ambroseSetup"><b>Ambrose Scoring</b><label><input style="width:auto" type="radio" name="ambroseScoringMode" value="scorerOnly" ${W.event.ambroseScoringMode === "scorerOnly" ? "checked" : ""}> Scorer Only — one team card</label><label><input style="width:auto" type="radio" name="ambroseScoringMode" value="scorerMarker" ${W.event.ambroseScoringMode !== "scorerOnly" ? "checked" : ""}> Scorer and Marker — two team cards must agree</label><label>Minimum accepted drives per player<select id="ambroseMinimumDrives">${[0, 1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label><div class="ambroseNtpChoice"><b>Nearest the Pin holes</b><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="0" ${!W.competitions.has("ntp") ? "checked" : ""}> None</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="1" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="2" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 2 ? "checked" : ""}> Two</label><small>The app selects suitable Par 3 holes automatically. You can change them on the NTP page.</small></div></div>`,
       );
     }
     const scratchComp = $('[data-comp="scratch"]')?.closest(".comp");
@@ -4259,6 +4304,17 @@ Count-back if tied
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
       if (t.name === "scratchScoringMode")
         W.event.scratchScoringMode = t.value;
+      if (t.name === "ambroseScoringMode") W.event.ambroseScoringMode = t.value;
+      if (t.id === "ambroseMinimumDrives")
+        W.event.ambroseMinimumDrives = +t.value;
+      if (t.name === "ambroseNtpCount") {
+        const count = +t.value;
+        if (count) W.competitions.add("ntp");
+        else W.competitions.delete("ntp");
+        W.event.ntpDay1Count = count;
+        W.event.ntpDay2Count = count;
+        renderStep3();
+      }
       if (t.name === "p3") W.event.par3Format = t.value;
       if (t.dataset.yellowballday) {
         const day = +t.dataset.yellowballday,
@@ -4307,6 +4363,7 @@ Count-back if tied
  <div class="ruleCard preferredCard"><h4>Preferred Lies</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? "Preferred lies are in use for this event." : "Default for every new event is play the ball as it lies."}</div><button type="button" class="soft" id="changePreferred">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select id="prefArea"><option value="general" ${W.event.preferredLiesArea === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesArea === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>
  ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
  ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
+ ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(ambroseRulesText(W.event))}</div></div>` : ""}
  <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add each separate instruction as a bullet point. Press Enter for the next bullet.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><ul id="specialRules" class="specialRulesEditor" contenteditable="true" role="textbox" aria-label="Special Rules">${specialRulesEditorHtml(W.event.specialRules)}</ul></div>
  <div class="rulesPreview ${W.rulesPreviewAck ? "acknowledged" : ""}"><div><b>Player acknowledgement</b><span>${W.rulesPreviewAck ? "Acknowledgement recorded for this preview." : "Players see the event rules before scoring begins."}</span></div><button type="button" class="gotItPreview" id="gotItPreview">${W.rulesPreviewAck ? "✓ Got It" : "Got It"}</button></div>`;
     $("#changePreferred").onclick = () => {
@@ -4740,6 +4797,14 @@ Count-back if tied
         W.event.scratchScoringMode === "maxDoubleBogey"
           ? "maxDoubleBogey"
           : "stroke",
+      ambroseScoringMode:
+        W.event.ambroseScoringMode === "scorerOnly"
+          ? "scorerOnly"
+          : "scorerMarker",
+      ambroseMinimumDrives: Math.max(
+        0,
+        Math.min(6, +W.event.ambroseMinimumDrives || 3),
+      ),
       par3Format: W.event.par3Format || "daily",
       ntpDay1Count: W.event.ntpDay1Count || 1,
       ntpDay2Count: W.event.ntpDay2Count || 2,
@@ -5497,6 +5562,46 @@ Count-back if tied
           (x) => String(x.playerId) === String(playerId),
         )?.joined,
       );
+    if (ambroseIsOn() && ctx) {
+      const checks = Array.from({ length: 18 }, (_, index) =>
+          ambroseHoleAgreement(day, ctx.groupIndex, index + 1),
+        ),
+        ambroseEntered = checks.filter((check) => check.scorerDone).length,
+        ambroseIssues = checks.filter((check) => check.mismatch).length,
+        ambroseFinalised =
+          store.event.status === "complete" ||
+          Boolean(store.event.roundFinalised?.["day" + day]?.[String(playerId)]) ||
+          ambroseTeamComplete(day, ctx.groupIndex);
+      let ambroseState = "notStarted",
+        ambroseLabel = "Not started",
+        ambroseDetail = joined ? "Connected · ready to start" : "Phone not joined";
+      if (ambroseEntered) {
+        ambroseState = "playing";
+        ambroseLabel = "Playing";
+        ambroseDetail = `${ambroseEntered} of 18 team scores entered`;
+      }
+      if (ambroseIssues) {
+        ambroseState = "attention";
+        ambroseLabel = "Attention";
+        ambroseDetail = `${ambroseIssues} hole${ambroseIssues === 1 ? "" : "s"} need checking`;
+      }
+      if (ambroseTeamComplete(day, ctx.groupIndex) && !ambroseFinalised) {
+        ambroseState = "ready";
+        ambroseLabel = "Ready to finalise";
+        ambroseDetail = "Team score and selected drives are complete";
+      }
+      if (ambroseFinalised) {
+        ambroseState = "finalised";
+        ambroseLabel = "Complete";
+        ambroseDetail = "Ambrose team card complete";
+      }
+      return {
+        playerId: String(playerId), joined, entered: ambroseEntered,
+        finalised: ambroseFinalised, issues: ambroseIssues,
+        state: ambroseState, label: ambroseLabel, detail: ambroseDetail,
+        group: ctx.groupIndex + 1,
+      };
+    }
     let state = "notStarted",
       label = "Not started",
       detail = joined ? "Connected · ready to start" : "Phone not joined";
@@ -7383,7 +7488,9 @@ Count-back if tied
           : "";
     const affected = ctx?.affected ? player(ctx.affected) : null;
     const shortNotice = ctx
-      ? `<div class="virtualNotice">
+      ? ambroseIsOn()
+        ? `<div class="virtualNotice"><h4>${store.event.days === 1 ? "Three-Player Ambrose Team" : `Three-Player Ambrose Team — Day ${day}`}</h4><p>This team plays with its three actual golfers. No Virtual Player score is used.</p>${extra ? `<p><b>NTP Extra Shot:</b> ${esc(extra.name)} has been randomly selected to play two tee shots on each selected NTP hole; either shot may qualify.</p>` : ""}</div>`
+        : `<div class="virtualNotice">
    <h4>${store.event.days === 1 ? "Short Team Arrangement" : `Short Team Arrangement — Day ${day}`}</h4>
    <p>Due to fewer than the planned number of players being available for this event, <b>${esc(affected?.name || "the player")}</b> has been placed in a team with No Partner. <span class="vpName"><b>${esc(vp?.name || "Virtual Player")} (VP)</b></span> has been randomly selected as the Virtual Player.</p>
    <p>Where a partner or fourth team member's score is required, the Virtual Player's score will be used. The Virtual Player remains in their own playing group and is not entitled to any additional prize or required to make any additional Best 3 of 4 Lottery contribution because their score is also being used virtually.</p>
@@ -7404,7 +7511,7 @@ Count-back if tied
      (g, gi) => `<div class="playingGroup">
    <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}</div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
-   ${ctx && ctx.groupIndex === gi ? `<div class="vpAssignment"><b>Virtual Player:</b> <span class="vpName">${esc(vp?.name || "Not selected")} (VP)</span>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : ""}
+   ${ctx && ctx.groupIndex === gi ? ambroseIsOn() ? `<div class="vpAssignment"><b>Three-player Ambrose team</b>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : `<div class="vpAssignment"><b>Virtual Player:</b> <span class="vpName">${esc(vp?.name || "Not selected")} (VP)</span>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : ""}
    ${
      !locked && !teamsSaved &&
      store.event.swapPlayer &&
@@ -7425,7 +7532,7 @@ Count-back if tied
    .join("")}</div>
  ${
    !locked
-     ? `<div class="dailyHandicapPanel"><div class="dailyHandicapHead"><div><b>${store.event.days === 1 ? "Daily Handicaps" : `Daily Handicaps — Day ${day}`}</b><span>Enter the playing handicap used for Stableford. Tick Plus for a plus-handicap player.</span></div><span>${ids.filter((x) => String(x) !== NO_PARTNER_ID && playerDailyHandicap(x, day) == null).length ? "Complete before Lock Event" : "✓ Complete"}</span></div><div class="dailyHandicapGrid">${ids
+     ? `<div class="dailyHandicapPanel"><div class="dailyHandicapHead"><div><b>${store.event.days === 1 ? "Daily Handicaps" : `Daily Handicaps — Day ${day}`}</b><span>Enter the playing handicap used for ${ambroseIsOn() ? "the Ambrose team handicap" : "Stableford"}. Tick Plus for a plus-handicap player.</span></div><span>${ids.filter((x) => String(x) !== NO_PARTNER_ID && playerDailyHandicap(x, day) == null).length ? "Complete before Lock Event" : "✓ Complete"}</span></div><div class="dailyHandicapGrid">${ids
          .filter((x) => String(x) !== NO_PARTNER_ID)
          .map((id) => {
            const h = playerDailyHandicap(id, day),
@@ -7754,6 +7861,86 @@ Count-back if tied
     }
     return null;
   }
+  function ambroseIsOn(event = store.event) {
+    return Boolean((event?.competitions || []).includes("ambrose"));
+  }
+  function ambroseTeam(day, groupIndex, event = store.event) {
+    return (event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || [])
+      .map(String)
+      .filter((id) => id && id !== NO_PARTNER_ID);
+  }
+  function ambroseRoles(day, groupIndex) {
+    const team = ambroseTeam(day, groupIndex);
+    return {
+      scorerId: team[0] || "",
+      markerId:
+        store.event?.ambroseScoringMode === "scorerOnly" ? "" : team[1] || "",
+      team,
+    };
+  }
+  function ambroseEntry(day, scorerId, hole) {
+    const rec = scoreRecord(day, scorerId, hole);
+    rec.ambrose = rec.ambrose || { drivePlayerId: "" };
+    return rec;
+  }
+  function ambroseTeamHandicap(day, groupIndex) {
+    const team = ambroseTeam(day, groupIndex),
+      values = team.map((id) => playerDailyHandicap(id, day));
+    if (!team.length || values.some((value) => value == null)) return null;
+    return values.reduce((sum, value) => sum + +value, 0) / (team.length * 2);
+  }
+  function ambroseHoleAgreement(day, groupIndex, hole) {
+    const roles = ambroseRoles(day, groupIndex),
+      scorer = ambroseEntry(day, roles.scorerId, hole),
+      marker = roles.markerId
+        ? ambroseEntry(day, roles.markerId, hole)
+        : null,
+      scorerDone =
+        scoreEntered(scorer.self?.gross) &&
+        Boolean(scorer.ambrose?.drivePlayerId),
+      markerDone =
+        !marker ||
+        (scoreEntered(marker.self?.gross) &&
+          Boolean(marker.ambrose?.drivePlayerId));
+    return {
+      scorer,
+      marker,
+      scorerDone,
+      markerDone,
+      complete: Boolean(
+        scorerDone &&
+          markerDone &&
+          (!marker ||
+            (+scorer.self.gross === +marker.self.gross &&
+              String(scorer.ambrose.drivePlayerId) ===
+                String(marker.ambrose.drivePlayerId))),
+      ),
+      mismatch: Boolean(
+        marker &&
+          scorerDone &&
+          markerDone &&
+          (+scorer.self.gross !== +marker.self.gross ||
+            String(scorer.ambrose.drivePlayerId) !==
+              String(marker.ambrose.drivePlayerId)),
+      ),
+    };
+  }
+  function ambroseTeamComplete(day, groupIndex) {
+    return Array.from({ length: 18 }, (_, index) => index + 1).every(
+      (hole) => ambroseHoleAgreement(day, groupIndex, hole).complete,
+    );
+  }
+  function ambroseDriveCounts(day, groupIndex, scorerId) {
+    const counts = Object.fromEntries(
+      ambroseTeam(day, groupIndex).map((id) => [id, 0]),
+    );
+    for (let hole = 1; hole <= 18; hole++) {
+      const id = scorerStore(day, scorerId)?.[String(hole)]?.ambrose
+        ?.drivePlayerId;
+      if (id && counts[id] != null) counts[id]++;
+    }
+    return counts;
+  }
   function yellowBallIsOn(day, event = store.event) {
     if (!(event?.competitions || []).includes("yellowBall")) return false;
     if ((event.days || 1) === 1) return +day === 1;
@@ -8051,6 +8238,132 @@ Count-back if tied
         await syncCloudNow();
         renderRoundVerification(selected, day);
       };
+  }
+  function renderAmbroseScoring(selected, day) {
+    requestRoundWakeLock();
+    const host = $("#playerExperience"),
+      ctx = playerGroupContext(selected, day);
+    if (!ctx) return renderPlayerExperience();
+    const roles = ambroseRoles(day, ctx.groupIndex),
+      editable = [roles.scorerId, roles.markerId].includes(String(selected)),
+      entryScorerId = editable ? String(selected) : roles.scorerId,
+      isPrimary = String(selected) === roles.scorerId,
+      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      v = version(c) || {},
+      start = groupStartingHole(store.event, day, ctx.groupIndex),
+      sequence = scoreSequence(start),
+      position = Math.max(0, Math.min(17, +(store.event.playerHolePos || 0))),
+      hole = sequence[position],
+      index = hole - 1,
+      par = +(v.par?.[index] || 4),
+      metres = v.metres?.[index] || "—",
+      agreement = ambroseHoleAgreement(day, ctx.groupIndex, hole),
+      record = ambroseEntry(day, entryScorerId, hole),
+      gross = record.self?.gross,
+      driveId = String(record.ambrose?.drivePlayerId || ""),
+      ntp = ntpHolesFor(day).includes(hole),
+      holder = ntp ? currentNtpHolder(day, hole) : null,
+      extraNtpPlayerId = String(
+        ctx.setup.ntpExtraPlayers?.[String(hole)] ||
+          ctx.setup.ntpExtraPlayer ||
+          "",
+      ),
+      handicap = ambroseTeamHandicap(day, ctx.groupIndex),
+      counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId),
+      minimum = +store.event.ambroseMinimumDrives || 0,
+      completeCount = sequence.filter((h) =>
+        ambroseHoleAgreement(day, ctx.groupIndex, h).complete,
+      ).length;
+    const statusFor = (h) => {
+      const check = ambroseHoleAgreement(day, ctx.groupIndex, h);
+      return h === hole
+        ? "current"
+        : check.mismatch
+          ? "mismatch"
+          : check.complete
+            ? "complete"
+            : "upcoming";
+    };
+    const teamGross = Array.from({ length: 18 }, (_, i) => {
+      const value = scorerStore(day, roles.scorerId)?.[String(i + 1)]?.self?.gross;
+      return scoreEntered(value) ? +value : null;
+    });
+    const grossTotal = teamGross.reduce(
+      (sum, value) => sum + (value == null ? 0 : value),
+      0,
+    );
+    const roleLabel = !editable
+      ? `Viewing ${esc(player(roles.scorerId)?.name || "the scorer")}'s team card`
+      : isPrimary
+        ? "TEAM SCORER"
+        : "TEAM MARKER — CHECKING CARD";
+    host.innerHTML = `<div class="scoringPhone ambrosePhone">
+      <div class="ambroseRole"><div><small>AMBROSE · TEAM ${ctx.groupIndex + 1}</small><h2>${roleLabel}</h2></div><span>${completeCount}/18 agreed</span></div>
+      <div class="holeTracker" aria-label="Ambrose hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${sequence.map((h, i) => { const state = statusFor(h); return `<button type="button" class="holeTrack ${state}" data-ambrosehole="${i}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : state === "mismatch" ? "<small>!</small>" : ""}</button>`; }).join("")}</div></div>
+      ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
+      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>METRES</small><b>${metres}</b></div></div>
+      <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(player(selected)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span><em>Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
+        <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
+        <div class="ambroseDrive"><b>Whose drive was selected?</b><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(player(id)?.name || "Player")}</span><small>${counts[id] || 0} drive${counts[id] === 1 ? "" : "s"}${minimum ? ` · minimum ${minimum}` : ""}</small></button>`).join("")}</div></div>
+      </div>
+      ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(player(holder.id)?.name || "Player")}` : "No name recorded yet"}${extraNtpPlayerId ? ` · ${esc(player(extraNtpPlayerId)?.name || "One player")} has the extra NTP tee shot` : ""}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(player(id)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
+      <div class="ambroseDriveSummary"><b>Accepted drives</b>${roles.team.map((id) => `<span class="${minimum && (counts[id] || 0) < minimum ? "short" : "ready"}">${esc(player(id)?.name || "Player")}: <strong>${counts[id] || 0}</strong>${minimum ? ` / ${minimum} minimum` : ""}</span>`).join("")}</div>
+      <div class="holeNav"><button class="soft" id="prevHole" ${position === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${position === 17 ? "FINISH TEAM CARD" : "Next Hole →"}</button></div>
+    </div>`;
+    const update = (nextGross = gross, nextDrive = driveId) => {
+      record.self = record.self || {};
+      record.self.playerId = entryScorerId;
+      record.self.gross = nextGross;
+      record.ambrose.drivePlayerId = nextDrive;
+      const entryRound = scorerStore(day, entryScorerId);
+      if (entryRound._meta?.finalisedAt) delete entryRound._meta.finalisedAt;
+      writeLocalStore();
+      queueCloudRound(day, entryScorerId);
+      renderAmbroseScoring(selected, day);
+    };
+    if ($("#ambroseMinus")) $("#ambroseMinus").onclick = () => update(Math.max(1, (scoreEntered(gross) ? +gross : par) - 1));
+    if ($("#ambrosePlus")) $("#ambrosePlus").onclick = () => update(Math.min(30, (scoreEntered(gross) ? +gross : par) + 1));
+    if ($("#ambroseGross")) $("#ambroseGross").onclick = () => { if (!scoreEntered(gross)) update(par); };
+    $$('[data-ambrosedrive]').forEach((button) => button.onclick = () => update(gross, button.dataset.ambrosedrive));
+    $$('[data-ambrosehole]').forEach((button) => button.onclick = () => { store.event.playerHolePos = +button.dataset.ambrosehole; save(); renderAmbroseScoring(selected, day); });
+    $$('[data-ambrosentp]').forEach((button) => button.onclick = () => {
+      record.ntp = { entrantId: button.dataset.ambrosentp, confirmedAt: new Date().toISOString(), locked: false };
+      writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day);
+    });
+    if ($("#undoAmbroseNtp")) $("#undoAmbroseNtp").onclick = () => { record.ntp = {}; writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day); };
+    $("#prevHole").onclick = () => { store.event.playerHolePos = Math.max(0, position - 1); save(); renderAmbroseScoring(selected, day); };
+    $("#nextHole").onclick = async () => {
+      if (editable) await flushCloudRound(day, entryScorerId);
+      if (position < 17) { store.event.playerHolePos = position + 1; save(); return renderAmbroseScoring(selected, day); }
+      if (!editable) return alert("Only the team scorer or checking marker can complete the Ambrose team card.");
+      if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
+      const short = Object.entries(counts).filter(([, count]) => count < minimum);
+      if (short.length && !confirm(`${short.map(([id, count]) => `${player(id)?.name || "Player"}: ${count} drive${count === 1 ? "" : "s"}`).join("\n")}\n\nThe minimum is ${minimum} accepted drives per player. Complete the team card anyway?`)) return;
+      const at = new Date().toISOString();
+      store.event.roundFinalised = store.event.roundFinalised || {};
+      store.event.roundFinalised["day" + day] ||= {};
+      roles.team.forEach((id) => store.event.roundFinalised["day" + day][id] = at);
+      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => { const round = scorerStore(day, id); round._meta = { ...(round._meta || {}), finalisedAt: at, ambroseTeam: ctx.groupIndex }; queueCloudRound(day, id); });
+      store.event.playerRoundMode = "completed";
+      writeLocalStore();
+      if (store.cloud?.role === "organiser" && store.cloud?.eventId) await updateCloudEvent();
+      renderPlayerExperience(); renderHome();
+    };
+  }
+  function renderAmbroseCompleted(selected, day) {
+    const host = $("#playerExperience"),
+      ctx = playerGroupContext(selected, day);
+    if (!ctx) return renderPlayerExperience();
+    const roles = ambroseRoles(day, ctx.groupIndex),
+      handicap = ambroseTeamHandicap(day, ctx.groupIndex),
+      holes = Array.from({ length: 18 }, (_, index) => {
+        const value = scorerStore(day, roles.scorerId)?.[String(index + 1)]?.self?.gross;
+        return scoreEntered(value) ? +value : null;
+      }),
+      gross = leaderSum(holes),
+      counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId);
+    host.innerHTML = `<div class="completedCard ambroseCompleted"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Ambrose Team Card Complete</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div><div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives</b>${roles.team.map((id) => `<span>${esc(player(id)?.name || "Player")}: <strong>${counts[id] || 0}</strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been recorded${roles.markerId ? " and the scorer and marker cards agree" : ""}.</p></div></div>`;
+    $("#backFromAmbroseComplete").onclick = () => { store.event.playerRoundMode = "preview"; save(); renderPlayerExperience(); };
   }
   function renderHoleScoring(selected, day) {
     requestRoundWakeLock();
@@ -8535,11 +8848,13 @@ Count-back if tied
     if (!setup) return out;
     (setup.groups || []).forEach((raw, gi) => {
       const group = raw.map(String),
-        filled = group
-          .map((id) =>
-            id === NO_PARTNER_ID ? String(setup.virtualPlayer || "") : id,
-          )
-          .filter(Boolean);
+        filled = ambroseIsOn()
+          ? group.filter((id) => id !== NO_PARTNER_ID)
+          : group
+              .map((id) =>
+                id === NO_PARTNER_ID ? String(setup.virtualPlayer || "") : id,
+              )
+              .filter(Boolean);
       if (type === "team")
         out.push({
           id: `d${day}g${gi}`,
@@ -8685,6 +9000,11 @@ Count-back if tied
     }
     for (let day = 1; day <= days; day++) {
       const suffix = days === 1 ? "" : ` — Day ${day}`;
+      if (selected.has("ambrose"))
+        add(`ambrose-d${day}`, `Ambrose${suffix}`, "ambrose", day, {
+          lower: true,
+          countback: true,
+        });
       if (selected.has("fourball"))
         add(`fourball-d${day}`, `4BBB${suffix}`, "fourball", day, {
           countback: true,
@@ -8756,6 +9076,26 @@ Count-back if tied
           r.cbHoles = d2;
           return r;
         });
+    if (def.type === "ambrose")
+      rows = leaderboardUnits(def.day, "team").map((unit) => {
+        const groupIndex = +String(unit.id).replace(/^d\d+g/, ""),
+          roles = ambroseRoles(def.day, groupIndex),
+          holes = Array.from({ length: 18 }, (_, index) => {
+            const value = scorerStore(def.day, roles.scorerId)?.[
+              String(index + 1)
+            ]?.self?.gross;
+            return scoreEntered(value) ? +value : null;
+          }),
+          row = leaderRow(unit.id, unit.name, unit.detail, holes),
+          handicap = ambroseTeamHandicap(def.day, groupIndex);
+        row.grossTotal = row.total;
+        row.handicap = handicap;
+        row.total =
+          row.thru === 18 && handicap != null
+            ? row.grossTotal - handicap
+            : row.grossTotal;
+        return row;
+      });
     if (def.type === "scratch") {
       const v =
           version(
@@ -9052,6 +9392,7 @@ Count-back if tied
       };
     const teamMembers =
       (def.type === "best3" ||
+        def.type === "ambrose" ||
         def.type === "yellowBall" ||
         (def.type === "putts" && store.event.puttingFormat !== "pairs")) &&
       top.detail
@@ -9068,6 +9409,10 @@ Count-back if tied
         ? complete
           ? `${top.grossTotal} strokes (${scratchScore})`
           : `${scratchScore} · Thru ${top.thru}`
+        : def.type === "ambrose"
+          ? complete
+            ? `${top.grossTotal} gross · ${top.handicap == null ? "no handicap" : top.handicap.toFixed(1) + " hcp"} · ${top.total.toFixed(1)} net`
+            : `${top.grossTotal} gross · Thru ${top.thru}`
         : def.type === "yellowBall"
           ? top.loss
             ? `${top.total} pts · ball lost on Hole ${top.loss.hole}`
@@ -9111,6 +9456,7 @@ Count-back if tied
       ].map(String);
     const kind =
       def.type === "best3" ||
+      def.type === "ambrose" ||
       def.type === "yellowBall" ||
       (def.type === "putts" && store.event.puttingFormat !== "pairs")
         ? "team"
@@ -9205,6 +9551,7 @@ Count-back if tied
         fourball: "fourball",
         putts: "teamPutts",
         best3: "best3of4",
+        ambrose: "ambrose",
         yellowBall: "yellowBall",
         scratch: "scratch",
         ntp: "ntp",
@@ -9424,7 +9771,7 @@ Count-back if tied
     } else {
       const rows = calculateLeaderboard(def),
         competitionComplete = leaderboardComplete(def, rows),
-        unit = def.type === "putts" ? "putts" : "pts",
+        unit = def.type === "putts" ? "putts" : def.type === "ambrose" ? "net" : "pts",
         toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
       body =
         def.type === "yellowBall" && !competitionComplete
@@ -9460,7 +9807,11 @@ Count-back if tied
                   ? isFinal
                     ? `${r.grossTotal} <small>strokes (${toPar(r.scratchToPar)})</small>`
                     : toPar(r.scratchToPar)
-                  : `${r.total} <small>${unit}</small>`;
+                  : def.type === "ambrose"
+                    ? isFinal
+                      ? `${r.total.toFixed(1)} <small>net</small>`
+                      : `${r.grossTotal} <small>gross</small>`
+                    : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
               return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>Withdrawn from this Competition</small></span><span class="leaderScore">—</span><span class="leaderThru">Pick-up on Hole ${r.pickupHole}</span></div>`;
             const progress =
@@ -9548,11 +9899,15 @@ Count-back if tied
       return;
     }
     if (store.event.playerRoundMode === "scoring")
-      return renderHoleScoring(selected, day);
+      return ambroseIsOn()
+        ? renderAmbroseScoring(selected, day)
+        : renderHoleScoring(selected, day);
     if (store.event.playerRoundMode === "verify")
       return renderRoundVerification(selected, day);
     if (store.event.playerRoundMode === "completed")
-      return renderCompletedScorecard(selected, day);
+      return ambroseIsOn()
+        ? renderAmbroseCompleted(selected, day)
+        : renderCompletedScorecard(selected, day);
     const p = player(selected),
       ctx = playerGroupContext(selected, day);
     if (!p || !ctx) {
@@ -9619,7 +9974,9 @@ Count-back if tied
       completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${team.map((id) => id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown").join(" · ")}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
-      finalised = roundFinalisedFor(day, selected),
+      finalised = ambroseIsOn()
+        ? ambroseTeamComplete(day, ctx.groupIndex)
+        : roundFinalisedFor(day, selected),
       scoringOpen = scoringIsOpen(day),
       canStart = Boolean(
         store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null && scoringOpen,
@@ -9631,7 +9988,7 @@ Count-back if tied
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day)) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day)) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}
- ${isAffected || isExtra || yellowBallOn ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions.</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra || yellowBallOn || ambroseIsOn() ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn() ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), role = selected === roles.scorerId ? "You are the team scorer." : selected === roles.markerId ? "You are the checking marker." : `The team scorer is ${player(roles.scorerId)?.name || "the first listed player"}.`; return `<p><b>Ambrose:</b> ${esc(role)} Record one team stroke score and the selected drive on every hole${roles.markerId ? "; the scorer and marker cards must agree" : ""}.</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn() ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(

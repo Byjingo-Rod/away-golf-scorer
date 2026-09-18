@@ -6193,3 +6193,33 @@ body.playerDevice .cloudHeader {
   background: #e5eae6;
   color: #456052;
 }
+.ambroseSetup { display:grid; gap:.65rem; }
+.ambroseSetup > label, .ambroseNtpChoice label { display:flex; align-items:center; gap:.45rem; }
+.ambroseNtpChoice { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; padding-top:.55rem; border-top:1px solid #cad8d0; }
+.ambroseNtpChoice small { flex-basis:100%; }
+.ambrosePhone { max-width:760px; margin:0 auto; }
+.ambroseRole { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:.9rem 1rem; margin-bottom:.75rem; border-radius:14px; background:#e9f4ed; }
+.ambroseRole small { color:#557065; font-weight:800; letter-spacing:.06em; }
+.ambroseRole h2 { margin:.15rem 0 0; font-size:1.05rem; }
+.ambroseRole > span { white-space:nowrap; font-weight:800; color:#075d37; }
+.ambroseScoreCard { border-left-color:#c79618; }
+.ambroseGross { display:grid; gap:.4rem; margin:1rem 0; }
+.ambroseGross .scoreStepper { max-width:360px; }
+.ambroseDrive > b { display:block; margin-bottom:.55rem; }
+.ambroseDriveChoices, .ambroseNtpNames { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; }
+.ambroseDriveChoices button, .ambroseNtpNames button { text-align:left; padding:.7rem; border:1px solid #bfd0c6; border-radius:10px; background:#f5faf7; color:#075d37; }
+.ambroseDriveChoices button span { display:block; font-weight:800; }
+.ambroseDriveChoices button small { display:block; margin-top:.15rem; color:#66766e; }
+.ambroseDriveChoices button.selected, .ambroseNtpNames button.selected { border-color:#c89c00; background:#ffe716; color:#151515; box-shadow:0 0 0 3px rgba(255,231,22,.3); }
+.ambroseDriveSummary { display:grid; gap:.35rem; margin:.75rem 0; padding:.85rem 1rem; border:1px solid #cad8d0; border-radius:12px; background:#f7faf8; }
+.ambroseDriveSummary span { display:flex; justify-content:space-between; gap:1rem; }
+.ambroseDriveSummary span.short { color:#9a5b00; }
+.ambroseDriveSummary span.ready { color:#075d37; }
+.ambroseFinalScore { display:grid; grid-template-columns:repeat(3,1fr); gap:.5rem; margin:1rem 0; }
+.ambroseFinalScore span { display:grid; text-align:center; padding:1rem .5rem; border-radius:12px; background:#e9f4ed; }
+.ambroseFinalScore small { color:#62756b; font-weight:800; }
+.ambroseFinalScore strong { font-size:1.5rem; color:#075d37; }
+@media (max-width:560px) {
+  .ambroseDriveChoices, .ambroseNtpNames { grid-template-columns:1fr; }
+  .ambroseRole { align-items:flex-start; }
+}

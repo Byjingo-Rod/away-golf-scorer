@@ -1,3 +1,20 @@
+AWAY GOLF SCORER — VERSION 15.88
+
+VERSION 15.88 — AMBROSE TEST BUILD
+
+- Adds Ambrose as a separate team-stroke event that runs only with optional
+  Nearest the Pin.
+- Supports four-player teams and three-player teams without a virtual score.
+- Lets the organiser choose Scorer Only or Scorer and Marker checking.
+- Records one team stroke score and the selected drive on every hole.
+- Tracks each player's accepted drives against an organiser-set minimum.
+- Calculates the team handicap as the combined daily handicaps divided by
+  twice the number of actual team members (four-player / 8; three-player / 6).
+- Offers 0, 1 or 2 automatically selected NTP holes with the existing Change
+  option and records who signed the NTP card and when.
+- Gives one randomly selected member of a three-player team the extra NTP tee
+  shot already used for short teams.
+
 AWAY GOLF SCORER — VERSION 15.87
 
 VERSION 15.87 — YELLOW BALL
