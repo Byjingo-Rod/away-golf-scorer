@@ -1,4 +1,21 @@
-AWAY GOLF SCORER — VERSION 15.88.3
+AWAY GOLF SCORER — VERSION 15.88.5
+
+VERSION 15.88.5 — AMBROSE MARKER AND TEAM-ROLE LAYOUT
+
+- Places one Score Marker control beside the Playing Tee choices. It applies
+  to every team in the event and locks once scoring begins.
+- New Ambrose events default to honour scoring with one scorer per team; the
+  organiser can include checking markers with one button.
+- Removes the Ambrose Team Roles heading and enlarges the team Scorer and
+  Marker selectors so complete player names remain visible.
+
+VERSION 15.88.4 — THREE-PLAYER AMBROSE NTP ROTATION
+
+- When a three-player Ambrose team has two NTP holes, randomly assigns the
+  extra tee shot to a different player on the second NTP hole.
+- Shows the organiser each NTP hole and its nominated extra-shot player.
+- Shows each nominated player the relevant NTP hole in Today's Special
+  Instructions. Existing one-NTP Ambrose events retain one nominated player.
 
 VERSION 15.88.3 — AMBROSE TEST BUILD
 

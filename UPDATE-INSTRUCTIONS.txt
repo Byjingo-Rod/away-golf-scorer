@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.88.3 AMBROSE TEST BUILD
+AWAY GOLF SCORER — VERSION 15.88.5 AMBROSE MARKER TEST BUILD
 
-This package is the complete Version 15.88.3 app.
+This package is the complete Version 15.88.5 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,10 +11,26 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.88.3.
+4. Open index.html and confirm that the heading says Version 15.88.5.
 
-No new Supabase SQL is required for Version 15.88.3. If the Version 15.86.4
+No new Supabase SQL is required for Version 15.88.5. If the Version 15.86.4
 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.88.5 CHANGES
+
+- Adds one event-wide Score Marker button beside the Playing Tee choices.
+- Removes the Ambrose Team Roles heading and enlarges the Scorer and Marker
+  selectors so complete names fit more reliably.
+- New Ambrose events begin with honour scoring; one click includes a checking
+  marker for every team. The setting cannot change after scoring begins.
+
+VERSION 15.88.4 CHANGES
+
+- A three-player Ambrose team with two NTP holes now receives two different
+  randomly selected extra-shot players, one for each NTP hole.
+- The Groups & Teams page lists the selected player beside each NTP hole.
+- Player instructions identify the exact NTP hole on which that player may
+  take two tee shots. A one-NTP event continues to nominate one player.
 
 VERSION 15.88 CHANGES
 

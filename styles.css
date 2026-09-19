@@ -5285,6 +5285,39 @@ body.joinOnlyDevice .playerJoinLanding {
   font-size: 9px;
   font-weight: 600;
 }
+.eventTeePanel.ambroseTeePanel {
+  grid-template-columns: minmax(210px, 1fr) auto minmax(220px, 270px) auto;
+}
+.ambroseMarkerChoice {
+  display: grid;
+  gap: 4px;
+  padding-left: 14px;
+  border-left: 1px solid #dfc991;
+}
+.ambroseMarkerChoice > b {
+  color: #80591f;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ambroseMarkerChoice button {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #b9cec1;
+  border-radius: 8px;
+  background: #fff;
+  color: #27513d;
+  font-weight: 850;
+}
+.ambroseMarkerChoice button.included {
+  border-color: #176c46;
+  background: #176c46;
+  color: #fff;
+}
+.ambroseMarkerChoice small {
+  color: #66766e;
+  font-size: 10px;
+}
 .finaliseTeeBtn,
 .reopenTeeBtn {
   white-space: nowrap;
@@ -5364,6 +5397,14 @@ body.joinOnlyDevice .playerJoinLanding {
 @media (max-width: 760px) {
   .eventTeePanel {
     grid-template-columns: 1fr;
+  }
+  .eventTeePanel.ambroseTeePanel {
+    grid-template-columns: 1fr;
+  }
+  .ambroseMarkerChoice {
+    padding: 10px 0 0;
+    border-top: 1px solid #dfc991;
+    border-left: 0;
   }
   .eventTeeButtons {
     display: grid;
@@ -6197,12 +6238,10 @@ body.playerDevice .cloudHeader {
 .ambroseSetup > label, .ambroseNtpChoice label { display:flex; align-items:center; gap:.45rem; }
 .ambroseNtpChoice { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem; padding-top:.55rem; border-top:1px solid #cad8d0; }
 .ambroseNtpChoice small { flex-basis:100%; }
-.ambroseTeamRoles { display:grid; grid-template-columns:minmax(180px,1fr) repeat(2,minmax(150px,.65fr)); gap:.65rem; align-items:end; padding:.75rem; border-top:1px solid #d7e2dc; background:#f7faf8; }
-.ambroseTeamRoles > div { display:grid; gap:.15rem; }
-.ambroseTeamRoles small { color:#66766e; }
+.ambroseTeamRoles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; align-items:end; padding:.75rem; border-top:1px solid #d7e2dc; background:#f7faf8; }
+.ambroseTeamRoles.scorerOnly { grid-template-columns:1fr; }
 .ambroseTeamRoles label { display:grid; gap:.2rem; font-size:.78rem; font-weight:800; color:#557065; }
-.ambroseTeamRoles select { margin:0; }
-.ambroseHonour { align-self:center; color:#075d37; font-weight:800; }
+.ambroseTeamRoles select { width:100%; min-width:0; margin:0; font-size:.9rem; }
 .ambrosePhone { max-width:760px; margin:0 auto; }
 .ambroseRole { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:.9rem 1rem; margin-bottom:.75rem; border-radius:14px; background:#e9f4ed; }
 .ambroseRole small { color:#557065; font-weight:800; letter-spacing:.06em; }
