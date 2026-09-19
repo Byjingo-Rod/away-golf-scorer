@@ -1,4 +1,14 @@
-AWAY GOLF SCORER — VERSION 15.88.5
+AWAY GOLF SCORER — VERSION 15.88.7
+
+VERSION 15.88.7 — AMBROSE NET LEADERBOARD AND CARD ALIGNMENT
+
+- Keeps every player's accepted-drive count visible on every hole.
+- Uses yellow only for the drive selected on the current hole.
+- Submits non-compliant cards with REQUIRED DRIVES NOT RECORDED and excludes them from placings.
+- Shows the named two-shot player on each three-player-team NTP scoring panel.
+- Compacts four drive choices into a two-by-two phone layout.
+- Clarifies that Net is the final 18-hole net score.
+- Moves Change Tee Before Scoring immediately before the event-wide Score Marker control.
 
 VERSION 15.88.5 — AMBROSE MARKER AND TEAM-ROLE LAYOUT
 
