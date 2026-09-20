@@ -6,7 +6,7 @@ const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sql = readFileSync(new URL("../supabase_v15_90_guest_organiser.sql", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.90\.4/);
+assert.match(html, /Version 15\.90\.7/);
 assert.match(html, /id="guestOrganiserAccess"/);
 assert.match(app, /function openGuestOrganiserAccess/);
 assert.match(app, /function claimGuestOrganiser/);
@@ -19,6 +19,8 @@ assert.match(cloud, /revokeGuestOrganiser/);
 assert.match(cloud, /guestOrganiserActive/);
 assert.match(cloud, /async function syncEventPlayers/);
 assert.match(app, /AwayCloud\.syncEventPlayers[\s\S]*cloudPlayerRows\(\)/);
+assert.match(app, /finalUpdateCloudSentAt/);
+assert.match(app, /Final Update Sent ✓/);
 assert.match(sql, /away_event_guest_keys/);
 assert.match(sql, /access_type in \('tablet', 'guest'\)/);
 assert.match(sql, /create_away_guest_organiser_key/);
@@ -29,4 +31,4 @@ assert.match(sql, /e\.status not in \('complete', 'archived'\)/);
 assert.match(sql, /interval '14 days'/);
 assert.doesNotMatch(sql, /service_role|sb_secret_/i);
 
-console.log("Version 15.90.4 Guest Organiser regression checks passed.");
+console.log("Version 15.90.7 Guest Organiser regression checks passed.");

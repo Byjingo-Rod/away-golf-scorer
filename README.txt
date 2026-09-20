@@ -1,4 +1,19 @@
-AWAY GOLF SCORER — VERSION 15.90.4
+AWAY GOLF SCORER — VERSION 15.90.7
+
+VERSION 15.90.7 — COMPACT AMBROSE CONTROL ROW
+
+- Moves the current win-benefit summary to the left of the Ambrose controls.
+- Places Required drives per player on the same line immediately to its right.
+
+VERSION 15.90.6 — AMBROSE REQUIRED-DRIVES CONTROL
+
+- Restores the Required drives per player selector to the Ambrose competition
+  panel for every one-day Ambrose event.
+
+VERSION 15.90.5 — PERSISTENT FINAL UPDATE CONFIRMATION
+
+- After a successful final upload, the publishing button remains visibly
+  changed to a brown Final Update Sent ✓ confirmation.
 
 VERSION 15.90.4 — GUEST ORGANISER FINAL PLAYER PUBLICATION
 

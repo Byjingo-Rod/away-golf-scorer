@@ -1736,6 +1736,8 @@
         joinCode: result.join_code,
         name: store.event.name,
       });
+      if (store.event.locked)
+        store.event.finalUpdateCloudSentAt = new Date().toISOString();
       watchCloudEvent();
       writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final event published" : "Event Preview published");
@@ -1790,6 +1792,8 @@
         cloudPayload(),
         store.event?.locked ? "locked" : "setup",
       );
+      if (store.event.locked)
+        store.event.finalUpdateCloudSentAt = new Date().toISOString();
       writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final update shared" : "Preview changes shared");
       return true;
@@ -2323,7 +2327,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.4", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.7", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2747,8 +2751,11 @@
         : "";
     if (store.cloud?.role === "organiser" && store.cloud.eventId) {
       const connections = (store.cloudPlayers || []).filter((x) => x.joined),
-        guest = isGuestOrganiser();
-      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
+        guest = isGuestOrganiser(),
+        finalUpdateSent = Boolean(
+          store.event?.locked && store.event?.finalUpdateCloudSentAt,
+        );
+      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="${finalUpdateSent ? "finalUpdateSent" : "primary"}" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${finalUpdateSent ? "Final Update Sent ✓" : store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
       $("#retryCloud").onclick = syncCloudNow;
       if ($("#guestOrganiserInvite")) $("#guestOrganiserInvite").onclick = openGuestOrganiserAccess;
@@ -4646,11 +4653,15 @@ Count-back if tied
   function benefitHtml(id) {
     let b = W.benefits[id] || {},
       open = W.benefitOpen.has(id);
+    const ambroseDrives =
+      id === "ambrose"
+        ? `<label class="ambroseMinimumInline"><span>Required drives per player</span><select id="ambroseMinimumDrives">${[2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>`
+        : "";
     let body =
       id === "best3of4"
         ? `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid"><label>Win Benefit<select data-bmode="${id}"><option value="" ${!b.mode ? "selected" : ""}>Not Yet Set</option><option value="lottery" ${b.mode === "lottery" ? "selected" : ""}>Lottery Pool</option><option value="prize" ${b.mode === "prize" ? "selected" : ""}>Prize</option></select></label>${b.mode === "lottery" ? `<label>Losing Team(s) Contribution<div class="benefitSuffix"><select data-bcontrib="${id}"><option value="">Not Yet Set</option>${[10, 20, 30, 40, 50].map((x) => `<option value="${x}" ${b.contribution == x ? "selected" : ""}>$${x}</option>`).join("")}</select><span>per team member</span></div></label>` : ""}${b.mode === "prize" ? prizeFields(id, b) : ""}</div></div>`
         : `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid">${prizeFields(id, b)}</div></div>`;
-    return `<div class="benefitControlRow"><button class="soft benefitBtn" data-benefit="${id}">Set/Change Win Benefit</button><div class="benefitCurrent ${benefitSummary(id) === "Not Yet Set" ? "notSet" : ""}">${benefitSummary(id)}</div></div>${body}`;
+    return `<div class="benefitControlRow ${id === "ambrose" ? "ambroseBenefitRow" : ""}"><button class="soft benefitBtn" data-benefit="${id}">Set/Change Win Benefit</button><div class="benefitCurrent ${benefitSummary(id) === "Not Yet Set" ? "notSet" : ""}">${benefitSummary(id)}</div>${ambroseDrives}</div>${body}`;
   }
   function prizeFields(id, b) {
     return `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${[1, 2, 3, 4, 6, 8, 12].map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label><label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`;
@@ -4722,13 +4733,13 @@ Count-back if tied
         "beforeend",
         `<div class="ntpBox yellowBallDays"><b>Yellow Ball Days</b><label><input style="width:auto" type="checkbox" data-yellowballday="1" ${yellowDays.includes(1) ? "checked" : ""}> Day 1</label><label><input style="width:auto" type="checkbox" data-yellowballday="2" ${yellowDays.includes(2) ? "checked" : ""}> Day 2</label><small>Select either day or both days.</small></div>`,
       );
+    }
     const ambroseComp = $('[data-comp="ambrose"]')?.closest(".comp");
     if (ambroseComp && W.competitions.has("ambrose"))
       ambroseComp.insertAdjacentHTML(
         "beforeend",
-        `<div class="ntpBox ambroseSetup"><b>Ambrose Scoring</b><small>Every team has one scorer. Choose whether every team also has a checking marker on the Groups &amp; Teams page.</small><label>Required drives per player<select id="ambroseMinimumDrives">${[2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label><div class="ambroseNtpChoice"><b>Nearest the Pin holes</b><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="0" ${!W.competitions.has("ntp") ? "checked" : ""}> None</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="1" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="2" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 2 ? "checked" : ""}> Two</label><small>The app selects suitable Par 3 holes automatically. You can change them on the NTP page.</small></div></div>`,
+        `<div class="ntpBox ambroseSetup"><b>Ambrose Scoring</b><small>Every team has one scorer. Choose whether every team also has a checking marker on the Groups &amp; Teams page.</small><div class="ambroseNtpChoice"><b>Nearest the Pin holes</b><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="0" ${!W.competitions.has("ntp") ? "checked" : ""}> None</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="1" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="2" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 2 ? "checked" : ""}> Two</label><small>The app selects suitable Par 3 holes automatically. You can change them on the NTP page.</small></div></div>`,
       );
-    }
     const scratchComp = $('[data-comp="scratch"]')?.closest(".comp");
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
