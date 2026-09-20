@@ -6,8 +6,8 @@ const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.88\.7/);
-assert.match(sw, /away-golf-v15-88-7/);
+assert.match(html, /Version 15\.90\.3/);
+assert.match(sw, /away-golf-v15-90-3/);
 assert.match(app, /ambrose:\s*"Ambrose"/);
 assert.match(app, /id:\s*"ambrose"/);
 assert.match(app, /function renderAmbroseScoring/);

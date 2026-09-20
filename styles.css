@@ -186,7 +186,7 @@ nav button.active {
 }
 .wizardFoot {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 8px;
   padding: 12px 18px;
   border-top: 1px solid #ddd;
@@ -490,6 +490,67 @@ nav button.active {
   min-width: 190px;
   white-space: nowrap;
 }
+.savedPlayerListTools {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid #cddbd2;
+  border-radius: 8px;
+  background: #f3f8f5;
+}
+.savedPlayerListTools label {
+  margin: 0;
+  font-weight: 700;
+}
+.savedPlayerListTools select {
+  margin-top: 4px;
+}
+.playerListHead,
+.namedPlayerListCards article {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+.namedPlayerListCards {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+.namedPlayerListCards article {
+  border: 1px solid #d7e2db;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.namedPlayerListCards small,
+.namedPlayerChecklist small {
+  display: block;
+  color: #68756d;
+}
+.namedPlayerChecklist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  max-height: 52vh;
+  overflow: auto;
+  margin: 12px 0;
+}
+.namedPlayerChecklist label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid #d7e2db;
+  border-radius: 7px;
+  margin: 0;
+}
+.namedPlayerChecklist input {
+  width: auto;
+  margin: 0;
+}
 .trafficLegend {
   display: flex;
   gap: 14px;
@@ -671,6 +732,13 @@ nav button.active {
   .playerTools [data-setcoursehcp] {
     flex: 1;
     min-width: 180px;
+  }
+  .savedPlayerListTools {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .namedPlayerChecklist {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 650px) {
@@ -5033,6 +5101,52 @@ body.joinOnlyDevice .playerJoinLanding {
   color: #56675e;
   font-size: 12px;
 }
+.heroActions .ownerSignedIn {
+  border: 1px solid #7fbea0;
+  background: #e8f6ed;
+  color: #075d37;
+}
+.ownerAccountLoading {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #18543a;
+}
+.ownerAccountHead small {
+  color: #a65b16;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.ownerAccountHead h2 { margin: .25rem 0 .4rem; }
+.ownerAccountHead p { margin: 0 0 1rem; color: #53655c; }
+.ownerEmailLabel { display: grid; gap: .4rem; font-weight: 850; color: #184b34; }
+.ownerEmailLabel input {
+  width: 100%;
+  padding: .85rem;
+  border: 1px solid #adc7b9;
+  border-radius: 9px;
+  font: inherit;
+}
+.ownerAccountNotice,
+.ownerEmailSent,
+.ownerIdentityCard {
+  display: grid;
+  gap: .4rem;
+  margin: 1rem 0;
+  padding: 1rem;
+  border-left: 4px solid #23835a;
+  border-radius: 9px;
+  background: #eef7f1;
+  color: #4d6257;
+}
+.ownerIdentityCard span {
+  color: #66776e;
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.ownerIdentityCard > b { color: #075d37; font-size: 1.15rem; overflow-wrap: anywhere; }
+.ownerIdentityCard p { margin: .35rem 0 0; }
+.ownerAccountActions { display: grid; gap: .55rem; margin-top: 1rem; }
 @media (max-width: 650px) {
   .publishedEventChoice { align-items: stretch; }
   .publishedEventChoice > button:first-child { align-items: flex-start; }

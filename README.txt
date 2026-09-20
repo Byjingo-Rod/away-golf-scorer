@@ -1,4 +1,57 @@
-AWAY GOLF SCORER — VERSION 15.88.7
+AWAY GOLF SCORER — VERSION 15.90.3
+
+VERSION 15.90.3 — OWNER RECOVERY AND GUEST INVITATION REPAIR
+
+- An organiser copy containing old local work can now sign in to an existing
+  permanent Owner account without trying to protect the old anonymous identity.
+- Guest Organiser invitation code generation now resolves Supabase pgcrypto
+  functions from the extensions schema.
+- Includes Version 15.90.2 draft recovery and named Player Lists.
+
+VERSION 15.90.2 — RESUME DRAFTS AND NAMED PLAYER LISTS
+- My Events now opens a saved draft directly at the setup step where work stopped.
+- Event Options includes Continue Event Setup for both the Owner and Guest Organiser.
+- Adds reusable named Player Lists built from the Master Player List.
+- Loading a named list adds its available members to Invited as awaiting reply.
+- Lists can be created, edited, renamed and deleted without changing the Master Player List.
+
+VERSION 15.90.1 — SAVE PARTLY PLANNED EVENTS
+- Adds Save Draft throughout the six Event Setup steps.
+- A draft can be saved with only the information known so far and reopened later.
+- Saving is separate from publishing or delegation.
+- A saved draft can later be delegated from Guest Organiser, or completed by the Owner.
+- Keeps Cancel as a true cancellation that does not create or alter the saved draft.
+
+VERSION 15.90.0 — SINGLE-EVENT GUEST ORGANISER
+
+- Lets the Owner Organiser delegate one published event using a separate,
+  one-use Guest Organiser invitation code.
+- Gives the guest the normal event setup and operation pages for that event.
+- Prevents the guest from creating events, viewing the Owner's other events,
+  using the Owner account, or creating organiser-tablet access.
+- Lets the Owner revoke guest access at any time.
+- Automatically revokes guest access when the event is closed or archived.
+- Creating a replacement invitation revokes the previous guest.
+- Invitation codes expire after 14 days if they have not been accepted.
+
+VERSION 15.89.1 — OWNER EMAIL VERIFICATION CORRECTION
+
+- Shows Verification Pending until Supabase confirms the owner's email.
+- Shows Owner Signed In only after a genuine email confirmation.
+- Sends verification and sign-in links back to the published Away Golf page,
+  never to a temporary localhost test address.
+- Allows an expired verification email to be replaced with a new one.
+
+VERSION 15.89.0 — OWNER ORGANISER SIGN-IN
+
+- Converts the organiser identity already used by the planning PC into a
+  permanent passwordless email account without changing its secure user ID.
+- Keeps existing published events attached to the same Owner Organiser.
+- Allows a blank replacement device to request a secure sign-in link for an
+  existing Owner account and recover its published events.
+- Clearly separates published-event recovery from draft planning: drafts stay
+  on the planning PC unless saved with Organiser Backup.
+- Does not change the existing Organiser Tablet event-day controls.
 
 VERSION 15.88.7 — AMBROSE NET LEADERBOARD AND CARD ALIGNMENT
 

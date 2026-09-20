@@ -91,7 +91,8 @@
   }
   let roundWakeLock = null,
     roundWakeLockActive = false,
-    scoringOpenTimer = null;
+    scoringOpenTimer = null,
+    ownerAccountState = null;
   function updateWakeIndicator() {
     const el = $("#wakeHeader");
     if (!el) return;
@@ -343,6 +344,7 @@
       })),
       event: null,
       template: null,
+      playerLists: [],
     };
   }
   // Only the newest open app tab may persist the organiser workspace. Without
@@ -474,6 +476,7 @@
     } catch (e) {}
   }
   restoreWorkspaceFromJournalIfShrunk();
+  store.playerLists = Array.isArray(store.playerLists) ? store.playerLists : [];
   try {
     store.template =
       JSON.parse(
@@ -1095,6 +1098,10 @@
     store.cloud?.role === "player" && Boolean(store.cloud?.eventId);
   const isSpectatorDevice = () =>
     store.cloud?.role === "spectator" && Boolean(store.cloud?.eventId);
+  const isGuestOrganiser = () =>
+    store.cloud?.role === "organiser" &&
+    Boolean(store.cloud?.eventId) &&
+    Boolean(store.cloud?.guestOrganiser);
   const isFreshMobileDevice = () =>
     !store.event &&
     !store.cloud?.eventId &&
@@ -1108,6 +1115,7 @@
   function applyDeviceRole() {
     document.body.classList.toggle("playerDevice", isPlayerDevice());
     document.body.classList.toggle("spectatorDevice", isSpectatorDevice());
+    document.body.classList.toggle("guestOrganiserDevice", isGuestOrganiser());
     document.body.classList.toggle("joinOnlyDevice", isFreshMobileDevice());
     if (
       (isPlayerDevice() || isSpectatorDevice()) &&
@@ -1115,6 +1123,18 @@
         $(".page.active")?.id || "",
       )
     ) nav(isSpectatorDevice() ? "leaderboardPage" : "scorePage");
+    const guest = isGuestOrganiser();
+    ["newEvent", "myEvents", "publishedEvents", "organiserBackup", "ownerAccount"].forEach((id) => {
+      const element = $("#" + id);
+      if (element) element.hidden = guest;
+    });
+    const eventOptions = $("#eventOptions");
+    if (eventOptions) eventOptions.hidden = !store.event;
+    const guestAccess = $("#guestOrganiserAccess");
+    if (guestAccess) {
+      guestAccess.hidden = guest;
+      guestAccess.textContent = "Guest Organiser";
+    }
     updateWakeIndicator();
   }
   function cloudPlayerIds() {
@@ -1470,6 +1490,11 @@
     }
   }
   function leaveOrganiserMode() {
+    if (isGuestOrganiser()) {
+      if (!confirm("Leave this Guest Organiser event on this device?\n\nThe Owner's online event remains safe, but this device will no longer retain its planning copy.")) return;
+      endGuestOrganiserSession("You have left the delegated event. Its planning copy has been removed from this device.");
+      return;
+    }
     if (
       !confirm(
         "Leave Organiser Mode on this device and return to player joining?\n\nThe online event and all scores will remain safe. This changes only this device.",
@@ -1486,6 +1511,47 @@
     renderHome();
     nav(store.cloud?.role === "player" ? activePageId : "home");
     setCloudMessage("Ready to join as a player");
+  }
+  function endGuestOrganiserSession(message = "Guest Organiser access has ended.") {
+    const guestEventId = String(store.cloud?.eventId || ""),
+      guestWorkspaceId = String(store.event?.workspaceId || "");
+    closeCloudConnection();
+    forgetOrganiserEvent();
+    store.eventWorkspace = (store.eventWorkspace || []).filter((record) => {
+      const recordEventId = String(record?.cloud?.eventId || ""),
+        recordWorkspaceId = String(record?.id || "");
+      return !(
+        (guestEventId && recordEventId === guestEventId) ||
+        (guestWorkspaceId && recordWorkspaceId === guestWorkspaceId)
+      );
+    });
+    workspaceShrinkAuthorised = true;
+    if (guestWorkspaceId && String(store.activeEventId || "") === guestWorkspaceId)
+      store.activeEventId = "";
+    store.event = null;
+    delete store.cloud;
+    store.cloudPlayers = [];
+    writeLocalStore();
+    applyDeviceRole();
+    renderHome();
+    nav("home");
+    setCloudMessage("Guest Organiser access ended");
+    alert(message);
+  }
+  async function verifyGuestOrganiserAccess() {
+    if (!isGuestOrganiser()) return true;
+    try {
+      const active = await AwayCloud.guestOrganiserActive(store.cloud.eventId);
+      if (!active) {
+        endGuestOrganiserSession(
+          "Your Guest Organiser access to this event has ended. No other Away Golf events are available on this device.",
+        );
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return true;
+    }
   }
   function leavePlayerEvent() {
     const eventName = store.event?.name || "this event";
@@ -1549,6 +1615,7 @@
       );
       return bundle;
     } catch (error) {
+      if (isGuestOrganiser() && !(await verifyGuestOrganiserAccess())) return false;
       setCloudMessage(
         navigator.onLine
           ? "Sync delayed — use Retry Sync"
@@ -1582,6 +1649,7 @@
         `Live · updated ${new Date().toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}`,
       );
     } catch (_) {
+      if (isGuestOrganiser()) await verifyGuestOrganiserAccess();
       // Background refresh must never interrupt the organiser.
     }
   }
@@ -1613,7 +1681,10 @@
     setInterval(pollPlayerEvent, 10000);
   }
   async function publishCloudEvent() {
-    if (!store.event) return alert("Create an event plan before publishing.");
+    if (!store.event) {
+      alert("Create an event plan before publishing.");
+      return false;
+    }
     setCloudMessage("Publishing event…", true);
     try {
       store.event.setupStage = store.event.locked ? "final" : "preview";
@@ -1669,9 +1740,11 @@
       writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final event published" : "Event Preview published");
       renderCloudPanel();
+      return true;
     } catch (error) {
       setCloudMessage("Could not publish");
       alert("Publishing did not complete. " + (error.message || error));
+      return false;
     }
   }
   async function updateCloudEvent() {
@@ -1711,9 +1784,11 @@
       );
       writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final update shared" : "Preview changes shared");
+      return true;
     } catch (error) {
       setCloudMessage("Update delayed — use Retry Sync");
       alert("The cloud update did not complete. " + (error.message || error));
+      return false;
     }
   }
   async function lookupCloudEvent(codeOverride) {
@@ -1910,17 +1985,18 @@
       );
     }
   }
-  async function openPublishedEvent(eventId, joinCode, name) {
-    if (cloudBusy) return;
+  async function openPublishedEvent(eventId, joinCode, name, skipConfirm = false) {
+    if (cloudBusy) return false;
     const replacing =
       store.event && String(store.cloud?.eventId || "") !== String(eventId);
     if (
       replacing &&
+      !skipConfirm &&
       !confirm(
         `Open ${name || "this published event"}? The event currently displayed will be replaced on this screen.`,
       )
     )
-      return;
+      return false;
     setCloudMessage("Opening published event…", true);
     try {
       captureCurrentEvent();
@@ -1990,12 +2066,14 @@
       renderPlayerExperience();
       renderLeaderboard();
       nav("home");
+      return true;
     } catch (error) {
       cloudBusy = false;
       setCloudMessage("Published event did not open");
       alert(
         "The published event could not be opened. " + (error.message || error),
       );
+      return false;
     }
   }
   async function openPublishedEvents() {
@@ -2131,6 +2209,12 @@
     initialiseCloud();
     nav("home");
   }
+  function continueWorkspaceEvent(id) {
+    if (String(store.activeEventId || "") !== String(id))
+      switchWorkspaceEvent(id);
+    else $("#modalShade").classList.remove("open");
+    reopenEventPlan();
+  }
   function duplicateWorkspaceEvent(id) {
     captureCurrentEvent();
     const source = store.eventWorkspace.find((item) => String(item.id) === String(id));
@@ -2200,6 +2284,7 @@
     openMyEvents();
   }
   function openMyEvents() {
+    if (isGuestOrganiser()) return alert("Guest Organiser access is limited to the delegated event.");
     captureCurrentEvent();
     const activeId = String(store.activeEventId || "");
     const allRecords = [...store.eventWorkspace].sort((a, b) => {
@@ -2214,14 +2299,13 @@
     const cards = records.map((record) => {
       const event = record.event || {}, current = String(record.id) === activeId;
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
-      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions">${current ? '<button class="primary" data-closeevents>Continue</button>' : `<button class="primary" data-switchevent="${esc(record.id)}">Make Current</button>`}<button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
+      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions"><button class="primary" data-continueevent="${esc(record.id)}">${eventWorkspaceStatus(event) === "Draft" ? "Continue Setup" : "Open Event"}</button><button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
     }).join("");
     $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>These organiser events are saved on this device only. Changes made on another phone, tablet or PC do not remove this device's saved copies.</p></div><div class="myEventsHeadActions"><button class="primary" id="newEventFromWorkspace">+ New Event</button><button class="soft" id="closeMyEvents">Close</button></div></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div>`;
     $("#modalShade").classList.add("open");
     $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
     $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
-    $$('[data-closeevents]').forEach((button) => button.onclick = () => $("#modalShade").classList.remove("open"));
-    $$('[data-switchevent]').forEach((button) => button.onclick = () => switchWorkspaceEvent(button.dataset.switchevent));
+    $$('[data-continueevent]').forEach((button) => button.onclick = () => continueWorkspaceEvent(button.dataset.continueevent));
     $$('[data-duplicateevent]').forEach((button) => button.onclick = () => duplicateWorkspaceEvent(button.dataset.duplicateevent));
     $$('[data-archiveevent]').forEach((button) => button.onclick = () => toggleWorkspaceArchive(button.dataset.archiveevent));
     $$('[data-deleteevent]').forEach((button) => button.onclick = () => deleteWorkspaceEvent(button.dataset.deleteevent));
@@ -2231,7 +2315,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.88.7", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -2274,6 +2358,138 @@
     renderPlayerExperience();
     renderLeaderboard();
     nav("home");
+  }
+  function hasLocalOrganiserWork() {
+    return Boolean(
+      store.event ||
+        store.eventWorkspace?.length ||
+        recentPublishedEvents().length ||
+        rememberedOrganiserEvent()?.eventId,
+    );
+  }
+  function updateOwnerAccountButton() {
+    const button = $("#ownerAccount");
+    if (!button) return;
+    button.hidden = Boolean(
+      store.cloud?.secondaryOrganiser ||
+        isGuestOrganiser() ||
+        isPlayerDevice() ||
+        isSpectatorDevice(),
+    );
+    if (button.hidden) return;
+    button.textContent = ownerAccountState?.permanent
+      ? "Owner Signed In ✓"
+      : ownerAccountState?.pending
+        ? "Owner Verification Pending"
+        : "Owner Sign-In";
+    button.classList.toggle("ownerSignedIn", Boolean(ownerAccountState?.permanent));
+    button.title = ownerAccountState?.permanent
+      ? `Protected organiser: ${ownerAccountState.email}`
+      : ownerAccountState?.pending
+        ? `Verification awaiting confirmation: ${ownerAccountState.email}`
+        : "Protect and recover organiser access by email";
+  }
+  async function refreshOwnerAccount() {
+    if (!window.AwayCloud || !navigator.onLine) return null;
+    try {
+      ownerAccountState = await AwayCloud.ownerAccount();
+      updateOwnerAccountButton();
+      return ownerAccountState;
+    } catch (_) {
+      return null;
+    }
+  }
+  function ownerEmailError(error) {
+    const message = String(error?.message || error || "");
+    if (/manual linking|identity linking|disabled/i.test(message))
+      return "Owner Sign-In must first be enabled in the Supabase Authentication settings.";
+    if (/already|registered|exists|identity/i.test(message))
+      return "That email may already belong to an Owner account. No ownership was changed.";
+    return message || "The email could not be sent.";
+  }
+  function showOwnerEmailSent(email, purpose) {
+    $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>OWNER ORGANISER</small><h2>Check Your Email</h2><p>A secure ${purpose === "protect" ? "verification" : "sign-in"} link has been sent to <b>${esc(email)}</b>.</p></div><div class="ownerEmailSent"><b>Open the Away Golf email and press its link.</b><span>${purpose === "protect" ? "This permanently protects the organiser identity already used by this PC. Existing published events remain attached to it." : "The link returns this device to Away Golf as the existing Owner Organiser."}</span><span>If the email is not visible, check Junk or Spam.</span></div><div class="ownerAccountActions"><button class="soft" id="ownerAccountDone">Done</button></div>`;
+    $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
+  }
+  async function openOwnerAccount() {
+    $("#modalContent").innerHTML = '<div class="ownerAccountLoading"><b>Checking Owner Organiser sign-in…</b></div>';
+    $("#modalShade").classList.add("open");
+    const account = await refreshOwnerAccount();
+    if (!account) {
+      $("#modalContent").innerHTML = '<div class="ownerAccountHead"><small>OWNER ORGANISER</small><h2>Owner Sign-In</h2><p>The secure account service could not be reached. Check the internet connection and try again.</p></div><div class="ownerAccountActions"><button class="soft" id="ownerAccountDone">Close</button></div>';
+      $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
+      return;
+    }
+    if (account.permanent) {
+      $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>OWNER ORGANISER</small><h2>Owner Signed In ✓</h2><p>This organiser is permanently protected.</p></div><div class="ownerIdentityCard"><span>OWNER EMAIL</span><b>${esc(account.email)}</b><p>Published events can be recovered after signing in on a replacement computer. Draft planning remains on this PC unless you make an Organiser Backup.</p></div><div class="ownerAccountActions"><button class="primary" id="ownerPublishedEvents">Open Published Events</button><button class="soft" id="ownerAccountDone">Close</button></div>`;
+      $("#ownerPublishedEvents").onclick = () => {
+        $("#modalShade").classList.remove("open");
+        openPublishedEvents();
+      };
+      $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
+      return;
+    }
+    if (account.pending) {
+      $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>OWNER ORGANISER</small><h2>Verification Pending</h2><p>${esc(account.email)} has been added but has not yet been verified.</p></div><div class="ownerEmailSent"><b>Open the newest Away Golf verification email and press its link.</b><span>The link will finish securely at the published Away Golf page. Return here and reopen Owner Verification Pending to confirm the tick.</span><span>Older verification links may have expired and should not be used.</span></div><div class="ownerAccountActions"><button class="primary" id="resendOwnerVerification">Send a New Verification Email</button><button class="soft" id="ownerAccountDone">Close</button></div>`;
+      $("#resendOwnerVerification").onclick = async () => {
+        const resend = $("#resendOwnerVerification");
+        resend.disabled = true;
+        resend.textContent = "Sending…";
+        try {
+          await AwayCloud.resendOwnerVerification(account.email);
+          showOwnerEmailSent(account.email, "protect");
+        } catch (error) {
+          resend.disabled = false;
+          resend.textContent = "Send a New Verification Email";
+          alert(ownerEmailError(error));
+        }
+      };
+      $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
+      return;
+    }
+    const localWork = hasLocalOrganiserWork();
+    $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>OWNER ORGANISER</small><h2>${localWork ? "Protect This Organiser" : "Owner Sign-In"}</h2><p>${localWork ? "Add your email to the organiser identity already used by this PC. Its existing published events remain attached." : "Sign in to recover published events belonging to your permanent Owner account."}</p></div><label class="ownerEmailLabel">Owner email<input id="ownerEmail" type="email" inputmode="email" autocomplete="email" placeholder="name@example.com"></label><div class="ownerAccountNotice"><b>${localWork ? "Choose the correct route." : "Existing Owner accounts only."}</b><span>${localWork ? "Use verification only for a new Owner email. If this email already owns Away Golf events, use Sign In to Existing Owner Account." : "For safety, this screen cannot create a different Owner account on a blank device."}</span></div><div class="ownerAccountActions"><button class="primary" id="sendOwnerEmail">${localWork ? "Protect This Organiser with a New Email" : "Send Secure Sign-In Link"}</button>${localWork ? '<button class="soft" id="signInExistingOwner">Sign In to Existing Owner Account</button>' : ""}<button class="soft" id="ownerAccountDone">Cancel</button></div>`;
+    const input = $("#ownerEmail"),
+      send = $("#sendOwnerEmail");
+    send.onclick = async () => {
+      const email = input.value.trim().toLowerCase();
+      if (!email || !email.includes("@")) return alert("Enter a valid email address.");
+      send.disabled = true;
+      send.textContent = "Sending…";
+      try {
+        if (localWork) await AwayCloud.protectOwnerAccount(email);
+        else await AwayCloud.sendOwnerSignInLink(email);
+        showOwnerEmailSent(email, localWork ? "protect" : "signin");
+      } catch (error) {
+        send.disabled = false;
+        send.textContent = localWork
+          ? "Send Verification Email"
+          : "Send Secure Sign-In Link";
+        alert(ownerEmailError(error));
+      }
+    };
+    if ($("#signInExistingOwner"))
+      $("#signInExistingOwner").onclick = async () => {
+        const email = input.value.trim().toLowerCase(),
+          button = $("#signInExistingOwner");
+        if (!email || !email.includes("@"))
+          return alert("Enter your existing Owner email address first.");
+        button.disabled = true;
+        button.textContent = "Sending…";
+        try {
+          await AwayCloud.sendOwnerSignInLink(email);
+          showOwnerEmailSent(email, "signin");
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = "Sign In to Existing Owner Account";
+          alert(ownerEmailError(error));
+        }
+      };
+    input.onkeydown = (event) => {
+      if (event.key === "Enter") send.click();
+    };
+    $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
+    input.focus();
   }
   function openOrganiserBackup() {
     let safety = null;
@@ -2352,6 +2568,100 @@
       );
     }
   }
+  function renderGuestOrganiserClaim() {
+    $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>SINGLE-EVENT ACCESS</small><h2>Guest Organiser Invitation</h2><p>Enter the two codes supplied by the Owner Organiser. This opens the normal Away Golf planning and event-operation pages for that event only.</p></div><label>Player event code<input id="guestEventCode" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="6 characters"></label><label>Guest Organiser code<input id="guestAccessCode" maxlength="10" autocomplete="off" autocapitalize="characters" placeholder="10 characters"></label><div class="ownerAccountNotice"><b>One event only.</b><span>Access ends when the Owner revokes it or when the event is closed.</span></div><div class="ownerAccountActions"><button class="primary" id="claimGuestOrganiser">Open My Event</button><button class="soft" id="closeGuestOrganiser">Cancel</button></div>`;
+    $("#claimGuestOrganiser").onclick = claimGuestOrganiser;
+    $("#closeGuestOrganiser").onclick = () => $("#modalShade").classList.remove("open");
+  }
+  async function claimGuestOrganiser() {
+    const join = $("#guestEventCode").value.replace(/[^a-z0-9]/gi, "").toUpperCase(),
+      access = $("#guestAccessCode").value.replace(/[^a-z0-9]/gi, "").toUpperCase();
+    if (join.length !== 6 || access.length !== 10)
+      return alert("Enter both codes exactly as supplied by the Owner Organiser.");
+    if (
+      store.event &&
+      !confirm(
+        `Open the delegated event?\n\n${store.event.name || "The event currently displayed"} will be replaced on this screen.`,
+      )
+    ) return;
+    const button = $("#claimGuestOrganiser");
+    button.disabled = true;
+    button.textContent = "Opening…";
+    try {
+      const eventId = await AwayCloud.claimGuestOrganiserAccess(join, access);
+      const opened = await openPublishedEvent(eventId, join, "your delegated event", true);
+      if (!opened) throw new Error("The delegated event was not opened.");
+      store.cloud.guestOrganiser = true;
+      delete store.cloud.secondaryOrganiser;
+      persistStore();
+      applyDeviceRole();
+      renderHome();
+      $("#modalShade").classList.remove("open");
+      nav("home");
+      await syncCloudNow();
+      alert(`Guest Organiser access is ready for ${store.event?.name || "this event"}. You have the normal setup and operation pages, limited to this event.`);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Open My Event";
+      alert("The Guest Organiser invitation could not be opened. Check both codes and try again. " + (error.message || error));
+    }
+  }
+  async function createGuestOrganiserInvitation() {
+    if (isGuestOrganiser()) return;
+    const button = $("#createGuestOrganiserInvitation");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Creating…";
+    }
+    try {
+      if (!store.cloud?.eventId) {
+        if (!store.event) throw new Error("Save an event draft first.");
+        store.event.setupStage = "delegated-draft";
+        persistStore();
+        const published = await publishCloudEvent();
+        if (!published) throw new Error("The saved draft could not be placed online.");
+        store.event.setupStage = "delegated-draft";
+        persistStore();
+        await AwayCloud.updateEvent(store.cloud.eventId, cloudPayload(), "setup");
+      }
+      if (store.cloud.role !== "organiser")
+        throw new Error("Owner Organiser access is required.");
+      const code = await AwayCloud.createGuestOrganiserKey(store.cloud.eventId);
+      $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>GUEST ORGANISER INVITATION</small><h2>${esc(store.event?.name || "Away Golf Event")}</h2><p>Give the invited organiser these two codes. They press <b>Guest Organiser</b> on Away Golf and enter both.</p></div><div class="organiserCodeCard"><span>PLAYER EVENT CODE</span><b>${esc(store.cloud.joinCode)}</b><span>GUEST ORGANISER CODE</span><b>${esc(code)}</b></div><div class="ownerAccountNotice"><b>This replaces any earlier Guest Organiser invitation.</b><span>The invitation code can be used once and expires after 14 days. Once accepted, access remains limited to this event and ends when the event is closed or you revoke it.</span></div><div class="ownerAccountActions"><button class="danger" id="revokeGuestOrganiser">Revoke Guest Access</button><button class="primary" id="closeGuestOrganiser">Done</button></div>`;
+      $("#revokeGuestOrganiser").onclick = revokeGuestOrganiserAccess;
+      $("#closeGuestOrganiser").onclick = () => $("#modalShade").classList.remove("open");
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Create Guest Invitation";
+      }
+      alert("The Guest Organiser invitation could not be created. " + (error.message || error));
+    }
+  }
+  async function revokeGuestOrganiserAccess() {
+    if (!store.cloud?.eventId || isGuestOrganiser()) return;
+    if (!confirm("Revoke this event's Guest Organiser access?\n\nThe guest will no longer be able to open or update the event.")) return;
+    try {
+      await AwayCloud.revokeGuestOrganiser(store.cloud.eventId);
+      $("#modalShade").classList.remove("open");
+      alert("Guest Organiser access has been revoked for this event.");
+    } catch (error) {
+      alert("Guest access could not be revoked. " + (error.message || error));
+    }
+  }
+  function openGuestOrganiserAccess() {
+    $("#modalShade").classList.add("open");
+    const ownerEvent =
+      Boolean(store.event) &&
+      (!store.cloud?.role || store.cloud.role === "organiser") &&
+      !store.cloud?.secondaryOrganiser &&
+      !isGuestOrganiser();
+    if (!ownerEvent) return renderGuestOrganiserClaim();
+    $("#modalContent").innerHTML = `<div class="ownerAccountHead"><small>SINGLE-EVENT DELEGATION</small><h2>Guest Organiser</h2><p>Give another person the normal Away Golf setup and operation pages for <b>${esc(store.event?.name || "this event")}</b>—and no other event.</p></div><div class="ownerAccountNotice"><b>You remain the Owner Organiser.</b><span>The guest cannot create a different event, access your other events, create organiser-tablet codes, or use your Owner account. Closing the event automatically ends their access.</span></div><div class="ownerAccountActions"><button class="primary" id="createGuestOrganiserInvitation">Create Guest Invitation</button><button class="danger" id="revokeGuestOrganiser">Revoke Existing Guest Access</button><button class="soft" id="closeGuestOrganiser">Cancel</button></div>`;
+    $("#createGuestOrganiserInvitation").onclick = createGuestOrganiserInvitation;
+    $("#revokeGuestOrganiser").onclick = revokeGuestOrganiserAccess;
+    $("#closeGuestOrganiser").onclick = () => $("#modalShade").classList.remove("open");
+  }
   function queueCloudRound(day, playerId) {
     if (!store.cloud?.eventId) return;
     if (isSpectatorDevice()) return;
@@ -2428,11 +2738,13 @@
         ? `<button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>Retry Sync</button>`
         : "";
     if (store.cloud?.role === "organiser" && store.cloud.eventId) {
-      const connections = (store.cloudPlayers || []).filter((x) => x.joined);
-      host.innerHTML = `<div class="organiserModeBanner"><b>This device is in Organiser Mode</b><button class="soft" id="leaveOrganiserMode">Leave Organiser Mode and Join as a Player</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button><button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
+      const connections = (store.cloudPlayers || []).filter((x) => x.joined),
+        guest = isGuestOrganiser();
+      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="primary" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
       $("#retryCloud").onclick = syncCloudNow;
-      $("#organiserTabletCode").onclick = showOrganiserTabletCode;
+      if ($("#guestOrganiserInvite")) $("#guestOrganiserInvite").onclick = openGuestOrganiserAccess;
+      if ($("#organiserTabletCode")) $("#organiserTabletCode").onclick = showOrganiserTabletCode;
       $("#resetCloudPlayers").onclick = resetCloudPlayers;
       $("#leaveOrganiserMode").onclick = leaveOrganiserMode;
       $$("[data-releaseplayer]").forEach(
@@ -2479,6 +2791,7 @@
       await AwayCloud.ensureSignedIn();
       cloudReady = true;
       setCloudMessage("Secure connection ready");
+      await refreshOwnerAccount();
       if (sessionStorage.getItem("awayGolfRetired1539")) {
         try {
           const workspace = await AwayCloud.loadWorkspace();
@@ -2544,6 +2857,7 @@
   startPlayerPolling();
 
   function renderHome() {
+    updateOwnerAccountButton();
     $("#homeEvent").textContent = store.event?.name || "Not set";
     $("#homePlayers").textContent = store.event
       ? store.event.dayFields?.day1?.length ||
@@ -3120,6 +3434,7 @@ Count-back if tied
     "Review and Move to Scoring",
   ];
   function openWizard() {
+    if (isGuestOrganiser()) return alert("Guest Organiser access cannot create another event.");
     W = {
       step: 1,
       newEvent: true,
@@ -3167,7 +3482,7 @@ Count-back if tied
     e.singleStablefordFormat =
       e.singleStablefordFormat || (e.days === 2 ? "aggregate" : "daily");
     W = {
-      step: 6,
+      step: Math.min(6, Math.max(1, +(e.draftStep || 6))),
       newEvent: false,
       event: e,
       invites: new Map(),
@@ -3203,6 +3518,50 @@ Count-back if tied
       renderWizard();
     } else finishEvent();
   };
+  $("#saveEventDraft").onclick = () => {
+    if (W.step === 1) syncEventFields();
+    if (!W.event.name) return alert("Please enter an event name before saving the draft.");
+    saveWizardDraft();
+    $("#wizardShade").classList.remove("open");
+    nav("home");
+    alert("Draft saved. You can reopen it from Event Options, continue later, or delegate it from Guest Organiser.");
+  };
+
+  function saveWizardDraft() {
+    const oldGroups = W.newEvent ? {} : (store.event?.groupSetup || {});
+    if (W.newEvent) {
+      closeCloudConnection();
+      delete store.cloud;
+      store.cloudPlayers = [];
+      forgetOrganiserEvent();
+    }
+    const invitationStatus = Object.fromEntries(
+      [...W.invites].map(([id, status]) => [String(id), status]),
+    );
+    const confirmed = [...W.invites]
+      .filter(([, status]) => status === "accepted")
+      .map(([id]) => String(id));
+    store.event = {
+      ...W.event,
+      workspaceId: W.event.workspaceId || uid(),
+      confirmed,
+      invitationStatus,
+      dayAvailability: JSON.parse(JSON.stringify(W.event.dayAvailability || {})),
+      dayFields: {
+        day1: wizardPlanningPlayers(1),
+        ...(W.event.days === 2 ? { day2: wizardPlanningPlayers(2) } : {}),
+      },
+      competitions: [...W.competitions],
+      benefits: JSON.parse(JSON.stringify(W.benefits || {})),
+      status: "planned",
+      locked: false,
+      groupSetup: oldGroups,
+      draftStep: W.step,
+      setupStage: "draft",
+    };
+    if (W.newEvent) resetDuplicatedEventRuntime(store.event);
+    save();
+  }
   function loadTemplate() {
     let t = store.template;
     if (!t) return;
@@ -3435,6 +3794,7 @@ Count-back if tied
     $("#backWizard").style.visibility = W.step === 1 ? "hidden" : "visible";
     $("#nextWizard").style.display = W.step === 6 ? "none" : "";
     $("#nextWizard").textContent = "Next";
+    $("#saveEventDraft").style.display = "";
     ({
       1: renderStep1,
       2: renderStep2,
@@ -3664,6 +4024,68 @@ Count-back if tied
       day2: startHolesFor(W.event, 2),
     };
   }
+  function openPlayerListManager(onClose = renderStep2) {
+    store.playerLists = Array.isArray(store.playerLists) ? store.playerLists : [];
+    const showManager = () => {
+      const lists = [...store.playerLists].sort((a, b) =>
+        String(a.name).localeCompare(String(b.name)),
+      );
+      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>REUSABLE INVITATION GROUPS</small><h2>Named Player Lists</h2><p>Create lists from the Master Player List and reuse them in future events.</p></div><button class="primary" id="newNamedPlayerList">+ Create Player List</button></div><div class="namedPlayerListCards">${lists.map((list) => `<article><div><b>${esc(list.name)}</b><small>${(list.playerIds || []).filter((id) => player(id)).length} players</small></div><div class="rowBtns"><button class="soft" data-editplayerlist="${esc(list.id)}">Edit</button><button class="danger" data-deleteplayerlist="${esc(list.id)}">Delete</button></div></article>`).join("") || '<p class="hint">No named lists have been created yet.</p>'}</div><div class="ownerAccountActions"><button class="soft" id="closePlayerLists">Done</button></div>`;
+      $("#modalShade").classList.add("open");
+      $("#newNamedPlayerList").onclick = () => showEditor();
+      $("#closePlayerLists").onclick = () => {
+        $("#modalShade").classList.remove("open");
+        onClose();
+      };
+      $$("[data-editplayerlist]").forEach(
+        (button) => button.onclick = () => showEditor(button.dataset.editplayerlist),
+      );
+      $$("[data-deleteplayerlist]").forEach(
+        (button) => button.onclick = () => {
+          const list = store.playerLists.find((x) => String(x.id) === String(button.dataset.deleteplayerlist));
+          if (!list || !confirm(`Delete the named list "${list.name}"?\n\nThe players remain in the Master Player List.`)) return;
+          store.playerLists = store.playerLists.filter((x) => String(x.id) !== String(list.id));
+          writeLocalStore();
+          showManager();
+        },
+      );
+    };
+    const showEditor = (listId = "") => {
+      const existing = store.playerLists.find((x) => String(x.id) === String(listId));
+      const selected = new Set((existing?.playerIds || []).map(String));
+      const players = activePlayers();
+      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>MASTER PLAYER LIST</small><h2>${existing ? "Edit Player List" : "Create Player List"}</h2><p>Name the list and tick every player to include.</p></div></div><label>Player List name<input id="namedPlayerListName" maxlength="60" value="${esc(existing?.name || "")}" placeholder="e.g. Volunteers' Ambrose"></label><div class="namedPlayerChecklist">${players.map((person) => `<label><input type="checkbox" data-listplayer="${esc(person.id)}" ${selected.has(String(person.id)) ? "checked" : ""}><span><b>${esc(person.name)}</b><small>${esc(person.golfLink || "")}</small></span></label>`).join("") || "<p>No active players are available.</p>"}</div><div class="ownerAccountActions"><button class="primary" id="saveNamedPlayerList">Save Player List</button><button class="soft" id="backToPlayerLists">Back</button></div>`;
+      $("#namedPlayerListName").focus();
+      $("#backToPlayerLists").onclick = showManager;
+      $("#saveNamedPlayerList").onclick = () => {
+        const name = $("#namedPlayerListName").value.trim();
+        const playerIds = $$("[data-listplayer]:checked").map((box) => String(box.dataset.listplayer));
+        if (!name) return alert("Please enter a name for this Player List.");
+        if (!playerIds.length) return alert("Select at least one player for this list.");
+        const duplicate = store.playerLists.find(
+          (list) => String(list.id) !== String(existing?.id || "") &&
+            String(list.name).trim().toLowerCase() === name.toLowerCase(),
+        );
+        if (duplicate) return alert("A Player List with that name already exists.");
+        if (existing) {
+          existing.name = name;
+          existing.playerIds = playerIds;
+          existing.updatedAt = new Date().toISOString();
+        } else {
+          store.playerLists.push({
+            id: uid(),
+            name,
+            playerIds,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        writeLocalStore();
+        showManager();
+      };
+    };
+    showManager();
+  }
   function renderStep2() {
     let q = "";
     let keepSearchFocus = $("#wpSearch") === document.activeElement;
@@ -3744,6 +4166,7 @@ Count-back if tied
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
   <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Tee Hcps</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
+  <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days === 2 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
       $("#wpSearch").value = q;
@@ -3764,6 +4187,25 @@ Count-back if tied
           q = "";
           draw();
         }
+      };
+      $("#manageNamedPlayerLists").onclick = () => openPlayerListManager(draw);
+      $("#loadPlayerList").onclick = () => {
+        const list = store.playerLists.find(
+          (item) => String(item.id) === String($("#availablePlayerList").value),
+        );
+        if (!list) return alert("Choose a named Player List first.");
+        let added = 0;
+        for (const id of list.playerIds || []) {
+          if (!player(id) || W.invites.has(String(id))) continue;
+          W.invites.set(String(id), "awaiting");
+          added++;
+        }
+        draw();
+        alert(
+          added
+            ? `${added} player${added === 1 ? "" : "s"} from ${list.name} added to Invited as awaiting reply.`
+            : `Everyone in ${list.name} is already included in this event.`,
+        );
       };
       if ($("#wizardAllGreen")) {
         $("#wizardAllGreen").onclick = () => {
@@ -4781,7 +5223,9 @@ Count-back if tied
       status: "planned",
       locked: false,
       groupSetup: oldGroups || {},
+      setupStage: "planned",
     };
+    delete store.event.draftStep;
     if (W.newEvent) resetDuplicatedEventRuntime(store.event);
     normaliseTwoDaySingleStableford(store.event);
     store.template = {
@@ -6209,16 +6653,31 @@ Count-back if tied
   }
   function openEventOptions() {
     if (!store.event) return;
+    if (isGuestOrganiser()) {
+      $("#modalContent").innerHTML = `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>Your Guest Organiser access is limited to planning and operating this event.</p><div class="eventOptionActions"><button class="primary" id="continueEventSetup">Continue Event Setup</button><button class="soft" id="closeEventOptions">Close</button></div>`;
+      $("#modalShade").classList.add("open");
+      $("#continueEventSetup").onclick = () => {
+        $("#modalShade").classList.remove("open");
+        reopenEventPlan();
+      };
+      $("#closeEventOptions").onclick = () => $("#modalShade").classList.remove("open");
+      return;
+    }
     if (store.event.testMode) {
       alert("Use Testing Tools to change or finish the protected test event.");
       return;
     }
     const cancelled = store.event.status === "cancelled";
     $("#modalContent").innerHTML =
-      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Cancel an event that will not proceed or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
+      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Continue planning, cancel an event that will not proceed, or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : '<button class="primary" id="continueEventSetup">Continue Event Setup</button>'}${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
     $("#modalShade").classList.add("open");
     if ($("#cancelCurrentEvent"))
       $("#cancelCurrentEvent").onclick = cancelCurrentEvent;
+    if ($("#continueEventSetup"))
+      $("#continueEventSetup").onclick = () => {
+        $("#modalShade").classList.remove("open");
+        reopenEventPlan();
+      };
     $("#deleteCurrentEvent").onclick = deleteCurrentEvent;
     $("#clearPreviousTests").onclick = clearPreviousTestEvents;
     $("#preparePlayerDevice").onclick = prepareDeviceForPlayerUse;
@@ -6407,6 +6866,8 @@ Count-back if tied
   $("#myEvents").onclick = openMyEvents;
   $("#publishedEvents").onclick = openPublishedEvents;
   $("#organiserBackup").onclick = openOrganiserBackup;
+  $("#ownerAccount").onclick = openOwnerAccount;
+  $("#guestOrganiserAccess").onclick = openGuestOrganiserAccess;
 
   const OATLANDS_TEST_IDS = [
     "p42",
@@ -9645,6 +10106,7 @@ Count-back if tied
     };
   }
   async function confirmResultsAndCloseEvent() {
+    const guestClosingEvent = isGuestOrganiser();
     if (store.cloud?.eventId) {
       const refreshed = await syncCloudNow();
       if (!refreshed) {
@@ -9688,7 +10150,13 @@ Count-back if tied
     store.event.status = "complete";
     recordCompletedEventHistory(store.event);
     persistStore();
-    await updateCloudEvent();
+    const closedOnline = await updateCloudEvent();
+    if (guestClosingEvent && closedOnline) {
+      endGuestOrganiserSession(
+        "The event has been closed successfully. Your single-event Guest Organiser access has now ended.",
+      );
+      return;
+    }
     renderLeaderboard();
     renderHome();
   }

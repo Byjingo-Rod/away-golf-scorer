@@ -3,11 +3,12 @@
 
   const SUPABASE_URL = "https://qlxcpsbyfhgatujrqxkd.supabase.co";
   const SUPABASE_KEY = "sb_publishable_fzOrPzsGh48ABTEoob5O0Q_gpdZTEmI";
+  const OWNER_REDIRECT_URL = "https://byjingo-rod.github.io/away-golf-scorer/";
   const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: false,
+      detectSessionInUrl: true,
     },
   });
   let initPromise = null;
@@ -26,6 +27,68 @@
       throw error;
     });
     return initPromise;
+  }
+
+  async function ownerAccount() {
+    const session = await ensureSignedIn();
+    const { data, error } = await client.auth.getUser();
+    if (error) throw error;
+    const user = data.user || session.user;
+    const email = String(user?.email || "");
+    const confirmed = Boolean(user?.email_confirmed_at);
+    return {
+      id: String(user?.id || ""),
+      email,
+      confirmed,
+      pending: Boolean(email && !confirmed),
+      permanent: Boolean(user && !user.is_anonymous && email && confirmed),
+      anonymous: Boolean(user?.is_anonymous),
+    };
+  }
+
+  async function protectOwnerAccount(email) {
+    const address = String(email || "").trim().toLowerCase();
+    if (!address || !address.includes("@"))
+      throw new Error("Enter a valid email address.");
+    const current = await ownerAccount();
+    if (current.permanent)
+      throw new Error("This organiser already has a permanent sign-in.");
+    if (current.pending)
+      return resendOwnerVerification(current.email);
+    const { data, error } = await client.auth.updateUser(
+      { email: address },
+      { emailRedirectTo: OWNER_REDIRECT_URL },
+    );
+    if (error) throw error;
+    return data;
+  }
+
+  async function resendOwnerVerification(email) {
+    const address = String(email || "").trim().toLowerCase();
+    if (!address || !address.includes("@"))
+      throw new Error("Enter a valid email address.");
+    const { data, error } = await client.auth.resend({
+      type: "email_change",
+      email: address,
+      options: { emailRedirectTo: OWNER_REDIRECT_URL },
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  async function sendOwnerSignInLink(email) {
+    const address = String(email || "").trim().toLowerCase();
+    if (!address || !address.includes("@"))
+      throw new Error("Enter a valid email address.");
+    const { data, error } = await client.auth.signInWithOtp({
+      email: address,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: OWNER_REDIRECT_URL,
+      },
+    });
+    if (error) throw error;
+    return data;
   }
 
   async function createEvent(name, eventData, players) {
@@ -222,6 +285,43 @@
     return String(data || "");
   }
 
+  async function createGuestOrganiserKey(eventId) {
+    await ensureSignedIn();
+    const { data, error } = await client.rpc("create_away_guest_organiser_key", {
+      p_event_id: String(eventId),
+    });
+    if (error) throw error;
+    return String(data || "").toUpperCase();
+  }
+
+  async function claimGuestOrganiserAccess(joinCode, accessCode) {
+    await ensureSignedIn();
+    const { data, error } = await client.rpc("claim_away_guest_organiser_access", {
+      p_join_code: String(joinCode || "").toUpperCase(),
+      p_access_code: String(accessCode || "").toUpperCase(),
+    });
+    if (error) throw error;
+    return String(data || "");
+  }
+
+  async function revokeGuestOrganiser(eventId) {
+    await ensureSignedIn();
+    const { data, error } = await client.rpc("revoke_away_guest_organiser", {
+      p_event_id: String(eventId),
+    });
+    if (error) throw error;
+    return Boolean(data);
+  }
+
+  async function guestOrganiserActive(eventId) {
+    await ensureSignedIn();
+    const { data, error } = await client.rpc("away_guest_organiser_active", {
+      p_event_id: String(eventId),
+    });
+    if (error) throw error;
+    return Boolean(data);
+  }
+
   async function archiveAllOwnedEvents() {
     const session = await ensureSignedIn();
     const { data, error } = await client
@@ -285,6 +385,10 @@
   window.AwayCloud = {
     client,
     ensureSignedIn,
+    ownerAccount,
+    protectOwnerAccount,
+    resendOwnerVerification,
+    sendOwnerSignInLink,
     createEvent,
     updateEvent,
     invitation,
@@ -301,6 +405,10 @@
     archiveEvent,
     createOrganiserKey,
     claimOrganiserAccess,
+    createGuestOrganiserKey,
+    claimGuestOrganiserAccess,
+    revokeGuestOrganiser,
+    guestOrganiserActive,
     subscribe,
   };
 })();
