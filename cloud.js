@@ -118,6 +118,39 @@
     return data;
   }
 
+  async function syncEventPlayers(eventId, players) {
+    await ensureSignedIn();
+    const wanted = (players || []).map((player) => ({
+      event_id: String(eventId),
+      player_id: String(player.id),
+      display_name: String(player.name || "Player"),
+      player_data: Object.fromEntries(
+        Object.entries(player).filter(([key]) => key !== "id" && key !== "name"),
+      ),
+    }));
+    const { data: existing, error: readError } = await client
+      .from("away_event_players")
+      .select("player_id")
+      .eq("event_id", String(eventId));
+    if (readError) throw readError;
+    if (wanted.length) {
+      const { error: upsertError } = await client
+        .from("away_event_players")
+        .upsert(wanted, { onConflict: "event_id,player_id" });
+      if (upsertError) throw upsertError;
+    }
+    const wantedIds = new Set(wanted.map((player) => player.player_id));
+    for (const player of existing || []) {
+      if (wantedIds.has(String(player.player_id))) continue;
+      const { error: deleteError } = await client
+        .from("away_event_players")
+        .delete()
+        .eq("event_id", String(eventId))
+        .eq("player_id", String(player.player_id));
+      if (deleteError) throw deleteError;
+    }
+  }
+
   async function invitation(code) {
     await ensureSignedIn();
     const { data, error } = await client.rpc("away_event_invitation", {
@@ -391,6 +424,7 @@
     sendOwnerSignInLink,
     createEvent,
     updateEvent,
+    syncEventPlayers,
     invitation,
     joinEvent,
     spectateEvent,

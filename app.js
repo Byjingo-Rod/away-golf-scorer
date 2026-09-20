@@ -1777,6 +1777,14 @@
       );
       store.event.setupStage = store.event.locked ? "final" : "preview";
       if (store.event.locked) store.event.finalUpdateAt = new Date().toISOString();
+      // A delegated event may have been handed over before any players were
+      // selected. Synchronise the completed roster while the Guest Organiser
+      // still has write access; locking the event intentionally ends that
+      // delegated access.
+      await AwayCloud.syncEventPlayers(
+        store.cloud.eventId,
+        cloudPlayerRows(),
+      );
       await AwayCloud.updateEvent(
         store.cloud.eventId,
         cloudPayload(),
@@ -2315,7 +2323,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.3", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),

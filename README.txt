@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.90.3
+AWAY GOLF SCORER — VERSION 15.90.4
+
+VERSION 15.90.4 — GUEST ORGANISER FINAL PLAYER PUBLICATION
+
+- Send All Set — Final Update now synchronises the Guest Organiser's completed
+  player list before locking the delegated event.
+- Players can join an event that was delegated before its roster was selected.
+- Existing player phone connections are preserved when their player remains in
+  the final field.
 
 VERSION 15.90.3 — OWNER RECOVERY AND GUEST INVITATION REPAIR
 

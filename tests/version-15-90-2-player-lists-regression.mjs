@@ -5,7 +5,7 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.90\.3/);
+assert.match(html, /Version 15\.90\.4/);
 assert.match(app, /function continueWorkspaceEvent/);
 assert.match(app, /data-continueevent/);
 assert.match(app, /Continue Event Setup/);

@@ -6,8 +6,8 @@ const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.90\.3/);
-assert.match(sw, /away-golf-v15-90-3/);
+assert.match(html, /Version 15\.90\.4/);
+assert.match(sw, /away-golf-v15-90-4/);
 assert.match(html, /id="ownerAccount"/);
 assert.match(app, /function openOwnerAccount/);
 assert.match(app, /Protect This Organiser/);
