@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.91.7
+AWAY GOLF SCORER — VERSION 15.91.8
+
+VERSION 15.91.8 — VIRTUAL PLAYER COMPETITION SAFEGUARDS
+
+- Labels every borrowed leaderboard appearance as a virtual player for the missing golfer.
+- Uses the virtual player's verified Day 1 scores in the two-day Par 3 competition.
+- Excludes the missing golfer's Day 2 Par 3 partner from Day 1 virtual-player selection, preventing a doubled contribution.
+- Names both golfers in the scorecard's virtual-player status panel and explains why a total may be waiting.
 
 VERSION 15.91.7 — MANUAL DAY 1 ADVANCES PLAYER PHONES
 

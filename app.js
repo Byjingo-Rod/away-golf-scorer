@@ -2333,7 +2333,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.7", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.8", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5575,6 +5575,27 @@ Count-back if tied
       (id) => store.event.dayAvailability?.[id]?.[day] !== false,
     ).filter((id) => id !== missing);
   }
+  function aggregatePar3Partner(playerId) {
+    if (
+      store.event?.days !== 2 ||
+      store.event?.par3Format !== "aggregate" ||
+      !(store.event?.competitions || []).includes("par3")
+    )
+      return "";
+    const groups = store.event?.groupSetup?.day2?.groups || [],
+      id = String(playerId || ""),
+      group = groups.find((team) => team.map(String).includes(id));
+    if (!group) return "";
+    const index = group.map(String).indexOf(id),
+      pairStart = index < 2 ? 0 : 2;
+    return String(
+      group
+        .slice(pairStart, pairStart + 2)
+        .map(String)
+        .find((candidate) => candidate !== id && candidate !== NO_PARTNER_ID) ||
+        "",
+    );
+  }
   function noPartnerContext(groups, day) {
     const all = dayFieldIds(day),
       shortIndex = groups.findIndex((g) =>
@@ -6578,7 +6599,7 @@ Count-back if tied
     $("#modalShade").classList.add("open");
     let proposal = null;
     const propose = (missingId) => {
-      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId)), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
+      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
       if (groupIndex < 0 || groupHasScoreEntries(day, groupIndex) || !affectedId || !virtualId || realInGroup.length !== 3) return null;
       const shuffled = shuffleCopy(realInGroup);
       ntpHolesInPlayingOrder(day).slice(0, 2).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i]);
@@ -9858,7 +9879,7 @@ Count-back if tied
         ? stablefordPoints(virtualEntry?.gross, par, indexVal, playerDailyHandicap(emergency.virtualPlayerId, day))
         : null,
       virtualGlance = showVirtualGlance
-        ? `<details class="virtualGlance"><summary>Virtual Player Information</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>The locked contribution is included automatically.</span>` : `<b>Awaiting verified score on Hole ${hole}</b><span>The pair and team totals will update automatically.</span>`}</div></details>`
+        ? `<details class="virtualGlance"><summary>${esc(player(emergency.virtualPlayerId)?.name || "Virtual Player")} — Virtual Player for ${esc(player(emergency.missingPlayerId)?.name || "missing player")}</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>This borrowed score is now included automatically in the affected pair and team totals.</span>` : `<b>Waiting for ${esc(player(emergency.virtualPlayerId)?.name || "the virtual player")}'s verified score on Hole ${hole}</b><span>The affected pair and team totals will update when that score arrives.</span>`}</div></details>`
         : "";
     const startingHoleNotice = store.event.playerStartingHoleNotice,
       showStartingHoleNotice =
@@ -10057,6 +10078,10 @@ Count-back if tied
     if (!setup) return out;
     (setup.groups || []).forEach((raw, gi) => {
       const group = raw.map(String),
+        replacementName = (id, originalId) =>
+          originalId === NO_PARTNER_ID
+            ? `${player(id)?.name || "Virtual Player"} (VP for ${player(setup.missingPlayerId)?.name || "missing player"})`
+            : player(id)?.name || "Player",
         filled = ambroseIsOn()
           ? group.filter((id) => id !== NO_PARTNER_ID)
           : group
@@ -10069,7 +10094,9 @@ Count-back if tied
           id: `d${day}g${gi}`,
           ids: [...new Set(filled)],
           name: `Group ${gi + 1}`,
-          detail: filled.map((id) => player(id)?.name || "Player").join(", "),
+          detail: filled
+            .map((id, index) => replacementName(id, group[index]))
+            .join(", "),
         });
       else
         for (let n = 0; n < 4; n += 2) {
@@ -10083,7 +10110,11 @@ Count-back if tied
             out.push({
               id: `d${day}g${gi}p${n / 2}`,
               ids: [...new Set(ids)],
-              name: ids.map((id) => player(id)?.name || "Player").join(" & "),
+              name: ids
+                .map((id, index) =>
+                  replacementName(id, group.slice(n, n + 2)[index]),
+                )
+                .join(" & "),
               detail:
                 store.event.days === 1
                   ? `Group ${gi + 1}`
@@ -10553,6 +10584,12 @@ Count-back if tied
       );
     }
     if (def.type === "par3aggregate") {
+      const effectivePlayer = (day, id) => {
+        const emergency = store.event.emergencyReplacements?.["day" + day];
+        return emergency && String(emergency.missingPlayerId) === String(id)
+          ? String(emergency.virtualPlayerId || id)
+          : String(id);
+      };
       const ix = (d) => {
         const v =
           version(
@@ -10564,14 +10601,22 @@ Count-back if tied
       };
       rows = leaderboardUnits(2, "pair").map((u) => {
         const holes = [];
-        for (const d of [1, 2])
+        for (const d of [1, 2]) {
+          const effectiveIds = u.ids.map((id) => effectivePlayer(d, id)),
+            conflictingVirtualPair =
+              new Set(effectiveIds).size !== effectiveIds.length;
           ix(d).forEach((i) => {
-            const vals = u.ids.map((id) => {
-              const manual = manualPar3Point(d, id, i + 1);
-              return manual == null ? points(d, id)[i] : manual;
+            if (conflictingVirtualPair) {
+              holes.push(null);
+              return;
+            }
+            const vals = effectiveIds.map((effectiveId) => {
+              const manual = manualPar3Point(d, effectiveId, i + 1);
+              return manual == null ? points(d, effectiveId)[i] : manual;
             });
             holes.push(vals.every((x) => x != null) ? leaderSum(vals) : null);
           });
+        }
         return leaderRow(
           u.id,
           u.name,
