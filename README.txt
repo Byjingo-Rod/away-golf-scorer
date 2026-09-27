@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.91.5
+AWAY GOLF SCORER — VERSION 15.91.6
+
+VERSION 15.91.6 — DAY SELECTION AND VIRTUAL PARTNER DISPLAY
+
+- Keeps the organiser's selected leaderboard day through automatic cloud refreshes.
+- Keeps the No Partner player beside No Partner on the phone's two-column team display.
+- Clarifies that the listed virtual partner supplies the missing multiplayer scores.
+- Places the virtual-player marker beneath the correct 4BBB player in paper entry.
+- Displays the calculated putting total immediately in the expanded full-card section.
 
 VERSION 15.91.5 — REVERSIBLE FULL SCORE CARDS
 

@@ -138,6 +138,34 @@ Placing the course and tee time together makes the organiser explicitly verify t
 
 ---
 
+### AGI-005 — Place Virtual Player Label Under the Correct 4BBB Player
+
+**Status:** Included in Version 15.91.6
+**Target release:** Version 15.91.6
+**Priority:** Minor
+
+**Correction:**
+In the Record All Scores 4BBB section, place **(VIRTUAL PLAYER)** directly beneath the virtual player's own name. For the tested Team 1 pairing, the label belongs beneath **Peter Dodd**, not beneath **David Gaffaney**.
+
+**Reason:**
+The present pair label joins both player names before displaying the virtual-player marker, which can make the marker appear to belong to the first player in the pair.
+
+---
+
+### AGI-006 — Display the Calculated Total in Full-Card Team Putting
+
+**Status:** Included in Version 15.91.6
+**Target release:** Version 15.91.6
+**Priority:** Minor
+
+**Correction:**
+When the four individual putting totals are entered in the expanded score-card section, immediately display their calculated sum in that section's **Total** cell. The same total is already being calculated correctly in the main Team Putting section.
+
+**Reason:**
+Showing the total beside the four entered figures gives the organiser an immediate visual check without having to scroll down to the main results body.
+
+---
+
 ## New Idea Template
 
 ### AGI-___ — Short title

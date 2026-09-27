@@ -1389,7 +1389,13 @@
                 leaderboardView: store.event?.leaderboardView || "",
                 liveControlDay: store.event?.liveControlDay || 1,
               }
-            : {};
+            : {
+                leaderboardTab: store.event?.leaderboardTab || "",
+                leaderboardView: store.event?.leaderboardView || "",
+                liveControlDay: store.event?.liveControlDay || 1,
+                activeGroupDay: store.event?.activeGroupDay || 1,
+                playerPreviewDay: store.event?.playerPreviewDay || 1,
+              };
       store.event = {
         ...JSON.parse(JSON.stringify(payload.event)),
         ...localUi,
@@ -2327,7 +2333,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.6", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6887,8 +6893,15 @@ Count-back if tied
     deriveManualFullCards(day, groupIndex, card, req);
     const playerLabel = (id) =>
         `${esc(player(id)?.name || "Player")}${id === req.virtualId ? " <small>(VIRTUAL PLAYER)</small>" : ""}`,
+      pairLabel = (ids) =>
+        ids
+          .map(
+            (id) =>
+              `<span class="manualPairPlayer">${playerLabel(id)}</span>`,
+          )
+          .join('<span class="manualPairAnd"> &amp; </span>'),
       fullCardEntry = card.fullCardsOpen
-          ? `<section class="manualEntrySection manualFullCards"><div class="manualFullCardTitle"><div><h3>Individual Score Cards</h3><p>${req.shortTeam ? "Enter gross strokes from the three signed cards and the selected virtual player's card." : "Enter gross strokes from each player's signed card."} Enter P for a pickup.</p></div><div class="manualFullCardControls"><span>Calculated automatically</span><button type="button" class="soft" id="closeManualFullCards">Close Score Cards</button></div></div><div class="manualFullCardGrid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner" style="grid-column:1;grid-row:1">Hole</span><span class="manualPar3Corner" style="grid-column:2;grid-row:1">Par</span>${req.ids.map((id, playerIndex) => `<strong class="manualPar3Player" style="grid-column:${playerIndex + 3};grid-row:1">${playerLabel(id)}</strong>`).join("")}${Array.from({ length: 18 }, (_, index) => `<b class="manualPar3Hole" style="grid-column:1;grid-row:${index + 2}">${index + 1}</b><b class="manualFullCardPar" style="grid-column:2;grid-row:${index + 2}">${esc(playingVersion.par?.[index] ?? "–")}</b>`).join("")}${req.ids.map((id, playerIndex) => Array.from({ length: 18 }, (_, index) => `<input style="grid-column:${playerIndex + 3};grid-row:${index + 2}" inputmode="text" maxlength="2" data-required data-manual="players.${id}.fullGross.${index + 1}" value="${esc(card.players?.[id]?.fullGross?.[index + 1] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${index + 1} gross score, par ${esc(playingVersion.par?.[index] ?? "unknown")}">`).join("")).join("")}</div><div class="manualFullPutting"><h3>Team Putting</h3><div class="manualFullPuttingGrid" style="--manual-putting-count:${req.ids.length + 1}">${req.ids.map((id) => `<label><span>${playerLabel(id)}</span><input inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.fullPuttsTotal" value="${esc(card.players?.[id]?.fullPuttsTotal ?? "")}"></label>`).join("")}<label class="manualPuttingTotal"><span>Total</span><input readonly value="${esc(card.team?.putts?.total ?? "")}" aria-label="Team putting total"></label></div></div></section>`
+          ? `<section class="manualEntrySection manualFullCards"><div class="manualFullCardTitle"><div><h3>Individual Score Cards</h3><p>${req.shortTeam ? "Enter gross strokes from the three signed cards and the selected virtual player's card." : "Enter gross strokes from each player's signed card."} Enter P for a pickup.</p></div><div class="manualFullCardControls"><span>Calculated automatically</span><button type="button" class="soft" id="closeManualFullCards">Close Score Cards</button></div></div><div class="manualFullCardGrid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner" style="grid-column:1;grid-row:1">Hole</span><span class="manualPar3Corner" style="grid-column:2;grid-row:1">Par</span>${req.ids.map((id, playerIndex) => `<strong class="manualPar3Player" style="grid-column:${playerIndex + 3};grid-row:1">${playerLabel(id)}</strong>`).join("")}${Array.from({ length: 18 }, (_, index) => `<b class="manualPar3Hole" style="grid-column:1;grid-row:${index + 2}">${index + 1}</b><b class="manualFullCardPar" style="grid-column:2;grid-row:${index + 2}">${esc(playingVersion.par?.[index] ?? "–")}</b>`).join("")}${req.ids.map((id, playerIndex) => Array.from({ length: 18 }, (_, index) => `<input style="grid-column:${playerIndex + 3};grid-row:${index + 2}" inputmode="text" maxlength="2" data-required data-manual="players.${id}.fullGross.${index + 1}" value="${esc(card.players?.[id]?.fullGross?.[index + 1] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${index + 1} gross score, par ${esc(playingVersion.par?.[index] ?? "unknown")}">`).join("")).join("")}</div><div class="manualFullPutting"><h3>Team Putting</h3><div class="manualFullPuttingGrid" style="--manual-putting-count:${req.ids.length + 1}">${req.ids.map((id) => `<label><span>${playerLabel(id)}</span><input inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.fullPuttsTotal" value="${esc(card.players?.[id]?.fullPuttsTotal ?? "")}"></label>`).join("")}<label class="manualPuttingTotal"><span>Total</span><input readonly data-manual="team.putts.total" value="${esc(card.team?.putts?.total ?? "")}" aria-label="Team putting total"></label></div></div></section>`
           : `<button type="button" class="primary manualOpenFullCards" id="openManualFullCards">Open Individual Score Cards</button>`;
     if (req.single)
       comps.push(
@@ -6913,7 +6926,7 @@ Count-back if tied
           pairs
             .map(
               (ids, index) =>
-                `<div class="manualEntryRow"><b>${ids.map(playerLabel).join(" &amp; ")}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
+                `<div class="manualEntryRow"><b class="manualPairLabel">${pairLabel(ids)}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
             )
             .join(""),
         ),
@@ -11267,14 +11280,15 @@ Count-back if tied
       openingYellowBallPlayer = yellowBallOn
         ? yellowBallPlayerForHole(day, ctx.groupIndex, start)
         : "";
-    let displayIds = [selected];
-    if (partner) {
-      const partnerActual = g.find(
-        (id) => String(id) !== selected && player(id)?.name === partner.name,
-      );
-      if (partnerActual) displayIds.push(String(partnerActual));
-    }
-    g.map(String).forEach((id) => {
+    const selectedPairStart = ctx.playerIndex < 2 ? 0 : 2,
+      selectedPair = g
+        .slice(selectedPairStart, selectedPairStart + 2)
+        .map(String),
+      otherPair = g
+        .filter((_, index) => index < selectedPairStart || index >= selectedPairStart + 2)
+        .map(String);
+    let displayIds = [selected, ...selectedPair.filter((id) => id !== selected)];
+    otherPair.forEach((id) => {
       if (!displayIds.includes(id)) displayIds.push(id);
     });
     displayIds = displayIds.slice(0, 4);
@@ -11299,7 +11313,7 @@ Count-back if tied
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day)) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day)) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}
- ${isAffected || isExtra || yellowBallOn || ambroseIsOn() ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn() ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = player(roles.scorerId)?.name || "the first listed player", markerName = player(roles.markerId)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn() ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> in your playing group. The locked virtual score supplies the missing score in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra || yellowBallOn || ambroseIsOn() ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn() ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = player(roles.scorerId)?.name || "the first listed player", markerName = player(roles.markerId)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn() ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(

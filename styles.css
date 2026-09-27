@@ -6208,6 +6208,19 @@ body.playerDevice .cloudHeader {
   font-style: normal;
   font-weight: 900;
 }
+.manualPairLabel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 2px;
+}
+.manualPairPlayer {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.manualPairPlayer small { display: block; }
+.manualPairAnd { align-self: flex-start; }
 .manualFullPutting {
   margin-top: 18px;
   padding-top: 14px;

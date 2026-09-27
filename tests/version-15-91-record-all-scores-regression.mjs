@@ -6,8 +6,8 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.5/);
-assert.match(sw, /away-golf-v15-91-5/);
+assert.match(html, /Version 15\.91\.6/);
+assert.match(sw, /away-golf-v15-91-6/);
 assert.match(app, /id="recordAllScores"/);
 assert.match(app, /function openManualScores/);
 assert.match(app, /function renderManualScoresDashboard/);
@@ -37,7 +37,9 @@ assert.match(app, /card\.fullCardsOpen = false/);
 assert.match(app, /function deriveManualFullCards/);
 assert.match(app, /\.fullGross\./);
 assert.match(app, /fullPuttsTotal/);
+assert.match(app, /data-manual="team\.putts\.total"/);
 assert.match(app, /VIRTUAL PLAYER/);
+assert.match(app, /manualPairLabel/);
 assert.match(app, /manualVirtualLabel/);
 assert.match(app, />Par<\/span>/);
 assert.match(app, /manualFullCardPar/);
@@ -52,5 +54,6 @@ assert.match(css, /\.manualTeamDashboard/);
 assert.match(css, /\.manualStickyActions/);
 assert.match(css, /\.manualFullCardPar/);
 assert.match(css, /\.manualFullCardControls/);
+assert.match(css, /\.manualPairPlayer/);
 
-console.log("Version 15.91.5 Record All Scores regression checks passed.");
+console.log("Version 15.91.6 Record All Scores regression checks passed.");

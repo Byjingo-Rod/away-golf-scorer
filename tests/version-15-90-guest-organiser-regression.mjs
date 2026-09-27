@@ -6,12 +6,15 @@ const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sql = readFileSync(new URL("../supabase_v15_90_guest_organiser.sql", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.5/);
+assert.match(html, /Version 15\.91\.6/);
 assert.match(html, /id="guestOrganiserAccess"/);
 assert.match(app, /function openGuestOrganiserAccess/);
 assert.match(app, /function claimGuestOrganiser/);
 assert.match(app, /Guest Organiser — this event only/);
 assert.match(app, /Guest Organiser access is limited to the delegated event/);
+assert.match(app, /leaderboardView: store\.event\?\.leaderboardView \|\| ""/);
+assert.match(app, /You have <b>No Partner<\/b> today, so the virtual partner listed will supply the missing scores/);
+assert.match(app, /selectedPairStart = ctx\.playerIndex < 2 \? 0 : 2/);
 assert.match(app, /endGuestOrganiserSession/);
 assert.match(cloud, /createGuestOrganiserKey/);
 assert.match(cloud, /claimGuestOrganiserAccess/);
