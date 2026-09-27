@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.91.6
+AWAY GOLF SCORER — VERSION 15.91.7
+
+VERSION 15.91.7 — MANUAL DAY 1 ADVANCES PLAYER PHONES
+
+- Completing Day 1 through Record All Scores now counts as the official final Day 1 submission for every player.
+- Player phones automatically advance past their unused Day 1 cards to the Day 2 scorecard.
+- Day 2 remains locked until 15 minutes before its first tee time, exactly as with normal phone scoring.
 
 VERSION 15.91.6 — DAY SELECTION AND VIRTUAL PARTNER DISPLAY
 

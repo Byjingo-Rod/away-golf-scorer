@@ -2333,7 +2333,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.6", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.7", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5933,7 +5933,8 @@ Count-back if tied
   function roundFinalisedFor(day, playerId) {
     const id = String(playerId);
     return Boolean(
-      store.event?.roundFinalised?.["day" + day]?.[id] ||
+      manualDayFinalised(day) ||
+        store.event?.roundFinalised?.["day" + day]?.[id] ||
         scoringDayStore(day)?.[id]?._meta?.finalisedAt ||
         (officialCardProgress(day, id).complete &&
           verificationIssueCount(day, id) === 0 &&
@@ -6617,6 +6618,10 @@ Count-back if tied
     if (!root[key] && create)
       root[key] = { groups: {}, ntp: {}, status: "draft" };
     return root[key] || null;
+  }
+  function manualDayFinalised(day) {
+    const dayStore = manualDayStore(day, false);
+    return Boolean(dayStore?.status === "submitted" && dayStore?.completedAt);
   }
   function manualGroupCard(day, groupIndex, create = true) {
     const dayStore = manualDayStore(day, create);
@@ -10626,6 +10631,7 @@ Count-back if tied
     return rankLeaderRows(rows, !def.lower, Boolean(def.countback));
   }
   function eventDayComplete(day) {
+    if (manualDayFinalised(day)) return true;
     const field = dayFieldIds(day).filter(
       (id) => String(id) !== NO_PARTNER_ID,
     );
@@ -11205,6 +11211,20 @@ Count-back if tied
     initialiseGroups();
     const days = store.event.days || 1;
     let day = Math.min(store.event.playerPreviewDay || 1, days);
+    if (
+      store.cloud?.role === "player" &&
+      days === 2 &&
+      day === 1 &&
+      manualDayFinalised(1)
+    ) {
+      // A completed organiser paper-card entry is the official Day 1 result.
+      // Skip the unused Day 1 phone card and retain Day 2's normal time lock.
+      day = 2;
+      store.event.playerPreviewDay = 2;
+      store.event.playerRoundMode = "preview";
+      store.event.playerHolePos = 0;
+      writeLocalStore();
+    }
     let field = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
     if (store.cloud?.role === "player")
       field = field.filter((id) => String(id) === String(store.cloud.playerId));

@@ -6,8 +6,8 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.6/);
-assert.match(sw, /away-golf-v15-91-6/);
+assert.match(html, /Version 15\.91\.7/);
+assert.match(sw, /away-golf-v15-91-7/);
 assert.match(app, /id="recordAllScores"/);
 assert.match(app, /function openManualScores/);
 assert.match(app, /function renderManualScoresDashboard/);
@@ -50,10 +50,14 @@ assert.match(app, /submittedManualCard\(day, index\)/);
 assert.match(app, /livePlayerStatus\(day, id\)\.finalised/);
 assert.match(app, /function manualLeaderRow/);
 assert.match(app, /cbTotals/);
+assert.match(app, /function manualDayFinalised/);
+assert.match(app, /manualDayFinalised\(day\) \|\|/);
+assert.match(app, /if \(manualDayFinalised\(day\)\) return true/);
+assert.match(app, /days === 2 &&[\s\S]*?day === 1 &&[\s\S]*?manualDayFinalised\(1\)[\s\S]*?store\.event\.playerPreviewDay = 2/);
 assert.match(css, /\.manualTeamDashboard/);
 assert.match(css, /\.manualStickyActions/);
 assert.match(css, /\.manualFullCardPar/);
 assert.match(css, /\.manualFullCardControls/);
 assert.match(css, /\.manualPairPlayer/);
 
-console.log("Version 15.91.6 Record All Scores regression checks passed.");
+console.log("Version 15.91.7 Record All Scores regression checks passed.");
