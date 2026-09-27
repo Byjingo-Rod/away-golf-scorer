@@ -6119,6 +6119,17 @@ body.playerDevice .cloudHeader {
   font-size: 18px;
   font-weight: 850;
 }
+.manualFullCardGrid input,
+.manualFullPuttingGrid input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #b9ccc0;
+  border-radius: 7px;
+  background: #fff;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 850;
+}
 .manualSummaryFields input:focus,
 .manualPar3Grid input:focus {
   outline: 3px solid rgba(31, 145, 88, .24);
@@ -6148,6 +6159,91 @@ body.playerDevice .cloudHeader {
 }
 .manualPar3Corner,
 .manualPar3Hole { text-align: center; }
+.manualOpenFullCards {
+  display: block;
+  width: min(100%, 520px);
+  margin: 12px auto;
+}
+.manualFullCards { border: 2px solid #87b99d; }
+.manualFullCardTitle {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.manualFullCardControls > span {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #e4f5ea;
+  color: #17623f;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.manualFullCardControls {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+}
+.manualFullCardControls button { white-space: nowrap; }
+.manualFullCardGrid {
+  display: grid;
+  grid-template-columns: 42px 42px repeat(var(--manual-player-count, 4), minmax(70px, 1fr));
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.manualFullCardPar {
+  color: #9a5417;
+  font-size: 14px;
+  text-align: center;
+}
+.manualVirtualLabel {
+  color: #a85a12;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+.manualFullPutting {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #cbd9d0;
+}
+.manualFullPuttingGrid {
+  display: grid;
+  grid-template-columns: repeat(var(--manual-putting-count, 5), minmax(82px, 1fr));
+  gap: 7px;
+  overflow-x: auto;
+}
+.manualFullPuttingGrid label span {
+  display: block;
+  min-height: 28px;
+  margin-bottom: 4px;
+  color: #174d37;
+  font-size: 11px;
+  font-weight: 850;
+  text-align: center;
+}
+.manualPuttingTotal input {
+  background: #eaf4ed;
+  color: #174d37;
+}
+.manualSummaryFields input.manualCalculated,
+.manualPar3Grid input.manualCalculated {
+  background: #eaf4ed;
+  color: #174d37;
+}
+.manualEntryRow b small,
+.manualPar3Player small {
+  display: block;
+  margin-top: 2px;
+  color: #a55513;
+  font-size: 8px;
+}
 .manualStickyActions {
   position: sticky;
   bottom: -16px;

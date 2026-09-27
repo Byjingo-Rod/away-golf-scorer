@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.91.2 RECORD ALL SCORES TEST BUILD
+AWAY GOLF SCORER — VERSION 15.91.5 REVERSIBLE FULL CARDS TEST BUILD
 
-This package is the complete Version 15.91.2 app.
+This package is the complete Version 15.91.5 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,12 +11,30 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.91.2.
+4. Open index.html and confirm that the heading says Version 15.91.5.
 
 SUPABASE SQL REQUIRED BEFORE TESTING
 
 Run supabase_v15_90_guest_organiser.sql once in the Supabase SQL Editor.
 If the Version 15.86.4 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.91.5 CHANGES
+
+- Full-card scores automatically populate the Par 3 gross-score section.
+- Close Score Cards returns the organiser to abbreviated manual entry.
+- Full-card entries remain saved for later reopening.
+
+VERSION 15.91.4 CHANGES
+
+- The Record All Scores dashboard now shows the virtual player as Team 1's fourth member.
+- Full individual score cards now show Hole and Par at the left.
+- The four score columns are narrower to preserve a practical tablet layout.
+
+VERSION 15.91.3 CHANGES
+
+- Adds optional 18-hole individual gross cards to every paper team card.
+- Includes a short team's virtual player and calculates its team competitions.
+- Calculates team putting from four individual putting totals.
 
 VERSION 15.91.2 CHANGES
 

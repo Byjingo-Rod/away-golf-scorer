@@ -2327,7 +2327,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.2", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.5", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6618,11 +6618,14 @@ Count-back if tied
     dayStore.groups = dayStore.groups || {};
     const key = String(groupIndex);
     if (!dayStore.groups[key] && create) {
-      const ids = (
-        store.event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || []
-      )
-        .map(String)
-        .filter((id) => id && id !== NO_PARTNER_ID);
+      const setup = store.event?.groupSetup?.["day" + day],
+        ids = (setup?.groups?.[groupIndex] || [])
+          .map((id) =>
+            String(id) === NO_PARTNER_ID
+              ? String(setup?.virtualPlayer || "")
+              : String(id),
+          )
+          .filter(Boolean);
       dayStore.groups[key] = {
         status: "draft",
         source: "paper-team-card",
@@ -6709,13 +6712,20 @@ Count-back if tied
   }
   function manualRequirements(day, groupIndex) {
     const comps = manualSelectedCompetitions(),
-      ids = (
-        store.event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || []
-      )
-        .map(String)
-        .filter((id) => id && id !== NO_PARTNER_ID);
+      setup = store.event?.groupSetup?.["day" + day],
+      raw = setup?.groups?.[groupIndex] || [],
+      virtualId = raw.some((id) => String(id) === NO_PARTNER_ID)
+        ? String(setup?.virtualPlayer || "")
+        : "",
+      ids = raw
+        .map((id) =>
+          String(id) === NO_PARTNER_ID ? virtualId : String(id),
+        )
+        .filter(Boolean);
     return {
       ids,
+      virtualId,
+      shortTeam: Boolean(virtualId),
       single: comps.has("single") || comps.has("combined"),
       fourball: comps.has("fourball"),
       best3: comps.has("best3of4"),
@@ -6724,6 +6734,90 @@ Count-back if tied
       par3: comps.has("par3"),
       ntp: comps.has("ntp"),
     };
+  }
+  function manualCalculatedSummary(values) {
+    const sum = (items) =>
+      items.reduce((total, value) => total + (value == null ? 0 : +value || 0), 0);
+    return {
+      total: String(sum(values)),
+      back9: String(sum(values.slice(9, 18))),
+      last6: String(sum(values.slice(12, 18))),
+      last3: String(sum(values.slice(15, 18))),
+    };
+  }
+  function deriveManualFullCards(day, groupIndex, card, req) {
+    if (!card.fullCardsOpen) return;
+    const c = course(day === 1 ? store.event.course1 : store.event.course2),
+      v = version(c) || {},
+      points = {};
+    req.ids.forEach((id) => {
+      const gross = card.players?.[id]?.fullGross || {};
+      points[id] = Array.from({ length: 18 }, (_, index) => {
+        const value = gross[String(index + 1)];
+        return value === "" || value == null
+          ? null
+          : stablefordPoints(
+              value,
+              +(v.par?.[index] || 0),
+              v.index?.[index] ?? "",
+              playerDailyHandicap(id, day),
+            );
+      });
+      setManualValue(card, `players.${id}.single`, manualCalculatedSummary(points[id]));
+      manualPar3Holes(day).forEach((hole) => {
+        const value = gross[String(hole)];
+        setManualValue(
+          card,
+          `players.${id}.par3.${hole}`,
+          value === "" || value == null ? "" : value,
+        );
+      });
+      const putts = card.players?.[id]?.fullPuttsTotal;
+      if (putts !== "" && putts != null)
+        setManualValue(card, `players.${id}.putts.total`, String(+putts || 0));
+    });
+    [req.ids.slice(0, 2), req.ids.slice(2, 4)].forEach((ids, pairIndex) => {
+      const pairPoints = Array.from({ length: 18 }, (_, index) => {
+        const values = ids.map((id) => points[id]?.[index]);
+        return values.every((value) => value != null)
+          ? Math.max(...values)
+          : null;
+      });
+      setManualValue(
+        card,
+        `pairs.p${pairIndex}.fourball`,
+        manualCalculatedSummary(pairPoints),
+      );
+    });
+    const best3 = Array.from({ length: 18 }, (_, index) => {
+      const values = req.ids.map((id) => points[id]?.[index]);
+      if (!values.every((value) => value != null)) return null;
+      return values.sort((a, b) => b - a).slice(0, 3).reduce((n, value) => n + value, 0);
+    });
+    setManualValue(card, "team.best3", manualCalculatedSummary(best3));
+    const puttValues = req.ids.map(
+      (id) => card.players?.[id]?.fullPuttsTotal,
+    );
+    if (puttValues.some((value) => value !== "" && value != null)) {
+      const total = puttValues.reduce(
+        (sum, value) => sum + (value === "" || value == null ? 0 : +value || 0),
+        0,
+      );
+      setManualValue(card, "team.putts.total", String(total));
+    }
+  }
+  function syncManualCalculatedInputs(card) {
+    $("#modalContent")
+      .querySelectorAll("[data-manual]")
+      .forEach((input) => {
+        if (
+          input.dataset.manual.includes(".fullGross.") ||
+          input.dataset.manual.endsWith(".fullPuttsTotal")
+        )
+          return;
+        const value = manualValue(card, input.dataset.manual, "");
+        input.value = value;
+      });
   }
   function validateManualCard(card, host) {
     const missing = [...host.querySelectorAll("[data-required]")].filter(
@@ -6735,25 +6829,39 @@ Count-back if tied
       missing.forEach((input) => input.classList.add("manualMissing"));
       return false;
     }
-    const invalid = [...host.querySelectorAll("[data-manual]")].find(
-      (input) =>
-        input.value !== "" &&
-        (!Number.isInteger(+input.value) || +input.value < 0 || +input.value > 999),
-    );
+    const invalid = [...host.querySelectorAll("[data-manual]")].find((input) => {
+      if (input.value === "") return false;
+      const grossEntry =
+        input.dataset.manual.includes(".fullGross.") ||
+        input.dataset.manual.includes(".par3.");
+      if (grossEntry && input.value.toUpperCase() === "P") return false;
+      if (!Number.isInteger(+input.value)) return true;
+      return grossEntry
+        ? +input.value < 1 || +input.value > 20
+        : +input.value < 0 || +input.value > 999;
+    });
     if (invalid) {
       invalid.focus();
-      alert("Enter whole numbers only. Check the highlighted field.");
+      alert("Enter whole numbers only, or P for a pickup on a gross-score card. Check the highlighted field.");
       invalid.classList.add("manualMissing");
       return false;
     }
     return Boolean(card);
   }
-  function bindManualInputs(card) {
+  function bindManualInputs(card, day, groupIndex, req) {
     const inputs = [...$("#modalContent").querySelectorAll("[data-manual]")];
     inputs.forEach((input, index) => {
       input.oninput = () => {
         input.classList.remove("manualMissing");
+        if (input.dataset.manual.includes(".fullGross."))
+          input.value = input.value
+            .toUpperCase()
+            .replace(/[–—-]/g, "P")
+            .replace(/[^0-9P]/g, "")
+            .slice(0, 2);
         setManualValue(card, input.dataset.manual, input.value.trim());
+        deriveManualFullCards(day, groupIndex, card, req);
+        syncManualCalculatedInputs(card);
         card.status = "draft";
         card.updatedAt = new Date().toISOString();
         writeLocalStore();
@@ -6771,9 +6879,17 @@ Count-back if tied
   function renderManualTeamCard(day, groupIndex) {
     const req = manualRequirements(day, groupIndex),
       card = manualGroupCard(day, groupIndex),
+      playingCourse = course(day === 1 ? store.event.course1 : store.event.course2),
+      playingVersion = version(playingCourse) || {},
       comps = [],
       summarySection = (title, body, note = "") =>
         `<section class="manualEntrySection"><h3>${title}</h3>${note ? `<p>${note}</p>` : ""}${body}</section>`;
+    deriveManualFullCards(day, groupIndex, card, req);
+    const playerLabel = (id) =>
+        `${esc(player(id)?.name || "Player")}${id === req.virtualId ? " <small>(VIRTUAL PLAYER)</small>" : ""}`,
+      fullCardEntry = card.fullCardsOpen
+          ? `<section class="manualEntrySection manualFullCards"><div class="manualFullCardTitle"><div><h3>Individual Score Cards</h3><p>${req.shortTeam ? "Enter gross strokes from the three signed cards and the selected virtual player's card." : "Enter gross strokes from each player's signed card."} Enter P for a pickup.</p></div><div class="manualFullCardControls"><span>Calculated automatically</span><button type="button" class="soft" id="closeManualFullCards">Close Score Cards</button></div></div><div class="manualFullCardGrid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner" style="grid-column:1;grid-row:1">Hole</span><span class="manualPar3Corner" style="grid-column:2;grid-row:1">Par</span>${req.ids.map((id, playerIndex) => `<strong class="manualPar3Player" style="grid-column:${playerIndex + 3};grid-row:1">${playerLabel(id)}</strong>`).join("")}${Array.from({ length: 18 }, (_, index) => `<b class="manualPar3Hole" style="grid-column:1;grid-row:${index + 2}">${index + 1}</b><b class="manualFullCardPar" style="grid-column:2;grid-row:${index + 2}">${esc(playingVersion.par?.[index] ?? "–")}</b>`).join("")}${req.ids.map((id, playerIndex) => Array.from({ length: 18 }, (_, index) => `<input style="grid-column:${playerIndex + 3};grid-row:${index + 2}" inputmode="text" maxlength="2" data-required data-manual="players.${id}.fullGross.${index + 1}" value="${esc(card.players?.[id]?.fullGross?.[index + 1] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${index + 1} gross score, par ${esc(playingVersion.par?.[index] ?? "unknown")}">`).join("")).join("")}</div><div class="manualFullPutting"><h3>Team Putting</h3><div class="manualFullPuttingGrid" style="--manual-putting-count:${req.ids.length + 1}">${req.ids.map((id) => `<label><span>${playerLabel(id)}</span><input inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.fullPuttsTotal" value="${esc(card.players?.[id]?.fullPuttsTotal ?? "")}"></label>`).join("")}<label class="manualPuttingTotal"><span>Total</span><input readonly value="${esc(card.team?.putts?.total ?? "")}" aria-label="Team putting total"></label></div></div></section>`
+          : `<button type="button" class="primary manualOpenFullCards" id="openManualFullCards">Open Individual Score Cards</button>`;
     if (req.single)
       comps.push(
         summarySection(
@@ -6781,7 +6897,7 @@ Count-back if tied
           req.ids
             .map(
               (id) =>
-                `<div class="manualEntryRow"><b>${esc(player(id)?.name || "Player")}</b>${manualSummaryFields(`players.${id}.single`, card.players?.[id]?.single)}</div>`,
+                `<div class="manualEntryRow"><b>${playerLabel(id)}</b>${manualSummaryFields(`players.${id}.single`, card.players?.[id]?.single)}</div>`,
             )
             .join(""),
           "Enter each player's signed-card total and countback figures.",
@@ -6797,7 +6913,7 @@ Count-back if tied
           pairs
             .map(
               (ids, index) =>
-                `<div class="manualEntryRow"><b>${ids.map((id) => esc(player(id)?.name || "Player")).join(" &amp; ")}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
+                `<div class="manualEntryRow"><b>${ids.map(playerLabel).join(" &amp; ")}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
             )
             .join(""),
         ),
@@ -6818,7 +6934,7 @@ Count-back if tied
             req.ids
               .map(
                 (id) =>
-                  `<div class="manualEntryRow"><b>${esc(player(id)?.name || "Player")}</b>${manualSummaryFields(`players.${id}.putts`, card.players?.[id]?.putts)}</div>`,
+                  `<div class="manualEntryRow"><b>${playerLabel(id)}</b>${manualSummaryFields(`players.${id}.putts`, card.players?.[id]?.putts)}</div>`,
               )
               .join(""),
             "The app will combine the configured putting partners automatically.",
@@ -6841,7 +6957,7 @@ Count-back if tied
           `<div class="manualPar3Grid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner">Hole</span>${req.ids
             .map(
               (id, playerIndex) =>
-                `<strong class="manualPar3Player" style="grid-column:${playerIndex + 2};grid-row:1">${esc(player(id)?.name || "Player")}</strong>`,
+                `<strong class="manualPar3Player" style="grid-column:${playerIndex + 2};grid-row:1">${playerLabel(id)}</strong>`,
             )
             .join("")}${holes
             .map(
@@ -6865,8 +6981,36 @@ Count-back if tied
     const phoneWarning = manualTeamHasPhoneScores(day, groupIndex)
       ? '<div class="manualConflict"><b>Phone scores already exist for this team.</b><span>Submitting this paper card makes its summary results authoritative. The underlying phone scores are retained.</span></div>'
       : "";
-    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>RECORD ALL SCORES · DAY ${day}</small><h2>Team ${groupIndex + 1} Paper Card</h2><p>${req.ids.map((id) => esc(player(id)?.name || "Player")).join(" · ")}</p></div>${phoneWarning}<p class="manualAdaptiveNote">Only fields required by this event's selected competitions are shown.</p><div class="manualEntryBody">${comps.join("")}</div><div class="manualStickyActions"><span id="manualSavedState">${card.updatedAt ? "Saved on this device ✓" : "Not yet saved"}</span><div><button class="soft" id="backManualDashboard">← Teams</button><button class="soft" id="saveManualDraft">Save Draft</button><button class="primary" id="submitManualCard">${card.status === "submitted" ? "Update Submitted Card" : "Submit Team Card"}</button></div></div>`;
-    bindManualInputs(card);
+    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>RECORD ALL SCORES · DAY ${day}</small><h2>Team ${groupIndex + 1} Paper Card</h2><p>${req.ids.map(playerLabel).join(" · ")}</p></div>${phoneWarning}<p class="manualAdaptiveNote">Only fields required by this event's selected competitions are shown.</p>${fullCardEntry}<div class="manualEntryBody">${comps.join("")}</div><div class="manualStickyActions"><span id="manualSavedState">${card.updatedAt ? "Saved on this device ✓" : "Not yet saved"}</span><div><button class="soft" id="backManualDashboard">← Teams</button><button class="soft" id="saveManualDraft">Save Draft</button><button class="primary" id="submitManualCard">${card.status === "submitted" ? "Update Submitted Card" : "Submit Team Card"}</button></div></div>`;
+    bindManualInputs(card, day, groupIndex, req);
+    if (card.fullCardsOpen)
+      $("#modalContent")
+        .querySelectorAll("[data-manual]")
+        .forEach((input) => {
+          if (
+            !input.dataset.manual.includes(".fullGross.") &&
+            !input.dataset.manual.endsWith(".fullPuttsTotal")
+          ) {
+            input.readOnly = true;
+            input.classList.add("manualCalculated");
+          }
+        });
+    if ($("#openManualFullCards"))
+      $("#openManualFullCards").onclick = () => {
+        card.fullCardsOpen = true;
+        card.status = "draft";
+        card.updatedAt = new Date().toISOString();
+        writeLocalStore();
+        renderManualTeamCard(day, groupIndex);
+      };
+    if ($("#closeManualFullCards"))
+      $("#closeManualFullCards").onclick = () => {
+        card.fullCardsOpen = false;
+        card.status = "draft";
+        card.updatedAt = new Date().toISOString();
+        writeLocalStore();
+        renderManualTeamCard(day, groupIndex);
+      };
     $("#backManualDashboard").onclick = () => renderManualScoresDashboard(day);
     $("#saveManualDraft").onclick = () => {
       card.updatedAt = new Date().toISOString();
@@ -6937,10 +7081,11 @@ Count-back if tied
       groups = setup?.groups || [];
     $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>ORGANISER PAPER-CARD ENTRY</small><h2>Record All Scores</h2><p>Enter one signed team card at a time. Draft entries do not affect results.</p></div>${days === 2 ? `<div class="liveDayTabs manualDayTabs"><button data-manualday="1" class="${selectedDay === 1 ? "active" : ""}">Day 1</button><button data-manualday="2" class="${selectedDay === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="manualTeamDashboard">${groups
       .map((raw, index) => {
-        const ids = raw.map(String).filter((id) => id !== NO_PARTNER_ID),
+        const req = manualRequirements(selectedDay, index),
+          ids = req.ids,
           card = manualGroupCard(selectedDay, index, false),
           status = card?.status === "submitted" ? "Submitted ✓" : card ? "Draft" : "Not started";
-        return `<section class="manualTeamTile ${card?.status || "empty"}"><div><small>TEAM ${index + 1}</small><h3>${ids.map((id) => esc(player(id)?.name || "Player")).join(" · ")}</h3><span>${status}</span></div><button class="${card?.status === "submitted" ? "soft" : "primary"}" data-openmanualteam="${index}">${card?.status === "submitted" ? "Review / Edit" : card ? "Continue" : "Open Team Card"}</button></section>`;
+        return `<section class="manualTeamTile ${card?.status || "empty"}"><div><small>TEAM ${index + 1}</small><h3>${ids.map((id) => `${esc(player(id)?.name || "Player")}${id === req.virtualId ? ' <em class="manualVirtualLabel">(VIRTUAL PLAYER)</em>' : ""}`).join(" · ")}</h3><span>${status}</span></div><button class="${card?.status === "submitted" ? "soft" : "primary"}" data-openmanualteam="${index}">${card?.status === "submitted" ? "Review / Edit" : card ? "Continue" : "Open Team Card"}</button></section>`;
       })
       .join("") || '<p class="leaderEmpty">Save the teams for this day before recording paper cards.</p>'}</div>${manualSelectedCompetitions().has("ntp") ? renderManualNtpEditor(selectedDay) : ""}<div class="manualDayFinish"><div><b>${manualDayReady(selectedDay) ? `Day ${selectedDay} entry complete ✓` : `Day ${selectedDay} remains in progress`}</b><span>${manualDayReady(selectedDay) ? "All paper cards and NTP results are ready for the leaderboards." : "Submit every team card and complete the NTP result before finishing the day."}</span></div><button class="primary" id="completeManualDay" ${manualDayReady(selectedDay) ? "" : "disabled"}>Complete Day ${selectedDay} Results</button></div><button class="soft emergencyClose" id="closeManualScores">Close</button>`;
     $("#modalShade").classList.add("open");

@@ -1,4 +1,27 @@
-AWAY GOLF SCORER — VERSION 15.91.2
+AWAY GOLF SCORER — VERSION 15.91.5
+
+VERSION 15.91.5 — REVERSIBLE FULL SCORE CARDS
+
+- Full-card entry now explicitly fills and locks every Par 3 gross score.
+- Adds Close Score Cards to return to abbreviated manual entry at any time.
+- Previously entered full-card figures remain saved if the cards are reopened.
+
+VERSION 15.91.4 — COMPLETE PAPER TEAM DISPLAY
+
+- Shows the selected virtual player in the Record All Scores team list.
+- Adds the course par beside every hole on the full individual-card grid.
+- Narrows the scoring columns so Hole, Par and all four players fit comfortably on a tablet.
+
+VERSION 15.91.3 — OPTIONAL FULL INDIVIDUAL SCORE CARDS
+
+- Adds Open Individual Score Cards to every paper team card.
+- Presents four player columns with holes 1–18 down the left and Enter moving
+  down each player's column.
+- Includes the virtual player as the fourth player throughout a short-team card.
+- Calculates Single Stableford, 4BBB, Best 3 of 4 and Par-3 results from the
+  individual gross cards.
+- Adds four individual putting totals and calculates the team total automatically.
+- Keeps the calculated result fields read-only when full-card entry is used.
 
 VERSION 15.91.2 — DAY-SPECIFIC YELLOW BALL CHECK
 
