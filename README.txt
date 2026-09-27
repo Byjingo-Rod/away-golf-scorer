@@ -1,4 +1,22 @@
-AWAY GOLF SCORER — VERSION 15.90.7
+AWAY GOLF SCORER — VERSION 15.91.1
+
+VERSION 15.91.1 — VERTICAL PAR-3 PAPER ENTRY
+
+- Places player names across the top and Par-3 hole numbers down the left.
+- Enter moves down one player's score column before moving to the next player.
+- Labels an NTP result entered through Record All Scores as Winner input manually.
+
+VERSION 15.91.0 — RECORD ALL SCORES
+
+- Adds organiser-only tablet entry for signed paper team cards on Day 1 or Day 2.
+- Shows only the totals needed by the event's selected competitions: Single
+  Stableford, 4BBB, Best 3 of 4, Putting, Par 3 Pairs and Nearest the Pin.
+- Supports team putting totals or individual putting totals for configured pairs.
+- Adds optional Back 9, Last 6 and Last 3 countback figures.
+- Saves each team card as a draft and resumes it on the same tablet.
+- Lets paper-card teams and phone-scored teams coexist on the same day.
+- Submitted paper summaries feed the normal results without inventing hole scores.
+- Keeps Scratch, Eclectic, Yellow Ball and Ambrose entry out of this first stage.
 
 VERSION 15.90.7 — COMPACT AMBROSE CONTROL ROW
 

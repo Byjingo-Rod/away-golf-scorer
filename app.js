@@ -2327,7 +2327,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.90.7", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6069,6 +6069,22 @@ Count-back if tied
           (x) => String(x.playerId) === String(playerId),
         )?.joined,
       );
+    const manualCard = ctx
+      ? submittedManualCard(day, ctx.groupIndex)
+      : null;
+    if (manualCard) {
+      return {
+        playerId: String(playerId),
+        joined,
+        entered: 18,
+        finalised: true,
+        issues: 0,
+        state: "finalised",
+        label: "Complete",
+        detail: "Official paper team card submitted",
+        group: ctx.groupIndex + 1,
+      };
+    }
     if (ambroseIsOn() && ctx) {
       const checks = Array.from({ length: 18 }, (_, index) =>
           ambroseHoleAgreement(day, ctx.groupIndex, index + 1),
@@ -6585,6 +6601,400 @@ Count-back if tied
       $("#modalShade").classList.remove("open"); renderHome(); renderTeamsPage(); renderPlayerExperience();
     };
   }
+  function manualDayStore(day, create = true) {
+    if (!store.event) return null;
+    if (!store.event.manualScorecards && create)
+      store.event.manualScorecards = {};
+    const root = store.event.manualScorecards;
+    if (!root) return null;
+    const key = "day" + day;
+    if (!root[key] && create)
+      root[key] = { groups: {}, ntp: {}, status: "draft" };
+    return root[key] || null;
+  }
+  function manualGroupCard(day, groupIndex, create = true) {
+    const dayStore = manualDayStore(day, create);
+    if (!dayStore) return null;
+    dayStore.groups = dayStore.groups || {};
+    const key = String(groupIndex);
+    if (!dayStore.groups[key] && create) {
+      const ids = (
+        store.event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || []
+      )
+        .map(String)
+        .filter((id) => id && id !== NO_PARTNER_ID);
+      dayStore.groups[key] = {
+        status: "draft",
+        source: "paper-team-card",
+        playerIds: ids,
+        players: {},
+        pairs: {},
+        team: {},
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return dayStore.groups[key] || null;
+  }
+  function submittedManualCard(day, groupIndex) {
+    const card = manualGroupCard(day, groupIndex, false);
+    return card?.status === "submitted" ? card : null;
+  }
+  function manualCardForPlayer(day, playerId) {
+    const ctx = playerGroupContext(String(playerId), day);
+    return ctx ? submittedManualCard(day, ctx.groupIndex) : null;
+  }
+  function manualValue(object, path, fallback = "") {
+    let value = object;
+    for (const key of path.split(".")) {
+      if (value == null) return fallback;
+      value = value[key];
+    }
+    return value == null ? fallback : value;
+  }
+  function setManualValue(object, path, value) {
+    const keys = path.split(".");
+    let target = object;
+    keys.slice(0, -1).forEach((key) => {
+      target[key] = target[key] || {};
+      target = target[key];
+    });
+    target[keys[keys.length - 1]] = value;
+  }
+  function manualSummaryFields(prefix, values = {}, required = true) {
+    const field = (key, label, css = "") =>
+      `<label class="${css}"><span>${label}</span><input inputmode="numeric" pattern="[0-9]*" data-manual="${esc(prefix + "." + key)}" ${required && key === "total" ? "data-required" : ""} value="${esc(values[key] ?? "")}"></label>`;
+    return `<div class="manualSummaryFields">${field("total", "Total", "manualTotal")}${field("back9", "Back 9")}${field("last6", "Last 6")}${field("last3", "Last 3")}</div>`;
+  }
+  function manualSelectedCompetitions() {
+    return new Set(store.event?.competitions || []);
+  }
+  function manualPar3Holes(day) {
+    const c = course(day === 1 ? store.event.course1 : store.event.course2),
+      v = version(c) || {};
+    return Array.from({ length: 18 }, (_, i) => i + 1).filter(
+      (hole) => +v.par?.[hole - 1] === 3,
+    );
+  }
+  function manualPlayerSummary(day, playerId, type) {
+    const card = manualCardForPlayer(day, playerId);
+    return card?.players?.[String(playerId)]?.[type] || null;
+  }
+  function manualPar3Point(day, playerId, hole) {
+    const gross = manualCardForPlayer(day, playerId)?.players?.[
+        String(playerId)
+      ]?.par3?.[String(hole)];
+    if (gross === "" || gross == null) return null;
+    const c = course(day === 1 ? store.event.course1 : store.event.course2),
+      v = version(c) || {};
+    return stablefordPoints(
+      gross,
+      +(v.par?.[hole - 1] || 0),
+      v.index?.[hole - 1] ?? "",
+      playerDailyHandicap(playerId, day),
+    );
+  }
+  function manualPairSummary(day, unitId, type = "fourball") {
+    const match = String(unitId).match(/^d\d+g(\d+)p(\d+)$/);
+    if (!match) return null;
+    const card = submittedManualCard(day, +match[1]);
+    return card?.pairs?.["p" + match[2]]?.[type] || null;
+  }
+  function manualTeamSummary(day, unitId, type) {
+    const match = String(unitId).match(/^d\d+g(\d+)$/);
+    if (!match) return null;
+    return submittedManualCard(day, +match[1])?.team?.[type] || null;
+  }
+  function manualTeamHasPhoneScores(day, groupIndex) {
+    return Boolean(groupHasScoreEntries(day, groupIndex));
+  }
+  function manualRequirements(day, groupIndex) {
+    const comps = manualSelectedCompetitions(),
+      ids = (
+        store.event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || []
+      )
+        .map(String)
+        .filter((id) => id && id !== NO_PARTNER_ID);
+    return {
+      ids,
+      single: comps.has("single") || comps.has("combined"),
+      fourball: comps.has("fourball"),
+      best3: comps.has("best3of4"),
+      putting: comps.has("teamPutts"),
+      puttingPairs: store.event.puttingFormat === "pairs",
+      par3: comps.has("par3"),
+      ntp: comps.has("ntp"),
+    };
+  }
+  function validateManualCard(card, host) {
+    const missing = [...host.querySelectorAll("[data-required]")].filter(
+      (input) => String(input.value).trim() === "",
+    );
+    if (missing.length) {
+      missing[0].focus();
+      alert(`Complete the remaining ${missing.length} highlighted field${missing.length === 1 ? "" : "s"} before submitting this team card.`);
+      missing.forEach((input) => input.classList.add("manualMissing"));
+      return false;
+    }
+    const invalid = [...host.querySelectorAll("[data-manual]")].find(
+      (input) =>
+        input.value !== "" &&
+        (!Number.isInteger(+input.value) || +input.value < 0 || +input.value > 999),
+    );
+    if (invalid) {
+      invalid.focus();
+      alert("Enter whole numbers only. Check the highlighted field.");
+      invalid.classList.add("manualMissing");
+      return false;
+    }
+    return Boolean(card);
+  }
+  function bindManualInputs(card) {
+    const inputs = [...$("#modalContent").querySelectorAll("[data-manual]")];
+    inputs.forEach((input, index) => {
+      input.oninput = () => {
+        input.classList.remove("manualMissing");
+        setManualValue(card, input.dataset.manual, input.value.trim());
+        card.status = "draft";
+        card.updatedAt = new Date().toISOString();
+        writeLocalStore();
+        const saved = $("#manualSavedState");
+        if (saved) saved.textContent = "Saved on this device ✓";
+      };
+      input.onkeydown = (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        inputs[index + 1]?.focus();
+        inputs[index + 1]?.select?.();
+      };
+    });
+  }
+  function renderManualTeamCard(day, groupIndex) {
+    const req = manualRequirements(day, groupIndex),
+      card = manualGroupCard(day, groupIndex),
+      comps = [],
+      summarySection = (title, body, note = "") =>
+        `<section class="manualEntrySection"><h3>${title}</h3>${note ? `<p>${note}</p>` : ""}${body}</section>`;
+    if (req.single)
+      comps.push(
+        summarySection(
+          "Single Stableford",
+          req.ids
+            .map(
+              (id) =>
+                `<div class="manualEntryRow"><b>${esc(player(id)?.name || "Player")}</b>${manualSummaryFields(`players.${id}.single`, card.players?.[id]?.single)}</div>`,
+            )
+            .join(""),
+          "Enter each player's signed-card total and countback figures.",
+        ),
+      );
+    if (req.fourball) {
+      const pairs = [req.ids.slice(0, 2), req.ids.slice(2, 4)].filter(
+        (ids) => ids.length,
+      );
+      comps.push(
+        summarySection(
+          "4BBB Stableford",
+          pairs
+            .map(
+              (ids, index) =>
+                `<div class="manualEntryRow"><b>${ids.map((id) => esc(player(id)?.name || "Player")).join(" &amp; ")}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
+            )
+            .join(""),
+        ),
+      );
+    }
+    if (req.best3)
+      comps.push(
+        summarySection(
+          "Best 3 of 4 Stableford",
+          `<div class="manualEntryRow"><b>Team ${groupIndex + 1}</b>${manualSummaryFields("team.best3", card.team?.best3)}</div>`,
+        ),
+      );
+    if (req.putting) {
+      if (req.puttingPairs)
+        comps.push(
+          summarySection(
+            "Putting — individual totals",
+            req.ids
+              .map(
+                (id) =>
+                  `<div class="manualEntryRow"><b>${esc(player(id)?.name || "Player")}</b>${manualSummaryFields(`players.${id}.putts`, card.players?.[id]?.putts)}</div>`,
+              )
+              .join(""),
+            "The app will combine the configured putting partners automatically.",
+          ),
+        );
+      else
+        comps.push(
+          summarySection(
+            "Team Putting",
+            `<div class="manualEntryRow"><b>Team ${groupIndex + 1}</b>${manualSummaryFields("team.putts", card.team?.putts)}</div>`,
+            "Only the team totals are required for this event's putting format.",
+          ),
+        );
+    }
+    if (req.par3) {
+      const holes = manualPar3Holes(day);
+      comps.push(
+        summarySection(
+          "Par 3 Scores",
+          `<div class="manualPar3Grid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner">Hole</span>${req.ids
+            .map(
+              (id, playerIndex) =>
+                `<strong class="manualPar3Player" style="grid-column:${playerIndex + 2};grid-row:1">${esc(player(id)?.name || "Player")}</strong>`,
+            )
+            .join("")}${holes
+            .map(
+              (hole, holeIndex) =>
+                `<b class="manualPar3Hole" style="grid-column:1;grid-row:${holeIndex + 2}">Hole ${hole}</b>`,
+            )
+            .join("")}${req.ids
+            .map((id, playerIndex) =>
+              holes
+                .map(
+                  (hole, holeIndex) =>
+                    `<input style="grid-column:${playerIndex + 2};grid-row:${holeIndex + 2}" inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.par3.${hole}" value="${esc(card.players?.[id]?.par3?.[hole] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${hole} gross score">`,
+                )
+                .join(""),
+            )
+            .join("")}</div>`,
+          "Enter gross strokes. The app applies each player's handicap.",
+        ),
+      );
+    }
+    const phoneWarning = manualTeamHasPhoneScores(day, groupIndex)
+      ? '<div class="manualConflict"><b>Phone scores already exist for this team.</b><span>Submitting this paper card makes its summary results authoritative. The underlying phone scores are retained.</span></div>'
+      : "";
+    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>RECORD ALL SCORES · DAY ${day}</small><h2>Team ${groupIndex + 1} Paper Card</h2><p>${req.ids.map((id) => esc(player(id)?.name || "Player")).join(" · ")}</p></div>${phoneWarning}<p class="manualAdaptiveNote">Only fields required by this event's selected competitions are shown.</p><div class="manualEntryBody">${comps.join("")}</div><div class="manualStickyActions"><span id="manualSavedState">${card.updatedAt ? "Saved on this device ✓" : "Not yet saved"}</span><div><button class="soft" id="backManualDashboard">← Teams</button><button class="soft" id="saveManualDraft">Save Draft</button><button class="primary" id="submitManualCard">${card.status === "submitted" ? "Update Submitted Card" : "Submit Team Card"}</button></div></div>`;
+    bindManualInputs(card);
+    $("#backManualDashboard").onclick = () => renderManualScoresDashboard(day);
+    $("#saveManualDraft").onclick = () => {
+      card.updatedAt = new Date().toISOString();
+      writeLocalStore();
+      $("#manualSavedState").textContent = "Saved on this device ✓";
+    };
+    $("#submitManualCard").onclick = async () => {
+      if (!validateManualCard(card, $("#modalContent"))) return;
+      if (
+        !confirm(
+          `Submit Team ${groupIndex + 1}'s paper card as the authoritative Day ${day} result?`,
+        )
+      )
+        return;
+      card.status = "submitted";
+      card.submittedAt = new Date().toISOString();
+      card.updatedAt = card.submittedAt;
+      card.phoneScoresSuperseded = manualTeamHasPhoneScores(day, groupIndex);
+      writeLocalStore();
+      if (store.cloud?.role === "organiser" && store.cloud.eventId)
+        await updateCloudEvent();
+      renderHome();
+      renderLeaderboard();
+      renderManualScoresDashboard(day);
+    };
+  }
+  function renderManualNtpEditor(day) {
+    const dayStore = manualDayStore(day),
+      holes = ntpHolesInPlayingOrder(day),
+      ids = dayFieldIds(day)
+        .filter((id) => String(id) !== NO_PARTNER_ID)
+        .map(String);
+    if (!holes.length) return "";
+    return `<section class="manualNtpEditor"><h3>Nearest the Pin</h3><p>Select the paper-card winner or Not Won.</p>${holes
+      .map(
+        (hole) =>
+          `<label><b>Hole ${hole}</b><select data-manual-ntp="${hole}"><option value="">Select result</option><option value="NONE" ${dayStore.ntp?.[hole] === "NONE" ? "selected" : ""}>Not Won</option>${ids.map((id) => `<option value="${esc(id)}" ${String(dayStore.ntp?.[hole] || "") === id ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label>`,
+      )
+      .join("")}</section>`;
+  }
+  function manualDayReady(day) {
+    const setup = store.event?.groupSetup?.["day" + day],
+      cardsReady = Boolean(
+        setup?.groups?.length &&
+          setup.groups.every((raw, index) => {
+            if (submittedManualCard(day, index)) return true;
+            const ids = raw
+              .map(String)
+              .filter((id) => id && id !== NO_PARTNER_ID);
+            return Boolean(
+              ids.length && ids.every((id) => livePlayerStatus(day, id).finalised),
+            );
+          }),
+      ),
+      comps = manualSelectedCompetitions(),
+      ntpReady =
+        !comps.has("ntp") ||
+        ntpHolesInPlayingOrder(day).every(
+          (hole) => String(manualDayStore(day, false)?.ntp?.[hole] || "") !== "",
+        );
+    return cardsReady && ntpReady;
+  }
+  function renderManualScoresDashboard(day) {
+    const days = store.event.days || 1,
+      selectedDay = Math.max(1, Math.min(days, +day || 1)),
+      setup = store.event?.groupSetup?.["day" + selectedDay],
+      dayStore = manualDayStore(selectedDay),
+      groups = setup?.groups || [];
+    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>ORGANISER PAPER-CARD ENTRY</small><h2>Record All Scores</h2><p>Enter one signed team card at a time. Draft entries do not affect results.</p></div>${days === 2 ? `<div class="liveDayTabs manualDayTabs"><button data-manualday="1" class="${selectedDay === 1 ? "active" : ""}">Day 1</button><button data-manualday="2" class="${selectedDay === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="manualTeamDashboard">${groups
+      .map((raw, index) => {
+        const ids = raw.map(String).filter((id) => id !== NO_PARTNER_ID),
+          card = manualGroupCard(selectedDay, index, false),
+          status = card?.status === "submitted" ? "Submitted ✓" : card ? "Draft" : "Not started";
+        return `<section class="manualTeamTile ${card?.status || "empty"}"><div><small>TEAM ${index + 1}</small><h3>${ids.map((id) => esc(player(id)?.name || "Player")).join(" · ")}</h3><span>${status}</span></div><button class="${card?.status === "submitted" ? "soft" : "primary"}" data-openmanualteam="${index}">${card?.status === "submitted" ? "Review / Edit" : card ? "Continue" : "Open Team Card"}</button></section>`;
+      })
+      .join("") || '<p class="leaderEmpty">Save the teams for this day before recording paper cards.</p>'}</div>${manualSelectedCompetitions().has("ntp") ? renderManualNtpEditor(selectedDay) : ""}<div class="manualDayFinish"><div><b>${manualDayReady(selectedDay) ? `Day ${selectedDay} entry complete ✓` : `Day ${selectedDay} remains in progress`}</b><span>${manualDayReady(selectedDay) ? "All paper cards and NTP results are ready for the leaderboards." : "Submit every team card and complete the NTP result before finishing the day."}</span></div><button class="primary" id="completeManualDay" ${manualDayReady(selectedDay) ? "" : "disabled"}>Complete Day ${selectedDay} Results</button></div><button class="soft emergencyClose" id="closeManualScores">Close</button>`;
+    $("#modalShade").classList.add("open");
+    $$('[data-manualday]').forEach(
+      (button) =>
+        (button.onclick = () => renderManualScoresDashboard(+button.dataset.manualday)),
+    );
+    $$('[data-openmanualteam]').forEach(
+      (button) =>
+        (button.onclick = () =>
+          renderManualTeamCard(selectedDay, +button.dataset.openmanualteam)),
+    );
+    $$('[data-manual-ntp]').forEach((select) => {
+      select.onchange = () => {
+        dayStore.ntp[select.dataset.manualNtp] = select.value;
+        dayStore.ntpFinalised = false;
+        writeLocalStore();
+        renderManualScoresDashboard(selectedDay);
+      };
+    });
+    $("#completeManualDay").onclick = async () => {
+      if (!manualDayReady(selectedDay)) return;
+      dayStore.status = "submitted";
+      dayStore.ntpFinalised = true;
+      dayStore.completedAt = new Date().toISOString();
+      writeLocalStore();
+      if (store.cloud?.role === "organiser" && store.cloud.eventId)
+        await updateCloudEvent();
+      renderHome();
+      renderLeaderboard();
+      renderManualScoresDashboard(selectedDay);
+    };
+    $("#closeManualScores").onclick = () =>
+      $("#modalShade").classList.remove("open");
+  }
+  function openManualScores(day = 1) {
+    if (ambroseIsOn()) {
+      alert("Ambrose paper-card entry will use its dedicated team score and selected-drives card in the next stage.");
+      return;
+    }
+    const unsupported = [
+      ["scratch", "Scratch"],
+      ["eclectic", "Eclectic"],
+      ["yellowBall", "Yellow Ball"],
+    ].filter(([key]) => manualSelectedCompetitions().has(key));
+    if (unsupported.length) {
+      alert(
+        `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")}. Keep using phone scoring for this event, or remove that competition before entering paper cards.`,
+      );
+      return;
+    }
+    renderManualScoresDashboard(day);
+  }
+
   function renderLiveEventControl() {
     const host = $("#liveEventControl"),
       basic = $("#basicEventProgress");
@@ -6626,7 +7036,7 @@ Count-back if tied
       allFinal = Boolean(rows.length && finalised === rows.length),
       scoringOpen = scoringIsOpen(day);
     scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     if (!scoringOpen) {
       const actions = host.querySelector(".liveControlActions");
       actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
@@ -6645,6 +7055,7 @@ Count-back if tied
       renderLiveEventControl();
     };
     $("#emergencyRecovery").onclick = openEmergencyRecovery;
+    $("#recordAllScores").onclick = () => openManualScores(day);
     $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
     if ($("#openScoringNow"))
       $("#openScoringNow").onclick = async () => {
@@ -7742,6 +8153,14 @@ Count-back if tied
     return entries.sort((a, b) => a.t - b.t || a.id.localeCompare(b.id));
   }
   function currentNtpHolder(day, hole) {
+    const manualDay = manualDayStore(day, false),
+      manualResult = manualDay?.ntpFinalised
+        ? manualDay.ntp?.[String(hole)]
+        : null;
+    if (manualResult)
+      return manualResult === "NONE"
+        ? null
+        : { id: String(manualResult), manual: true, at: manualDay.completedAt };
     const history = ntpHistory(day, hole);
     return history[history.length - 1] || null;
   }
@@ -9521,7 +9940,48 @@ Count-back if tied
       cbHoles: holes,
     };
   }
+  function manualLeaderRow(id, name, detail, summary, target = 18) {
+    if (!summary || summary.total === "" || summary.total == null) return null;
+    const row = {
+      id,
+      name,
+      detail,
+      holes: [],
+      total: +summary.total,
+      thru: target,
+      target,
+      cbHoles: [],
+      manual: true,
+    };
+    if ([summary.back9, summary.last6, summary.last3].some((value) => value !== "" && value != null))
+      row.cbTotals = {
+        back9: +(summary.back9 || 0),
+        last6: +(summary.last6 || 0),
+        last3: +(summary.last3 || 0),
+      };
+    return row;
+  }
   function leaderCountback(a, b, higher = true) {
+    if ((a.manual && !a.cbTotals) || (b.manual && !b.cbTotals)) return 0;
+    if (a.cbTotals || b.cbTotals) {
+      const totals = (row) => {
+          if (row.cbTotals) return row.cbTotals;
+          const values = row.cbHoles || row.holes || [];
+          return {
+            back9: leaderSum(values.slice(9, 18)),
+            last6: leaderSum(values.slice(12, 18)),
+            last3: leaderSum(values.slice(15, 18)),
+          };
+        },
+        at = totals(a),
+        bt = totals(b),
+        cmp = (x, y) => (higher ? y - x : x - y);
+      for (const key of ["back9", "last6", "last3"]) {
+        const c = cmp(+(at[key] || 0), +(bt[key] || 0));
+        if (c) return c;
+      }
+      return 0;
+    }
     const av = a.cbHoles || a.holes,
       bv = b.cbHoles || b.holes,
       cmp = (x, y) => (higher ? y - x : x - y);
@@ -9680,23 +10140,48 @@ Count-back if tied
       gross = (day, id) => leaderboardPlayerGross(day, id);
     let rows = [];
     if (def.type === "single")
-      rows = field(def.day).map((id) =>
-        leaderRow(id, player(id)?.name || "Player", "", points(def.day, id)),
-      );
+      rows = field(def.day).map((id) => {
+        const manual = manualPlayerSummary(def.day, id, "single");
+        return (
+          manualLeaderRow(id, player(id)?.name || "Player", "", manual) ||
+          leaderRow(id, player(id)?.name || "Player", "", points(def.day, id))
+        );
+      });
     if (def.type === "combined")
       rows = field(1)
         .filter((id) => field(2).includes(id))
         .map((id) => {
-          const d1 = points(1, id),
+          const d1Manual = manualPlayerSummary(1, id, "single"),
+            d2Manual = manualPlayerSummary(2, id, "single"),
+            d1 = points(1, id),
             d2 = points(2, id),
+            d1Complete = d1Manual || d1.every((value) => value != null),
+            d2Complete = d2Manual || d2.every((value) => value != null),
+            d1Total = d1Manual ? +d1Manual.total : leaderSum(d1),
+            d2Total = d2Manual ? +d2Manual.total : leaderSum(d2),
             r = leaderRow(
               id,
               player(id)?.name || "Player",
               "Day 1 + Day 2",
-              [...d1, ...d2],
+              [],
               36,
             );
+          r.total = d1Total + d2Total;
+          r.thru = (d1Complete ? 18 : d1.filter((x) => x != null).length) +
+            (d2Complete ? 18 : d2.filter((x) => x != null).length);
           r.cbHoles = d2;
+          if (
+            d2Manual &&
+            [d2Manual.back9, d2Manual.last6, d2Manual.last3].some(
+              (value) => value !== "" && value != null,
+            )
+          )
+            r.cbTotals = {
+              back9: +(d2Manual.back9 || 0),
+              last6: +(d2Manual.last6 || 0),
+              last3: +(d2Manual.last3 || 0),
+            };
+          r.manual = Boolean(d1Manual || d2Manual);
           return r;
         });
     if (def.type === "ambrose")
@@ -9758,50 +10243,76 @@ Count-back if tied
         });
     }
     if (def.type === "fourball")
-      rows = leaderboardUnits(def.day, "pair").map((u) =>
-        leaderRow(
-          u.id,
-          u.name,
-          u.detail,
-          Array.from({ length: 18 }, (_, i) => {
-            const vals = u.ids
-              .map((id) => points(def.day, id)[i])
-              .filter((x) => x != null);
-            return vals.length ? Math.max(...vals) : null;
-          }),
-        ),
-      );
+      rows = leaderboardUnits(def.day, "pair").map((u) => {
+        const manual = manualPairSummary(def.day, u.id, "fourball");
+        return (
+          manualLeaderRow(u.id, u.name, u.detail, manual) ||
+          leaderRow(
+            u.id,
+            u.name,
+            u.detail,
+            Array.from({ length: 18 }, (_, i) => {
+              const vals = u.ids
+                .map((id) => points(def.day, id)[i])
+                .filter((x) => x != null);
+              return vals.length ? Math.max(...vals) : null;
+            }),
+          )
+        );
+      });
     if (def.type === "putts") {
       const kind = store.event.puttingFormat === "pairs" ? "pair" : "team";
-      rows = leaderboardUnits(def.day, kind).map((u) =>
-        leaderRow(
-          u.id,
-          u.name,
-          u.detail,
-          Array.from({ length: 18 }, (_, i) => {
-            const vals = u.ids
-              .map((id) => findOfficialForPlayer(def.day, id, i + 1)?.putts)
-              .map((x) => (x === "" || x == null ? null : +x));
-            return vals.every((x) => x != null) ? leaderSum(vals) : null;
-          }),
-        ),
-      );
+      rows = leaderboardUnits(def.day, kind).map((u) => {
+        let manual = null;
+        if (kind === "team")
+          manual = manualTeamSummary(def.day, u.id, "putts");
+        else {
+          const summaries = u.ids.map((id) =>
+            manualPlayerSummary(def.day, id, "putts"),
+          );
+          if (summaries.every(Boolean))
+            manual = {
+              total: leaderSum(summaries.map((x) => +x.total)),
+              back9: leaderSum(summaries.map((x) => +x.back9)),
+              last6: leaderSum(summaries.map((x) => +x.last6)),
+              last3: leaderSum(summaries.map((x) => +x.last3)),
+            };
+        }
+        return (
+          manualLeaderRow(u.id, u.name, u.detail, manual) ||
+          leaderRow(
+            u.id,
+            u.name,
+            u.detail,
+            Array.from({ length: 18 }, (_, i) => {
+              const vals = u.ids
+                .map((id) => findOfficialForPlayer(def.day, id, i + 1)?.putts)
+                .map((x) => (x === "" || x == null ? null : +x));
+              return vals.every((x) => x != null) ? leaderSum(vals) : null;
+            }),
+          )
+        );
+      });
     }
     if (def.type === "best3")
-      rows = leaderboardUnits(def.day, "team").map((u) =>
-        leaderRow(
-          u.id,
-          u.name,
-          u.detail,
-          Array.from({ length: 18 }, (_, i) => {
-            const vals = u.ids
-              .map((id) => points(def.day, id)[i])
-              .filter((x) => x != null)
-              .sort((a, b) => b - a);
-            return vals.length >= 3 ? leaderSum(vals.slice(0, 3)) : null;
-          }),
-        ),
-      );
+      rows = leaderboardUnits(def.day, "team").map((u) => {
+        const manual = manualTeamSummary(def.day, u.id, "best3");
+        return (
+          manualLeaderRow(u.id, u.name, u.detail, manual) ||
+          leaderRow(
+            u.id,
+            u.name,
+            u.detail,
+            Array.from({ length: 18 }, (_, i) => {
+              const vals = u.ids
+                .map((id) => points(def.day, id)[i])
+                .filter((x) => x != null)
+                .sort((a, b) => b - a);
+              return vals.length >= 3 ? leaderSum(vals.slice(0, 3)) : null;
+            }),
+          )
+        );
+      });
     if (def.type === "yellowBall") {
       rows = leaderboardUnits(def.day, "team").map((u, groupIndex) => {
         const team = yellowBallTeam(def.day, groupIndex),
@@ -9864,7 +10375,10 @@ Count-back if tied
           u.name,
           u.detail,
           ix.map((i) => {
-            const vals = u.ids.map((id) => points(def.day, id)[i]);
+            const vals = u.ids.map((id) => {
+              const manual = manualPar3Point(def.day, id, i + 1);
+              return manual == null ? points(def.day, id)[i] : manual;
+            });
             return vals.every((x) => x != null) ? leaderSum(vals) : null;
           }),
           ix.length,
@@ -9885,7 +10399,10 @@ Count-back if tied
         const holes = [];
         for (const d of [1, 2])
           ix(d).forEach((i) => {
-            const vals = u.ids.map((id) => points(d, id)[i]);
+            const vals = u.ids.map((id) => {
+              const manual = manualPar3Point(d, id, i + 1);
+              return manual == null ? points(d, id)[i] : manual;
+            });
             holes.push(vals.every((x) => x != null) ? leaderSum(vals) : null);
           });
         return leaderRow(
@@ -9967,11 +10484,12 @@ Count-back if tied
     if (def.type === "ntp")
       return (
         finalised &&
-        dayFieldIds(def.day)
-          .filter((id) => String(id) !== NO_PARTNER_ID)
-          .every((id) =>
-            leaderboardPlayerPoints(def.day, id).every((x) => x != null),
-          )
+        (manualDayStore(def.day, false)?.ntpFinalised ||
+          dayFieldIds(def.day)
+            .filter((id) => String(id) !== NO_PARTNER_ID)
+            .every((id) =>
+              leaderboardPlayerPoints(def.day, id).every((x) => x != null),
+            ))
       );
     if (def.type === "scratch") {
       const active = rows.filter((r) => !r.disqualified);
@@ -10403,7 +10921,9 @@ Count-back if tied
                       return `<div class="ntpHistoryEntry ${winner ? "winner" : ""}"><span>${winner ? "<b>Winner:</b> " : ""}${esc(player(entry.id)?.name || "Player")}</span><time>${esc(time)}</time></div>`;
                     })
                     .join("")
-                : "<p>No confirmed holder yet</p>"
+                : manualDayStore(def.day, false)?.ntp?.[String(h)]
+                  ? "<p>Winner input manually</p>"
+                  : "<p>No confirmed holder yet</p>"
             }<p class="ntpPrizeResult">${esc(ntpSummaryLine(def.day, h, ntpComplete))}</p></section>`;
           })
           .join("") || '<div class="leaderEmpty">No NTP holes selected.</div>';

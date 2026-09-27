@@ -1,6 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.90.7 AMBROSE CONTROL ROW TEST BUILD
+AWAY GOLF SCORER — VERSION 15.91.1 RECORD ALL SCORES TEST BUILD
 
-This package is the complete Version 15.90.7 app.
+This package is the complete Version 15.91.1 app.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,12 +11,24 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.90.7.
+4. Open index.html and confirm that the heading says Version 15.91.1.
 
 SUPABASE SQL REQUIRED BEFORE TESTING
 
 Run supabase_v15_90_guest_organiser.sql once in the Supabase SQL Editor.
 If the Version 15.86.4 Spectator SQL was already installed, do not run it again.
+
+VERSION 15.91.1 CHANGES
+
+- Transposes Par-3 paper entry into player columns with Enter moving downward.
+- Identifies manually supplied NTP winners on the results screen.
+
+VERSION 15.91.0 CHANGES
+
+- Adds organiser tablet entry for signed paper team cards on either event day.
+- Saves and resumes team-card drafts, with Enter moving to the next field.
+- Feeds submitted paper summaries into supported event results and countbacks.
+- Allows paper-card and normally phone-scored teams on the same day.
 
 VERSION 15.90.7 CHANGES
 - Ambrose win-benefit summary and required-drives selector share one line.
