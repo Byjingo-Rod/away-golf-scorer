@@ -1,4 +1,10 @@
-AWAY GOLF SCORER — VERSION 15.91.1
+AWAY GOLF SCORER — VERSION 15.91.2
+
+VERSION 15.91.2 — DAY-SPECIFIC YELLOW BALL CHECK
+
+- Allows Record All Scores on a day that does not run Yellow Ball, even when
+  Yellow Ball is selected for the other day of a two-day event.
+- Keeps manual entry blocked only on the day where Yellow Ball is actually played.
 
 VERSION 15.91.1 — VERTICAL PAR-3 PAPER ENTRY
 

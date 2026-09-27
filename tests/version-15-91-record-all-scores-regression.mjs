@@ -6,8 +6,8 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.1/);
-assert.match(sw, /away-golf-v15-91-1/);
+assert.match(html, /Version 15\.91\.2/);
+assert.match(sw, /away-golf-v15-91-2/);
 assert.match(app, /id="recordAllScores"/);
 assert.match(app, /function openManualScores/);
 assert.match(app, /function renderManualScoresDashboard/);
@@ -28,6 +28,8 @@ assert.match(app, /manualPar3Player/);
 assert.match(app, /grid-column:\$\{playerIndex \+ 2\};grid-row:\$\{holeIndex \+ 2\}/);
 assert.match(app, /Nearest the Pin/);
 assert.match(app, /Winner input manually/);
+assert.match(app, /if \(yellowBallIsOn\(selectedDay\)\)/);
+assert.match(app, /openManualScores\(\+button\.dataset\.manualday\)/);
 assert.match(app, /key === "total" \? "data-required"/);
 assert.match(app, /submittedManualCard\(day, index\)/);
 assert.match(app, /livePlayerStatus\(day, id\)\.finalised/);
@@ -36,4 +38,4 @@ assert.match(app, /cbTotals/);
 assert.match(css, /\.manualTeamDashboard/);
 assert.match(css, /\.manualStickyActions/);
 
-console.log("Version 15.91.1 Record All Scores regression checks passed.");
+console.log("Version 15.91.2 Record All Scores regression checks passed.");

@@ -2327,7 +2327,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6946,7 +6946,7 @@ Count-back if tied
     $("#modalShade").classList.add("open");
     $$('[data-manualday]').forEach(
       (button) =>
-        (button.onclick = () => renderManualScoresDashboard(+button.dataset.manualday)),
+        (button.onclick = () => openManualScores(+button.dataset.manualday)),
     );
     $$('[data-openmanualteam]').forEach(
       (button) =>
@@ -6981,18 +6981,22 @@ Count-back if tied
       alert("Ambrose paper-card entry will use its dedicated team score and selected-drives card in the next stage.");
       return;
     }
-    const unsupported = [
+    const selectedDay = Math.max(
+        1,
+        Math.min(store.event?.days || 1, +day || 1),
+      ),
+      unsupported = [
       ["scratch", "Scratch"],
       ["eclectic", "Eclectic"],
-      ["yellowBall", "Yellow Ball"],
     ].filter(([key]) => manualSelectedCompetitions().has(key));
+    if (yellowBallIsOn(selectedDay)) unsupported.push(["yellowBall", "Yellow Ball"]);
     if (unsupported.length) {
       alert(
-        `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")}. Keep using phone scoring for this event, or remove that competition before entering paper cards.`,
+        `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")} on Day ${selectedDay}. Keep using phone scoring for that day, or remove that competition before entering paper cards.`,
       );
       return;
     }
-    renderManualScoresDashboard(day);
+    renderManualScoresDashboard(selectedDay);
   }
 
   function renderLiveEventControl() {
