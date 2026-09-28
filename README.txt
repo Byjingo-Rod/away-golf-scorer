@@ -1,4 +1,33 @@
-AWAY GOLF SCORER — VERSION 15.92.1
+AWAY GOLF SCORER — VERSION 15.92.5
+
+VERSION 15.92.5 — CLEAN TEAM-HISTORY BASELINE
+
+- Replaces all existing played-together and 4BBB-partner counters on each device.
+- Seeds the clean history from The Ridge and both genuine Federal rounds.
+- Includes every four-player group and the two 4BBB partnerships within each group.
+- Prevents old locally retained test events from being automatically added back later.
+- New genuine non-TEST events continue to enter history normally when completed.
+
+VERSION 15.92.4 — PAST EVENT RESULTS
+
+- Adds Past Events as a separate online archive for retained completed events.
+- Opens a past event directly at its saved results without reconnecting or reactivating its old player join code.
+- Preserves the current event in My Events before opening an archived result.
+- Excludes every event whose actual stored name begins with TEST, even if its old cloud label does not.
+
+VERSION 15.92.3 — TEST EVENTS EXCLUDED FROM PLAYER HISTORY
+
+- Any event whose trimmed name begins with the word TEST is excluded from player records and statistics.
+- TEST events do not add group history, 4BBB partnership history or course-handicap history.
+- Previously recorded TEST event group and partnership counts are removed once from existing history.
+- TEST matching is case-insensitive; examples include TEST, Test Event and TEST - Scoring Card System.
+
+VERSION 15.92.2 — PREFERRED LIES BY DAY
+
+- Two-day events have separate Preferred Lies settings for Day 1 and Day 2.
+- Each day can independently use General Area, closely mown areas only, or play the ball as it lies.
+- Final Review, player instructions and Event Rules display the correct rule for each day.
+- Existing events with one Preferred Lies setting retain that setting on both days.
 
 VERSION 15.92.1 — COPY A TEE SCORECARD
 

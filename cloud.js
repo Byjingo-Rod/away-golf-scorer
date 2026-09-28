@@ -299,6 +299,19 @@
     return data || [];
   }
 
+  async function loadPastOwnedEvents(limit = 50) {
+    await ensureSignedIn();
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+    const { data, error } = await client
+      .from("away_events")
+      .select("id,join_code,name,status,updated_at")
+      .eq("status", "archived")
+      .order("updated_at", { ascending: false })
+      .limit(safeLimit);
+    if (error) throw error;
+    return data || [];
+  }
+
   async function createOrganiserKey(eventId) {
     await ensureSignedIn();
     const { data, error } = await client.rpc("create_away_organiser_key", {
@@ -435,6 +448,7 @@
     loadWorkspace,
     loadLatestOwnedEvent,
     loadRecentOwnedEvents,
+    loadPastOwnedEvents,
     archiveAllOwnedEvents,
     archiveEvent,
     createOrganiserKey,

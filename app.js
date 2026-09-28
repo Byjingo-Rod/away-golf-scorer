@@ -1173,7 +1173,7 @@
       )
     ) nav(isSpectatorDevice() ? "leaderboardPage" : "scorePage");
     const guest = isGuestOrganiser();
-    ["newEvent", "myEvents", "publishedEvents", "organiserBackup", "ownerAccount"].forEach((id) => {
+    ["newEvent", "myEvents", "publishedEvents", "pastEvents", "organiserBackup", "ownerAccount"].forEach((id) => {
       const element = $("#" + id);
       if (element) element.hidden = guest;
     });
@@ -2224,6 +2224,108 @@
         $("#modalShade").classList.remove("open");
     }
   }
+
+  async function openPastEvent(eventId, name) {
+    if (cloudBusy) return false;
+    if (
+      store.event &&
+      !confirm(
+        `Open the saved results for ${name || "this past event"}? Your current event will remain saved in My Events.`,
+      )
+    ) return false;
+    setCloudMessage("Opening past results…", true);
+    try {
+      captureCurrentEvent();
+      const bundle = await AwayCloud.loadEvent(eventId),
+        payload = bundle?.event?.event_data || {};
+      if (!payload.event) throw new Error("The saved event results could not be read.");
+      closeCloudConnection();
+      const archivedJoinCode = String(bundle.event?.join_code || "").toUpperCase();
+      store.event = JSON.parse(JSON.stringify(payload.event));
+      const existingRecord = store.eventWorkspace.find(
+        (item) => String(item.event?.pastCloudEventId || "") === String(eventId),
+      );
+      store.event.workspaceId = existingRecord?.id || uid();
+      store.event.pastCloudEventId = String(eventId);
+      store.event.archivedJoinCode = archivedJoinCode;
+      store.event.pastEventReadOnly = true;
+      store.event.status = "completed";
+      store.event.joinCode = "";
+      store.event.leaderboardView = "summary";
+      (payload.players || []).forEach((remote) => {
+        const i = store.players.findIndex((p) => String(p.id) === String(remote.id));
+        if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
+        else store.players.push({ ...remote });
+      });
+      (payload.courses || []).forEach((remote) => {
+        const i = store.courses.findIndex((c) => String(c.id) === String(remote.id));
+        if (i >= 0) store.courses[i] = remote;
+        else store.courses.push(remote);
+      });
+      consolidateCourseCards();
+      store.event.scoring = { day1: {}, day2: {} };
+      (bundle.scores || []).forEach((row) => {
+        const key = "day" + row.day;
+        store.event.scoring[key] = store.event.scoring[key] || {};
+        store.event.scoring[key][String(row.scorer_player_id)] = row.score_data || {};
+      });
+      delete store.cloud;
+      store.cloudPlayers = [];
+      forgetOrganiserEvent();
+      workspaceShrinkAuthorised = true;
+      persistStore();
+      cloudBusy = false;
+      cloudMessage = "Past results opened";
+      $("#modalShade").classList.remove("open");
+      renderHome();
+      renderPlayerExperience();
+      renderLeaderboard();
+      nav("leaderboardPage");
+      return true;
+    } catch (error) {
+      cloudBusy = false;
+      setCloudMessage("Past event did not open");
+      alert("The past event could not be opened. " + (error.message || error));
+      return false;
+    }
+  }
+
+  async function openPastEvents() {
+    $("#modalContent").innerHTML =
+      '<h2>Past Events</h2><p class="publishedEventsHelp">Loading retained past events…</p>';
+    $("#modalShade").classList.add("open");
+    try {
+      const cloudEvents = await AwayCloud.loadPastOwnedEvents(100),
+        checked = await Promise.all(
+          cloudEvents.map(async (x) => {
+            try {
+              const bundle = await AwayCloud.loadEvent(x.id),
+                actual = bundle?.event?.event_data?.event;
+              if (!actual || isTestEvent(actual)) return null;
+              return {
+                ...x,
+                name: String(actual.name || x.name || "Away Golf Event"),
+                event_date: actual.date || "",
+                field_size: actual.dayFields?.day1?.length || actual.confirmed?.length || actual.fieldSize || 0,
+              };
+            } catch (_) {
+              return null;
+            }
+          }),
+        ),
+        events = checked.filter(Boolean);
+      $("#modalContent").innerHTML =
+        `<h2>Past Events</h2><p class="publishedEventsHelp">Open a retained event to review its saved final results. Events whose actual stored name begins with TEST are excluded.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<div class="publishedEventChoice"><button data-openpastevent="${esc(x.id)}" data-eventname="${esc(x.name)}"><span><b>${esc(x.name)}</b><small>${x.event_date ? `${esc(formatEventDate(x.event_date))} · ` : ""}${x.field_size ? `${esc(x.field_size)} players` : "Past event"}</small></span><strong>Open Results →</strong></button></div>`).join("")}</div>` : '<p class="publishedEventsError">No retained non-TEST past events were found.</p>'}<button class="soft" id="closePastEvents">Close</button>`;
+      $("#closePastEvents").onclick = () => $("#modalShade").classList.remove("open");
+      $$('[data-openpastevent]').forEach((button) =>
+        button.onclick = () => openPastEvent(button.dataset.openpastevent, button.dataset.eventname),
+      );
+    } catch (error) {
+      $("#modalContent").innerHTML =
+        '<h2>Past Events</h2><p class="publishedEventsError">The past-event list could not be loaded. Check the internet connection and try again.</p><button class="soft" id="closePastEvents">Close</button>';
+      $("#closePastEvents").onclick = () => $("#modalShade").classList.remove("open");
+    }
+  }
   const PRE_IMPORT_BACKUP_KEY = "awayGolfPreImportBackupV1";
   const PRE_DEVICE_CLEAR_BACKUP_KEY = "awayGolfPreDeviceClearBackupV1";
   function eventWorkspaceStatus(event) {
@@ -2382,7 +2484,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.5", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3022,17 +3124,45 @@ Count-back if tied
       ? specialRulesListHtml(section.text)
       : `<p>${esc(section.text).replace(/\n/g, "<br>")}</p>`;
   }
-  function eventRuleSections(event = store.event) {
+  function preferredLiesSetting(event, day = 1) {
+    const key = `day${day}`,
+      enabled = Object.prototype.hasOwnProperty.call(
+        event?.preferredLiesByDay || {},
+        key,
+      )
+        ? Boolean(event.preferredLiesByDay[key])
+        : Boolean(event?.preferredLies),
+      area =
+        event?.preferredLiesAreaByDay?.[key] ||
+        event?.preferredLiesArea ||
+        "general";
+    return { enabled, area };
+  }
+  function preferredLiesText(event, day = 1) {
+    const setting = preferredLiesSetting(event, day);
+    return setting.enabled
+      ? `Preferred Lies — ${setting.area === "fairway" ? "Closely Mown Areas Only" : "General Area"}`
+      : "Play the ball as it lies";
+  }
+  function eventRuleSections(event = store.event, selectedDay = null) {
     if (!event) return [];
     const sections = [{
       title: "Scoring",
       text: "Scoring opens 15 minutes before the first tee time.",
     }];
-    if (event.preferredLies)
-      sections.push({
-        title: "Preferred Lies",
-        text: `Preferred Lies — ${event.preferredLiesArea === "fairway" ? "Closely Mown Areas Only" : "General Area"}`,
-      });
+    const days = event.days === 2 ? [1, 2] : [1],
+      ruleDays = selectedDay ? [selectedDay] : days;
+    ruleDays.forEach((day) => {
+      const setting = preferredLiesSetting(event, day);
+      if (setting.enabled || event.days === 2 || selectedDay)
+        sections.push({
+          title:
+            event.days === 2 && !selectedDay
+              ? `Day ${day} — Preferred Lies`
+              : "Preferred Lies",
+          text: preferredLiesText(event, day),
+        });
+    });
     if ((event.competitions || []).includes("teamPutts"))
       sections.push({
         title: "Putting Competition Rules",
@@ -3590,6 +3720,8 @@ Count-back if tied
         ntpJackpotMode: "final",
         preferredLies: false,
         preferredLiesArea: "general",
+        preferredLiesByDay: { day1: false, day2: false },
+        preferredLiesAreaByDay: { day1: "general", day2: "general" },
         specialRules: "",
         dayAvailability: {},
         scorecardsChecked: false,
@@ -4925,27 +5057,52 @@ Count-back if tied
     };
   }
   function renderStep4() {
-    const pref = Boolean(W.event.preferredLies),
-      putting = W.competitions.has("teamPutts"),
+    W.event.preferredLiesByDay = W.event.preferredLiesByDay || {
+      day1: Boolean(W.event.preferredLies),
+      day2: Boolean(W.event.preferredLies),
+    };
+    W.event.preferredLiesAreaByDay = W.event.preferredLiesAreaByDay || {
+      day1: W.event.preferredLiesArea || "general",
+      day2: W.event.preferredLiesArea || "general",
+    };
+    const putting = W.competitions.has("teamPutts"),
       defaultRules = puttingRulesText(W.event);
     const txt = W.event.puttingRulesCustom || defaultRules,
       editing = Boolean(W.editPuttingRules);
+    const preferredCard = (day) => {
+      const key = `day${day}`,
+        pref = Boolean(W.event.preferredLiesByDay[key]),
+        courseName = course(day === 1 ? W.event.course1 : W.event.course2)?.name;
+      return `<div class="ruleCard preferredCard"><h4>${W.event.days === 2 ? `Day ${day} — ${esc(courseName || "Course")}` : "Preferred Lies"}</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? `Preferred lies are in use ${W.event.days === 2 ? `on Day ${day}` : "for this event"}.` : "Play the ball as it lies."}</div><button type="button" class="soft" data-change-preferred="${day}">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select data-pref-area="${day}"><option value="general" ${W.event.preferredLiesAreaByDay[key] === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesAreaByDay[key] === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>`;
+    };
     $("#wizardBody").innerHTML =
       `<div class="rulesHead"><div><h3>Rules</h3><p class="hint">Set any conditions that differ from normal play.</p></div><span class="rulesBadge">EVENT RULES</span></div>
- <div class="ruleCard preferredCard"><h4>Preferred Lies</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? "Preferred lies are in use for this event." : "Default for every new event is play the ball as it lies."}</div><button type="button" class="soft" id="changePreferred">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select id="prefArea"><option value="general" ${W.event.preferredLiesArea === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesArea === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>
+ <div class="preferredDayGrid ${W.event.days === 2 ? "twoDays" : ""}">${preferredCard(1)}${W.event.days === 2 ? preferredCard(2) : ""}</div>
  ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
  ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
  ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(ambroseRulesText(W.event))}</div></div>` : ""}
  <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add each separate instruction as a bullet point. Press Enter for the next bullet.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><ul id="specialRules" class="specialRulesEditor" contenteditable="true" role="textbox" aria-label="Special Rules">${specialRulesEditorHtml(W.event.specialRules)}</ul></div>
  <div class="rulesPreview ${W.rulesPreviewAck ? "acknowledged" : ""}"><div><b>Player acknowledgement</b><span>${W.rulesPreviewAck ? "Acknowledgement recorded for this preview." : "Players see the event rules before scoring begins."}</span></div><button type="button" class="gotItPreview" id="gotItPreview">${W.rulesPreviewAck ? "✓ Got It" : "Got It"}</button></div>`;
-    $("#changePreferred").onclick = () => {
-      W.event.preferredLies = !W.event.preferredLies;
-      if (!W.event.preferredLies) W.event.preferredLiesArea = "general";
-      renderStep4();
-    };
-    if ($("#prefArea"))
-      $("#prefArea").onchange = (e) =>
-        (W.event.preferredLiesArea = e.target.value);
+    $$('[data-change-preferred]').forEach((button) => {
+      button.onclick = () => {
+        const day = +button.dataset.changePreferred,
+          key = `day${day}`;
+        W.event.preferredLiesByDay[key] =
+          !W.event.preferredLiesByDay[key];
+        if (!W.event.preferredLiesByDay[key])
+          W.event.preferredLiesAreaByDay[key] = "general";
+        W.event.preferredLies = W.event.preferredLiesByDay.day1;
+        W.event.preferredLiesArea = W.event.preferredLiesAreaByDay.day1;
+        renderStep4();
+      };
+    });
+    $$('[data-pref-area]').forEach((select) => {
+      select.onchange = () => {
+        const key = `day${select.dataset.prefArea}`;
+        W.event.preferredLiesAreaByDay[key] = select.value;
+        if (key === "day1") W.event.preferredLiesArea = select.value;
+      };
+    });
     if ($("#editPutting"))
       $("#editPutting").onclick = () => {
         W.editPuttingRules = !W.editPuttingRules;
@@ -5105,8 +5262,13 @@ Count-back if tied
         cardResults.length === expectedCards &&
         cardResults.every((item) => item.result.ok);
     const rules = [];
-    rules.push(
-      `Preferred Lies: ${W.event.preferredLies ? (W.event.preferredLiesArea === "fairway" ? "Yes — closely mown part of the course" : "Yes — General Area") : "No — play the ball as it lies"}`,
+    Array.from({ length: W.event.days || 1 }, (_, index) => index + 1).forEach(
+      (day) => {
+        const setting = preferredLiesSetting(W.event, day);
+        rules.push(
+          `${W.event.days === 2 ? `Day ${day} Preferred Lies` : "Preferred Lies"}: ${setting.enabled ? (setting.area === "fairway" ? "Yes — closely mown part of the course" : "Yes — General Area") : "No — play the ball as it lies"}`,
+        );
+      },
     );
     if (W.competitions.has("teamPutts"))
       rules.push("Putting Competition Rules included");
@@ -5402,6 +5564,9 @@ Count-back if tied
   function pairKey(a, b) {
     return [String(a), String(b)].sort().join("|");
   }
+  function isTestEvent(event) {
+    return /^TEST\b/i.test(String(event?.name || "").trim());
+  }
   function playedTogetherCount(a, b) {
     if (String(a) === NO_PARTNER_ID || String(b) === NO_PARTNER_ID) return 0;
     return +(store.pairHistory?.[pairKey(a, b)] || 0);
@@ -5550,7 +5715,12 @@ Count-back if tied
       .sort((a, b) => b.partners - a.partners || b.played - a.played);
   }
   function recordCompletedEventHistory(event = store.event) {
-    if (!event?.groupSetup || event.historyRecordedAt) return false;
+    if (
+      !event?.groupSetup ||
+      event.historyRecordedAt ||
+      isTestEvent(event)
+    )
+      return false;
     for (let day = 1; day <= (event.days || 1); day++) {
       const gs = event.groupSetup["day" + day]?.groups || [];
       for (const g of gs) {
@@ -5577,43 +5747,156 @@ Count-back if tied
     event.historyRecordedAt = new Date().toISOString();
     return true;
   }
-  function recoverRidge2026History() {
-    store.historyRecoveries = store.historyRecoveries || {};
-    if (store.historyRecoveries.ridge2026) return false;
+  function removeRecordedTestEventHistory() {
+    let changed = false;
+    const reduceCount = (history, key) => {
+      const next = Math.max(0, +(history[key] || 0) - 1);
+      if (next) history[key] = next;
+      else delete history[key];
+    };
+    for (const record of store.eventWorkspace || []) {
+      const event = record?.event;
+      if (
+        !event?.historyRecordedAt ||
+        event.testHistoryExcludedAt ||
+        !isTestEvent(event)
+      )
+        continue;
+      for (let day = 1; day <= (event.days || 1); day++) {
+        const groups = event.groupSetup?.[`day${day}`]?.groups || [];
+        for (const group of groups) {
+          const realPlayers = group.filter(
+            (id) => id != null && String(id) !== NO_PARTNER_ID,
+          );
+          for (let i = 0; i < realPlayers.length; i++)
+            for (let j = i + 1; j < realPlayers.length; j++)
+              reduceCount(
+                store.pairHistory,
+                pairKey(realPlayers[i], realPlayers[j]),
+              );
+          for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
+            if (
+              pair.length === 2 &&
+              !pair.some(
+                (id) => id == null || String(id) === NO_PARTNER_ID,
+              )
+            )
+              reduceCount(store.partnerHistory, pairKey(pair[0], pair[1]));
+          }
+        }
+      }
+      event.testHistoryExcludedAt = new Date().toISOString();
+      changed = true;
+    }
+    for (const person of store.players || []) {
+      for (const [courseId, entry] of Object.entries(
+        person.courseHandicaps || {},
+      )) {
+        if (!isTestEvent({ name: entry?.eventName })) continue;
+        delete person.courseHandicaps[courseId];
+        changed = true;
+      }
+    }
+    const active = (store.eventWorkspace || []).find(
+      (record) =>
+        String(record.id) ===
+        String(store.event?.workspaceId || store.activeEventId || ""),
+    );
+    if (active?.event?.testHistoryExcludedAt && store.event)
+      store.event.testHistoryExcludedAt =
+        active.event.testHistoryExcludedAt;
+    if (changed) writeLocalStore();
+    return changed;
+  }
+  function installFederalRidgeHistoryBaseline() {
+    const baselineId = "federal-ridge-2026-v1";
+    if (store.historyBaseline?.id === baselineId) return false;
     const ridgeGroups = [
         ["Jeremy Ward", "Graeme Hennessy", "Ben Mees", "Rod Ruston"],
         ["Sam Reece", "Jerry Maher", "Ian Priest", "Maurice Melan"],
         ["Grant Lomas", "Luke Bradshaw", "Bob Valk", "David Fairweather"],
         ["Christian Fong", "Peter Rolfe", "Rob Blain", "Ross Smith"],
       ],
+      federalDay1Groups = [
+        ["Rod Bowyer", "Jerry Maher", "Graeme Hennessy", "Ross Smith"],
+        ["David Fairweather", "Rod Ruston", "David Gaffaney", "Ben Mees"],
+      ],
+      federalDay2Groups = [
+        ["Rod Ruston", "Ben Mees", "Graeme Hennessy", "Jerry Maher"],
+        ["Rod Bowyer", "Ross Smith", "David Gaffaney", "David Fairweather"],
+      ],
       playerIdByName = new Map(
         (store.players || []).map((person) => [person.name, String(person.id)]),
       ),
-      groups = ridgeGroups.map((names) =>
-        names.map((name) => playerIdByName.get(name)),
+      namedRounds = [ridgeGroups, federalDay1Groups, federalDay2Groups],
+      rounds = namedRounds.map((round) =>
+        round.map((names) => names.map((name) => playerIdByName.get(name))),
       );
-    if (groups.some((group) => group.some((id) => !id))) return false;
-    for (const group of groups) {
-      for (let i = 0; i < group.length; i++)
-        for (let j = i + 1; j < group.length; j++) {
-          const key = pairKey(group[i], group[j]);
-          store.pairHistory[key] = (store.pairHistory[key] || 0) + 1;
+    if (rounds.some((round) => round.some((group) => group.some((id) => !id))))
+      return false;
+
+    // Deliberately replace, rather than add to, the device's old counters.
+    store.pairHistory = {};
+    store.partnerHistory = {};
+    for (const round of rounds) {
+      for (const group of round) {
+        for (let i = 0; i < group.length; i++)
+          for (let j = i + 1; j < group.length; j++) {
+            const key = pairKey(group[i], group[j]);
+            store.pairHistory[key] = (store.pairHistory[key] || 0) + 1;
+          }
+        for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
+          const key = pairKey(pair[0], pair[1]);
+          store.partnerHistory[key] = (store.partnerHistory[key] || 0) + 1;
         }
-      for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
-        const key = pairKey(pair[0], pair[1]);
-        store.partnerHistory[key] = (store.partnerHistory[key] || 0) + 1;
       }
     }
-    const recoveredAt = new Date().toISOString();
-    store.historyRecoveries.ridge2026 = recoveredAt;
+
+    const installedAt = new Date().toISOString();
+    store.historyBaseline = {
+      id: baselineId,
+      installedAt,
+      events: [
+        "Away Golf - The Ridge",
+        "Away Golf - Federal GC Day 1",
+        "Away Golf - Federal GC Day 2",
+      ],
+    };
+    // Prevent old local event copies from being re-added by the legacy
+    // completed-event backfill. Genuine events completed after this reset are
+    // still recorded normally when they close.
     for (const record of store.eventWorkspace || []) {
-      const event = record?.event,
-        eventCourses = [event?.course1, event?.course2]
-          .map((id) => course(id)?.name || "")
-          .join(" ");
-      if (/ridge/i.test(`${event?.name || ""} ${eventCourses}`))
-        event.historyRecordedAt = recoveredAt;
+      const event = record?.event;
+      if (!event) continue;
+      const hasPlayedScore = Object.values(event.scoring || {}).some(
+        (roundData) =>
+          Object.values(roundData || {}).some((round) =>
+            Object.entries(round || {}).some(
+              ([hole, entry]) =>
+                /^\d+$/.test(hole) &&
+                (scoreEntered(entry?.official?.gross) ||
+                  scoreEntered(entry?.self?.gross)),
+            ),
+          ),
+      );
+      if (
+        event.status === "complete" ||
+        event.status === "completed" ||
+        event.finalResults?.confirmedAt ||
+        hasPlayedScore
+      )
+        event.historyRecordedAt = installedAt;
+      if (isTestEvent(event)) event.testHistoryExcludedAt = installedAt;
     }
+    const active = (store.eventWorkspace || []).find(
+      (record) =>
+        String(record.id) ===
+        String(store.event?.workspaceId || store.activeEventId || ""),
+    );
+    if (active?.event?.historyRecordedAt && store.event)
+      store.event.historyRecordedAt = active.event.historyRecordedAt;
+    if (active?.event?.testHistoryExcludedAt && store.event)
+      store.event.testHistoryExcludedAt = active.event.testHistoryExcludedAt;
     return true;
   }
   function backfillCompletedEventHistory() {
@@ -5905,7 +6188,7 @@ Count-back if tied
     return v === "" || v == null ? null : +v;
   }
   function recordEventHandicapHistory(dayOnly = null) {
-    if (!store.event) return;
+    if (!store.event || isTestEvent(store.event)) return;
     const firstDay = dayOnly || 1,
       lastDay = dayOnly || store.event.days;
     for (let day = firstDay; day <= lastDay; day++) {
@@ -7589,6 +7872,7 @@ Count-back if tied
   $("#eventOptions").onclick = openEventOptions;
   $("#myEvents").onclick = openMyEvents;
   $("#publishedEvents").onclick = openPublishedEvents;
+  $("#pastEvents").onclick = openPastEvents;
   $("#organiserBackup").onclick = openOrganiserBackup;
   $("#ownerAccount").onclick = openOwnerAccount;
   $("#guestOrganiserAccess").onclick = openGuestOrganiserAccess;
@@ -11062,7 +11346,9 @@ Count-back if tied
         defs: defs.filter((d) => d.scope === "overall"),
       },
     ].filter((g) => g.defs.length);
-    const organiser = !["player", "spectator"].includes(store.cloud?.role),
+    const organiser =
+        !store.event.pastEventReadOnly &&
+        !["player", "spectator"].includes(store.cloud?.role),
       day1Complete = eventDayComplete(1),
       day2Complete =
         store.event.days !== 2 ? true : eventDayComplete(2),
@@ -11089,7 +11375,10 @@ Count-back if tied
     } else if (organiser) {
       eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">CONFIRM RESULTS &amp; CLOSE EVENT</button></section>`;
     }
-    host.innerHTML = `<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · winners and prize giving</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}<div class="summaryGroups">${groups
+    const pastEventNotice = store.event.pastEventReadOnly
+      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
+      : "";
+    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · ${store.event.pastEventReadOnly ? "retained final results" : "winners and prize giving"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}<div class="summaryGroups">${groups
       .map(
         (g) =>
           `<section class="summaryCard"><h3>${g.title}</h3>${g.defs
@@ -11141,10 +11430,11 @@ Count-back if tied
           await setPrizeAwarded(b.dataset.prizeaward, !wasAwarded);
         }),
     );
-    $("#leaderRefresh").onclick = async () => {
-      await syncCloudNow();
-      renderLeaderboard();
-    };
+    if ($("#leaderRefresh"))
+      $("#leaderRefresh").onclick = async () => {
+        await syncCloudNow();
+        renderLeaderboard();
+      };
     if ($("#finishEventBtn"))
       $("#finishEventBtn").onclick = confirmResultsAndCloseEvent;
     if ($("#openDay2Btn"))
@@ -11302,7 +11592,10 @@ Count-back if tied
       par3Total = ["par3", "par3aggregate"].includes(def.type)
         ? `<span class="par3Total">Total Par 3 Holes <b>${par3Count}</b></span>`
         : "";
-    host.innerHTML = `<div class="leaderHead"><div><h2>Live Leaderboard</h2><p>${esc(store.event.name)} · official marker scores update as they arrive</p></div><button class="soft leaderRefresh" id="leaderRefresh">Refresh</button></div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    const pastEventNotice = store.event.pastEventReadOnly
+      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
+      : "";
+    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");
     if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
     $$("[data-leaderview]").forEach(
@@ -11326,10 +11619,11 @@ Count-back if tied
           renderLeaderboard();
         }),
     );
-    $("#leaderRefresh").onclick = async () => {
-      await syncCloudNow();
-      renderLeaderboard();
-    };
+    if ($("#leaderRefresh"))
+      $("#leaderRefresh").onclick = async () => {
+        await syncCloudNow();
+        renderLeaderboard();
+      };
   }
   function renderPlayerExperience() {
     const host = $("#playerExperience");
@@ -11430,7 +11724,7 @@ Count-back if tied
         .filter(([, id]) => String(id) === selected)
         .map(([hole]) => hole),
       isExtra = extraNtpHoles.length > 0 || String(setup.ntpExtraPlayer || "") === selected,
-      ruleSections = eventRuleSections(store.event),
+      ruleSections = eventRuleSections(store.event, day),
       yellowBallOn = yellowBallIsOn(day),
       openingYellowBallPlayer = yellowBallOn
         ? yellowBallPlayerForHole(day, ctx.groupIndex, start)
@@ -11539,7 +11833,8 @@ Count-back if tied
       renderPlayerExperience();
     };
   }
-  if (recoverRidge2026History()) writeLocalStore();
+  if (installFederalRidgeHistoryBaseline()) writeLocalStore();
+  removeRecordedTestEventHistory();
   backfillCompletedEventHistory();
   applyDeviceRole();
   renderHome();
