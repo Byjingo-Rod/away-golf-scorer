@@ -269,6 +269,7 @@
     ensureEventTeePlanning(event);
     if (!event || !enabledEventTees(event, day).includes(tee)) return;
     const key = "day" + day;
+    if (event.teeSelection[key] !== tee) event.scorecardsChecked = false;
     event.teeSelection[key] = tee;
     event.dailyHandicaps[key] = { ...teeHandicapsFor(day, tee, event) };
   }
@@ -909,8 +910,55 @@
         : store.players.find((p) => String(p.id) === String(id));
   const version = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
-  function validateCourseScorecard(c) {
-    const v = version(c) || {},
+  function cloneCourseCard(card = {}, tee = "middle") {
+    return {
+      tee,
+      par: Array.from({ length: 18 }, (_, i) => card.par?.[i] ?? ""),
+      index: Array.from({ length: 18 }, (_, i) => card.index?.[i] ?? ""),
+      metres: Array.from({ length: 18 }, (_, i) => card.metres?.[i] ?? ""),
+    };
+  }
+  function ensureTeeScorecards(c) {
+    if (!c) return {};
+    const legacy = version(c) || {};
+    c.teeScorecards = c.teeScorecards || {};
+    if (!Object.keys(c.teeScorecards).length) {
+      const legacyLength = (legacy.metres || []).reduce(
+        (total, value) => total + (+value || 0),
+        0,
+      );
+      const lengthMatches = EVENT_TEES.filter(
+        (tee) =>
+          legacyLength > 0 &&
+          +String(c.teeDetails?.[tee]?.length || "").replace(/[^0-9.]/g, "") ===
+            legacyLength,
+      );
+      const legacyTee = lengthMatches.length === 1 ? lengthMatches[0] : "middle";
+      c.teeScorecards[legacyTee] = cloneCourseCard(legacy, legacyTee);
+    }
+    return c.teeScorecards;
+  }
+  function courseScorecard(c, tee = "middle", create = false) {
+    const cards = ensureTeeScorecards(c);
+    if (!cards[tee] && create) {
+      const source = cards.middle || cards.back || cards.front || version(c) || {};
+      cards[tee] = {
+        tee,
+        par: Array.from({ length: 18 }, (_, i) => source.par?.[i] ?? ""),
+        index: Array(18).fill(""),
+        metres: Array(18).fill(""),
+      };
+    }
+    return cards[tee] || null;
+  }
+  function eventCourseScorecard(day, event = store.event) {
+    if (!event) return {};
+    const c = course(day === 1 ? event.course1 : event.course2),
+      tee = selectedEventTee(day, event);
+    return courseScorecard(c, tee) || {};
+  }
+  function validateCourseScorecard(c, tee = "middle") {
+    const v = courseScorecard(c, tee) || {},
       pars = Array.from({ length: 18 }, (_, i) => Number(v.par?.[i])),
       metres = Array.from({ length: 18 }, (_, i) => Number(v.metres?.[i])),
       indexes = Array.from({ length: 18 }, (_, i) => {
@@ -998,6 +1046,7 @@
       c.teeDetails[tee].name = EVENT_TEE_LABELS[tee];
       c.teeDetails[tee].colour = teeMarkerColour(tee, c);
     }
+    ensureTeeScorecards(c);
   }
   store.courses.forEach(ensureCourseData);
 
@@ -2333,7 +2382,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.91.8", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3173,12 +3222,19 @@ Count-back if tied
     save();
     return id;
   }
-  function courseDetail(id) {
+  function courseDetail(id, requestedCardTee = "") {
     let c = course(id);
     if (!c) return;
     ensureCourseData(c);
-    let v = version(c) || {},
+    const availableCardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee));
+    let activeCardTee = EVENT_TEES.includes(requestedCardTee)
+        ? requestedCardTee
+        : EVENT_TEES.includes(c.activeScorecardTee)
+          ? c.activeScorecardTee
+          : availableCardTees[0] || "middle",
+      v = courseScorecard(c, activeCardTee, true),
       t = c.teeDetails;
+    c.activeScorecardTee = activeCardTee;
     store.courseFavourites = store.courseFavourites || [];
     const isFavourite = store.courseFavourites
       .map(String)
@@ -3204,8 +3260,25 @@ Count-back if tied
         ).join("");
       return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><input class="teeDetailEntry" id="${key}Length" value="${esc(t[key]?.length || "")}"></td></tr>`;
     };
+    const cardOptions = EVENT_TEES.map((tee) => {
+      const exists = Boolean(courseScorecard(c, tee));
+      return `<option value="${tee}" ${tee === activeCardTee ? "selected" : ""}>${esc(teeMarkerColour(tee, c))}${exists ? "" : " — New card"}</option>`;
+    }).join("");
+    const copyCardOptions = EVENT_TEES.filter(
+      (tee) => tee !== activeCardTee && Boolean(courseScorecard(c, tee)),
+    )
+      .map(
+        (tee) =>
+          `<option value="${tee}">${esc(teeMarkerColour(tee, c))}</option>`,
+      )
+      .join("");
     $("#modalContent").innerHTML =
-      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label><label>Golf region<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley"></label><label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length (m)</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><h3>Scorecard — active tee</h3><p class="scorecardHelp">Type each value and press Enter to move to the next cell.</p><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label><label>Golf region<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley"></label><label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length (m)</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+    if (copyCardOptions)
+      $(".scorecardTeeHeading").insertAdjacentHTML(
+        "afterend",
+        `<div class="scorecardCopyRow"><label>Copy complete card from<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copies all pars, indexes and hole lengths. The two cards can then be edited separately.</small></div>`,
+      );
     $(".scoreMini")?.insertAdjacentHTML(
       "afterend",
       `<div id="scorecardTotals">${totalsMarkup()}</div>`,
@@ -3223,6 +3296,68 @@ Count-back if tied
       writeLocalStore();
       renderCoursesAdmin();
     };
+    const captureVisibleCard = () => {
+      for (let i = 0; i < 18; i++) {
+        v.par[i] = +$("#scPar" + i).value || "";
+        v.index[i] = $("#scIdx" + i).value.trim();
+        v.metres[i] = +$("#scMet" + i).value || "";
+      }
+    };
+    const captureCourseFields = () => {
+      c.name = gcCourseName($("#mcname").value.trim() || c.name);
+      c.region = $("#mcregion").value.trim();
+      c.clubPhone = $("#mcClubPhone").value.trim();
+      c.proPhone = $("#mcProPhone").value.trim();
+      c.phone = c.proPhone;
+      c.clubEmail = $("#mcClubEmail").value.trim();
+      c.proEmail = $("#mcProEmail").value.trim();
+      c.email = c.clubEmail;
+      c.proName = $("#mcProName").value.trim();
+      c.address = $("#mcaddress").value.trim();
+      c.mapLink = $("#mcmap").value.trim();
+      c.website = $("#mcweb").value.trim();
+      c.notes = $("#mcnotes").value.trim();
+      for (const key of EVENT_TEES) {
+        c.teeDetails[key] = c.teeDetails[key] || {};
+        c.teeDetails[key].colour = $("#" + key + "Colour").value;
+        c.teeDetails[key].slope = $("#" + key + "Slope").value.trim();
+        c.teeDetails[key].scratch = $("#" + key + "Scratch").value.trim();
+        c.teeDetails[key].par = $("#" + key + "Par").value.trim();
+        c.teeDetails[key].length = $("#" + key + "Length").value.trim();
+      }
+      captureVisibleCard();
+    };
+    $("#scorecardTeeSelect").onchange = (event) => {
+      captureCourseFields();
+      const nextTee = event.target.value;
+      courseScorecard(c, nextTee, true);
+      c.activeScorecardTee = nextTee;
+      courseDetail(id, nextTee);
+    };
+    if ($("#copyScorecardButton"))
+      $("#copyScorecardButton").onclick = () => {
+        const sourceTee = $("#copyScorecardFrom").value;
+        if (!sourceTee) {
+          alert("Choose the tee scorecard you want to copy from.");
+          return;
+        }
+        const source = courseScorecard(c, sourceTee);
+        if (!source) return;
+        const sourceColour = teeMarkerColour(sourceTee, c),
+          destinationColour = teeMarkerColour(activeCardTee, c);
+        if (
+          !confirm(
+            `Copy the complete ${sourceColour} scorecard into the ${destinationColour} scorecard?\n\nThis replaces all 18 pars, indexes and hole lengths currently entered for ${destinationColour}.`,
+          )
+        )
+          return;
+        c.teeScorecards[activeCardTee] = cloneCourseCard(
+          source,
+          activeCardTee,
+        );
+        c.activeScorecardTee = activeCardTee;
+        courseDetail(id, activeCardTee);
+      };
     const entryOrder = [];
     for (let i = 0; i < 18; i++)
       entryOrder.push($("#scPar" + i), $("#scIdx" + i), $("#scMet" + i));
@@ -3248,39 +3383,8 @@ Count-back if tied
       }),
     );
     $("#saveCourseModal").onclick = () => {
-      c.name = gcCourseName($("#mcname").value.trim() || c.name);
-      c.region = $("#mcregion").value.trim();
-      c.clubPhone = $("#mcClubPhone").value.trim();
-      c.proPhone = $("#mcProPhone").value.trim();
-      c.phone = c.proPhone;
-      c.clubEmail = $("#mcClubEmail").value.trim();
-      c.proEmail = $("#mcProEmail").value.trim();
-      c.email = c.clubEmail;
-      c.proName = $("#mcProName").value.trim();
-      c.address = $("#mcaddress").value.trim();
-      c.mapLink = $("#mcmap").value.trim();
-      c.website = $("#mcweb").value.trim();
-      c.notes = $("#mcnotes").value.trim();
-      for (const key of ["back", "middle", "front"]) {
-        c.teeDetails[key] = c.teeDetails[key] || {};
-        c.teeDetails[key].colour = $("#" + key + "Colour").value;
-        c.teeDetails[key].slope = $("#" + key + "Slope").value.trim();
-        c.teeDetails[key].scratch = $("#" + key + "Scratch").value.trim();
-        c.teeDetails[key].par = $("#" + key + "Par").value.trim();
-        c.teeDetails[key].length = $("#" + key + "Length").value.trim();
-      }
-      if (!v.par) v.par = Array(18).fill("");
-      if (!v.index) v.index = Array(18).fill("");
-      if (!v.metres) v.metres = Array(18).fill("");
-      for (let i = 0; i < 18; i++) {
-        v.par[i] = +$("#scPar" + i).value || "";
-        v.index[i] = $("#scIdx" + i).value.trim();
-        v.metres[i] = +$("#scMet" + i).value || "";
-      }
-      v.slope = c.teeDetails.middle.slope;
-      v.scratch = c.teeDetails.middle.scratch;
-      v.teeName = c.teeDetails.middle.colour;
-      const cardCheck = validateCourseScorecard(c);
+      captureCourseFields();
+      const cardCheck = validateCourseScorecard(c, activeCardTee);
       if (!cardCheck.ok) {
         alert(
           "The scorecard cannot be saved yet:\n\n" +
@@ -3291,6 +3395,7 @@ Count-back if tied
         );
         return;
       }
+      c.activeScorecardTee = activeCardTee;
       save();
       $("#modalShade").classList.remove("open");
     };
@@ -3308,9 +3413,10 @@ Count-back if tied
       other = act.filter((c) => !favIds.has(String(c.id)));
     let row = (c) => {
       ensureCourseData(c);
-      let v = version(c) || {},
+      const cardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee));
+      let v = courseScorecard(c, c.activeScorecardTee) || courseScorecard(c, cardTees[0]) || version(c) || {},
         t = c.teeDetails.middle || {},
-        scoreKnown = (v.metres || []).some(Boolean),
+        scoreKnown = cardTees.some((tee) => validateCourseScorecard(c, tee).ok),
         contactKnown = Boolean(
           c.clubPhone || c.proPhone || c.address || c.website || c.mapLink,
         ),
@@ -3323,7 +3429,7 @@ Count-back if tied
         star = favIds.has(String(c.id))
           ? '<span class="courseFavouriteStar" title="Favourite course">★</span>'
           : "";
-      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${t.length ? esc(t.length) + " m" : "—"}</small><small>${c.region ? esc(c.region) + " • " : ""}${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
+      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${c.region ? esc(c.region) + " • " : ""}${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
     };
     let ret = wizardReturnStep
       ? `<div class="returnSetupBar"><button class="soft" id="returnToWizardCourses">← Return to Setup</button></div>`
@@ -4868,8 +4974,9 @@ Count-back if tied
       return;
     }
     W.event.ntpSelections = W.event.ntpSelections || {};
-    const par3s = (id) => {
-      let v = version(course(id)) || {},
+    W.event.ntpSelectionSources = W.event.ntpSelectionSources || {};
+    const par3s = (id, day) => {
+      let v = eventCourseScorecard(day, W.event),
         r = [];
       for (let i = 0; i < 18; i++)
         if (+v.par?.[i] === 3)
@@ -4885,10 +4992,13 @@ Count-back if tied
       return r.sort((x, y) => rank(y) - rank(x) || x.hole - y.hole);
     };
     const ensure = (key, id, count) => {
-      let ch = par3s(id),
+      let ch = par3s(id, key === "day2" ? 2 : 1),
         v = Array.isArray(W.event.ntpSelections[key])
           ? W.event.ntpSelections[key].map(Number)
           : [];
+      const day = key === "day2" ? 2 : 1,
+        source = `${String(id || "")}|${selectedEventTee(day, W.event)}`;
+      if (W.event.ntpSelectionSources[key] !== source) v = [];
       v = v
         .filter((h, i) => ch.some((x) => x.hole === h) && v.indexOf(h) === i)
         .slice(0, count);
@@ -4897,6 +5007,7 @@ Count-back if tied
         if (!v.includes(x.hole)) v.push(x.hole);
       }
       W.event.ntpSelections[key] = v;
+      W.event.ntpSelectionSources[key] = source;
       return ch;
     };
     const n1 = W.event.days == 1 ? +W.event.ntpDay1Count || 1 : 1,
@@ -4981,17 +5092,15 @@ Count-back if tied
     );
     const c1 = course(W.event.course1),
       c2 = W.event.days == 2 ? course(W.event.course2) : null;
-    const cardResults = [
-      c1,
-      ...(c2 && String(c2.id) !== String(c1?.id) ? [c2] : []),
-    ]
-      .filter(Boolean)
-      .map((cardCourse) => ({
-        course: cardCourse,
-        result: validateCourseScorecard(cardCourse),
-      }));
-    const expectedCards =
-        W.event.days === 2 && String(c2?.id) !== String(c1?.id) ? 2 : 1,
+    const cardResults = Array.from({ length: W.event.days || 1 }, (_, index) => {
+      const day = index + 1,
+        cardCourse = day === 1 ? c1 : c2,
+        tee = selectedEventTee(day, W.event);
+      return cardCourse
+        ? { course: cardCourse, tee, result: validateCourseScorecard(cardCourse, tee) }
+        : null;
+    }).filter(Boolean);
+    const expectedCards = W.event.days || 1,
       cardsValid =
         cardResults.length === expectedCards &&
         cardResults.every((item) => item.result.ok);
@@ -6483,7 +6592,7 @@ Count-back if tied
       scorer = String(scorerId || ids[0] || ""),
       targetId = markerTargetFor(scorer, day),
       c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+      v = eventCourseScorecard(day),
       existing = Object.keys(scoringDayStore(day)?.[scorer] || {}).filter(
         (x) => /^\d+$/.test(x),
       ).length;
@@ -6704,8 +6813,7 @@ Count-back if tied
     return new Set(store.event?.competitions || []);
   }
   function manualPar3Holes(day) {
-    const c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {};
+    const v = eventCourseScorecard(day);
     return Array.from({ length: 18 }, (_, i) => i + 1).filter(
       (hole) => +v.par?.[hole - 1] === 3,
     );
@@ -6719,8 +6827,7 @@ Count-back if tied
         String(playerId)
       ]?.par3?.[String(hole)];
     if (gross === "" || gross == null) return null;
-    const c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {};
+    const v = eventCourseScorecard(day);
     return stablefordPoints(
       gross,
       +(v.par?.[hole - 1] || 0),
@@ -6779,8 +6886,7 @@ Count-back if tied
   }
   function deriveManualFullCards(day, groupIndex, card, req) {
     if (!card.fullCardsOpen) return;
-    const c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+    const v = eventCourseScorecard(day),
       points = {};
     req.ids.forEach((id) => {
       const gross = card.players?.[id]?.fullGross || {};
@@ -6912,7 +7018,7 @@ Count-back if tied
     const req = manualRequirements(day, groupIndex),
       card = manualGroupCard(day, groupIndex),
       playingCourse = course(day === 1 ? store.event.course1 : store.event.course2),
-      playingVersion = version(playingCourse) || {},
+      playingVersion = eventCourseScorecard(day),
       comps = [],
       summarySection = (title, body, note = "") =>
         `<section class="manualEntrySection"><h3>${title}</h3>${note ? `<p>${note}</p>` : ""}${body}</section>`;
@@ -8450,16 +8556,15 @@ Count-back if tied
           String(id) !== NO_PARTNER_ID &&
           ["accepted", "awaiting"].includes(status),
       ).length,
-      cards = [
-        course(event.course1),
-        ...(event.days === 2 && String(event.course2) !== String(event.course1)
-          ? [course(event.course2)]
-          : []),
-      ].filter(Boolean),
+      cards = Array.from({ length: event.days || 1 }, (_, index) => {
+        const day = index + 1,
+          item = course(day === 1 ? event.course1 : event.course2);
+        return item ? { item, tee: selectedEventTee(day, event) } : null;
+      }).filter(Boolean),
       cardsChecked =
         Boolean(event.scorecardsChecked) &&
         cards.length > 0 &&
-        cards.every((item) => validateCourseScorecard(item).ok),
+        cards.every(({ item, tee }) => validateCourseScorecard(item, tee).ok),
       firstTeeText = Array.from({ length: event.days || 1 }, (_, index) => {
         const day = index + 1,
           hole = +(startHolesFor(event, day)[0] || 1),
@@ -9254,7 +9359,7 @@ Count-back if tied
     }
     const p = player(selected),
       c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+      v = eventCourseScorecard(day),
       hcp = playerDailyHandicap(selected, day),
       ctx = playerGroupContext(selected, day),
       start = ctx?.setup?.starts?.[ctx.groupIndex] || 1,
@@ -9303,7 +9408,7 @@ Count-back if tied
   }
   function scorecardVerificationRows(day, playerId) {
     const c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+      v = eventCourseScorecard(day),
       mine = scorerStore(day, playerId),
       puttsRequired = (store.event.competitions || []).includes("teamPutts"),
       hcp = playerDailyHandicap(playerId, day);
@@ -9454,7 +9559,7 @@ Count-back if tied
       entryScorerId = editable ? String(selected) : roles.scorerId,
       isPrimary = String(selected) === roles.scorerId,
       c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+      v = eventCourseScorecard(day),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       sequence = scoreSequence(start),
       position = Math.max(0, Math.min(17, +(store.event.playerHolePos || 0))),
@@ -9603,7 +9708,7 @@ Count-back if tied
     if (!p || !ctx) return renderPlayerExperience();
     const setup = ctx.setup,
       c = course(day === 1 ? store.event.course1 : store.event.course2),
-      v = version(c) || {},
+      v = eventCourseScorecard(day),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start);
     let pos = Math.max(0, Math.min(17, store.event.playerHolePos || 0)),
@@ -9666,8 +9771,7 @@ Count-back if tied
       day === 2 && (store.event.competitions || []).includes("eclectic");
     const eclecticData = (playerId) => {
       if (!eclecticOn) return null;
-      const day1Course = course(store.event.course1),
-        day1Version = version(day1Course) || {},
+      const day1Version = eventCourseScorecard(1),
         day1Hcp = playerDailyHandicap(playerId, 1);
       const points = (h) => {
         const e = playerHoleEntry(1, playerId, h),
@@ -10049,10 +10153,7 @@ Count-back if tied
     };
   }
   function leaderboardPlayerPoints(day, pid) {
-    const v =
-        version(
-          course(day === 1 ? store.event.course1 : store.event.course2),
-        ) || {},
+    const v = eventCourseScorecard(day),
       hcp = playerDailyHandicap(pid, day);
     return Array.from({ length: 18 }, (_, i) => {
       const e = findOfficialForPlayer(day, pid, i + 1);
@@ -10410,10 +10511,7 @@ Count-back if tied
         return row;
       });
     if (def.type === "scratch") {
-      const v =
-          version(
-            course(def.day === 1 ? store.event.course1 : store.event.course2),
-          ) || {},
+      const v = eventCourseScorecard(def.day),
         max = scratchHandicapLimit();
       rows = field(def.day)
         .filter((id) => {
@@ -10560,10 +10658,7 @@ Count-back if tied
       return rows;
     }
     if (def.type === "par3") {
-      const v =
-          version(
-            course(def.day === 1 ? store.event.course1 : store.event.course2),
-          ) || {},
+      const v = eventCourseScorecard(def.day),
         ix = Array.from({ length: 18 }, (_, i) => i).filter(
           (i) => +v.par?.[i] === 3,
         );
@@ -10591,10 +10686,7 @@ Count-back if tied
           : String(id);
       };
       const ix = (d) => {
-        const v =
-          version(
-            course(d === 1 ? store.event.course1 : store.event.course2),
-          ) || {};
+        const v = eventCourseScorecard(d);
         return Array.from({ length: 18 }, (_, i) => i).filter(
           (i) => +v.par?.[i] === 3,
         );
@@ -11205,9 +11297,7 @@ Count-back if tied
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
     }
     const par3Day = +view === 2 ? 2 : 1,
-      par3Version = version(
-        course(par3Day === 1 ? store.event.course1 : store.event.course2),
-      ) || {},
+      par3Version = eventCourseScorecard(par3Day),
       par3Count = (par3Version.par || []).filter((par) => +par === 3).length,
       par3Total = ["par3", "par3aggregate"].includes(def.type)
         ? `<span class="par3Total">Total Par 3 Holes <b>${par3Count}</b></span>`

@@ -5268,6 +5268,67 @@ body.joinOnlyDevice .playerJoinLanding {
   color: #5f7067;
   font-size: 11px;
 }
+
+.scorecardTeeHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+}
+.scorecardTeeHeading h3 {
+  margin: 0;
+}
+.scorecardTeeHeading h3 span {
+  color: #a9550b;
+}
+.scorecardTeeHeading label {
+  min-width: 220px;
+  font-weight: 800;
+  color: #174d36;
+}
+.scorecardTeeHeading select {
+  width: 100%;
+  margin-top: 4px;
+}
+.scorecardCopyRow {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+  padding: 10px;
+  border: 1px solid #cfe0d5;
+  border-radius: 8px;
+  background: #f4faf6;
+}
+.scorecardCopyRow label {
+  display: grid;
+  gap: 4px;
+  font-weight: 700;
+}
+.scorecardCopyRow select,
+.scorecardCopyRow button {
+  min-height: 38px;
+}
+.scorecardCopyRow small {
+  flex: 1 1 100%;
+  color: #52665a;
+}
+@media (max-width: 720px) {
+  .scorecardTeeHeading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .scorecardTeeHeading label {
+    min-width: 0;
+  }
+  .scorecardCopyRow label,
+  .scorecardCopyRow button {
+    flex: 1 1 145px;
+  }
+}
 .scorecardInput {
   text-align: center;
 }

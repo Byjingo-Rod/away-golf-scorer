@@ -1,6 +1,16 @@
-AWAY GOLF SCORER — VERSION 15.91.6 DAY AND PARTNER DISPLAY TEST BUILD
+AWAY GOLF SCORER — VERSION 15.92.0 TEE-SPECIFIC SCORECARDS TEST BUILD
 
-This package is the complete Version 15.91.6 app.
+This package is the complete Version 15.92.0 app.
+
+TEST THIS UPDATE
+
+1. Open Courses and select Mollymook GC — Course Details.
+2. Confirm the existing 5932 m scorecard is labelled for its matching tee colour.
+3. Use the Scorecard tee dropdown and select a second tee colour.
+4. Confirm all 18 Par cells have copied across, while Index and Length are blank.
+5. Enter that tee's Index and Length values and save the card.
+6. Reopen the course and switch between the two tee cards to confirm both remain saved.
+7. In the event plan, select the playing tee and confirm its scorecard is used for NTP and scoring.
 It replaces the withdrawn first 15.78 package and includes the Oatlands data
 recovery, single-authoritative-course-card protection and My Events visibility
 corrections.
@@ -11,7 +21,14 @@ withdrawn first 15.78 JavaScript file.
 2. Copy every file and folder from this extracted folder into:
    C:\Users\User\away-golf-scorer
 3. Choose Replace the files in the destination.
-4. Open index.html and confirm that the heading says Version 15.91.6.
+4. Open index.html and confirm that the heading says Version 15.92.0.
+
+VERSION 15.92.0 CHANGES
+
+- Up to three scorecards per course, selected by tee colour.
+- New cards inherit Par only, avoiding repeated entry.
+- The event's chosen playing tee supplies its matching Par, Index and Length data.
+- Automatic NTP selection recalculates when the course or tee changes.
 
 SUPABASE SQL REQUIRED BEFORE TESTING
 

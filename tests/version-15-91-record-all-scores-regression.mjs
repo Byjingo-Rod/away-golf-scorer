@@ -6,8 +6,8 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.8/);
-assert.match(sw, /away-golf-v15-91-8/);
+assert.match(html, /Version 15\.92\.0/);
+assert.match(sw, /away-golf-v15-92-0/);
 assert.match(app, /id="recordAllScores"/);
 assert.match(app, /function openManualScores/);
 assert.match(app, /function renderManualScoresDashboard/);

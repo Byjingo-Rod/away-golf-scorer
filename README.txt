@@ -1,4 +1,19 @@
-AWAY GOLF SCORER — VERSION 15.91.8
+AWAY GOLF SCORER — VERSION 15.92.1
+
+VERSION 15.92.1 — COPY A TEE SCORECARD
+
+- Course Details can copy a complete stored tee scorecard into another tee.
+- The copy includes all 18 pars, stroke indexes and hole lengths.
+- The destination card remains independent so its lengths or ratings can be corrected later.
+
+VERSION 15.92.0 — TEE-SPECIFIC COURSE SCORECARDS
+
+- Stores up to three complete scorecards for each course: Back, Middle and Front.
+- Labels each card with its marker colour and provides a scorecard tee dropdown.
+- Copies all 18 par values into a newly created tee card while leaving its indexes and lengths ready for entry.
+- Uses the selected playing tee's par, index and length throughout scoring, manual score entry and leaderboards.
+- Recalculates automatic NTP choices when the course or playing tee changes.
+- Preserves existing one-card courses and matches the old card to a tee by total length where possible.
 
 VERSION 15.91.8 — VIRTUAL PLAYER COMPETITION SAFEGUARDS
 
