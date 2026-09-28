@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.92.5
+AWAY GOLF SCORER — VERSION 15.92.6
+
+VERSION 15.92.6 — YELLOW BALL LOTTERY PRIZE
+
+- Yellow Ball can award either balls/a prize or a Lottery Pool contribution.
+- Its balls dropdown is limited to 1, 2 or 3 balls per winner.
+- Its Lottery Pool contribution choices are $5, $10, $15 or $20 per team member.
+- Prize choices for every other competition remain unchanged.
 
 VERSION 15.92.5 — CLEAN TEAM-HISTORY BASELINE
 

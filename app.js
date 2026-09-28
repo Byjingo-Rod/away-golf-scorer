@@ -284,7 +284,7 @@
   }
   function competitionBenefitText(id, benefits) {
     const b = benefits?.[id] || {};
-    if (id === "best3of4" && b.mode === "lottery")
+    if (["best3of4", "yellowBall"].includes(id) && b.mode === "lottery")
       return b.contribution
         ? `This is the only team that DOES NOT contribute $${b.contribution} to the Lottery Pool`
         : "This is the only team that does not contribute to the Lottery Pool";
@@ -2484,7 +2484,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.6", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4876,10 +4876,15 @@ Count-back if tied
   }
   function benefitSummary(id) {
     let b = W.benefits[id] || {};
-    if (id === "best3of4") {
-      if (b.mode === "lottery" && b.contribution)
+    if (["best3of4", "yellowBall"].includes(id)) {
+      const mode =
+        b.mode ||
+        (id === "yellowBall" && (b.balls || b.plus || b.extra)
+          ? "prize"
+          : "");
+      if (mode === "lottery" && b.contribution)
         return `Currently Set at Lottery Pool — $${b.contribution} per team member`;
-      if (b.mode === "prize") {
+      if (mode === "prize") {
         let p = [];
         if (b.balls) p.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
         if (b.plus) p.push("+ Prize");
@@ -4897,18 +4902,28 @@ Count-back if tied
   function benefitHtml(id) {
     let b = W.benefits[id] || {},
       open = W.benefitOpen.has(id);
+    const supportsLottery = ["best3of4", "yellowBall"].includes(id);
+    const benefitMode =
+      b.mode ||
+      (id === "yellowBall" && (b.balls || b.plus || b.extra)
+        ? "prize"
+        : "");
+    const contributionChoices =
+      id === "yellowBall" ? [5, 10, 15, 20] : [10, 20, 30, 40, 50];
+    const prizeModeLabel = id === "yellowBall" ? "Balls / Prize" : "Prize";
     const ambroseDrives =
       id === "ambrose"
         ? `<label class="ambroseMinimumInline"><span>Required drives per player</span><select id="ambroseMinimumDrives">${[2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>`
         : "";
     let body =
-      id === "best3of4"
-        ? `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid"><label>Win Benefit<select data-bmode="${id}"><option value="" ${!b.mode ? "selected" : ""}>Not Yet Set</option><option value="lottery" ${b.mode === "lottery" ? "selected" : ""}>Lottery Pool</option><option value="prize" ${b.mode === "prize" ? "selected" : ""}>Prize</option></select></label>${b.mode === "lottery" ? `<label>Losing Team(s) Contribution<div class="benefitSuffix"><select data-bcontrib="${id}"><option value="">Not Yet Set</option>${[10, 20, 30, 40, 50].map((x) => `<option value="${x}" ${b.contribution == x ? "selected" : ""}>$${x}</option>`).join("")}</select><span>per team member</span></div></label>` : ""}${b.mode === "prize" ? prizeFields(id, b) : ""}</div></div>`
+      supportsLottery
+        ? `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid"><label>Win Benefit<select data-bmode="${id}"><option value="" ${!benefitMode ? "selected" : ""}>Not Yet Set</option><option value="lottery" ${benefitMode === "lottery" ? "selected" : ""}>Lottery Pool</option><option value="prize" ${benefitMode === "prize" ? "selected" : ""}>${prizeModeLabel}</option></select></label>${benefitMode === "lottery" ? `<label>Losing Team(s) Contribution<div class="benefitSuffix"><select data-bcontrib="${id}"><option value="">Not Yet Set</option>${contributionChoices.map((x) => `<option value="${x}" ${b.contribution == x ? "selected" : ""}>$${x}</option>`).join("")}</select><span>per team member</span></div></label>` : ""}${benefitMode === "prize" ? prizeFields(id, b) : ""}</div></div>`
         : `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid">${prizeFields(id, b)}</div></div>`;
     return `<div class="benefitControlRow ${id === "ambrose" ? "ambroseBenefitRow" : ""}"><button class="soft benefitBtn" data-benefit="${id}">Set/Change Win Benefit</button><div class="benefitCurrent ${benefitSummary(id) === "Not Yet Set" ? "notSet" : ""}">${benefitSummary(id)}</div>${ambroseDrives}</div>${body}`;
   }
   function prizeFields(id, b) {
-    return `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${[1, 2, 3, 4, 6, 8, 12].map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label><label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`;
+    const ballChoices = id === "yellowBall" ? [1, 2, 3] : [1, 2, 3, 4, 6, 8, 12];
+    return `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label><label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`;
   }
   function renderStep3() {
     let defs = compDefinitions(),

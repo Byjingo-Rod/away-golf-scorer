@@ -5,8 +5,8 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.92\.5/);
-assert.match(sw, /away-golf-v15-92-5/);
+assert.match(html, /Version 15\.92\.6/);
+assert.match(sw, /away-golf-v15-92-6/);
 assert.match(app, /function installFederalRidgeHistoryBaseline/);
 assert.match(app, /federal-ridge-2026-v1/);
 assert.match(app, /const ridgeGroups/);
