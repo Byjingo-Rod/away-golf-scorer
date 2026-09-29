@@ -191,9 +191,22 @@
       ? ""
       : Math.abs(n);
   }
+  function formatGaHandicap(value) {
+    const n = Number(value);
+    return value === "" || value == null || !Number.isFinite(n)
+      ? ""
+      : `${n < 0 ? "+" : ""}${Math.abs(n).toFixed(1)}`;
+  }
   const EVENT_TEES = ["back", "middle", "front"];
   const EVENT_TEE_LABELS = { back: "Back", middle: "Middle", front: "Front" };
-  const TEE_MARKER_COLOURS = ["Black", "Blue", "White", "Yellow", "Red"];
+  const TEE_MARKER_COLOURS = [
+    "Black",
+    "Blue",
+    "White",
+    "Yellow",
+    "Green",
+    "Red",
+  ];
   const DEFAULT_TEE_MARKER_COLOURS = {
     back: "Blue",
     middle: "White",
@@ -216,6 +229,15 @@
       savedForDay = Array.isArray(daySaved)
         ? daySaved.filter((tee) => EVENT_TEES.includes(tee))
         : [];
+    // Earlier builds could save Back + Front while displaying the checked
+    // "Add a third tee" control. Here checked means all three positions, so
+    // restore the missing Middle column automatically.
+    if (
+      savedForDay.length === 2 &&
+      savedForDay.includes("back") &&
+      savedForDay.includes("front")
+    )
+      return [...EVENT_TEES];
     if (savedForDay.length >= 2) return savedForDay;
     const saved = Array.isArray(event.enabledTees)
       ? event.enabledTees.filter((tee) => EVENT_TEES.includes(tee))
@@ -264,6 +286,116 @@
   function teeHandicapsFor(day, tee, event = store.event) {
     ensureEventTeePlanning(event);
     return event?.teeHandicaps?.["day" + day]?.[tee] || {};
+  }
+  function ensureEventGaHandicaps(event = store.event) {
+    if (!event) return;
+    event.gaHandicaps = event.gaHandicaps || {};
+    event.gaCategories = event.gaCategories || {};
+    event.teeHandicapSources = event.teeHandicapSources || {
+      day1: {},
+      day2: {},
+    };
+    for (let day = 1; day <= (event.days || 1); day++) {
+      const key = "day" + day;
+      event.teeHandicapSources[key] = event.teeHandicapSources[key] || {};
+      EVENT_TEES.forEach((tee) => {
+        event.teeHandicapSources[key][tee] =
+          event.teeHandicapSources[key][tee] || {};
+      });
+    }
+  }
+  function eventGaHandicap(id, event = store.event) {
+    ensureEventGaHandicaps(event);
+    const key = String(id);
+    if (Object.prototype.hasOwnProperty.call(event?.gaHandicaps || {}, key))
+      return event.gaHandicaps[key];
+    const p = player(id);
+    return p?.gaUpdatedAt && Number.isFinite(+p.ga) ? +p.ga : "";
+  }
+  function eventGaCategory(id, event = store.event) {
+    ensureEventGaHandicaps(event);
+    return event?.gaCategories?.[String(id)] || player(id)?.gaCategory || "men";
+  }
+  function saveEventGaToPlayerProfiles(ids, event = W.event) {
+    ensureEventGaHandicaps(event);
+    const updatedAt = new Date().toISOString();
+    ids.forEach((id) => {
+      const p = player(id),
+        ga = eventGaHandicap(id, event);
+      if (!p || ga === "" || ga == null || !Number.isFinite(+ga)) return;
+      p.ga = +ga;
+      p.gaCategory = eventGaCategory(id, event);
+      p.gaUpdatedAt = updatedAt;
+    });
+  }
+  function teeRatingForDailyHandicap(day, tee, event = store.event) {
+    const c = course(day === 1 ? event?.course1 : event?.course2),
+      detail = c?.teeDetails?.[tee] || {},
+      cardPars = courseScorecard(c, tee)?.par || [],
+      cardPar = cardPars.length === 18
+        ? cardPars.reduce((total, value) => total + (+value || 0), 0)
+        : 0,
+      slope = +detail.slope,
+      scratch = +detail.scratch,
+      par = +detail.par || cardPar;
+    return {
+      courseName: c?.name || `Day ${day} course`,
+      teeColour: teeMarkerColour(tee, c),
+      slope,
+      scratch,
+      par,
+      valid:
+        Number.isFinite(slope) && slope >= 55 && slope <= 155 &&
+        Number.isFinite(scratch) && scratch > 0 &&
+        Number.isFinite(par) && par > 0,
+    };
+  }
+  function roundDailyHandicap(value) {
+    return value < 0 ? -Math.round(Math.abs(value)) : Math.round(value);
+  }
+  function calculateDailyHandicap(ga, rating, category = "men") {
+    if (!rating?.valid || !Number.isFinite(+ga)) return null;
+    const consistency = category === "women" ? 1.0483 : 0.9986;
+    return roundDailyHandicap(
+      ((+ga * rating.slope) / 113 + (rating.scratch - rating.par)) *
+        0.93 * consistency,
+    );
+  }
+  function applyCalculatedEventHandicaps(event = W.event) {
+    ensureEventTeePlanning(event);
+    ensureEventGaHandicaps(event);
+    const issues = [];
+    for (let day = 1; day <= (event.days || 1); day++) {
+      const key = "day" + day,
+        ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID);
+      for (const tee of enabledEventTees(event, day)) {
+        const rating = teeRatingForDailyHandicap(day, tee, event);
+        if (!rating.valid) {
+          issues.push(
+            `${rating.courseName} — ${rating.teeColour}: enter Slope, Scratch Rating and Par in Course Details.`,
+          );
+          continue;
+        }
+        const map = teeHandicapsFor(day, tee, event),
+          sources = event.teeHandicapSources[key][tee];
+        for (const id of ids) {
+          const ga = eventGaHandicap(id, event),
+            name = player(id)?.name || "Player";
+          if (ga === "" || ga == null || !Number.isFinite(+ga)) {
+            issues.push(`${name}: enter a GA Handicap.`);
+            continue;
+          }
+          map[String(id)] = calculateDailyHandicap(
+            ga,
+            rating,
+            eventGaCategory(id, event),
+          );
+          sources[String(id)] = "calculated";
+        }
+      }
+      selectEventTee(day, selectedEventTee(day, event), event);
+    }
+    return [...new Set(issues)];
   }
   function selectEventTee(day, tee, event = store.event) {
     ensureEventTeePlanning(event);
@@ -2484,7 +2616,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.92.6", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3259,7 +3391,7 @@ Count-back if tied
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
-      `<h2>${esc(p.name)}</h2><p><small>GOLFLINK NUMBER</small><br><b>${esc(p.golfLink || "—")}</b></p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
+      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women/Girls" : "Men/Boys"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
     $("#editPlayerProfile").onclick = () => editPlayerProfile(id, status);
   }
@@ -3275,7 +3407,7 @@ Count-back if tied
           : store.event,
       handicapsLocked = Boolean(plan?.locked);
     $("#sideContent").innerHTML =
-      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>Name</span><input id="epName" value="${esc(p.name || "")}"></label><label><span>GolfLink number</span><input id="epGolfLink" inputmode="numeric" value="${esc(p.golfLink || "")}"></label><label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label></div><div class="profileReadOnly"><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
+      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>Name</span><input id="epName" value="${esc(p.name || "")}"></label><label><span>Golf ID / GolfLink number</span><input id="epGolfLink" inputmode="numeric" value="${esc(p.golfLink || "")}"></label><label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men/Boys</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women/Girls</option></select></label></div><div class="profileReadOnly"><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
     $("#epGolfLink").closest("label").querySelector("span").textContent =
       "GolfLink number — optional";
     $("#cancelPlayerProfile").onclick = () => playerInfo(id, status);
@@ -3283,6 +3415,12 @@ Count-back if tied
       p.name = $("#epName").value.trim() || p.name;
       p.golfLink = $("#epGolfLink").value.trim();
       p.homeClub = $("#epHomeClub").value.trim();
+      const gaRaw = Number($("#epGa").value);
+      if ($("#epGa").value !== "" && Number.isFinite(gaRaw)) {
+        p.ga = $("#epGaPlus").checked ? -Math.abs(gaRaw) : Math.abs(gaRaw);
+        p.gaCategory = $("#epGaCategory").value;
+        p.gaUpdatedAt = new Date().toISOString();
+      }
       p.notes = $("#epNotes").value.trim();
       p.rosterActive = $("#epStatus").value === "active";
       $$("[data-profilehcp]:not([disabled])").forEach((inp) => {
@@ -4424,7 +4562,7 @@ Count-back if tied
             : `Day 1: ${d1.length}/${need} · Day 2: ${d2.length}/${need}`;
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
-  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Tee Hcps</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
+  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Calculations</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
   <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days === 2 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
@@ -4636,6 +4774,7 @@ Count-back if tied
       c = course(W.event["course" + day]),
       key = "day" + day;
     ensureEventTeePlanning(W.event);
+    ensureEventGaHandicaps(W.event);
     const tees = enabledEventTees(W.event, day);
     const initialDay1 = JSON.parse(
       JSON.stringify(W.event.teeHandicaps.day1 || {}),
@@ -4652,20 +4791,45 @@ Count-back if tied
     const teeHead = tees.map(
       (tee) => `<span>${EVENT_TEE_LABELS[tee]} Hcp</span><span>Plus</span>`,
     ).join("");
+    const allIds = [...new Set(
+      Array.from({ length: W.event.days || 1 }, (_, index) =>
+        wizardPlanningPlayers(index + 1),
+      ).flat().filter((id) => id !== NO_PARTNER_ID),
+    )];
+    const gaRows = allIds.map((id, index) => {
+      const value = eventGaHandicap(id, W.event),
+        plus = Number(value) < 0,
+        category = eventGaCategory(id, W.event);
+      return `<div class="eventGaRow"><span><b>${esc(player(id)?.name || "")}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men/Boys</option><option value="women" ${category === "women" ? "selected" : ""}>Women/Girls</option></select></div>`;
+    }).join("");
     const rows = ids
       .map((id) => {
         const cells = tees.map((tee) => {
           const value = teeHandicapsFor(day, tee, W.event)[id],
-            plus = Number(value) < 0;
-          return `<div class="signedHcpInput ${plus ? "plus" : ""}" data-teesigned="${tee}|${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-teequickhcp="${tee}|${id}" value="${esc(handicapMagnitude(value))}" placeholder="Hcp"></div><label class="quickPlusCheck"><input type="checkbox" data-teequickplus="${tee}|${id}" ${plus ? "checked" : ""}><span>+</span></label>`;
+            plus = Number(value) < 0,
+            source = W.event.teeHandicapSources?.[key]?.[tee]?.[id] || (value === "" || value == null ? "" : "manual");
+          if (source && !W.event.teeHandicapSources[key][tee][id])
+            W.event.teeHandicapSources[key][tee][id] = source;
+          return `<div class="teeHcpValue"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teesigned="${tee}|${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-teequickhcp="${tee}|${id}" value="${esc(handicapMagnitude(value))}" placeholder="Hcp"></div><small data-hcpsource="${tee}|${id}" class="hcpSource ${source}">${source === "calculated" ? "Calculated" : source === "manual" ? "Manual" : "Not set"}</small></div><label class="quickPlusCheck"><input type="checkbox" data-teequickplus="${tee}|${id}" ${plus ? "checked" : ""}><span>+</span></label>`;
         }).join("");
         return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day === 2 ? "Review Day 2" : "Set"} Tee Handicaps — ${esc(c?.name || "Course")}</h2><p>Press Enter to move down the tee column, then return to the top of the next column. Tick + independently for plus handicaps.</p></div><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.includes("front") ? "checked" : ""}> Add a third tee position (Front)</label></div><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Tee Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day === 2 ? "Review Day 2" : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on both days. You can then edit any Daily Handicap manually.</p></div><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     $("#modalShade").classList.add("open");
     const inputs = tees.flatMap((tee) => ids.map((id) => $(`[data-teequickhcp="${tee}|${id}"]`))).filter(Boolean);
-    const storeValue = (inp) => {
+    const gaInputs = $$('[data-eventga]');
+    const storeGaValue = (inp) => {
+      const id = String(inp.dataset.eventga),
+        plus = $(`[data-eventgaplus="${id}"]`)?.checked,
+        raw = Number(inp.value);
+      if (inp.value === "" || !Number.isFinite(raw))
+        delete W.event.gaHandicaps[id];
+      else W.event.gaHandicaps[id] = plus ? -Math.abs(raw) : Math.abs(raw);
+      W.event.gaCategories[id] = $(`[data-eventgacategory="${id}"]`)?.value || "men";
+      $(`[data-gasigned="${id}"]`)?.classList.toggle("plus", Boolean(plus));
+    };
+    const storeValue = (inp, markManual = true) => {
       const [tee, id] = inp.dataset.teequickhcp.split("|"),
         map = teeHandicapsFor(day, tee, W.event);
       if (inp.value === "") map[id] = "";
@@ -4673,6 +4837,14 @@ Count-back if tied
         const raw = Math.max(0, Math.min(54, +inp.value || 0)),
           plus = $(`[data-teequickplus="${tee}|${id}"]`)?.checked;
         map[id] = plus ? -raw : raw;
+        if (markManual) {
+          W.event.teeHandicapSources[key][tee][id] = "manual";
+          const source = $(`[data-hcpsource="${tee}|${id}"]`);
+          if (source) {
+            source.textContent = "Manual";
+            source.className = "hcpSource manual";
+          }
+        }
         $(`[data-teesigned="${tee}|${id}"]`)?.classList.toggle(
           "plus",
           Boolean(plus),
@@ -4691,6 +4863,48 @@ Count-back if tied
         } else $("#saveQuickHandicaps").focus();
       };
     });
+    gaInputs.forEach((inp, i) => {
+      inp.oninput = () => storeGaValue(inp);
+      inp.onkeydown = (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        storeGaValue(inp);
+        if (gaInputs[i + 1]) {
+          gaInputs[i + 1].focus();
+          gaInputs[i + 1].select();
+        } else $("#calculateEventHandicaps").focus();
+      };
+    });
+    $$('[data-eventgaplus], [data-eventgacategory]').forEach(
+      (control) =>
+        (control.onchange = () => {
+          const id = control.dataset.eventgaplus || control.dataset.eventgacategory;
+          const inp = $(`[data-eventga="${id}"]`);
+          if (inp) storeGaValue(inp);
+        }),
+    );
+    $("#calculateEventHandicaps").onclick = () => {
+      gaInputs.forEach(storeGaValue);
+      const missingGa = allIds.filter((id) => eventGaHandicap(id, W.event) === "");
+      if (missingGa.length)
+        return alert(`Enter a GA Handicap for: ${missingGa.map((id) => player(id)?.name || "Player").join(", ")}.`);
+      const ratingIssues = [];
+      for (let d = 1; d <= (W.event.days || 1); d++)
+        for (const tee of enabledEventTees(W.event, d)) {
+          const rating = teeRatingForDailyHandicap(d, tee, W.event);
+          if (!rating.valid)
+            ratingIssues.push(`${rating.courseName} — ${rating.teeColour}`);
+        }
+      if (ratingIssues.length)
+        return alert(`Daily Handicaps cannot be calculated yet. Enter Slope, Scratch Rating and Par in Course Details for:\n\n${ratingIssues.join("\n")}`);
+      if (!confirm("Calculate every player's Daily Handicap for all enabled tees on both event days? Existing tee handicaps will be replaced, but you can still edit any result manually afterwards.")) return;
+      const issues = applyCalculatedEventHandicaps(W.event);
+      W.event.gaHandicapSetAt = new Date().toISOString();
+      saveEventGaToPlayerProfiles(allIds, W.event);
+      writeLocalStore();
+      if (issues.length) alert(issues.join("\n"));
+      openWizardHandicapEntry(day);
+    };
     $("#enableFrontTee").onchange = (e) => {
       W.event.enabledTeesByDay = W.event.enabledTeesByDay || {};
       W.event.enabledTeesByDay[key] = e.target.checked
@@ -4708,8 +4922,10 @@ Count-back if tied
     $("#closeQuickHandicaps").onclick = () =>
       $("#modalShade").classList.remove("open");
     $("#saveQuickHandicaps").onclick = () => {
-      inputs.forEach(storeValue);
-      if (day === 1 && W.event.days === 2)
+      gaInputs.forEach(storeGaValue);
+      inputs.forEach((inp) => storeValue(inp, false));
+      saveEventGaToPlayerProfiles(allIds, W.event);
+      if (day === 1 && W.event.days === 2 && !W.event.gaHandicapSetAt)
         EVENT_TEES.forEach((tee) => {
           const d1 = teeHandicapsFor(1, tee, W.event),
             d2 = teeHandicapsFor(2, tee, W.event),

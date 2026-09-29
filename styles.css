@@ -5429,6 +5429,85 @@ body.joinOnlyDevice .playerJoinLanding {
 .multiTeeHcpRow .quickPlusCheck {
   justify-content: center;
 }
+.eventGaEntry {
+  margin: 14px 0 18px;
+  padding: 12px;
+  border: 2px solid #93c3a5;
+  border-radius: 11px;
+  background: #f2f9f4;
+}
+.eventGaHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.eventGaHeading h3,
+.dailyHcpHeading {
+  margin: 0;
+}
+.eventGaHeading small {
+  color: #53685e;
+}
+.eventGaColumns,
+.eventGaRow {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) 105px 72px 120px;
+  align-items: center;
+  gap: 8px;
+  min-width: 520px;
+}
+.eventGaColumns {
+  padding: 0 9px;
+  color: #607068;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.eventGaList {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  margin-top: 5px;
+  overflow: auto;
+}
+.eventGaRow {
+  padding: 7px 9px;
+  border: 1px solid #d7e3dc;
+  border-radius: 8px;
+  background: #fff;
+}
+.eventGaRow input[type="number"] {
+  width: 100%;
+  text-align: center;
+}
+.teeHcpValue {
+  display: grid;
+  gap: 2px;
+}
+.hcpSource {
+  text-align: center;
+  color: #728078;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.hcpSource.calculated {
+  color: #187246;
+}
+.hcpSource.manual {
+  color: #9a5c17;
+}
+@media (max-width: 700px) {
+  .eventGaHeading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .eventGaEntry {
+    overflow-x: auto;
+  }
+}
 .eventTeePanel {
   display: grid;
   grid-template-columns: minmax(210px, 1fr) auto auto;

@@ -1,4 +1,22 @@
-AWAY GOLF SCORER — VERSION 15.92.6
+AWAY GOLF SCORER — VERSION 15.93.1
+
+VERSION 15.93.1 — THREE-TEE HANDICAPS AND GREEN MARKERS
+
+- A checked third-tee option now always displays Back, Middle and Front Daily Handicap columns.
+- Saved Back + Front pairs from the previous build are repaired automatically by restoring Middle.
+- Green is now available in every course tee-colour dropdown.
+- Each player's latest GA Handicap and category are retained in their profile and prefilled in the next event.
+
+VERSION 15.93.0 — AUTOMATIC GA DAILY HANDICAPS
+
+- Stores one frozen GA Handicap for each player for the whole event.
+- Calculates every enabled tee on both event days from GA Handicap, Slope Rating, Scratch Rating and Par.
+- Uses the current Golf Australia CONNECT 0.93 and Men/Women consistency factors.
+- Supports plus GA Handicaps and rounds the result to a whole Daily Handicap.
+- Labels each Daily Handicap as Calculated or Manual.
+- Retains direct manual editing as a complete fallback and override.
+- Saves the latest GA Handicap and category in the Player Profile for the next event.
+- Validates that every selected course tee has the required rating data before calculating.
 
 VERSION 15.92.6 — YELLOW BALL LOTTERY PRIZE
 

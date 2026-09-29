@@ -6,8 +6,8 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.92\.6/);
-assert.match(sw, /away-golf-v15-92-6/);
+assert.match(html, /Version 15\.93\.1/);
+assert.match(sw, /away-golf-v15-93-1/);
 assert.match(app, /preferredLiesByDay/);
 assert.match(app, /preferredLiesAreaByDay/);
 assert.match(app, /function preferredLiesSetting/);
