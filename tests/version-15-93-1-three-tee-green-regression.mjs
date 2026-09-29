@@ -5,8 +5,8 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.93\.1/);
-assert.match(sw, /away-golf-v15-93-1/);
+assert.match(html, /Version 15\.93\.2/);
+assert.match(sw, /away-golf-v15-93-2/);
 assert.match(
   app,
   /TEE_MARKER_COLOURS = \[[\s\S]*?"Yellow",[\s\S]*?"Green",[\s\S]*?"Red"/,
@@ -30,6 +30,6 @@ assert.match(
   /saveEventGaToPlayerProfiles\(allIds, W\.event\)/,
   "saving or calculating must retain the latest GA for the next event",
 );
-assert.match(app, /appVersion: "15\.93\.1"/);
+assert.match(app, /appVersion: "15\.93\.2"/);
 
-console.log("Version 15.93.1 three-tee and Green marker checks passed.");
+console.log("Version 15.93.2 three-tee and Green marker checks passed.");

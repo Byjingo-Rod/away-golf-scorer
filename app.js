@@ -1981,6 +1981,7 @@
       );
       if (store.event.locked)
         store.event.finalUpdateCloudSentAt = new Date().toISOString();
+      delete store.event.handicapUpdatePendingAt;
       writeLocalStore();
       setCloudMessage(store.event.locked ? "All Set · final update shared" : "Preview changes shared");
       return true;
@@ -2616,7 +2617,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3041,11 +3042,16 @@
     if (store.cloud?.role === "organiser" && store.cloud.eventId) {
       const connections = (store.cloudPlayers || []).filter((x) => x.joined),
         guest = isGuestOrganiser(),
+        scoringStarted = Array.from(
+          { length: store.event?.days || 1 },
+          (_, index) => firstDayScoreEntry(index + 1),
+        ).some(Boolean),
         finalUpdateSent = Boolean(
           store.event?.locked && store.event?.finalUpdateCloudSentAt,
         );
-      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="${finalUpdateSent ? "finalUpdateSent" : "primary"}" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${finalUpdateSent ? "Final Update Sent ✓" : store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
+      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="${finalUpdateSent ? "finalUpdateSent" : "primary"}" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${finalUpdateSent ? "Final Update Sent ✓" : store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="updateGaHandicaps" ${cloudBusy || scoringStarted ? "disabled" : ""}>${scoringStarted ? "GA Handicaps Locked — Scoring Started" : "Update GA Handicaps"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
+      $("#updateGaHandicaps").onclick = openPublishedGaHandicapUpdate;
       $("#retryCloud").onclick = syncCloudNow;
       if ($("#guestOrganiserInvite")) $("#guestOrganiserInvite").onclick = openGuestOrganiserAccess;
       if ($("#organiserTabletCode")) $("#organiserTabletCode").onclick = showOrganiserTabletCode;
@@ -4942,11 +4948,53 @@ Count-back if tied
             });
         });
       selectEventTee(day, selectedEventTee(day, W.event), W.event);
+      if (W.gaUpdateOnly) {
+        store.event = JSON.parse(JSON.stringify(W.event));
+        store.event.handicapUpdatePendingAt = new Date().toISOString();
+        delete store.event.finalUpdateCloudSentAt;
+        save();
+        $("#modalShade").classList.remove("open");
+        renderHome();
+        alert(
+          "Updated GA Handicaps have been saved. Press Send All Set — Final Update to send them to the players' phones.",
+        );
+        return;
+      }
       writeLocalStore();
       $("#modalShade").classList.remove("open");
       renderStep2();
     };
     if (inputs[0]) inputs[0].focus();
+  }
+  function openPublishedGaHandicapUpdate() {
+    if (!store.event) return;
+    const scoreEntry = Array.from(
+      { length: store.event.days || 1 },
+      (_, index) => firstDayScoreEntry(index + 1),
+    ).find(Boolean);
+    if (scoreEntry)
+      return alert(
+        `GA Handicaps cannot be changed because scoring has begun. ${player(scoreEntry.scorerId)?.name || "A player"} has an entry on Hole ${scoreEntry.hole}.`,
+      );
+    const event = JSON.parse(JSON.stringify(store.event));
+    W = {
+      step: 2,
+      newEvent: false,
+      gaUpdateOnly: true,
+      event,
+      invites: new Map(),
+      competitions: new Set(event.competitions || []),
+      benefits: JSON.parse(JSON.stringify(event.benefits || {})),
+      benefitOpen: new Set(),
+    };
+    Object.entries(event.invitationStatus || {}).forEach(([id, status]) =>
+      W.invites.set(String(id), status),
+    );
+    if (!W.invites.size)
+      (event.confirmed || []).forEach((id) =>
+        W.invites.set(String(id), "accepted"),
+      );
+    openWizardHandicapEntry(1);
   }
   document.addEventListener("click", (e) => {
     let t = e.target;

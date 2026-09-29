@@ -6,8 +6,8 @@ const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.93\.1/);
-assert.match(sw, /away-golf-v15-93-1/);
+assert.match(html, /Version 15\.93\.2/);
+assert.match(sw, /away-golf-v15-93-2/);
 assert.match(html, /id="pastEvents"/);
 assert.match(cloud, /async function loadPastOwnedEvents/);
 assert.match(cloud, /\.eq\("status", "archived"\)/);

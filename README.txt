@@ -1,4 +1,11 @@
-AWAY GOLF SCORER — VERSION 15.93.1
+AWAY GOLF SCORER — VERSION 15.93.2
+
+VERSION 15.93.2 — LAST-MINUTE GA HANDICAP UPDATE
+
+- Organiser Mode now provides Update GA Handicaps after an event is published and loaded on player phones.
+- The organiser can revise GA figures and recalculate every enabled tee across both days before scoring begins.
+- Saving a late GA update restores Send All Set — Final Update so the new handicaps can be sent to every phone.
+- GA Handicap editing locks automatically as soon as any score is recorded.
 
 VERSION 15.93.1 — THREE-TEE HANDICAPS AND GREEN MARKERS
 
