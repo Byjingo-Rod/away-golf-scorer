@@ -16,16 +16,30 @@
     const words = String(p.name || '').trim().split(/\s+/).filter(Boolean);
     const firstName = p.firstName ?? (words.length > 1 ? words.slice(0,-1).join(' ') : words[0] || '');
     const lastName = p.lastName ?? (words.length > 1 ? words.at(-1) : '');
+    const address = p.addressDetails || {};
+    const legacyAddress = !p.addressDetails ? String(p.address || '') : String(p.addressDetails.legacyAddress || '');
+    const streetTypes = ['Street','Rd','Close','Pde','Hwy','Other'];
     showSide(`<div class="gesPlayerDetail"><h2>${existing ? 'Edit Player Details' : 'Player Details'}</h2><p>Enter the golfer’s details. First Name and Last Name are required.</p><p id="gesPlayerFormStatus" role="status" aria-live="polite"></p><form id="gesPlayerDetailForm">
       <div class="gesNameFields"><label>First Name<input id="gesFirstName" maxlength="80" autocomplete="given-name" required value="${esc(firstName)}"></label><label>Last Name<input id="gesLastName" maxlength="80" autocomplete="family-name" required value="${esc(lastName)}"></label></div>
       <label>Nick Name<input id="gesNickname" maxlength="80" value="${esc(p.nickname || '')}"></label>
       <label>Golf Registration No <small>(where applicable)</small><input id="gesRegistration" maxlength="40" inputmode="numeric" value="${esc(p.golfLink || '')}"></label>
       <label>Cell Phone No<input id="gesCellPhone" type="tel" maxlength="60" autocomplete="tel" value="${esc(p.cellPhone || '')}"></label>
-      <label>Address<textarea id="gesAddress" rows="3" maxlength="1000" autocomplete="street-address">${esc(p.address || '')}</textarea></label>
+      <fieldset class="gesAddressFields"><legend>Address</legend>
+      <label>House/Apt No<input id="gesHouseNo" maxlength="80" value="${esc(address.houseNo || '')}"></label>
+      <label>Street Name<input id="gesStreetName" maxlength="160" value="${esc(address.streetName || '')}"></label>
+      <label>Street Type<select id="gesStreetType"><option value="">Select street type</option>${streetTypes.map(type => `<option value="${type}" ${address.streetType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+      <label id="gesOtherStreetLabel" style="${address.streetType === 'Other' ? '' : 'display:none'}" ${address.streetType === 'Other' ? '' : 'hidden'}>Other — please insert<input id="gesOtherStreet" maxlength="80" value="${esc(address.otherStreetType || '')}"></label>
+      <label>Suburb<input id="gesSuburb" maxlength="160" autocomplete="address-level2" value="${esc(address.suburb || '')}"></label>
+      <label>State<input id="gesState" maxlength="80" autocomplete="address-level1" value="${esc(address.state || '')}"></label>
+      <label>Post Code<input id="gesPostCode" maxlength="20" inputmode="numeric" autocomplete="postal-code" value="${esc(address.postCode || '')}"></label>
+      ${legacyAddress ? `<label>Previously saved address<textarea id="gesLegacyAddress" rows="3" maxlength="1000">${esc(legacyAddress)}</textarea></label><small>You can transfer this address into the fields above and clear this box when finished.</small>` : ''}
+      </fieldset>
       <label>Notes<textarea id="gesNotes" rows="4" maxlength="10000">${esc(p.notes || '')}</textarea></label>
       ${existing ? `<details><summary>Handicap & club details</summary><label>Home club<input id="gesHomeClub" maxlength="160" value="${esc(p.homeClub || '')}"></label><label>GA handicap<input id="gesGa" type="number" min="-10" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(p.ga) : ''}"></label><p>Enter a plus handicap as a negative number: +4 means −4.</p><label>Status<select id="gesRosterActive"><option value="active" ${p.rosterActive !== false ? 'selected' : ''}>Active</option><option value="inactive" ${p.rosterActive === false ? 'selected' : ''}>Inactive</option></select></label></details>` : ''}
       ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
     </form></div>`);
+    $('#gesStreetType').onchange = () => { const other = $('#gesStreetType').value === 'Other'; $('#gesOtherStreetLabel').hidden = !other; $('#gesOtherStreetLabel').style.display = other ? '' : 'none'; $('#gesOtherStreet').required = other; };
+    $('#gesStreetType').onchange();
     if(existing) $('#gesHandicapDetails').onclick=()=>gesHandicapProfile(id,status);
     $('#gesCancelPlayer').onclick = () => { if (existing) playerInfo(id,status); else $('#sidePanel').classList.remove('open'); };
     $('#gesPlayerDetailForm').onsubmit = event => {
@@ -34,8 +48,11 @@
         if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) !== appTabId) throw new Error('A newer Golf Event Scorer tab is open. Close the other app tabs and refresh this one before saving.');
         const first = $('#gesFirstName').value.trim(), last = $('#gesLastName').value.trim();
         if (!first || !last) throw new Error('Enter First Name and Last Name.');
+        const addressDetails = {houseNo:$('#gesHouseNo').value.trim(),streetName:$('#gesStreetName').value.trim(),streetType:$('#gesStreetType').value,otherStreetType:$('#gesOtherStreet').value.trim(),suburb:$('#gesSuburb').value.trim(),state:$('#gesState').value.trim(),postCode:$('#gesPostCode').value.trim(),legacyAddress:legacyAddress ? $('#gesLegacyAddress').value.trim() : ''};
+        if(addressDetails.streetType === 'Other' && !addressDetails.otherStreetType) throw new Error('Please insert the other street type.');
+        const formattedAddress = [[addressDetails.houseNo,addressDetails.streetName,addressDetails.streetType === 'Other' ? addressDetails.otherStreetType : addressDetails.streetType].filter(Boolean).join(' '),[addressDetails.suburb,addressDetails.state,addressDetails.postCode].filter(Boolean).join(' '),addressDetails.legacyAddress].filter(Boolean).join('\n');
         const record = {...(existing || {id:'p'+uid(),ga:0,rosterActive:true,homeClub:'',eventsPlayed:0,lastEvent:''}),firstName:first,lastName:last,name:first+' '+last,
-          nickname:$('#gesNickname').value.trim(),golfLink:$('#gesRegistration').value.trim(),cellPhone:$('#gesCellPhone').value.trim(),address:$('#gesAddress').value.trim(),notes:$('#gesNotes').value.trim()};
+          nickname:$('#gesNickname').value.trim(),golfLink:$('#gesRegistration').value.trim(),cellPhone:$('#gesCellPhone').value.trim(),address:formattedAddress,addressDetails,notes:$('#gesNotes').value.trim()};
         if (existing) {
           record.homeClub=$('#gesHomeClub').value.trim();record.rosterActive=$('#gesRosterActive').value==='active';
           const ga=$('#gesGa').value;if(ga!==''){record.ga=Number(ga);record.gaUpdatedAt=new Date().toISOString();}
