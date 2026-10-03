@@ -1,6 +1,6 @@
 import {createGroupApi,validateAccountConfig} from './group-api.mjs';
 const instruction=document.getElementById('gesPlayerInstructions');
-const generic='Record the names and GolfLink numbers of each golfer in your group here. GolfLink numbers are optional for golfers who do not have one.';
+const generic='Record the names and Golf Registration numbers (where applicable) of each golfer in your group here.';
 let request=0,client;
 async function update(){
  const serial=++request;if(!instruction)return;instruction.textContent=generic;
@@ -10,7 +10,7 @@ async function update(){
   const groups=await createGroupApi(client).groups();if(serial!==request)return;
   const selected=sessionStorage.getItem('gesSelectedGroup');
   const group=groups.find(g=>g.id===selected)||(groups.length===1?groups[0]:null);
-  if(group?.golfer_count){instruction.textContent=`You have indicated you have ${group.golfer_count} players in your golf group (${group.name}). Record the names and GolfLink numbers of each of your players here. GolfLink numbers are optional for golfers who do not have one.`;}
+  if(group?.golfer_count){instruction.textContent=`You have indicated you have ${group.golfer_count} players in your golf group (${group.name}). Record the names and Golf Registration numbers (where applicable) of each golfer in your group here.`;}
  }catch{if(serial===request)instruction.textContent=generic;}
 }
 window.addEventListener('pageshow',update);
