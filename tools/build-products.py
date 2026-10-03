@@ -44,11 +44,23 @@ def build():
                     source = source.replace('<main id="app">', '<a class="productGroupsLink" href="groups.html">Groups & Organiser Accounts</a><main id="app">')
                     source = source.replace('content="#18543a"', 'content="#164c83"')
                 if name == "index.html":
-                    source = source.replace('placeholder="Search players or GolfLink"', 'placeholder="Search saved players by name or GolfLink number" aria-describedby="gesPlayerSearchHelp"')
-                    source = source.replace('<input id="playerSearchMain"', '<div class="gesPlayerGuidance"><p id="gesPlayerInstructions">Record the names and GolfLink numbers of each golfer in your group here. GolfLink numbers are optional for golfers who do not have one.</p><p id="gesPlayerSearchHelp">Search only checks players already saved in this app. It does not look up GolfLink numbers or handicaps on external websites.</p></div><input id="playerSearchMain"')
+                    source = source.replace('placeholder="Search players or GolfLink"', 'placeholder="Search saved players by name or Golf Registration number" aria-describedby="gesPlayerSearchHelp"')
+                    source = source.replace('<input id="playerSearchMain"', '<div class="gesPlayerGuidance"><p id="gesPlayerInstructions">Record the names and Golf Registration numbers (where applicable) of each golfer in your group here.</p><p id="gesPlayerSearchHelp">Search only checks players already saved in this app. It does not look up Golf Registration numbers or handicaps on external websites.</p></div><input id="playerSearchMain"')
                     source = source.replace("Today's Special Rules", "Golf Event Rules")
                     source = source.replace('</body>', '<script src="account-config.js"></script><script type="module" src="player-guidance.mjs"></script></body>')
                 if name == "app.js":
+                    # Replace prompt-based player entry only in this product.
+                    start = source.index('  function addPlayer() {')
+                    end = source.index('  function courseDetail(', start)
+                    source = source[:start] + (ROOT / "products/golf-event-scorer-player-details.js").read_text() + "\n" + source[end:]
+                    start = source.index('  function editPlayerProfile(')
+                    end = source.index('  function renderPlayersAdmin()', start)
+                    source = source[:start] + '  function editPlayerProfile(id, status = "") { gesPlayerDetails(id, status); }\n' + source[start:end].replace('function editPlayerProfile(', 'function gesHandicapProfile(', 1) + source[end:]
+                    source = source.replace('let id = addPlayer();\n        if (id) {\n          q = "";\n          draw();\n        }', 'addPlayer(() => { q = ""; draw(); });')
+                    source = source.replace('(p.name + " " + p.golfLink)', '(p.name + " " + p.golfLink + " " + (p.nickname || ""))')
+                    source = source.replace('<small>AWAY GOLF EVENT RULES</small>', '')
+                    source = source.replace('<h3>Today’s Rules</h3>', '')
+                    source = source.replace('Golf ID / GolfLink number', 'Golf Registration No').replace('GOLF ID / GOLFLINK NUMBER', 'GOLF REGISTRATION NO').replace('GolfLink number', 'Golf Registration number')
                     source = source.replace('AWAY GOLF EVENT RULES', 'GOLF EVENT RULES')
                     source = source.replace('esc(store.event?.name || "Today\'s Rules")', 'esc(store.event?.name ? store.event.name + " Golf Event Rules" : "Golf Event Rules")')
                     source = source.replace('<h3>Today’s Rules</h3>', '<h3>Golf Event Rules</h3>')
