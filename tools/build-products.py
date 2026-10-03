@@ -57,7 +57,6 @@ def build():
                     end = source.index('  function renderPlayersAdmin()', start)
                     source = source[:start] + '  function editPlayerProfile(id, status = "") { gesPlayerDetails(id, status); }\n' + source[start:end].replace('function editPlayerProfile(', 'function gesHandicapProfile(', 1) + source[end:]
                     source = source.replace('let id = addPlayer();\n        if (id) {\n          q = "";\n          draw();\n        }', 'addPlayer(() => { q = ""; draw(); });')
-                    source = source.replace('ps = [...store.players]', 'ps = store.players.filter(p => !p.gesDeleted)').replace('.filter((p) => p.rosterActive === false)', '.filter((p) => p.rosterActive === false && !p.gesDeleted)')
                     source = source.replace('(p.name + " " + p.golfLink)', '(p.name + " " + p.golfLink + " " + (p.nickname || ""))')
                     source = source.replace('<small>AWAY GOLF EVENT RULES</small>', '')
                     source = source.replace('<h3>Today’s Rules</h3>', '')
