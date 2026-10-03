@@ -39,11 +39,12 @@
       </fieldset>
       <label>Notes<textarea id="gesNotes" rows="4" maxlength="10000">${esc(p.notes || '')}</textarea></label>
       ${existing ? `<details><summary>Handicap & club details</summary><label>Home club<input id="gesHomeClub" maxlength="160" value="${esc(p.homeClub || '')}"></label><label>GA handicap<input id="gesGa" type="number" min="-10" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(p.ga) : ''}"></label><p>Enter a plus handicap as a negative number: +4 means −4.</p><label>Status<select id="gesRosterActive"><option value="active" ${p.rosterActive !== false ? 'selected' : ''}>Active</option><option value="inactive" ${p.rosterActive === false ? 'selected' : ''}>Inactive</option></select></label></details>` : ''}
-      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button> <button class="danger" type="button" id="gesDeletePlayer">Move to Inactive Player List</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
+      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button> <button class="danger" type="button" id="gesDeletePlayer">Delete Player</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button><button class="soft" type="${existing ? 'button' : 'submit'}" id="gesMoveInactive">Move to Inactive Player List</button></div>
     </form></div>`);
     $('#gesStreetType').onchange = () => { const other = $('#gesStreetType').value === 'Other'; $('#gesOtherStreetLabel').hidden = !other; $('#gesOtherStreetLabel').style.display = other ? '' : 'none'; $('#gesOtherStreet').required = other; };
     $('#gesStreetType').onchange();
     if(existing) { $('#gesHandicapDetails').onclick=()=>gesHandicapProfile(id,status); $('#gesDeletePlayer').onclick=()=>gesDeletePlayer(id); }
+    if(existing) $('#gesMoveInactive').onclick=()=>gesDeletePlayer(id);
     $('#gesCancelPlayer').onclick = () => { if (existing) playerInfo(id,status); else $('#sidePanel').classList.remove('open'); };
     $('#gesPlayerDetailForm').onsubmit = event => {
       event.preventDefault(); const note = $('#gesPlayerFormStatus');
@@ -60,6 +61,7 @@
           record.homeClub=$('#gesHomeClub').value.trim();record.rosterActive=$('#gesRosterActive').value==='active';
           const ga=$('#gesGa').value;if(ga!==''){record.ga=Number(ga);record.gaUpdatedAt=new Date().toISOString();}
         }
+        if(event.submitter?.id === 'gesMoveInactive') record.rosterActive=false;
         const previous = structuredClone(store.players);
         if (existing) store.players=store.players.map(item=>String(item.id)===String(id)?record:item); else store.players.push(record);
         try {
@@ -69,7 +71,7 @@
         } catch(error) {store.players=previous;renderPlayersAdmin();throw error;}
         $('#playerSearchMain').value='';renderPlayersAdmin();
         if(onSaved)onSaved(record.id);
-        showSide(`<h2>Player saved</h2><p>${esc(record.name)} has been saved to the player list on this device.</p><button class="primary" id="gesViewSavedPlayer">View Player Details</button> <button class="soft" id="gesCloseSavedPlayer">Back to Players</button>`);
+        showSide(`<h2>Player saved</h2><p>${esc(record.name)} has been saved to the ${record.rosterActive === false ? 'Inactive Player List' : 'player list'} on this device.</p><button class="primary" id="gesViewSavedPlayer">View Player Details</button> <button class="soft" id="gesCloseSavedPlayer">Back to Players</button>`);
         $('#gesViewSavedPlayer').onclick=()=>gesPlayerDetails(record.id,status);
         $('#gesCloseSavedPlayer').onclick=()=>$('#sidePanel').classList.remove('open');
       } catch(error) {note.textContent=error.message;note.className='gesFormError';}
