@@ -25,6 +25,10 @@ export function createGroupApi(client) {
   }
   return {
     isOwner: () => rpc('ges_is_owner'),
+    courses: () => rows('ges_courses', null, 'name'),
+    renameGroup: (id, name, revision) => rpc('ges_rename_group', {p_group_id:id,p_name:name,p_expected_revision:revision}),
+    submitSetup: (id, revision, count, courses, additional) => rpc('ges_submit_setup', {p_group_id:id,p_expected_revision:revision,p_golfer_count:count,p_course_ids:courses,p_additional_courses:additional}),
+    activateGroup: (id, revision, courses, additional) => rpc('ges_activate_group', {p_group_id:id,p_expected_revision:revision,p_checked_course_ids:courses,p_additional_checked:additional}),
     groups: () => rows('ges_groups', null, 'name'),
     players: id => rows('ges_players', id, 'name'),
     events: id => rows('ges_events', id, 'event_date'),
