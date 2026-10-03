@@ -37,6 +37,7 @@ export function createGroupApi(client) {
     setGroupEnabled: (id, enabled) => rpc('ges_set_group_enabled', {p_group_id: id, p_enabled: enabled}),
     approveOrganiser: (id, email) => rpc('ges_approve_organiser', {p_group_id: id, p_email: email}),
     setOrganiserEnabled: (group, user, enabled) => rpc('ges_set_organiser_enabled', {p_group_id: group, p_user_id: user, p_enabled: enabled}),
+    savePlayerDetails: args => rpc('ges_save_player_details', args),
     savePlayer: (group, name, ga, player = null) => rpc('ges_save_player', {
       p_group_id: group, p_name: name, p_ga: ga, p_player_id: player?.id ?? null,
       p_expected_revision: player?.revision ?? null, p_active: player?.active ?? true,
