@@ -57,7 +57,7 @@ begin
  if not public.ges_can_setup(p_group_id) then raise exception 'Group access denied' using errcode='42501'; end if;
  select * into target from public.ges_groups where id=p_group_id for update;
  if not found or not target.enabled then raise exception 'Group access suspended' using errcode='42501'; end if;
- if target.setup_revision<>p_expected_revision then raise exception 'Setup changed. Refresh before submitting.' using errcode='40001'; end if;
+ if target.setup_revision is distinct from p_expected_revision then raise exception 'Setup changed. Refresh before submitting.' using errcode='40001'; end if;
  if p_golfer_count is null or p_golfer_count not between 1 and 10000 then raise exception 'Enter the number of golfers in your group'; end if;
  select coalesce(array_agg(distinct v order by v),'{}') into ids from unnest(coalesce(p_course_ids,'{}')) v;
  if exists(select 1 from unnest(ids) v where v is null or not exists(select 1 from public.ges_courses c where c.id=v)) then raise exception 'Choose courses from the included list'; end if;
@@ -74,7 +74,7 @@ begin
  if not public.ges_is_owner() then raise exception 'Owner approval required' using errcode='42501'; end if;
  select * into target from public.ges_groups where id=p_group_id for update;
  if not found then raise exception 'Group not found'; end if;
- if target.setup_revision<>p_expected_revision then raise exception 'Setup changed. Refresh and review the current request.' using errcode='40001'; end if;
+ if target.setup_revision is distinct from p_expected_revision then raise exception 'Setup changed. Refresh and review the current request.' using errcode='40001'; end if;
  if not target.enabled or target.setup_status<>'pending_review' then raise exception 'An enabled group with a submitted setup is required'; end if;
  if not (target.requested_course_ids <@ coalesce(p_checked_course_ids,'{}')) then raise exception 'Check every requested course before activation'; end if;
  if target.additional_courses<>'' and not coalesce(p_additional_checked,false) then raise exception 'Resolve the additional course request before activation'; end if;
