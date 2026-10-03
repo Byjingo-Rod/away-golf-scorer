@@ -1,17 +1,12 @@
 /* Decorative product colours only: scoring verification colours stay intact. */
-body{background:#0b2545;color:#153552}
+body{background:#edf4fc}
 header{background:#164c83}
 nav{background:#123c69}
 nav button.active{color:#164c83}
 button.primary,.primary{background:#246cb0}
 button.soft,.soft{background:#e7effa;color:#174b7e}
-.hero,.homeHero,.playerJoinLanding,body.joinOnlyDevice .playerJoinLanding,.playerWelcome,.playerFinish{background:linear-gradient(135deg,#0b2545,#164c83);color:#fff}
+.homeHero,.playerJoinLanding{background:linear-gradient(135deg,#164c83,#367fbf);color:#fff}
 .homeHero h1,.playerJoinLanding h1{color:#fff}
 .productGroupsLink{display:inline-block;margin:12px;padding:12px 18px;background:#205e9c;color:#fff;border-radius:8px;text-decoration:none}
 
-.welcomeMascotWrap{background:radial-gradient(circle at 50% 48%,#ffffff20 0 26%,transparent 27%),linear-gradient(150deg,#0b2545,#164c83)}
-.welcomeWords,.playerFinish>div{background:#edf4fc;color:#153552}
-.welcomeWords small{color:#205e9c}
-
-.cloudHeader,.cloudHeader.offline,.cloudState{background:#dceaf8;color:#164c83}
-.cloudPanel{border-left-color:#246cb0}
+.pageHead h2{color:#edf4fc}.gesPlayerGuidance{background:#edf4fc;color:#153552;padding:12px 16px;border-radius:10px;margin:12px 0}.gesPlayerGuidance p{margin:6px 0;font-size:1rem}.eventRulesView>small{color:#205e9c}
