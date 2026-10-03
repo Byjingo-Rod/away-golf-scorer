@@ -49,7 +49,7 @@ function renderReview(g){$('reviewSummary').replaceChildren();$('courseReview').
  if(g.reviewed_at)$('reviewSummary').append(entry(`Activated ${new Date(g.reviewed_at).toLocaleString()}`));
  show('additionalCheckLabel',!!g.additional_courses);$('additionalChecked').checked=false;show('activateGroup',g.enabled&&g.setup_status==='pending_review');
 }
-async function loadGroup(){const serial=++loadSerial,g=current();['approvals','setup','review','organiserHome','roster','events','eventEditor'].forEach(id=>show(id,false));editing=null;['organiserList','playerList','eventList'].forEach(id=>$(id).replaceChildren());$('groupStatus').textContent=status(g);
+async function loadGroup(){const serial=++loadSerial,g=current();['approvals','setup','review','organiserHome','roster','events','eventEditor'].forEach(id=>show(id,false));editing=null;['organiserList','playerList','eventList'].forEach(id=>$(id).replaceChildren());$('groupStatus').textContent=status(g);sessionStorage.setItem('gesSelectedGroup',g.id);
  if(owner){show('approvals',true);show('review',true);$('customerName').value=g.name;renderReview(g);const members=await api.organisers(g.id);if(serial!==loadSerial)return;
  if(!members.length)$('organiserList').textContent='No organisers approved yet.';
  members.forEach(m=>{const row=entry(`${m.email} · ${m.enabled?'Access approved':'Suspended'}`);button(row,m.enabled?'Suspend organiser':'Restore organiser',async()=>{await api.setOrganiserEnabled(g.id,m.user_id,!m.enabled);await refresh(g.id);});$('organiserList').append(row);});$('toggleGroup').textContent=g.enabled?'Suspend group access':'Restore group access';
@@ -71,6 +71,6 @@ async function initialise(){try{const cfg=validateAccountConfig(window.GES_ACCOU
  $('customersButton').onclick=()=>{const open=$('customerList').hidden;show('customerList',open);$('customersButton').setAttribute('aria-expanded',String(open));};
  $('cancelEdit').onclick=()=>{show('eventEditor',false);editing=null;};$('refresh').onclick=()=>action(()=>refresh());$('signOut').onclick=()=>action(async()=>{++loadSerial;resetPrivate();const {error}=await client.auth.signOut();if(error)throw error;await refresh();});
  $('groupSelect').onchange=()=>action(async()=>{selected=$('groupSelect').value;await loadGroup();});$('toggleGroup').onclick=()=>action(async()=>{const g=current();await api.setGroupEnabled(g.id,!g.enabled);await refresh(g.id);});
- client.auth.onAuthStateChange(e=>{if(e==='SIGNED_OUT'){++loadSerial;resetPrivate();show('account',false);show('login',true);}if(e==='SIGNED_IN')setTimeout(()=>action(()=>refresh()),0);});await refresh();
+ client.auth.onAuthStateChange(e=>{if(e==='SIGNED_OUT'){sessionStorage.removeItem('gesSelectedGroup');++loadSerial;resetPrivate();show('account',false);show('login',true);}if(e==='SIGNED_IN')setTimeout(()=>action(()=>refresh()),0);});await refresh();
 }
 initialise().catch(e=>message(e.message,true));
