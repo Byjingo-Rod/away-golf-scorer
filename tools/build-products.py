@@ -56,6 +56,13 @@ def build():
             sw = re.sub(r'const CACHE = "[^"]+";', 'const CACHE = "golf-event-scorer-' + config["version"] + '-' + revision[:12] + '";', (target / "sw.js").read_text())
             sw = sw.replace('x !== CACHE', 'x.startsWith("golf-event-scorer-") && x !== CACHE')
             (target / "sw.js").write_text(sw)
+            branding = ROOT / "products/golf-event-scorer-assets"
+            if branding.exists():
+                for path in branding.rglob("*"):
+                    if path.is_file():
+                        destination = target / path.relative_to(branding)
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(path, destination)
         provenance = {"product": product, "sourceCommit": revision,
                       "sourceHashes": {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in FILES}}
         (target / "build-info.json").write_text(json.dumps(provenance, indent=2) + "\n")
