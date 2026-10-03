@@ -1,94 +1,76 @@
 import {createGroupApi, validateAccountConfig} from './group-api.mjs';
-const $ = id => document.getElementById(id);
-let client, api, owner = false, groups = [], selected = '', currentEvents = [], editing = null;
-let loadSerial = 0;
-function message(text, error = false) { $('message').textContent = text; $('message').classList.toggle('error', error); }
-function show(id, visible) { $(id).hidden = !visible; }
-function resetPrivate() {
-  for (const id of ['owner','groups','approvals','roster','events','eventEditor']) show(id, false);
-  for (const id of ['groupSelect','organiserList','playerList','eventList']) $(id).replaceChildren();
-  groups = []; selected = ''; currentEvents = []; editing = null;
+const $=id=>document.getElementById(id);
+let client,api,owner=false,groups=[],courses=[],selected='',editing=null,loadSerial=0,busy=false;
+const privateSections=['owner','groups','approvals','setup','review','organiserHome','roster','events','eventEditor'];
+function message(text,error=false){$('message').textContent=text;$('message').classList.toggle('error',error);}
+function show(id,visible){$(id).hidden=!visible;}
+function entry(text){const n=document.createElement('div');n.className='entry';n.textContent=text;return n;}
+function button(parent,text,handler){const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=()=>action(handler);parent.append(b);}
+function current(){const g=groups.find(g=>g.id===selected);if(!g)throw new Error('Choose a customer group.');return g;}
+function status(g){return !g.enabled?'Suspended':({awaiting_setup:'Awaiting organiser setup',pending_review:'Awaiting owner approval',active:'Active'}[g.setup_status]||'Awaiting setup');}
+function resetPrivate(){privateSections.forEach(id=>show(id,false));['groupSelect','organiserList','playerList','eventList','customerList','courseOptions','courseReview','reviewSummary'].forEach(id=>$(id).replaceChildren());groups=[];courses=[];selected='';editing=null;owner=false;}
+async function action(fn){if(busy)return;busy=true;try{await fn();}catch(e){message(e.message||'Unable to save. Refresh and try again.',true);}finally{busy=false;}}
+function bindForm(id,fn){$(id).onsubmit=e=>{e.preventDefault();action(fn);};}
+async function refresh(preferred=selected){const serial=++loadSerial;resetPrivate();const {data,error}=await client.auth.getUser();if(serial!==loadSerial)return;
+ if(error||!data.user||data.user.is_anonymous){show('login',true);show('account',false);message('Sign in to access your group.');return;}
+ show('login',false);show('account',true);$('signedInAs').textContent=`Signed in as ${data.user.email}`;
+ const [isOwner,nextGroups,catalogue]=await Promise.all([api.isOwner(),api.groups(),api.courses()]);if(serial!==loadSerial)return;
+ owner=isOwner;groups=nextGroups;courses=catalogue;$('pageTitle').textContent=owner?'Customer administration':'Organiser setup & events';show('owner',owner);show('groups',groups.length>0);
+ $('groupHeading').textContent=owner?'Selected customer':'Your group';
+ groups.forEach(g=>{const o=document.createElement('option');o.value=g.id;o.textContent=g.name;$('groupSelect').append(o);if(owner){const row=entry('');row.className='customer-row';const text=document.createElement('span');text.textContent=`${g.name} · ${status(g)}${g.golfer_count?` · ${g.golfer_count} golfers`:''}`;row.append(text);button(row,'View organisers & setup',async()=>{selected=g.id;$('groupSelect').value=selected;await loadGroup();$('groups').scrollIntoView({behavior:'smooth'});});$('customerList').append(row);}});
+ if(owner&&!groups.length)$('customerList').textContent='No customers yet. Create your first customer group below.';
+ if(!groups.length){message(owner?'Create your first customer group below.':'Your account is ready. The owner needs to approve your group access.');return;}
+ selected=groups.some(g=>g.id===preferred)?preferred:groups[0].id;$('groupSelect').value=selected;await loadGroup();
 }
-function entry(text) { const node = document.createElement('div'); node.className = 'entry'; node.textContent = text; return node; }
-function button(parent, text, handler) { const b = document.createElement('button'); b.type = 'button'; b.textContent = text; b.addEventListener('click', () => action(handler)); parent.append(b); }
-async function action(fn) {
-  const buttons = [...document.querySelectorAll('button')]; buttons.forEach(b => b.disabled = true);
-  try { await fn(); } catch (e) { message(e.message || 'Unable to save. Please refresh and try again.', true); }
-  finally { buttons.forEach(b => b.disabled = false); }
+function checked(container){return [...$(container).querySelectorAll('input[type=checkbox]:checked')].map(n=>n.value);}
+function checkRow(parent,id,text,checkedValue=false){const l=document.createElement('label');l.className='check';const box=document.createElement('input');box.type='checkbox';box.value=id;box.checked=checkedValue;const s=document.createElement('span');s.textContent=text;l.append(box,s);parent.append(l);return box;}
+function courseName(id){return courses.find(c=>c.id===id)?.name||`Unavailable course (${id})`;}
+function courseDetails(parent,c){const d=document.createElement('details');d.className='courseDetails';const s=document.createElement('summary');s.textContent=`View saved details: ${c.name}`;d.append(s);
+ const details=c.details||{};
+ const add=text=>{const p=document.createElement('p');p.textContent=text;d.append(p);};
+ for(const [key,label] of [['region','Region'],['address','Address'],['website','Website'],['clubPhone','Club phone'],['clubEmail','Club email']])if(details[key])add(`${label}: ${details[key]}`);
+ for(const [tee,card] of Object.entries(details.teeScorecards||{})){
+  const info=details.teeDetails?.[tee]||{};add(`${info.name||tee} tee${info.colour?` · ${info.colour}`:''} · Par ${info.par||'not recorded'} · Slope ${info.slope||'not recorded'} · Scratch ${info.scratch||'not recorded'}`);
+  const wrap=document.createElement('div');wrap.className='table-scroll';const table=document.createElement('table');const caption=document.createElement('caption');caption.textContent=`${info.name||tee} scorecard`;table.append(caption);
+  const head=document.createElement('tr');['Hole','Par','Index','Metres'].forEach(t=>{const th=document.createElement('th');th.scope='col';th.textContent=t;head.append(th);});table.append(head);
+  for(let i=0;i<18;i++){const row=document.createElement('tr');[i+1,card.par?.[i],card.index?.[i],card.metres?.[i]].forEach(v=>{const td=document.createElement('td');td.textContent=v===undefined||v===''?'—':String(v);row.append(td);});table.append(row);}wrap.append(table);d.append(wrap);
+ }
+ if(!Object.keys(details.teeScorecards||{}).length)add('No saved hole-by-hole scorecard. Course details need checking before use.');
+ const confirmed=(details.versions||[]).map(v=>v.confirmedDate).filter(Boolean);add(confirmed.length?`Saved confirmation dates: ${confirmed.join(', ')}`:'No saved confirmation date. Check this course against current club information.');parent.append(d);}
+function updateCount(){$('selectionCount').textContent=`(${checked('courseOptions').length} selected)`;}
+function renderSetup(g){$('golferCount').value=g.golfer_count||'';$('additionalCourses').value=g.additional_courses||'';$('courseOptions').replaceChildren();
+ courses.forEach(c=>{const box=checkRow($('courseOptions'),c.id,c.name,g.requested_course_ids.includes(c.id));box.onchange=updateCount;});updateCount();
+ $('setupIntro').textContent=g.setup_status==='active'?'Your setup is active. Submit changes only when your group size or intended courses change.':g.setup_status==='pending_review'?'Your request is awaiting the owner’s course checks and approval. You can correct and resubmit it.':'Tell us how many golfers are in your group and which courses you intend to use.';
 }
-function bindForm(id, fn) { $(id).addEventListener('submit', e => { e.preventDefault(); action(fn); }); }
-async function refresh() {
-  const serial = ++loadSerial; resetPrivate();
-  const {data, error} = await client.auth.getUser(); if (error) {
-    show('login',true); show('account',false); message('Sign in to access your group.'); return;
-  }
-  if (serial !== loadSerial) return;
-  const user = data.user;
-  if (!user || user.is_anonymous) { show('login',true); show('account',false); message('Sign in to access your group.'); return; }
-  show('login',false); show('account',true); $('signedInAs').textContent = `Signed in as ${user.email}`;
-  const nextOwner = await api.isOwner(), nextGroups = await api.groups();
-  if (serial !== loadSerial) return;
-  owner = nextOwner; groups = nextGroups;
-  show('owner',owner); show('groups',groups.length > 0);
-  if (!groups.length) { message(owner ? 'Create your first group below.' : 'Your account is ready. The owner needs to approve your group access.'); return; }
-  groups.forEach(g => {const option = document.createElement('option'); option.value = g.id; option.textContent = g.name; $('groupSelect').append(option);});
-  selected = groups[0].id; await loadGroup();
+function renderReview(g){$('reviewSummary').replaceChildren();$('courseReview').replaceChildren();const summary=entry(g.golfer_count?`${g.golfer_count} golfers in the group · ${g.requested_course_ids.length} selected courses`:'The organiser has not submitted a setup request yet.');$('reviewSummary').append(summary);
+ if(g.submitted_at)$('reviewSummary').append(entry(`Submitted ${new Date(g.submitted_at).toLocaleString()}`));
+ g.requested_course_ids.forEach(id=>{const c=courses.find(c=>c.id===id);checkRow($('courseReview'),id,`I have checked that ${courseName(id)} is up to date.`);if(c)courseDetails($('courseReview'),c);});
+ if(g.additional_courses)$('reviewSummary').append(entry(`Additional course request: ${g.additional_courses}`));
+ if(g.reviewed_at)$('reviewSummary').append(entry(`Activated ${new Date(g.reviewed_at).toLocaleString()}`));
+ show('additionalCheckLabel',!!g.additional_courses);$('additionalChecked').checked=false;show('activateGroup',g.enabled&&g.setup_status==='pending_review');
 }
-async function loadGroup() {
-  const serial = ++loadSerial, group = groups.find(g => g.id === selected);
-  show('eventEditor',false); editing = null;
-  for (const id of ['playerList','eventList','organiserList']) $(id).replaceChildren();
-  if (!group) return;
-  const [players, events, organisers] = await Promise.all([api.players(group.id), api.events(group.id), owner ? api.organisers(group.id) : []]);
-  if (serial !== loadSerial) return;
-  currentEvents = events; $('groupStatus').textContent = group.enabled ? 'Group access active' : 'Group access suspended — records retained';
-  show('approvals',owner); show('roster',true); show('events',true);
-  players.forEach(p => {
-    const li = document.createElement('li'); li.textContent = `${p.name}${p.ga === null ? '' : ` · GA ${p.ga < 0 ? '+' + Math.abs(p.ga) : p.ga}`}${p.active ? '' : ' · inactive'}`; $('playerList').append(li);
-  });
-  events.slice().reverse().forEach(event => {
-    const row = entry(`${event.name} · ${event.event_date} · ${event.field_size} players · ${event.status}`);
-    if (event.status === 'draft') button(row, 'Edit draft', () => {
-      editing = structuredClone(event); $('editName').value = event.name; $('editDate').value = event.event_date;
-      $('editSize').value = event.field_size; $('editNotes').value = event.planning_data.notes || '';
-      show('eventEditor',true); $('editName').focus();
-    });
-    else { const details = document.createElement('pre'); details.textContent = JSON.stringify(event.results_data, null, 2); row.append(details); }
-    $('eventList').append(row);
-  });
-  organisers.forEach(m => {
-    const row = entry(`${m.email} · ${m.enabled ? 'active' : 'suspended'}`);
-    button(row, m.enabled ? 'Suspend organiser' : 'Restore organiser', async () => { await api.setOrganiserEnabled(group.id,m.user_id,!m.enabled); await loadGroup(); });
-    $('organiserList').append(row);
-  });
-  $('toggleGroup').textContent = group.enabled ? 'Suspend group access' : 'Restore group access';
-  message(`Loaded ${group.name}.`);
+async function loadGroup(){const serial=++loadSerial,g=current();['approvals','setup','review','organiserHome','roster','events','eventEditor'].forEach(id=>show(id,false));editing=null;['organiserList','playerList','eventList'].forEach(id=>$(id).replaceChildren());$('groupStatus').textContent=status(g);
+ if(owner){show('approvals',true);show('review',true);$('customerName').value=g.name;renderReview(g);const members=await api.organisers(g.id);if(serial!==loadSerial)return;
+ if(!members.length)$('organiserList').textContent='No organisers approved yet.';
+ members.forEach(m=>{const row=entry(`${m.email} · ${m.enabled?'Access approved':'Suspended'}`);button(row,m.enabled?'Suspend organiser':'Restore organiser',async()=>{await api.setOrganiserEnabled(g.id,m.user_id,!m.enabled);await refresh(g.id);});$('organiserList').append(row);});$('toggleGroup').textContent=g.enabled?'Suspend group access':'Restore group access';
+ }else{show('setup',g.enabled);renderSetup(g);if(g.enabled&&g.setup_status==='active'){const [players,events]=await Promise.all([api.players(g.id),api.events(g.id)]);if(serial!==loadSerial)return;show('organiserHome',true);show('roster',true);show('events',true);
+ players.forEach(p=>{const li=document.createElement('li');li.textContent=`${p.name}${p.ga===null?'':` · GA ${p.ga<0?'+'+Math.abs(p.ga):p.ga}`}${p.active?'':' · inactive'}`;$('playerList').append(li);});
+ events.slice().reverse().forEach(e=>{const row=entry(`${e.name} · ${e.event_date} · ${e.field_size} players · ${e.status}`);if(e.status==='draft')button(row,'Edit draft',()=>{editing=structuredClone(e);$('editName').value=e.name;$('editDate').value=e.event_date;$('editSize').value=e.field_size;$('editNotes').value=e.planning_data.notes||'';show('eventEditor',true);$('editName').focus();});$('eventList').append(row);});}}
+ message(`${g.name} · ${status(g)}`);
 }
-async function initialise() {
-  try {
-    const config = validateAccountConfig(window.GES_ACCOUNT_CONFIG);
-    client = window.supabase.createClient(config.url,config.key,{auth:{storageKey:'golfEventScorerGroupAuth',persistSession:true,detectSessionInUrl:true,autoRefreshToken:true}});
-    api = createGroupApi(client);
-  } catch(e) { message(e.message + ' This development build is not ready for online group use.',true); return; }
-  bindForm('signIn', async () => {
-    const {error} = await client.auth.signInWithOtp({email:$('email').value.trim(),options:{emailRedirectTo:new URL('groups.html',location.href).href}});
-    if (error) throw error; message('Check your email for the sign-in link. Signing in does not grant organiser permission.');
-  });
-  bindForm('createGroup', async () => {await api.createGroup($('groupName').value); $('createGroup').reset(); await refresh();});
-  bindForm('approve', async () => {await api.approveOrganiser(selected,$('organiserEmail').value); $('approve').reset(); await loadGroup();});
-  bindForm('addPlayer', async () => {await api.savePlayer(selected,$('playerName').value,$('playerGa').value === '' ? null : Number($('playerGa').value)); $('addPlayer').reset(); await loadGroup();});
-  bindForm('createEvent', async () => {await api.createEvent(selected,$('eventName').value,$('eventDate').value,Number($('fieldSize').value)); $('eventName').value = ''; await loadGroup();});
-  bindForm('saveEvent', async () => {
-    if (!editing) throw new Error('Choose an event first.');
-    await api.saveEvent({...editing,name:$('editName').value,event_date:$('editDate').value,field_size:Number($('editSize').value),planning_data:{...editing.planning_data,notes:$('editNotes').value}});
-    await loadGroup(); message('Event draft saved to your group.');
-  });
-  $('cancelEdit').onclick = () => {show('eventEditor',false); editing=null;};
-  $('refresh').onclick = () => action(refresh);
-  $('signOut').onclick = () => action(async () => {++loadSerial; resetPrivate(); const {error} = await client.auth.signOut(); if (error) throw error; await refresh();});
-  $('groupSelect').onchange = () => action(async () => {selected=$('groupSelect').value; await loadGroup();});
-  $('toggleGroup').onclick = () => action(async () => {const group=groups.find(g=>g.id===selected); await api.setGroupEnabled(selected,!group.enabled); await refresh();});
-  client.auth.onAuthStateChange(event => {if(event==='SIGNED_OUT') {++loadSerial; resetPrivate(); show('account',false); show('login',true);} if(event==='SIGNED_IN') setTimeout(()=>action(refresh),0);});
-  await refresh();
+async function initialise(){try{const cfg=validateAccountConfig(window.GES_ACCOUNT_CONFIG);client=window.supabase.createClient(cfg.url,cfg.key,{auth:{storageKey:'golfEventScorerGroupAuth',persistSession:true,detectSessionInUrl:true,autoRefreshToken:true}});api=createGroupApi(client);}catch(e){message(e.message,true);return;}
+ bindForm('signIn',async()=>{const {error}=await client.auth.signInWithOtp({email:$('email').value.trim(),options:{emailRedirectTo:new URL('groups.html',location.href).href}});if(error)throw error;message('Check your email for the sign-in link. The owner approves organiser access separately.');});
+ bindForm('createGroup',async()=>{const id=await api.createGroup($('groupName').value);$('createGroup').reset();await refresh(id);});
+ bindForm('renameGroup',async()=>{const g=current();await api.renameGroup(g.id,$('customerName').value,g.setup_revision);await refresh(g.id);message('Customer identifier saved.');});
+ bindForm('approve',async()=>{const g=current();await api.approveOrganiser(g.id,$('organiserEmail').value);$('approve').reset();await refresh(g.id);});
+ bindForm('submitSetup',async()=>{const g=current();await api.submitSetup(g.id,g.setup_revision,Number($('golferCount').value),checked('courseOptions'),$('additionalCourses').value);await refresh(g.id);message('Setup submitted. Event planning will be available after the owner reviews your courses and activates the group.');});
+ bindForm('activateGroup',async()=>{const g=current();await api.activateGroup(g.id,g.setup_revision,checked('courseReview'),$('additionalChecked').checked);await refresh(g.id);message('Customer activated. Approved organisers can now manage their players and event drafts.');});
+ bindForm('addPlayer',async()=>{await api.savePlayer(selected,$('playerName').value,$('playerGa').value===''?null:Number($('playerGa').value));$('addPlayer').reset();await refresh(selected);});
+ bindForm('createEvent',async()=>{await api.createEvent(selected,$('eventName').value,$('eventDate').value,Number($('fieldSize').value));$('eventName').value='';await refresh(selected);});
+ bindForm('saveEvent',async()=>{if(!editing)throw new Error('Choose an event first.');await api.saveEvent({...editing,name:$('editName').value,event_date:$('editDate').value,field_size:Number($('editSize').value),planning_data:{...editing.planning_data,notes:$('editNotes').value}});await refresh(selected);message('Event draft saved.');});
+ $('customersButton').onclick=()=>{const open=$('customerList').hidden;show('customerList',open);$('customersButton').setAttribute('aria-expanded',String(open));};
+ $('cancelEdit').onclick=()=>{show('eventEditor',false);editing=null;};$('refresh').onclick=()=>action(()=>refresh());$('signOut').onclick=()=>action(async()=>{++loadSerial;resetPrivate();const {error}=await client.auth.signOut();if(error)throw error;await refresh();});
+ $('groupSelect').onchange=()=>action(async()=>{selected=$('groupSelect').value;await loadGroup();});$('toggleGroup').onclick=()=>action(async()=>{const g=current();await api.setGroupEnabled(g.id,!g.enabled);await refresh(g.id);});
+ client.auth.onAuthStateChange(e=>{if(e==='SIGNED_OUT'){++loadSerial;resetPrivate();show('account',false);show('login',true);}if(e==='SIGNED_IN')setTimeout(()=>action(()=>refresh()),0);});await refresh();
 }
-initialise().catch(e => message(e.message,true));
+initialise().catch(e=>message(e.message,true));
