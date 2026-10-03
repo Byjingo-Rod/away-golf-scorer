@@ -36,11 +36,11 @@
       </fieldset>
       <label>Notes<textarea id="gesNotes" rows="4" maxlength="10000">${esc(p.notes || '')}</textarea></label>
       ${existing ? `<details><summary>Handicap & club details</summary><label>Home club<input id="gesHomeClub" maxlength="160" value="${esc(p.homeClub || '')}"></label><label>GA handicap<input id="gesGa" type="number" min="-10" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(p.ga) : ''}"></label><p>Enter a plus handicap as a negative number: +4 means −4.</p><label>Status<select id="gesRosterActive"><option value="active" ${p.rosterActive !== false ? 'selected' : ''}>Active</option><option value="inactive" ${p.rosterActive === false ? 'selected' : ''}>Inactive</option></select></label></details>` : ''}
-      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
+      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button> <button class="danger" type="button" id="gesDeletePlayer">Delete Player</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
     </form></div>`);
     $('#gesStreetType').onchange = () => { const other = $('#gesStreetType').value === 'Other'; $('#gesOtherStreetLabel').hidden = !other; $('#gesOtherStreetLabel').style.display = other ? '' : 'none'; $('#gesOtherStreet').required = other; };
     $('#gesStreetType').onchange();
-    if(existing) $('#gesHandicapDetails').onclick=()=>gesHandicapProfile(id,status);
+    if(existing) { $('#gesHandicapDetails').onclick=()=>gesHandicapProfile(id,status); $('#gesDeletePlayer').onclick=()=>gesDeletePlayer(id); }
     $('#gesCancelPlayer').onclick = () => { if (existing) playerInfo(id,status); else $('#sidePanel').classList.remove('open'); };
     $('#gesPlayerDetailForm').onsubmit = event => {
       event.preventDefault(); const note = $('#gesPlayerFormStatus');
@@ -72,4 +72,28 @@
       } catch(error) {note.textContent=error.message;note.className='gesFormError';}
     };
     $('#gesFirstName').focus();
+  }
+
+  function gesDeletePlayer(id) {
+    const p = player(id); if(!p) return;
+    const hasReference = value => {
+      if(value === id || String(value) === String(id) && typeof value !== 'object') return true;
+      if(!value || typeof value !== 'object') return false;
+      return Object.entries(value).some(([key,item])=>key===String(id)||hasReference(item));
+    };
+    const linked = hasReference(store.event) || hasReference(store.eventWorkspace) || (typeof W !== 'undefined' && (hasReference(W.event) || W.invites?.has(String(id)))) || Number(p.eventsPlayed)>0 || Boolean(p.lastEvent);
+    showSide(`<h2>Delete Player</h2><p>Remove <b>${esc(p.name)}</b> from your group’s player list?</p>${linked ? '<p>This player has event records. Their record will be retained for those events, but they will no longer appear in the player list for new events. Existing event selections are unchanged.</p>' : '<p>The saved player details will be deleted.</p>'}<p id="gesDeleteStatus" role="status"></p><button class="danger" id="gesConfirmDelete">Delete Player</button> <button class="soft" id="gesCancelDelete">Cancel</button>`);
+    $('#gesCancelDelete').onclick=()=>gesPlayerDetails(id);
+    $('#gesConfirmDelete').onclick=()=>{
+      const previous=structuredClone(store.players);
+      try {
+        if(localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY)!==appTabId) throw new Error('A newer app tab is open. Refresh this tab before deleting.');
+        store.players = linked ? store.players.map(item=>String(item.id)===String(id)?{...item,rosterActive:false,gesDeleted:true}:item) : store.players.filter(item=>String(item.id)!==String(id));
+        save();
+        const saved=JSON.parse(localStorage.getItem('golfEventScorer13') || 'null');
+        if(!saved || saved.players.some(item=>String(item.id)===String(id)&&!item.gesDeleted)) throw new Error('The player could not be removed on this device. Please try again.');
+        showSide(`<h2>Player removed</h2><p>${esc(p.name)} has been removed from your group’s player list.</p><button class="soft" id="gesCloseDeleted">Back to Players</button>`);
+        $('#gesCloseDeleted').onclick=()=>$('#sidePanel').classList.remove('open');
+      }catch(error){store.players=previous;renderPlayersAdmin();$('#gesDeleteStatus').textContent=error.message;}
+    };
   }
