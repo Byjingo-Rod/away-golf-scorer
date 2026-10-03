@@ -76,23 +76,17 @@
 
   function gesDeletePlayer(id) {
     const p = player(id); if(!p) return;
-    const hasReference = value => {
-      if(value === id || String(value) === String(id) && typeof value !== 'object') return true;
-      if(!value || typeof value !== 'object') return false;
-      return Object.entries(value).some(([key,item])=>key===String(id)||hasReference(item));
-    };
-    const linked = hasReference(store.event) || hasReference(store.eventWorkspace) || (typeof W !== 'undefined' && (hasReference(W.event) || W.invites?.has(String(id)))) || Number(p.eventsPlayed)>0 || Boolean(p.lastEvent);
-    showSide(`<h2>Delete Player</h2><p>Remove <b>${esc(p.name)}</b> from your group’s player list?</p>${linked ? '<p>This player has event records. Their record will be retained for those events, but they will no longer appear in the player list for new events. Existing event selections are unchanged.</p>' : '<p>The saved player details will be deleted.</p>'}<p id="gesDeleteStatus" role="status"></p><button class="danger" id="gesConfirmDelete">Delete Player</button> <button class="soft" id="gesCancelDelete">Cancel</button>`);
+    showSide(`<h2>Delete Player</h2><p>Remove <b>${esc(p.name)}</b> from your group’s player list?</p><p>This player will move to the Inactive list. Their details and event history will be kept, and you can reactivate them later.</p><p id="gesDeleteStatus" role="status"></p><button class="danger" id="gesConfirmDelete">Delete Player</button> <button class="soft" id="gesCancelDelete">Cancel</button>`);
     $('#gesCancelDelete').onclick=()=>gesPlayerDetails(id);
     $('#gesConfirmDelete').onclick=()=>{
       const previous=structuredClone(store.players);
       try {
         if(localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY)!==appTabId) throw new Error('A newer app tab is open. Refresh this tab before deleting.');
-        store.players = linked ? store.players.map(item=>String(item.id)===String(id)?{...item,rosterActive:false,gesDeleted:true}:item) : store.players.filter(item=>String(item.id)!==String(id));
+        store.players = store.players.map(item=>String(item.id)===String(id)?{...item,rosterActive:false}:item);
         save();
         const saved=JSON.parse(localStorage.getItem('golfEventScorer13') || 'null');
-        if(!saved || saved.players.some(item=>String(item.id)===String(id)&&!item.gesDeleted)) throw new Error('The player could not be removed on this device. Please try again.');
-        showSide(`<h2>Player removed</h2><p>${esc(p.name)} has been removed from your group’s player list.</p><button class="soft" id="gesCloseDeleted">Back to Players</button>`);
+        if(!saved || !saved.players.some(item=>String(item.id)===String(id)&&item.rosterActive===false)) throw new Error('The player could not be removed on this device. Please try again.');
+        showSide(`<h2>Player removed</h2><p>${esc(p.name)} has been moved to the Inactive list. Their details and history have been kept.</p><button class="soft" id="gesCloseDeleted">Back to Players</button>`);
         $('#gesCloseDeleted').onclick=()=>$('#sidePanel').classList.remove('open');
       }catch(error){store.players=previous;renderPlayersAdmin();$('#gesDeleteStatus').textContent=error.message;}
     };
