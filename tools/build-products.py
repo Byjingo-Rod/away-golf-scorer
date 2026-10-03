@@ -40,7 +40,7 @@ def build():
                 if name == "index.html":
                     source = source.replace("Golf Event Scorer • Version " + shared_version, "Golf Event Scorer • " + config["version"])
                     source = source.replace("<main id=\"app\">", '<aside role="status" style="padding:12px;background:#fff1c2">Development preview — local planning only. Online event sharing is not enabled.</aside><main id="app">')
-                    source = source.replace('</head>', '<link rel="stylesheet" href="blue-theme.css"></head>')
+                    source = source.replace('</head>', '<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"><link rel="apple-touch-icon" href="icons/icon-192.png"><link rel="stylesheet" href="blue-theme.css"></head>')
                     source = source.replace('<main id="app">', '<a class="productGroupsLink" href="groups.html">Groups & Organiser Accounts</a><main id="app">')
                     source = source.replace('content="#18543a"', 'content="#164c83"')
                 if name == "index.html":
