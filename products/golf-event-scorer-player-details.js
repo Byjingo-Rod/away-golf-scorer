@@ -30,7 +30,7 @@
       <fieldset class="gesAddressFields"><legend>Address</legend>
       <label class="gesHouseNumber">House/Apt No<input id="gesHouseNo" maxlength="80" value="${esc(address.houseNo || '')}"></label>
       <div class="gesStreetRow"><label>Street Name<input id="gesStreetName" maxlength="160" value="${esc(address.streetName || '')}"></label>
-      <label>Street Type<select id="gesStreetType"><option value="">Select street type</option>${streetTypes.map(type => `<option value="${type}" ${address.streetType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label></div>
+      <label>Street Type<select id="gesStreetType"><option value="">Choose</option>${streetTypes.map(type => `<option value="${type}" ${address.streetType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label></div>
       <label id="gesOtherStreetLabel" style="${address.streetType === 'Other' ? '' : 'display:none'}" ${address.streetType === 'Other' ? '' : 'hidden'}>Other — please insert<input id="gesOtherStreet" maxlength="80" value="${esc(address.otherStreetType || '')}"></label>
       <label>Suburb<input id="gesSuburb" maxlength="160" autocomplete="address-level2" value="${esc(address.suburb || '')}"></label>
       <div class="gesStateRow"><label>State<select id="gesState" autocomplete="address-level1"><option value="">Select state</option>${states.map(([code,name]) => `<option value="${code}" ${selectedState === code ? 'selected' : ''}>${code} — ${name}</option>`).join('')}${selectedState && !states.some(([code]) => code === selectedState) ? `<option value="${esc(selectedState)}" selected>${esc(selectedState)} (saved)</option>` : ''}</select></label>
@@ -39,7 +39,7 @@
       </fieldset>
       <label>Notes<textarea id="gesNotes" rows="4" maxlength="10000">${esc(p.notes || '')}</textarea></label>
       ${existing ? `<details><summary>Handicap & club details</summary><label>Home club<input id="gesHomeClub" maxlength="160" value="${esc(p.homeClub || '')}"></label><label>GA handicap<input id="gesGa" type="number" min="-10" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(p.ga) : ''}"></label><p>Enter a plus handicap as a negative number: +4 means −4.</p><label>Status<select id="gesRosterActive"><option value="active" ${p.rosterActive !== false ? 'selected' : ''}>Active</option><option value="inactive" ${p.rosterActive === false ? 'selected' : ''}>Inactive</option></select></label></details>` : ''}
-      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button> <button class="danger" type="button" id="gesDeletePlayer">Delete Player</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
+      ${existing ? '<button class="soft" type="button" id="gesHandicapDetails">Event Handicap Details</button> <button class="danger" type="button" id="gesDeletePlayer">Move to Inactive Player List</button>' : ''}<div class="rowBtns"><button class="primary" type="submit">Save Player</button><button class="soft" type="button" id="gesCancelPlayer">Cancel</button></div>
     </form></div>`);
     $('#gesStreetType').onchange = () => { const other = $('#gesStreetType').value === 'Other'; $('#gesOtherStreetLabel').hidden = !other; $('#gesOtherStreetLabel').style.display = other ? '' : 'none'; $('#gesOtherStreet').required = other; };
     $('#gesStreetType').onchange();
@@ -79,7 +79,7 @@
 
   function gesDeletePlayer(id) {
     const p = player(id); if(!p) return;
-    showSide(`<h2>Delete Player</h2><p>Remove <b>${esc(p.name)}</b> from your group’s player list?</p><p>This player will move to the Inactive list. Their details and event history will be kept, and you can reactivate them later.</p><p id="gesDeleteStatus" role="status"></p><button class="danger" id="gesConfirmDelete">Delete Player</button> <button class="soft" id="gesCancelDelete">Cancel</button>`);
+    showSide(`<h2>Move to Inactive Player List</h2><p>Move <b>${esc(p.name)}</b> to the Inactive Player List?</p><p>This player will move to the Inactive list. Their details and event history will be kept, and you can reactivate them later.</p><p id="gesDeleteStatus" role="status"></p><button class="danger" id="gesConfirmDelete">Move to Inactive Player List</button> <button class="soft" id="gesCancelDelete">Cancel</button>`);
     $('#gesCancelDelete').onclick=()=>gesPlayerDetails(id);
     $('#gesConfirmDelete').onclick=()=>{
       const previous=structuredClone(store.players);
