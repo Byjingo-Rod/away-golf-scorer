@@ -14,3 +14,16 @@ button.soft,.soft{background:#e7effa;color:#174b7e}
 #sidePanel:has(.gesPlayerDetail){width:min(620px,100vw);max-width:100vw}.gesPlayerDetail label{display:block;margin:12px 0}.gesPlayerDetail input,.gesPlayerDetail textarea,.gesPlayerDetail select{display:block;width:100%;box-sizing:border-box;padding:11px;border:1px solid #a9bed6;border-radius:7px;font:inherit}.gesNameFields{display:grid;grid-template-columns:1fr 1fr;gap:12px}.gesFormError{background:#fff0ee;color:#962e28;padding:12px;border-radius:8px}.gesPlayerDetail .rowBtns{margin-top:18px}@media(max-width:480px){.gesNameFields{grid-template-columns:1fr;gap:0}}
 
 #sidePanel:has(.gesPlayerDetail):not(.open){right:-650px}
+
+/* Player Details follows the product's blue theme. */
+#sidePanel:has(.gesPlayerDetail){background:#0b2545;color:#edf4fc;box-sizing:border-box}
+.gesPlayerDetail h2,.gesPlayerDetail p,.gesPlayerDetail label,.gesPlayerDetail legend,.gesPlayerDetail summary,.gesPlayerDetail small{color:#edf4fc}
+.gesPlayerDetail input,.gesPlayerDetail textarea,.gesPlayerDetail select{background:#dceaf8;color:#123c69;border-color:#87b1d9;min-width:0}
+.gesPlayerDetail input:focus,.gesPlayerDetail textarea:focus,.gesPlayerDetail select:focus{outline:3px solid #80c6ff;outline-offset:2px}
+.gesAddressFields{border:1px solid #648db5;border-radius:8px;padding:10px 12px;min-width:0}
+.gesPlayerDetail .gesHouseNumber{max-width:140px}
+.gesStreetRow{display:grid;grid-template-columns:minmax(0,1fr) 135px;gap:12px}
+.gesStateRow{display:grid;grid-template-columns:minmax(0,260px) 105px;gap:12px}
+.gesStreetRow label,.gesStateRow label{min-width:0}
+.gesPlayerDetail .gesFormError{background:#fff0ee;color:#962e28}
+@media(max-width:400px){.gesStreetRow{grid-template-columns:minmax(0,1fr) 110px;gap:8px}.gesStateRow{grid-template-columns:minmax(0,1fr) 85px;gap:8px}.gesPlayerDetail select{padding-left:7px;padding-right:7px}}
