@@ -43,6 +43,9 @@ def build():
                     source = source.replace('</head>', '<link rel="stylesheet" href="blue-theme.css"></head>')
                     source = source.replace('<main id="app">', '<a class="productGroupsLink" href="groups.html">Groups & organiser accounts</a><main id="app">')
                     source = source.replace('content="#18543a"', 'content="#164c83"')
+                if name == "app.js":
+                    source = source.replace('  function renderCloudPanel() {', '  function renderCloudPanel() {\n    const developmentHost = $("#cloudPanel"), developmentHead = $("#cloudHeader");\n    if (developmentHost && developmentHead) {\n      developmentHead.textContent = "Development · local planning";\n      developmentHost.innerHTML = `<div class="cloudPanelHead"><div><small>EVENT SHARING</small><h3>Online publishing is being developed</h3></div><span class="cloudState">Local planning available</span></div><p>You can plan on this device. Publishing events, joining phones and score synchronisation are not enabled yet.</p><a href="groups.html">Open Groups &amp; organiser accounts</a>`;\n      return;\n    }\n')
+                    source = source.replace('  if (installFederalRidgeHistoryBaseline())', (ROOT / "products/golf-event-scorer-course-import.js").read_text() + '\n  if (installFederalRidgeHistoryBaseline())')
                 (target / name).write_text(source)
             seed = (ROOT / "data.js").read_text()
             seed = json.loads(seed.removeprefix("window.AWAY_SEED=").rstrip(";\n"))
