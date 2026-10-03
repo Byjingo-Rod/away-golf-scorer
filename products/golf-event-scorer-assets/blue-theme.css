@@ -1,0 +1,10 @@
+/* Decorative product colours only: scoring verification colours stay intact. */
+body{background:#edf4fc}
+header{background:#164c83}
+nav{background:#123c69}
+nav button.active{color:#164c83}
+button.primary,.primary{background:#246cb0}
+button.soft,.soft{background:#e7effa;color:#174b7e}
+.homeHero,.playerJoinLanding{background:linear-gradient(135deg,#164c83,#367fbf);color:#fff}
+.homeHero h1,.playerJoinLanding h1{color:#fff}
+.productGroupsLink{display:inline-block;margin:12px;padding:12px 18px;background:#205e9c;color:#fff;border-radius:8px;text-decoration:none}

@@ -32,3 +32,14 @@ vm.runInNewContext(read(ges + 'sw.js'), {
 await new Promise((resolve, reject) => activate({waitUntil: task => task.then(resolve, reject)}));
 assert.deepEqual(deleted, ['golf-event-scorer-old']);
 console.log('Product build checks passed: original source preserved, separate storage/cache, empty roster, cloud blocked.');
+assert.ok(read(ges+'index.html').includes('blue-theme.css'));
+assert.ok(read(ges+'index.html').includes('groups.html'));
+let handleFetch;
+vm.runInNewContext(read(ges+'sw.js'), {
+  self:{location:{origin:'https://golf.test'},addEventListener:(event,fn)=>{if(event==='fetch')handleFetch=fn;}},
+  URL,
+});
+for(const request of [{method:'GET',url:'https://new.supabase.co/rest/v1/ges_players'},{method:'POST',url:'https://golf.test/api'}]) {
+  handleFetch({request,respondWith:()=>assert.fail('Private/API request must not be cached')});
+}
+console.log('Blue theme, group account entry and private network cache checks passed.');

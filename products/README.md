@@ -14,11 +14,21 @@ changes belong in the product configuration/build adapters. Do not edit dist.
 This is the initial shared-source build foundation; extracting scoring modules
 and explicit feature controls follows as the products diverge.
 
-Next work:
+Implemented in the next development milestone:
 
-1. Separate backend and owner-approved group membership with server-enforced
-   permissions. Group organisers cannot grant organiser access or create groups.
-2. Cloud-saved planning, private rosters and completed event history per group.
+- Separate-project SQL schema and owner-approved group organisers.
+- Server-enforced private group reads/writes and suspension controls.
+- Email sign-in screens, group roster and cloud-saveable monthly draft details.
+- Revision checks preventing silent overwrites between devices.
+- Blue backgrounds and product styling.
+
+The account connection remains unconfigured. See `GROUP-ACCOUNTS-SETUP.md`.
+The core scoring preview still has cloud sharing disabled.
+
+Remaining work:
+
+1. Configure the new backend, bootstrap Rod's owner account and test live sign-in.
+2. Connect the full event planner and scoring to group records and results history.
 3. History-aware team allocation and copying previous event settings.
 4. End-to-end 20-player test: five groups, score entry, leaderboards and results.
    The current source already offers field sizes up to 60; that is not proof

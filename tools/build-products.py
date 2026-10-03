@@ -40,6 +40,9 @@ def build():
                 if name == "index.html":
                     source = source.replace("Golf Event Scorer • Version " + shared_version, "Golf Event Scorer • " + config["version"])
                     source = source.replace("<main id=\"app\">", '<aside role="status" style="padding:12px;background:#fff1c2">Development preview — local planning only. Online event sharing is not enabled.</aside><main id="app">')
+                    source = source.replace('</head>', '<link rel="stylesheet" href="blue-theme.css"></head>')
+                    source = source.replace('<main id="app">', '<a class="productGroupsLink" href="groups.html">Groups & organiser accounts</a><main id="app">')
+                    source = source.replace('content="#18543a"', 'content="#164c83"')
                 (target / name).write_text(source)
             seed = (ROOT / "data.js").read_text()
             seed = json.loads(seed.removeprefix("window.AWAY_SEED=").rstrip(";\n"))
@@ -51,10 +54,20 @@ def build():
 });
 ''')
             manifest = json.loads((target / "manifest.webmanifest").read_text())
-            manifest.update(name=config["name"], short_name=config["shortName"], id="./")
+            manifest.update(name=config["name"], short_name=config["shortName"], id="./", theme_color="#164c83", background_color="#edf4fc")
             (target / "manifest.webmanifest").write_text(json.dumps(manifest))
             sw = re.sub(r'const CACHE = "[^"]+";', 'const CACHE = "golf-event-scorer-' + config["version"] + '-' + revision[:12] + '";', (target / "sw.js").read_text())
             sw = sw.replace('x !== CACHE', 'x.startsWith("golf-event-scorer-") && x !== CACHE')
+            # Account/API responses must never enter the shared static asset cache.
+            sw = sw.split('self.addEventListener("fetch"')[0] + '''self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
+  event.respondWith(fetch(event.request).then(response => {
+    if (response.ok) caches.open(CACHE).then(cache => cache.put(event.request, response.clone()));
+    return response;
+  }).catch(() => caches.match(event.request)));
+});
+'''
             (target / "sw.js").write_text(sw)
             branding = ROOT / "products/golf-event-scorer-assets"
             if branding.exists():

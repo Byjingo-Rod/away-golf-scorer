@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "scripts": {
+    "build:products": "python3 tools/build-products.py",
+    "test:groups": "node tests/golf-event-groups-database.mjs"
+  },
+  "devDependencies": {"@electric-sql/pglite": "0.5.8"}
+}
