@@ -18,6 +18,9 @@
     const lastName = p.lastName ?? (words.length > 1 ? words.at(-1) : '');
     const address = p.addressDetails || {};
     const legacyAddress = !p.addressDetails ? String(p.address || '') : String(p.addressDetails.legacyAddress || '');
+    const states = [['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
+    const savedState = String(address.state || '').trim();
+    const selectedState = states.find(([code,name]) => [code.toLowerCase(),name.toLowerCase()].includes(savedState.toLowerCase()))?.[0] || savedState;
     const streetTypes = ['Street','Rd','Close','Pde','Hwy','Other'];
     showSide(`<div class="gesPlayerDetail"><h2>${existing ? 'Edit Player Details' : 'Player Details'}</h2><p>Enter the golfer’s details. First Name and Last Name are required.</p><p id="gesPlayerFormStatus" role="status" aria-live="polite"></p><form id="gesPlayerDetailForm">
       <div class="gesNameFields"><label>First Name<input id="gesFirstName" maxlength="80" autocomplete="given-name" required value="${esc(firstName)}"></label><label>Last Name<input id="gesLastName" maxlength="80" autocomplete="family-name" required value="${esc(lastName)}"></label></div>
@@ -25,13 +28,13 @@
       <label>Golf Registration No <small>(where applicable)</small><input id="gesRegistration" maxlength="40" inputmode="numeric" value="${esc(p.golfLink || '')}"></label>
       <label>Cell Phone No<input id="gesCellPhone" type="tel" maxlength="60" autocomplete="tel" value="${esc(p.cellPhone || '')}"></label>
       <fieldset class="gesAddressFields"><legend>Address</legend>
-      <label>House/Apt No<input id="gesHouseNo" maxlength="80" value="${esc(address.houseNo || '')}"></label>
-      <label>Street Name<input id="gesStreetName" maxlength="160" value="${esc(address.streetName || '')}"></label>
-      <label>Street Type<select id="gesStreetType"><option value="">Select street type</option>${streetTypes.map(type => `<option value="${type}" ${address.streetType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+      <label class="gesHouseNumber">House/Apt No<input id="gesHouseNo" maxlength="80" value="${esc(address.houseNo || '')}"></label>
+      <div class="gesStreetRow"><label>Street Name<input id="gesStreetName" maxlength="160" value="${esc(address.streetName || '')}"></label>
+      <label>Street Type<select id="gesStreetType"><option value="">Select street type</option>${streetTypes.map(type => `<option value="${type}" ${address.streetType === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label></div>
       <label id="gesOtherStreetLabel" style="${address.streetType === 'Other' ? '' : 'display:none'}" ${address.streetType === 'Other' ? '' : 'hidden'}>Other — please insert<input id="gesOtherStreet" maxlength="80" value="${esc(address.otherStreetType || '')}"></label>
       <label>Suburb<input id="gesSuburb" maxlength="160" autocomplete="address-level2" value="${esc(address.suburb || '')}"></label>
-      <label>State<input id="gesState" maxlength="80" autocomplete="address-level1" value="${esc(address.state || '')}"></label>
-      <label>Post Code<input id="gesPostCode" maxlength="20" inputmode="numeric" autocomplete="postal-code" value="${esc(address.postCode || '')}"></label>
+      <div class="gesStateRow"><label>State<select id="gesState" autocomplete="address-level1"><option value="">Select state</option>${states.map(([code,name]) => `<option value="${code}" ${selectedState === code ? 'selected' : ''}>${code} — ${name}</option>`).join('')}${selectedState && !states.some(([code]) => code === selectedState) ? `<option value="${esc(selectedState)}" selected>${esc(selectedState)} (saved)</option>` : ''}</select></label>
+      <label>Post Code<input id="gesPostCode" maxlength="20" inputmode="numeric" autocomplete="postal-code" value="${esc(address.postCode || '')}"></label></div>
       ${legacyAddress ? `<label>Previously saved address<textarea id="gesLegacyAddress" rows="3" maxlength="1000">${esc(legacyAddress)}</textarea></label><small>You can transfer this address into the fields above and clear this box when finished.</small>` : ''}
       </fieldset>
       <label>Notes<textarea id="gesNotes" rows="4" maxlength="10000">${esc(p.notes || '')}</textarea></label>
