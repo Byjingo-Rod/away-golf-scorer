@@ -1,13 +1,20 @@
 /* Decorative product colours only: scoring verification colours stay intact. */
-body{background:#edf4fc}
+body{background:#0b2545;color:#153552}
 header{background:#164c83}
 nav{background:#123c69}
 nav button.active{color:#164c83}
 button.primary,.primary{background:#246cb0}
 button.soft,.soft{background:#e7effa;color:#174b7e}
-.homeHero,.playerJoinLanding{background:linear-gradient(135deg,#164c83,#367fbf);color:#fff}
+.hero,.homeHero,.playerJoinLanding,body.joinOnlyDevice .playerJoinLanding,.playerWelcome,.playerFinish{background:linear-gradient(135deg,#0b2545,#164c83);color:#fff}
 .homeHero h1,.playerJoinLanding h1{color:#fff}
 .productGroupsLink{display:inline-block;margin:12px;padding:12px 18px;background:#205e9c;color:#fff;border-radius:8px;text-decoration:none}
+
+.welcomeMascotWrap{background:radial-gradient(circle at 50% 48%,#ffffff20 0 26%,transparent 27%),linear-gradient(150deg,#0b2545,#164c83)}
+.welcomeWords,.playerFinish>div{background:#edf4fc;color:#153552}
+.welcomeWords small{color:#205e9c}
+
+.cloudHeader,.cloudHeader.offline,.cloudState{background:#dceaf8;color:#164c83}
+.cloudPanel{border-left-color:#246cb0}
 
 .pageHead h2{color:#edf4fc}.gesPlayerGuidance{background:#edf4fc;color:#153552;padding:12px 16px;border-radius:10px;margin:12px 0}.gesPlayerGuidance p{margin:6px 0;font-size:1rem}.eventRulesView>small{color:#205e9c}
 
@@ -27,3 +34,129 @@ button.soft,.soft{background:#e7effa;color:#174b7e}
 .gesStreetRow label,.gesStateRow label{min-width:0}
 .gesPlayerDetail .gesFormError{background:#fff0ee;color:#962e28}
 @media(max-width:400px){.gesStreetRow{grid-template-columns:minmax(0,1fr) 110px;gap:8px}.gesStateRow{grid-template-columns:minmax(0,1fr) 85px;gap:8px}.gesPlayerDetail select{padding-left:7px;padding-right:7px}}
+
+.headerMascot{display:block!important;margin-left:auto;width:60px;height:84px;background:url("away-golf-mascot-mini.png") center/contain no-repeat;flex-shrink:0}.wizardHead{background:#164c83;color:white}.wizard,.modal{color:#153552}.wizard input,.wizard select{background:#e7effa}.wizard .status{background:#dceaf8;border-color:#246cb0;color:#153552}
+
+body.gesOrganiser #guestOrganiser,body.gesOrganiser #ownerAccount,body.gesOrganiser #guestOrganiserInvite,body.gesOrganiser #organiserTabletCode{display:none!important}
+
+/* Leaderboard and the shared phone preview/player screen. */
+.leaderHead h2,.playerPreviewTop h2{color:#edf4fc}
+.leaderHead p,.playerPreviewTop p,.leaderNote{color:#b9d4ef}
+.leaderTabs button{background:#edf4fc;color:#174b7e;border-color:#a9c8e7}
+.leaderTabs button.active,.previewDayTabs .active{background:#246cb0;color:#fff;border-color:#246cb0}
+.leaderViewTabs,.leaderTitle{background:#dceaf8;color:#153552}
+.leaderViewTabs button{color:#174b7e}
+.leaderViewTabs button.active{color:#164c83;box-shadow:0 1px 4px #123c6924}
+.leaderCard,.summaryCard{border-color:#a9c8e7}
+.leaderRank,.leaderScore,.leaderTitle .par3Total{color:#174b7e}
+.leaderTitle span,.leaderName small,.leaderThru,.leaderEmpty{color:#496681}
+.phoneShell{background:#123c69}
+.phoneScreen{background:#edf4fc;color:#153552}
+.playerEventHero{background:#164c83;color:#fff}
+.playerCard,.completeDraw,.playerRulesBtn{border-color:#a9c8e7}
+.playerCardTitle,.playerCardTitle strong,.phonePartner b,.completeDraw summary,.playerRulesBtn{color:#174b7e}
+.phoneGroup{background:#c6daed}
+.phoneGroup .you:not(.yellowBallTurn),.phonePartner,.playerAck{background:#dceaf8;color:#174b7e}
+.playerFacts small,.phonePartner small,.playerAck small,.lockHint{color:#496681}
+.playerAck button{color:#174b7e;border-color:#87b1d9}
+.playerAck button.done,.startRoundBtn{background:#246cb0;color:#fff}
+.startRoundBtn:disabled{background:#91a9c0;color:#fff}
+.eventUpdateBanner.final{background:#dceaf8;border-color:#87b1d9;color:#174b7e}
+.holeHero{background:#c6daed;border-color:#a9c8e7}
+.holeHero strong{color:#174b7e}
+.holeHero:not(.isNtp)>span,.sfPill{background:#dceaf8;color:#174b7e}
+.scoreEntryCard.official{border-left-color:#246cb0}
+.gesAcceptedCard{margin:18px 0;padding:12px;background:#edf4fc;border-radius:10px;color:#153552}
+.gesAcceptedCard h3{margin:0 0 8px;color:#174b7e;text-transform:capitalize}
+.gesAcceptedCard p{font-size:14px;line-height:1.5}
+.gesAcceptedScroll{overflow:auto}
+.gesAcceptedCard table{width:100%;min-width:440px;border-collapse:separate;border-spacing:3px;table-layout:fixed}
+.gesAcceptedCard th,.gesAcceptedCard td{text-align:center;padding:8px 3px;font-weight:700;background:#dceaf8;font-size:14px}
+.gesAcceptedCard thead th{background:#164c83;color:white}
+.gesAcceptedCard .gesAcceptedHole{background:#123c69;color:white}
+.gesAcceptedCard tr>:nth-child(5){border-left:6px solid #edf4fc}
+
+/* Decorative scoring surfaces; selected values and agreement colours remain distinct. */
+.scoreEntryCard{border-color:#a9c8e7}
+.scoreStepper{border-color:#a9c8e7}
+.scoreStepper button{background:#dceaf8;color:#174b7e}
+.scoreStepper .stepValue,.scoreStepper.unset .stepValue{background:#e5e8e6;color:#737d77;border-color:#b8cee3}
+.scoreStepper.set .stepValue{background:#111;color:#fff}
+.scoreStepper.scoreFour .pickupBtn.picked{background:#111;color:#fff}
+.runningScore{background:#edf4fc;border-color:#a9c8e7}
+.runningScore b{color:#174b7e}
+.playerJoinLanding>small,.playerJoinLanding>p{color:#c8dff5}
+
+/* Connected players need the card, rather than organiser entry links. */
+body.playerDevice>.productGroupsLink,body.playerDevice>aside{display:none}
+body.playerDevice header{min-height:0;padding:7px 10px;gap:7px;flex-wrap:wrap}
+body.playerDevice header>div b{font-size:16px}
+body.playerDevice header>div small{display:none}
+body.playerDevice .headerMascot{display:none!important}
+body.playerDevice .cloudHeader{margin:0;font-size:11px}
+body.playerDevice #wakeHeader{margin:0;font-size:11px}
+body.playerDevice main{padding-top:8px}
+.completedCardPage .roundTop h2{color:#edf4fc;font-size:20px;line-height:1.2}
+.completedCardPage .roundTop p{color:#c8dff5;margin:4px 0;font-size:14px}
+.completedCardPage .completedMascot{display:none}
+.completedCardPage .roundTop{grid-template-columns:auto minmax(0,1fr);gap:10px}
+.completedGreeting{background:#dceaf8;border-left-color:#246cb0;padding:8px 10px;margin:8px 0}
+.completedGreeting b{color:#174b7e;font-size:16px}
+.completedGreeting span{display:none}
+.completedCardBanner{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 0}
+.completedCardBanner>div:last-child{grid-column:auto}
+.completedCardBanner>div,.completedTotals>div{background:#edf4fc;border-color:#a9c8e7;padding:8px 4px}
+.completedCardBanner small,.completedTotals small{color:#496681}
+.completedCardBanner b{color:#174b7e;font-size:16px}
+.completedCardHelp{background:#edf4fc;color:#496681;border-color:#a9c8e7;font-size:13px}
+.completedCardHelp summary{cursor:pointer;font-weight:700;color:#174b7e}
+.completedScoreHead{background:#164c83}
+.completedScoreRow:nth-child(even){background:#edf4fc}
+.completedScoreRow:not(.givesStroke) strong,.completedTotals b{color:#174b7e}
+.completedTotals .grand{background:#dceaf8}
+.gesPreviewSelector{display:flex;align-items:center;gap:12px;margin:0 auto 12px;max-width:780px;color:#edf4fc;font-weight:700}
+.gesPreviewSelector select{min-width:0;flex:1;max-width:360px;background:#dceaf8;color:#153552;padding:10px;border:1px solid #a9c8e7;border-radius:8px;font:inherit}
+.gesListMessage,#teamsPage>p{color:#c8dff5}
+#coursesPage>h2,#playersPage>h2,#teamsPage>h2,#teamsPage #groupsView>h2,.teamsTop h3{color:#edf4fc}
+.gesLinkedRows{background:white;color:#153552;border-radius:10px;overflow:hidden;margin:12px 0}
+.gesLinkedRow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-bottom:1px solid #dceaf8}
+#playerGotIt,#playerGotIt.done{background:#246cb0;color:white;border-color:#246cb0}
+.groupHead,.partnerBlock,.finalCheck .checkItem,.groupLogic{background:#dceaf8;color:#174b7e}
+.groupHead h4,.groupPlayerName b,.partnerHeading,.pairSummary,.finalCheck h4{color:#174b7e}
+.eventTeePanel,.eventTeePanel.final,.startingHolePanel,.startingHolePanel.locked{background:#edf4fc;border-color:#87b1d9;color:#153552}
+.eventTeePanel h3,.eventTeePanel small{color:#174b7e}
+.eventTeeButtons button{background:#dceaf8;color:#174b7e;border-color:#a9c8e7}
+.eventTeeButtons button.active{background:#246cb0;color:white;border-color:#246cb0}
+.summaryCard h3,.summaryResult.awarded{background:#dceaf8;color:#174b7e}
+.summaryResult,.summaryOutcome strong,.summaryResult.awarded .summaryOutcome strong{color:#174b7e}
+.summaryPrize,.summaryResult.awarded .summaryPrize{color:#496681!important}
+.finishControl,.finishControl.eventInProgress{background:#edf4fc;border-color:#87b1d9;color:#153552}
+.finishControl h3,.ntpHistoryEntry.winner,.ntpHistoryBlock .ntpPrizeResult,.ntpHistoryEntry time{color:#174b7e}
+.ntpHistoryBlock h4,.ntpHistoryEntry.winner{background:#dceaf8}
+.checkList .ok{background:#dceaf8;color:#174b7e}
+#teamsPage h2{color:#edf4fc}
+#teamsPage .teamsTop p,#teamsPage>.hint{color:#c8dff5}
+
+/* Organiser round progress and joining panels. */
+.liveControlCard{border-color:#b9cee5;color:#123f6b}
+.liveControlHead h2,.livePlayerName b{color:#123f6b}
+.liveControlHead>div>small,.liveControlHead p,.liveControlNote,
+.livePlayerName small,.livePlayerState small,.liveProgress small{color:#496b8c}
+.liveDayTabs,.liveProgress>span{background:#dceaf8}
+.liveDayTabs button{color:#315c83}
+.liveDayTabs button.active{color:#164c83}
+.liveCounters>div,.liveCounters .done,.livePlayerRow.finalised,
+.resultsWaiting{background:#edf4fc}
+.liveCounters small,.liveCounters b em{color:#496b8c}
+.liveCounters b,.livePlayerState b,.livePlayerRow.playing .livePlayerState b,
+.livePlayerRow.ready .livePlayerState b,.livePlayerRow.finalised .livePlayerState b{color:#164c83}
+.liveCounters .warn{background:#fff1e5}
+.liveCounters .warn b{color:#a44d17}
+.liveProgress>span i{background:#246cb0}
+.livePlayerList,.livePlayerRow{border-color:#dceaf8}
+.prizeReady{background:#dceaf8;border-color:#a8c4e2}
+.prizeReady b,.prizeReady span,.resultsWaiting{color:#164c83}
+.manualScoresBtn{background:#246cb0;color:white;border-color:#246cb0}
+.joinCodeDisplay,.connectedPlayers,.connectedSpectators{background:#edf4fc;border-color:#b9cee5;color:#164c83}
+.joinCodeDisplay span,.joinCodeDisplay b,.connectedPlayers>div:first-child span,
+.connectedSpectators span{color:#164c83}

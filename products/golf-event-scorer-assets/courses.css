@@ -1,0 +1,11 @@
+.course-grid,.tee-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px}.course-grid label:last-child{grid-column:1/-1}.course-grid input,.course-grid textarea,.tee-grid input,.tee-grid select,.scorecard input{background:#e3effc}.tee-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.scorecard{min-width:660px;table-layout:fixed}.scorecard input{min-width:0;width:100%;padding:9px 7px;text-align:center}.scorecard td,.scorecard th{padding:7px 5px}.scorecard th:nth-child(4n+1){width:7%}.scorecard th:nth-child(4n+2){width:11%}.scorecard th:nth-child(4n+3){width:15%}.scorecard th:nth-child(4n+4){width:17%}.scorecard .hole-number{background:#123c69;color:#fff;text-align:center;border-bottom:4px solid #f3f7fc;font-size:1rem}.scorecard tr>*:nth-child(5){border-left:12px solid #f3f7fc}.scorecard input:focus{outline:3px solid #276bb0;outline-offset:1px}.save-actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.tee-editor{background:#f3f7fc}.tee-editor legend{font-size:1.1rem}.tee-editor fieldset{border:0}.course-total{font-weight:600}#courseMessage,#saveFeedback:not(:empty){background:#dceaf8;padding:12px;border-radius:8px}#courseMessage.error,#saveFeedback.error{background:#fff0ee;color:#962e28}#acceptedStatus{color:#365472}@media(max-width:600px){.course-grid,.tee-grid{grid-template-columns:1fr}.course-grid label:last-child{grid-column:auto}.save-actions{align-items:stretch;flex-direction:column}td,th{padding:6px}}
+
+.tee-copy-row{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin:12px 0}.tee-copy-row label{flex:1;min-width:180px;margin:0}.copy-help{font-size:.875rem;color:#365472}.copy-status:not(:empty){background:#dceaf8;padding:12px;border-radius:8px}.copy-status.error{color:#962e28;background:#fff0ee}@media(max-width:600px){.tee-copy-row button{width:100%}}
+
+.calculated-total{text-align:center;font-weight:700;color:#123c69}
+
+.tee-grid input,.scorecard input{font-weight:700}
+
+.tee-grid{gap:0 14px}.tee-grid label{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:center;gap:8px;font-size:.875rem;margin:8px 0}.tee-grid input{padding:9px 8px;font-size:1rem}@media(min-width:601px) and (max-width:800px){.tee-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.tee-grid input{text-align:center}.tee-copy-row label{min-width:140px}.tee-copy-row select{padding:9px}
