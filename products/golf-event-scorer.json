@@ -1,7 +1,7 @@
 {
   "name": "Golf Event Scorer",
   "shortName": "Golf Events",
-  "version": "0.1.0-dev",
+  "version": "0.2.10-dev",
   "storagePrefix": "golfEventScorer",
-  "cloudEnabled": false
+  "cloudEnabled": true
 }

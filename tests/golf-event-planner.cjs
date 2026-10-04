@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const group={id:'group-a'},elements=new Map(),later=[];
+const element=()=>({onclick:null,disabled:false,classList:{add(){},remove(){}}});
+let saved;
+const context={group,players:[{id:'p1',name:'Rod Ruston',ga:12,active:true,details:{registration:'2011801612'}}],courses:[{id:'c1',name:'Oatlands',details:{teeScorecards:{middle:{par:[4]}}}}],event:{id:'e1',planning_data:{event:{name:'Test',course1:'c1'}}},save:async value=>saved=value};
+const scope={document:{body:{classList:{add(){}}}},window:{GES_PLANNER_CONTEXT:context},store:{cloud:{},players:[],courses:[]},sessionStorage:{setItem(){}},$:(id)=>{if(!elements.has(id))elements.set(id,element());return elements.get(id)},W:{step:1,event:{name:'Test'}},syncEventFields(){},saveWizardDraft(){scope.store.event={name:'Test',course1:'c1'}},nav(){},alert(){},structuredClone,setTimeout(fn){later.push(fn)},reopenEventPlan(){},openWizard(){}};
+vm.runInNewContext(fs.readFileSync('products/golf-event-scorer-planner-hooks.js','utf8'),scope);
+assert.equal(scope.store.players[0].golfLink,'2011801612');assert.equal(scope.store.courses[0].name,'Oatlands');assert.equal(scope.store.event.name,'Test');assert.equal(scope.store.cloud,undefined);
+(async()=>{await elements.get('#saveEventDraft').onclick();assert.equal(saved.name,'Test');assert.equal(elements.get('#saveEventDraft').disabled,false);
+const app=fs.readFileSync('build/app.js','utf8'),html=fs.readFileSync('build/planner.html','utf8');assert(app.includes('const ctx=window.GES_PLANNER_CONTEXT'));assert(app.includes('!window.GES_PLANNER_CONTEXT && !store.event'));assert(app.includes("'golfEventScorer13' + (window.GES_PLANNER_CONTEXT"));assert(html.includes('src="planner.mjs"'));assert(!html.includes('<script src="app.js'));console.log('Passed: online roster mapping, approved courses, draft saving, isolated storage and planner entry point');})();
