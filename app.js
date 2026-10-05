@@ -2617,7 +2617,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.2", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3320,7 +3320,8 @@ Count-back if tied
       .sort()
       .map((key) => event.emergencyReplacements[key]?.ruleText)
       .filter(Boolean);
-    const specialText = [event.specialRules, ...emergencyRules]
+    const shortRules=ruleDays.flatMap(day=>shortTeamRuleLines(event,day));
+    const specialText = [event.specialRules, ...shortRules, ...emergencyRules]
       .flatMap(specialRuleLines)
       .join("\n");
     if (specialText)
@@ -6219,9 +6220,19 @@ Count-back if tied
     return a;
   }
   function makeGroups(ids) {
-    let out = [];
-    for (let i = 0; i < ids.length; i += 4) out.push(ids.slice(i, i + 4));
-    return out;
+    const real = ids.filter(id => String(id) !== NO_PARTNER_ID);
+    if (real.length < 6) {
+      const out = [];
+      for (let i=0; i<ids.length; i+=4) out.push(ids.slice(i,i+4));
+      return out;
+    }
+    const count = Math.ceil(real.length/4), base = Math.floor(real.length/count), extra = real.length%count;
+    let offset=0;
+    return Array.from({length:count},(_,index)=>{
+      const size=base+(index<extra?1:0), group=real.slice(offset,offset+size);offset+=size;
+      if(size===3&&!ambroseIsOn())group.push(NO_PARTNER_ID);
+      return group;
+    });
   }
   function defaultStarts(groups, method, day = 1) {
     method = method || startMethodFor(store.event, day);
@@ -6267,11 +6278,11 @@ Count-back if tied
         "",
     );
   }
-  function noPartnerContext(groups, day) {
+  function noPartnerContext(groups, day, groupIndex = null) {
     const all = dayFieldIds(day),
-      shortIndex = groups.findIndex((g) =>
+      shortIndex = groupIndex === null ? groups.findIndex((g) =>
         g.some((id) => String(id) === NO_PARTNER_ID),
-      );
+      ) : groups[groupIndex]?.some(id => String(id) === NO_PARTNER_ID) ? groupIndex : -1;
     if (shortIndex < 0) return null;
     const g = groups[shortIndex],
       npIndex = g.findIndex((id) => String(id) === NO_PARTNER_ID);
@@ -6292,10 +6303,10 @@ Count-back if tied
       candidates,
     };
   }
-  function ambroseThreePlayerContext(groups) {
-    const shortIndex = groups.findIndex(
+  function ambroseThreePlayerContext(groups, groupIndex = null) {
+    const shortIndex = groupIndex === null ? groups.findIndex(
       (group) => group.filter((id) => String(id) !== NO_PARTNER_ID).length === 3,
-    );
+    ) : groups[groupIndex]?.filter(id=>String(id)!==NO_PARTNER_ID).length===3 ? groupIndex : -1;
     if (shortIndex < 0) return null;
     return {
       groupIndex: shortIndex,
@@ -6312,10 +6323,10 @@ Count-back if tied
       a = arr.filter((x) => !ex.has(String(x)));
     return a.length ? a[Math.floor(Math.random() * a.length)] : null;
   }
-  function ensureShortTeamSelections(setup, day) {
+  function ensureOneShortTeamSelections(setup, day) {
     const ctx = ambroseIsOn()
-      ? ambroseThreePlayerContext(setup.groups)
-      : noPartnerContext(setup.groups, day);
+      ? ambroseThreePlayerContext(setup.groups, setup.shortTeamIndex ?? null)
+      : noPartnerContext(setup.groups, day, setup.shortTeamIndex ?? null);
     if (!ctx) {
       setup.virtualPlayer = null;
       setup.ntpExtraPlayer = null;
@@ -6329,45 +6340,65 @@ Count-back if tied
     )
       setup.virtualPlayer = chooseRandom(ctx.candidates);
     const emergency = store.event.emergencyReplacements?.["day" + day];
-    if (emergency) {
+    if (emergency && emergency.groupIndex === ctx.groupIndex) {
       setup.virtualPlayer = emergency.virtualPlayerId;
       setup.ntpExtraPlayers = emergency.ntpExtraPlayers || {};
       setup.ntpExtraPlayer = null;
     } else if ((store.event.competitions || []).includes("ntp")) {
       const eligible = ctx.realInGroup.map(String);
-      if (ambroseIsOn()) {
-        const holes = ntpHolesInPlayingOrder(day).slice(0, 2),
-          previous = setup.ntpExtraPlayers || {},
-          assignments = {},
-          used = [];
-        holes.forEach((hole, index) => {
-          let selected = String(previous[String(hole)] || "");
-          if (!eligible.includes(selected) || (index > 0 && used.includes(selected)))
-            selected = String(
-              chooseRandom(
-                eligible,
-                index > 0 && eligible.length > 1 ? used : [],
-              ) || "",
-            );
-          if (selected) {
-            assignments[String(hole)] = selected;
-            used.push(selected);
-          }
-        });
-        setup.ntpExtraPlayers = assignments;
-        setup.ntpExtraPlayer = null;
-      } else {
-        if (
-          !setup.ntpExtraPlayer ||
-          !eligible.includes(String(setup.ntpExtraPlayer))
-        )
-          setup.ntpExtraPlayer = chooseRandom(eligible);
-        setup.ntpExtraPlayers = {};
-      }
+      // Preserve existing locked single-VP events; new draws rotate attempts by hole.
+      if (setup.ntpExtraPlayer && (setup.saved || store.event.locked) && !Object.keys(setup.ntpExtraPlayers || {}).length) return;
+      const order = (setup.ntpRotation || []).filter(id => eligible.includes(id));
+      if (order.length !== eligible.length || new Set(order).size !== eligible.length) setup.ntpRotation = shuffleCopy(eligible);
+      else setup.ntpRotation = order;
+      setup.ntpExtraPlayers = Object.fromEntries(ntpHolesInPlayingOrder(day).map((hole,index)=>[String(hole),setup.ntpRotation[index%eligible.length]]));
+      setup.ntpExtraPlayer = null;
     } else {
       setup.ntpExtraPlayer = null;
       setup.ntpExtraPlayers = {};
     }
+  }
+  function setupForTeam(setup, groupIndex) {
+    if (!setup) return setup;
+    if (setup.shortTeams) return {...setup, virtualPlayer:null, ntpExtraPlayer:null, ntpExtraPlayers:{}, ...setup.shortTeams[String(groupIndex)], shortTeamIndex:groupIndex};
+    const first = setup.groups.findIndex(g => g.some(id => String(id)===NO_PARTNER_ID) || (ambroseIsOn() && g.length===3));
+    return {...setup, ...(first===groupIndex?{}:{virtualPlayer:null,ntpExtraPlayer:null,ntpExtraPlayers:{}}),shortTeamIndex:groupIndex};
+  }
+  function ensureShortTeamSelections(setup, day) {
+    const previous=setup.shortTeams || {}, next={}, used=new Set();
+    const emergency=store.event.emergencyReplacements?.['day'+day];
+    if(emergency?.virtualPlayerId)used.add(String(emergency.virtualPlayerId));
+    const shortIndexes=setup.groups.map((g,i)=>g.filter(id=>String(id)!==NO_PARTNER_ID).length===3?i:-1).filter(i=>i>=0);
+    const legacyIndex=setup.groups.findIndex(g=>g.some(id=>String(id)===NO_PARTNER_ID) || (ambroseIsOn()&&g.length===3));
+    for(const gi of shortIndexes){
+      if(!ambroseIsOn()&&!setup.groups[gi].some(id=>String(id)===NO_PARTNER_ID))setup.groups[gi].push(NO_PARTNER_ID);
+      const legacy=!setup.shortTeams&&gi===legacyIndex ? {virtualPlayer:setup.virtualPlayer,ntpExtraPlayer:setup.ntpExtraPlayer,ntpExtraPlayers:setup.ntpExtraPlayers} : {};
+      const local={...setup,...legacy,...previous[String(gi)],shortTeamIndex:gi};
+      if(!previous[String(gi)]&&!Object.keys(legacy).length){local.virtualPlayer=null;local.ntpExtraPlayer=null;local.ntpExtraPlayers={};local.ntpRotation=[];}
+      ensureOneShortTeamSelections(local,day);
+      if(!ambroseIsOn()){
+        const ctx=noPartnerContext(setup.groups,day,gi);
+        const reserved=emergency?.groupIndex===gi;
+        if(!reserved && used.has(String(local.virtualPlayer))) local.virtualPlayer=chooseRandom(ctx.candidates,[...used]);
+        if(!local.virtualPlayer)throw new Error('No distinct Virtual Player is available for Team '+(gi+1)+'. Review the draw.');
+        used.add(String(local.virtualPlayer));
+      }
+      next[String(gi)]={virtualPlayer:local.virtualPlayer||null,ntpExtraPlayer:local.ntpExtraPlayer||null,ntpExtraPlayers:local.ntpExtraPlayers||{},ntpRotation:local.ntpRotation||[]};
+    }
+    setup.shortTeams=next;
+    const first=next[String(shortIndexes[0])] || {};
+    // Legacy fields remain readable by old backups. Current scoring uses the team map.
+    setup.virtualPlayer=first.virtualPlayer||null;setup.ntpExtraPlayer=first.ntpExtraPlayer||null;setup.ntpExtraPlayers=first.ntpExtraPlayers||{};
+  }
+  function shortTeamRuleLines(event, day) {
+    const setup=event.groupSetup?.['day'+day];if(!setup)return [];
+    return Object.entries(setup.shortTeams||{}).flatMap(([gi,a])=>{
+      const lines=[`Team ${+gi+1}: three real golfers${a.virtualPlayer?`; ${player(a.virtualPlayer)?.name || 'the assigned golfer'} supplies the Virtual Player score for multiplayer competitions`:'. No borrowed score is used for Ambrose'}.`];
+      const attempts=Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`Hole ${hole}: ${player(id)?.name||'the assigned golfer'} takes two tee shots; either may win NTP`);
+      if(a.ntpExtraPlayer)attempts.push(`${player(a.ntpExtraPlayer)?.name||'the assigned golfer'} takes two shots on each NTP hole`);
+      if(attempts.length)lines.push(`Team ${+gi+1} NTP extra attempts — ${attempts.join('; ')}.`);
+      return lines;
+    });
   }
   function initialiseGroups() {
     if (!store.event) return;
@@ -6381,8 +6412,8 @@ Count-back if tied
       const same =
         current &&
         current.groups &&
-        current.groups.flat().map(String).sort().join("|") ===
-          expectedIds.map(String).sort().join("|");
+        current.groups.flat().map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") ===
+          expectedIds.map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|");
       if (!same) {
         // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
         // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
@@ -7270,10 +7301,10 @@ Count-back if tied
     $("#modalShade").classList.add("open");
     let proposal = null;
     const propose = (missingId) => {
-      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
+      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner && !Object.values(setup.shortTeams||{}).some(a=>String(a.virtualPlayer)===String(id))), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
       if (groupIndex < 0 || groupHasScoreEntries(day, groupIndex) || !affectedId || !virtualId || realInGroup.length !== 3) return null;
       const shuffled = shuffleCopy(realInGroup);
-      ntpHolesInPlayingOrder(day).slice(0, 2).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i]);
+      ntpHolesInPlayingOrder(day).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i % shuffled.length]);
       return { missingId: String(missingId), groupIndex, missingIndex, affectedId: String(affectedId), virtualId: String(virtualId), ntpExtraPlayers };
     };
     $("#missingPlayerSelect").onchange = (e) => {
@@ -7281,7 +7312,7 @@ Count-back if tied
       $("#missingPlayerPreview").innerHTML = proposal
         ? `<div class="emergencyWarning"><b>${esc(player(proposal.missingId)?.name)} will be removed from today’s draw.</b><span>${esc(player(proposal.virtualId)?.name)} will be the locked virtual player for ${esc(player(proposal.affectedId)?.name)}. The remaining three players will mark each other.</span>${Object.entries(proposal.ntpExtraPlayers).map(([hole, id]) => `<span>Hole ${hole} NTP extra attempt: ${esc(player(id)?.name)}</span>`).join("")}</div>`
         : e.target.value
-          ? '<div class="emergencyWarning"><b>No emergency replacement is available.</b><span>This event has only one team, so there is no eligible player outside the missing player’s team.</span></div>'
+          ? '<div class="emergencyWarning"><b>No emergency replacement is available.</b><span>An emergency replacement requires a four-player team that has not started scoring and an unused eligible Virtual Player outside that team.</span></div>'
           : "";
     };
     $("#cancelMissingPlayer").onclick = () => $("#modalShade").classList.remove("open");
@@ -7295,6 +7326,7 @@ Count-back if tied
       Object.assign(setup, { missingPlayerId: proposal.missingId, virtualPlayer: proposal.virtualId, ntpExtraPlayers: proposal.ntpExtraPlayers });
       store.event.emergencyReplacements = store.event.emergencyReplacements || {};
       store.event.emergencyReplacements[key] = { missingPlayerId: proposal.missingId, virtualPlayerId: proposal.virtualId, affectedPlayerId: proposal.affectedId, groupIndex: proposal.groupIndex, ntpExtraPlayers: proposal.ntpExtraPlayers, appliedAt: new Date().toISOString(), ruleText: emergencyRuleText(day, proposal.virtualId, proposal.affectedId, proposal.ntpExtraPlayers) };
+      ensureShortTeamSelections(setup,day);
       persistStore();
       if (store.cloud?.role === "organiser" && store.cloud.eventId) await updateCloudEvent();
       $("#modalShade").classList.remove("open"); renderHome(); renderTeamsPage(); renderPlayerExperience();
@@ -7325,7 +7357,7 @@ Count-back if tied
         ids = (setup?.groups?.[groupIndex] || [])
           .map((id) =>
             String(id) === NO_PARTNER_ID
-              ? String(setup?.virtualPlayer || "")
+              ? String(setupForTeam(setup,groupIndex)?.virtualPlayer || "")
               : String(id),
           )
           .filter(Boolean);
@@ -7416,7 +7448,7 @@ Count-back if tied
       setup = store.event?.groupSetup?.["day" + day],
       raw = setup?.groups?.[groupIndex] || [],
       virtualId = raw.some((id) => String(id) === NO_PARTNER_ID)
-        ? String(setup?.virtualPlayer || "")
+        ? String(setupForTeam(setup,groupIndex)?.virtualPlayer || "")
         : "",
       ids = raw
         .map((id) =>
@@ -8973,7 +9005,7 @@ Count-back if tied
     if (pos < 0) return null;
     // A genuine late withdrawal leaves three golfers. They mark in one closed
     // loop so every visible Player and Marker is a real golfer in that group.
-    if (ctx.setup.missingPlayerId && g.length === 3)
+    if (g.length === 3)
       return String(g[(pos + 1) % 3]);
     // Prefer the 4BBB partner because the two golfers naturally mark/verify each other.
     if ((store.event.competitions || []).includes("fourball")) {
@@ -9251,15 +9283,15 @@ Count-back if tied
      ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
    </div>`;
     };
-    const pairName = (id) => {
+    const pairName = (id, gi) => {
       if (String(id) === NO_PARTNER_ID)
-        return `<span class="vpName">${esc(vp?.name || "Virtual Player")} (VP)</span>`;
+        return `<span class="vpName">${esc(player(setupForTeam(setup,gi).virtualPlayer)?.name || "Virtual Player")} (VP)</span>`;
       return esc(player(id)?.name || "");
     };
-    const pairBlock = (g) => {
+    const pairBlock = (g, gi) => {
       if (!(store.event.competitions || []).includes("fourball")) return "";
-      const one = g.slice(0, 2).map(pairName).join(" & "),
-        two = g.slice(2, 4).map(pairName).join(" & ");
+      const one = g.slice(0, 2).map(id=>pairName(id,gi)).join(" & "),
+        two = g.slice(2, 4).map(id=>pairName(id,gi)).join(" & ");
       return `<div class="partnerBlock"><div class="partnerHeading">Partners in 4BBB</div><div class="pairSummary"><span>${one || "—"}</span><span>${two || "—"}</span></div></div>`;
     };
     const ambroseRoleBlock = (g, gi) => {
@@ -9331,7 +9363,7 @@ Count-back if tied
    <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}</div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ambroseRoleBlock(g, gi)}
-   ${ctx && ctx.groupIndex === gi ? ambroseIsOn() ? `<div class="vpAssignment"><b>Three-player Ambrose team</b>${ambroseExtraAttempts.map((attempt) => `<span class="ntpExtra"><b>Hole ${attempt.hole} NTP Extra Shot:</b> ${esc(attempt.name)}</span>`).join("")}</div>` : `<div class="vpAssignment"><b>Virtual Player:</b> <span class="vpName">${esc(vp?.name || "Not selected")} (VP)</span>${extra ? `<span class="ntpExtra"><b>NTP Extra Shot:</b> ${esc(extra.name)}</span>` : ""}</div>` : ""}
+   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn()?'Three-player Ambrose team':'Virtual Player: '+esc(player(a.virtualPlayer)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(player(id)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(player(a.ntpExtraPlayer)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
    ${
      !locked && !teamsSaved &&
      store.event.swapPlayer &&
@@ -9346,7 +9378,7 @@ Count-back if tied
          }</div>`
        : ""
    }
-   ${pairBlock(g)}
+   ${pairBlock(g,gi)}
  </div>`,
    )
    .join("")}</div>
@@ -9362,7 +9394,7 @@ Count-back if tied
          .join("")}</div></div>`
      : ""
  }
- ${shortNotice}
+ ${shortTeamRuleLines(store.event,day).length?`<div class="virtualNotice"><h4>Short Team Arrangements</h4>${shortTeamRuleLines(store.event,day).map(line=>`<p>${esc(line)}</p>`).join('')}<p>Virtual scores do not create extra individual results or extra lottery contributions. Yellow Ball rotates through the real golfers only.</p></div>`:shortNotice}
  ${
    !locked && !teamsSaved && store.event.swapPlayer
      ? `<div class="swapAdvice"><b>Manual placement history — ${esc(player(store.event.swapPlayer)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
@@ -9713,7 +9745,7 @@ Count-back if tied
     for (let gi = 0; gi < setup.groups.length; gi++) {
       const g = setup.groups[gi].map(String),
         pi = g.indexOf(String(pid));
-      if (pi >= 0) return { setup, group: g, groupIndex: gi, playerIndex: pi };
+      if (pi >= 0) return { setup:setupForTeam(setup,gi), group: g, groupIndex: gi, playerIndex: pi };
     }
     return null;
   }
@@ -10750,7 +10782,7 @@ Count-back if tied
           ? group.filter((id) => id !== NO_PARTNER_ID)
           : group
               .map((id) =>
-                id === NO_PARTNER_ID ? String(setup.virtualPlayer || "") : id,
+                id === NO_PARTNER_ID ? String(setupForTeam(setup,gi).virtualPlayer || "") : id,
               )
               .filter(Boolean);
       if (type === "team")
@@ -10767,7 +10799,7 @@ Count-back if tied
           const ids = group
             .slice(n, n + 2)
             .map((id) =>
-              id === NO_PARTNER_ID ? String(setup.virtualPlayer || "") : id,
+              id === NO_PARTNER_ID ? String(setupForTeam(setup,gi).virtualPlayer || "") : id,
             )
             .filter(Boolean);
           if (ids.length)
@@ -11996,7 +12028,7 @@ Count-back if tied
       else partner = player(other);
     }
     const isAffected = (() => {
-      const np = noPartnerContext(setup.groups, day);
+      const np = noPartnerContext(setup.groups, day, ctx.groupIndex);
       return np && String(np.affected) === selected ? np : null;
     })();
     const extraNtpHoles = Object.entries(setup.ntpExtraPlayers || {})
@@ -12163,3 +12195,4 @@ Count-back if tied
       .catch(() => {});
   }
 })();
+
