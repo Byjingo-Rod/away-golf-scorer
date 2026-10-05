@@ -2,10 +2,10 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const file=process.argv[2]||'app.js',source=fs.readFileSync(file,'utf8');
 function extract(name){const start=source.indexOf('  function '+name+'(');assert(start>=0,name);const end=source.indexOf('\n  function ',start+10);return source.slice(start,end<0?source.length:end);}
 const NP='system-no-partner',plain=x=>JSON.parse(JSON.stringify(x));
-const ctx={NO_PARTNER_ID:NP,store:{event:{}},console,ambroseIsOn:()=>ctx.store.event.competitions.includes('ambrose'),dayFieldIds:()=>ctx.store.event.confirmed,ntpHolesInPlayingOrder:()=>[3,8,15],shuffleCopy:a=>[...a].reverse(),chooseRandom:(a,exclude=[])=>a.find(x=>!exclude.includes(x))||null,player:id=>({name:id}),manualSelectedCompetitions:()=>new Set(['single','fourball','best3of4','teamPutts','par3','ntp']),groupHasScoreEntries:()=>false,sessionStorage:{},scoreSequence:()=>Array.from({length:18},(_,i)=>i+1),groupStartingHole:()=>1,yellowBallIsOn:()=>true};
+const ctx={NO_PARTNER_ID:NP,store:{event:{}},console,firstDayScoreEntry:()=>null,ambroseIsOn:()=>ctx.store.event.competitions.includes('ambrose'),dayFieldIds:()=>ctx.store.event.confirmed,ntpHolesInPlayingOrder:()=>[3,8,15],shuffleCopy:a=>[...a].reverse(),chooseRandom:(a,exclude=[])=>a.find(x=>!exclude.includes(x))||null,player:id=>({name:id}),manualSelectedCompetitions:()=>new Set(['single','fourball','best3of4','teamPutts','par3','ntp']),groupHasScoreEntries:()=>false,sessionStorage:{},scoreSequence:()=>Array.from({length:18},(_,i)=>i+1),groupStartingHole:()=>1,yellowBallIsOn:()=>true};
 vm.createContext(ctx);
-for(const name of ['makeGroups','noPartnerContext','ambroseThreePlayerContext','ensureOneShortTeamSelections','setupForTeam','ensureShortTeamSelections','shortTeamRuleLines','playerGroupContext','markerTargetFor','leaderboardUnits','manualRequirements','yellowBallTeam','yellowBallPlayerForHole'])vm.runInContext(extract(name),ctx);
-for(const [count,sizes] of [[6,[3,3]],[7,[4,3]],[9,[3,3,3]],[10,[4,3,3]],[18,[4,4,4,3,3]],[20,[4,4,4,4,4]]]){
+for(const name of ['makeGroups','noPartnerContext','ambroseThreePlayerContext','ensureOneShortTeamSelections','swapWholeTeams','setupForTeam','ensureShortTeamSelections','shortTeamRuleLines','playerGroupContext','markerTargetFor','leaderboardUnits','manualRequirements','yellowBallTeam','yellowBallPlayerForHole'])vm.runInContext(extract(name),ctx);
+for(const [count,sizes] of [[6,[3,3]],[7,[4,3]],[9,[3,3,3]],[10,[4,3,3]],[14,[4,4,3,3]],[18,[4,4,4,3,3]],[20,[4,4,4,4,4]]]){
  const ids=Array.from({length:count},(_,i)=>'p'+i);ctx.store.event={confirmed:ids,days:2,competitions:['single','fourball','best3of4','teamPutts','par3','ntp','yellowBall'],groupSetup:{}};
  for(const day of [1,2]){
   const groups=ctx.makeGroups(ids),setup={groups,saved:false,virtualPlayer:null};ctx.store.event.groupSetup['day'+day]=setup;ctx.ensureShortTeamSelections(setup,day);
@@ -26,3 +26,13 @@ const legacy={groups:[['a','b','c',NP],['d','e','f','g']],saved:true,virtualPlay
 // Ambrose never borrows a score, but every three-ball gets extra attempts.
 ctx.store.event={confirmed:['a','b','c','d','e','f'],competitions:['ambrose','ntp'],days:1,groupSetup:{}};const ambrose={groups:ctx.makeGroups(ctx.store.event.confirmed)};ctx.store.event.groupSetup.day1=ambrose;ctx.ensureShortTeamSelections(ambrose,1);assert.equal(Object.keys(ambrose.shortTeams).length,2);assert(Object.values(ambrose.shortTeams).every(a=>!a.virtualPlayer&&Object.keys(a.ntpExtraPlayers).length===3));assert(ambrose.groups.every(g=>g.length===3&&!g.includes(NP)));
 console.log('Passed '+file+': balanced 6/7/9/10/18/20 draws, distinct external VPs, NTP rotation per team, real-player marking, correct leaderboard/manual team IDs, Yellow Ball, stable save/reload, legacy preservation and Ambrose');
+
+// Whole-team swaps exchange slot numbers, keeping each team and all its roles intact.
+ctx.store.event={confirmed:Array.from({length:14},(_,i)=>'p'+i),competitions:['fourball','ntp'],days:1,groupSetup:{},ambroseRoleAssignments:{day1:{1:{scorerId:'p4'},2:{scorerId:'p8'}}}};
+const event=ctx.store.event, setup={groups:ctx.makeGroups(event.confirmed),starts:[1,1,10,10],saved:false};event.groupSetup.day1=setup;ctx.ensureShortTeamSelections(setup,1);
+event.emergencyReplacements={day1:{groupIndex:2}};
+const old=plain(setup),roles=plain(event.ambroseRoleAssignments.day1);
+assert(ctx.swapWholeTeams(event,1,2,1));assert.deepEqual(plain(setup.groups[1]),old.groups[2]);assert.deepEqual(plain(setup.groups[2]),old.groups[1]);assert.deepEqual(plain(setup.starts),old.starts);assert.deepEqual(plain(setup.shortTeams['1']),old.shortTeams['2']);assert(!setup.shortTeams['2']);assert.deepEqual(plain(event.ambroseRoleAssignments.day1[1]),roles[2]);assert.equal(event.emergencyReplacements.day1.groupIndex,1);
+assert(ctx.swapWholeTeams(event,1,2,1));assert.deepEqual(plain(setup.groups),old.groups);assert.deepEqual(plain(setup.shortTeams),old.shortTeams);
+setup.saved=true;assert(!ctx.swapWholeTeams(event,1,0,1));setup.saved=false;event.locked=true;assert(!ctx.swapWholeTeams(event,1,0,1));event.locked=false;ctx.firstDayScoreEntry=()=>({hole:1});assert(!ctx.swapWholeTeams(event,1,0,1));ctx.firstDayScoreEntry=()=>null;assert(!ctx.swapWholeTeams(event,1,0,0));assert(!ctx.swapWholeTeams(event,1,0,99));
+console.log('Passed whole-team swap: members, VP/NTP, Ambrose roles and emergency move; tee slots stay; locked/saved/started draws protected');

@@ -2617,7 +2617,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.3", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6358,6 +6358,33 @@ Count-back if tied
       setup.ntpExtraPlayers = {};
     }
   }
+  function swapWholeTeams(event, day, first, second) {
+    const setup = event?.groupSetup?.['day' + day];
+    if (!setup || event.locked || setup.saved || firstDayScoreEntry(day) ||
+        !Number.isInteger(first) || !Number.isInteger(second) || first === second ||
+        first < 0 || second < 0 || !setup.groups[first] || !setup.groups[second]) return false;
+    const exchange = (map) => {
+      if (!map) return;
+      const a = map[first], b = map[second];
+      if (b === undefined) delete map[first]; else map[first] = b;
+      if (a === undefined) delete map[second]; else map[second] = a;
+    };
+    exchange(setup.groups);
+    exchange(setup.shortTeams);
+    exchange(event.ambroseRoleAssignments?.['day' + day]);
+    const emergency = event.emergencyReplacements?.['day' + day];
+    if (emergency?.groupIndex === first) emergency.groupIndex = second;
+    else if (emergency?.groupIndex === second) emergency.groupIndex = first;
+    // Starting holes and tee times belong to the tee slots, not the golfers.
+    const firstShort = setup.groups.findIndex(g => g.filter(id => String(id) !== NO_PARTNER_ID).length === 3);
+    const assignment = setup.shortTeams?.[firstShort] || {};
+    setup.virtualPlayer = assignment.virtualPlayer || null;
+    setup.ntpExtraPlayer = assignment.ntpExtraPlayer || null;
+    setup.ntpExtraPlayers = assignment.ntpExtraPlayers || {};
+    setup.saved = false;
+    event.swapPlayer = null;
+    return true;
+  }
   function setupForTeam(setup, groupIndex) {
     if (!setup) return setup;
     if (setup.shortTeams) return {...setup, virtualPlayer:null, ntpExtraPlayer:null, ntpExtraPlayers:{}, ...setup.shortTeams[String(groupIndex)], shortTeamIndex:groupIndex};
@@ -9357,10 +9384,11 @@ Count-back if tied
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
  ${startingHolePanel}
+ ${!locked && !teamsSaved ? `<p role="status">${store.event.teamOrderSwap?.day === day ? `Team ${store.event.teamOrderSwap.index + 1} selected — click Swap on the team to exchange tee slots with, or click the selected button to cancel.` : "To change the order of play, click Swap beside the starting hole on two teams. Players and partnerships stay together; the teams exchange numbers and tee slots."}</p>` : ""}
  <div class="groupGrid">${groups
    .map(
      (g, gi) => `<div class="playingGroup">
-   <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}</div>
+   <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected · Cancel" : "Swap"}</button></div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ambroseRoleBlock(g, gi)}
    ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn()?'Three-player Ambrose team':'Virtual Player: '+esc(player(a.virtualPlayer)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(player(id)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(player(a.ntpExtraPlayer)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
@@ -9421,6 +9449,7 @@ Count-back if tied
       (b) =>
         (b.onclick = () => {
           store.event.activeGroupDay = +b.dataset.groupday;
+          delete store.event.teamOrderSwap;
           store.event.swapPlayer = null;
           writeLocalStore();
           renderTeamsPage();
@@ -9556,6 +9585,7 @@ Count-back if tied
         renderTeamsPage();
       };
     if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
+      delete store.event.teamOrderSwap;
       store.event.drawMode = "history";
       store.event.manualMode = false;
       store.event.swapPlayer = null;
@@ -9567,6 +9597,7 @@ Count-back if tied
       renderTeamsPage();
     };
     if ($("#randomiseGroups")) $("#randomiseGroups").onclick = () => {
+      delete store.event.teamOrderSwap;
       store.event.drawMode = "random";
       store.event.manualMode = false;
       store.event.swapPlayer = null;
@@ -9578,17 +9609,32 @@ Count-back if tied
       renderTeamsPage();
     };
     if ($("#manualMode")) $("#manualMode").onclick = () => {
+      delete store.event.teamOrderSwap;
       store.event.drawMode = "manual";
       store.event.manualMode = true;
       store.event.swapPlayer = null;
       writeLocalStore();
       renderTeamsPage();
     };
+    $$('[data-swapteam]').forEach(button => button.onclick = () => {
+      if (locked || teamsSaved || firstDayScoreEntry(day)) return;
+      const chosen = +button.dataset.swapteam;
+      const pending = store.event.teamOrderSwap;
+      store.event.swapPlayer = null;
+      if (!pending || pending.day !== day) store.event.teamOrderSwap = {day, index: chosen};
+      else {
+        swapWholeTeams(store.event, day, pending.index, chosen);
+        delete store.event.teamOrderSwap;
+      }
+      writeLocalStore();
+      renderTeamsPage();
+    });
     $$("[data-swapplayer]").forEach(
       (btn) =>
         (btn.onclick = () => {
           store.event.drawMode = "manual";
           store.event.manualMode = true;
+          delete store.event.teamOrderSwap;
           const id = String(btn.dataset.swapplayer);
           if (!store.event.swapPlayer) {
             store.event.swapPlayer = id;
@@ -9667,6 +9713,7 @@ Count-back if tied
         }),
     );
     if ($("#saveGroups")) $("#saveGroups").onclick = () => {
+      delete store.event.teamOrderSwap;
       setup.saved = true;
       store.event.swapPlayer = null;
       ensureShortTeamSelections(setup, day);
