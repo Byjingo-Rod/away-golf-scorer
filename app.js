@@ -2617,7 +2617,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.4", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.5", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -7493,6 +7493,7 @@ Count-back if tied
       puttingPairs: store.event.puttingFormat === "pairs",
       par3: comps.has("par3"),
       ntp: comps.has("ntp"),
+      yellowBall: yellowBallIsOn(day),
     };
   }
   function manualCalculatedSummary(values) {
@@ -7504,6 +7505,21 @@ Count-back if tied
       last6: String(sum(values.slice(12, 18))),
       last3: String(sum(values.slice(15, 18))),
     };
+  }
+  function manualYellowBallLoss(day, groupIndex, result) {
+    if (!result || !result.lossHole || result.lossHole === "NONE") return null;
+    const hole = +result.lossHole;
+    const position = scoreSequence(groupStartingHole(store.event, day, groupIndex)).indexOf(hole);
+    return position < 0 ? null : {hole, position, playerId: yellowBallPlayerForHole(day, groupIndex, hole), source: "paper-team-card"};
+  }
+  function deriveManualYellowBall(day, groupIndex, card, points) {
+    const result = card.team.yellowBall;
+    if (!result?.lossHole) return;
+    const sequence = scoreSequence(groupStartingHole(store.event, day, groupIndex));
+    const loss = manualYellowBallLoss(day, groupIndex, result);
+    const counting = sequence.slice(0, loss ? loss.position : sequence.length);
+    const values = counting.map(hole => points[yellowBallPlayerForHole(day, groupIndex, hole)]?.[hole - 1]);
+    result.total = values.every(value => value != null) ? String(values.reduce((sum, value) => sum + value, 0)) : "";
   }
   function deriveManualFullCards(day, groupIndex, card, req) {
     if (!card.fullCardsOpen) return;
@@ -7535,6 +7551,7 @@ Count-back if tied
       if (putts !== "" && putts != null)
         setManualValue(card, `players.${id}.putts.total`, String(+putts || 0));
     });
+    if (req.yellowBall) deriveManualYellowBall(day, groupIndex, card, points);
     [req.ids.slice(0, 2), req.ids.slice(2, 4)].forEach((ids, pairIndex) => {
       const pairPoints = Array.from({ length: 18 }, (_, index) => {
         const values = ids.map((id) => points[id]?.[index]);
@@ -7744,11 +7761,24 @@ Count-back if tied
         ),
       );
     }
+    if (req.yellowBall) {
+      card.team.yellowBall ||= {total: "", lossHole: ""};
+      const result = card.team.yellowBall;
+      const sequence = scoreSequence(groupStartingHole(store.event, day, groupIndex));
+      comps.push(summarySection("Yellow Ball", `<label>Ball result<select id="manualYellowBallLoss" data-required><option value="">Choose result</option><option value="NONE" ${result.lossHole === "NONE" ? "selected" : ""}>Completed — ball not lost</option>${sequence.map(hole => `<option value="${hole}" ${String(result.lossHole) === String(hole) ? "selected" : ""}>Lost on Hole ${hole} — ${esc(player(yellowBallPlayerForHole(day, groupIndex, hole))?.name || "Player")}</option>`).join("")}</select></label><div class="manualEntryRow"><b>Yellow Ball points</b><label><span>Total</span><input inputmode="numeric" data-required data-manual="team.yellowBall.total" value="${esc(result.total ?? "")}"></label></div>`, "Count the nominated real golfer's Stableford points on each hole before the ball was lost. The loss hole does not count. Full score cards calculate this total automatically. Virtual Players never enter the rotation."));
+    }
     const phoneWarning = manualTeamHasPhoneScores(day, groupIndex)
       ? '<div class="manualConflict"><b>Phone scores already exist for this team.</b><span>Submitting this paper card makes its summary results authoritative. The underlying phone scores are retained.</span></div>'
       : "";
     $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>RECORD ALL SCORES · DAY ${day}</small><h2>Team ${groupIndex + 1} Paper Card</h2><p>${req.ids.map(playerLabel).join(" · ")}</p></div>${phoneWarning}<p class="manualAdaptiveNote">Only fields required by this event's selected competitions are shown.</p>${fullCardEntry}<div class="manualEntryBody">${comps.join("")}</div><div class="manualStickyActions"><span id="manualSavedState">${card.updatedAt ? "Saved on this device ✓" : "Not yet saved"}</span><div><button class="soft" id="backManualDashboard">← Teams</button><button class="soft" id="saveManualDraft">Save Draft</button><button class="primary" id="submitManualCard">${card.status === "submitted" ? "Update Submitted Card" : "Submit Team Card"}</button></div></div>`;
     bindManualInputs(card, day, groupIndex, req);
+    if ($("#manualYellowBallLoss")) $("#manualYellowBallLoss").onchange = e => {
+      card.team.yellowBall.lossHole = e.target.value;
+      card.status = "draft";
+      deriveManualFullCards(day, groupIndex, card, req);
+      syncManualCalculatedInputs(card);
+      writeLocalStore();
+    };
     if (card.fullCardsOpen)
       $("#modalContent")
         .querySelectorAll("[data-manual]")
@@ -7900,7 +7930,6 @@ Count-back if tied
       ["scratch", "Scratch"],
       ["eclectic", "Eclectic"],
     ].filter(([key]) => manualSelectedCompetitions().has(key));
-    if (yellowBallIsOn(selectedDay)) unsupported.push(["yellowBall", "Yellow Ball"]);
     if (unsupported.length) {
       alert(
         `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")} on Day ${selectedDay}. Keep using phone scoring for that day, or remove that competition before entering paper cards.`,
@@ -9916,6 +9945,13 @@ Count-back if tied
     return position < 0 ? "" : team[position % team.length];
   }
   function yellowBallLoss(day, groupIndex, event = store.event) {
+    const paper = event?.manualScorecards?.['day' + day]?.groups?.[String(groupIndex)];
+    if (paper?.status === "submitted" && paper.team?.yellowBall?.lossHole) {
+      const result = paper.team.yellowBall;
+      if (result.lossHole === "NONE") return null;
+      const hole = +result.lossHole, position = scoreSequence(groupStartingHole(event, day, groupIndex)).indexOf(hole);
+      return position < 0 ? null : {hole, position, playerId: yellowBallPlayerForHole(day, groupIndex, hole, event), source: "paper-team-card"};
+    }
     const team = yellowBallTeam(day, groupIndex, event),
       start = groupStartingHole(event, day, groupIndex),
       sequence = scoreSequence(start),
@@ -11272,6 +11308,13 @@ Count-back if tied
             team.map((id) => player(id)?.name || "Player").join(", "),
             holes,
           );
+        const manual = submittedManualCard(def.day, groupIndex)?.team?.yellowBall;
+        if (manual?.lossHole && manual.total !== "" && manual.total != null) {
+          row.total = +manual.total;
+          row.thru = loss ? loss.position : 18;
+          row.pending = 0;
+          row.manual = true;
+        }
         row.loss = loss;
         row.survived = loss ? loss.position : row.thru;
         return row;
