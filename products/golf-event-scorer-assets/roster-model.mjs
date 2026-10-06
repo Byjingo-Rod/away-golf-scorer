@@ -1,0 +1,5 @@
+export const states=[['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
+export const streetTypes=['Street','Rd','Close','Pde','Hwy','Other'];
+export function playerDetails(row){const words=String(row?.name||'').trim().split(/\s+/);const old=row?.details||{};return {...old,firstName:old.firstName??(words.length>1?words.slice(0,-1).join(' '):words[0]||''),lastName:old.lastName??(words.length>1?words.at(-1):''),addressDetails:{...old.addressDetails}};}
+export function matches(row,search){return [row.name,row.details?.nickname,row.details?.registration].join(' ').toLowerCase().includes(search.trim().toLowerCase());}
+export function saveArguments(group,row,details,ga,active){if(!group||!row?.id)throw new Error('Choose a group and player.');return {p_group_id:group,p_player_id:row.id,p_expected_revision:row.revision??0,p_details:details,p_ga:ga,p_active:active};}
