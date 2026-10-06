@@ -1,0 +1,16 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(process.argv[2]||'app.js','utf8');
+function extract(name){const start=source.indexOf('  function '+name+'(');assert(start>=0,name);return source.slice(start,source.indexOf('\n  function ',start+10));}
+let startHole=1;const event={days:2,competitions:['yellowBall'],yellowBallDays:[1],groupSetup:{day1:{groups:[['a','b','c','NP'],['d','e','f']]}}},store={event};
+const ctx={store,NO_PARTNER_ID:'NP',groupStartingHole:()=>startHole,scoreSequence:start=>Array.from({length:18},(_,i)=>(start-1+i)%18+1),player:id=>({name:id}),dayFieldIds:()=>['a','b','c','d','e','f'],leaderboardUnits:()=>event.groupSetup.day1.groups.map((g,i)=>({id:'d1g'+i,ids:g})),leaderboardPlayerPoints:()=>Array(18).fill(2),leaderRow:(id,name,detail,holes)=>({id,name,detail,total:holes.reduce((n,x)=>n+(x||0),0),thru:holes.filter(x=>x!=null).length,target:18}),submittedManualCard:(day,gi)=>{const c=event.manualScorecards?.['day'+day]?.groups?.[gi];return c?.status==='submitted'?c:null;},ambroseIsOn:()=>false,manualSelectedCompetitions:()=>new Set(['yellowBall']),renderManualScoresDashboard:day=>{ctx.opened=day;},alert:message=>{throw Error(message);}};
+vm.createContext(ctx);for(const name of ['yellowBallIsOn','yellowBallTeam','yellowBallPlayerForHole','manualYellowBallLoss','deriveManualYellowBall','yellowBallLoss','calculateLeaderboard','openManualScores'])vm.runInContext(extract(name),ctx);
+ctx.openManualScores(1);assert.equal(ctx.opened,1);
+const points={a:Array(18).fill(1),b:Array(18).fill(2),c:Array(18).fill(3),VP:Array(18).fill(99)},card={team:{yellowBall:{lossHole:'NONE'}}};ctx.deriveManualYellowBall(1,0,card,points);assert.equal(card.team.yellowBall.total,'36');
+card.team.yellowBall.lossHole='4';ctx.deriveManualYellowBall(1,0,card,points);assert.equal(card.team.yellowBall.total,'6');assert.equal(ctx.manualYellowBallLoss(1,0,card.team.yellowBall).playerId,'a');
+card.team.yellowBall.lossHole='1';ctx.deriveManualYellowBall(1,0,card,points);assert.equal(card.team.yellowBall.total,'0');
+startHole=10;card.team.yellowBall.lossHole='1';ctx.deriveManualYellowBall(1,0,card,points);assert.equal(card.team.yellowBall.total,'18');
+points.b[10]=null;ctx.deriveManualYellowBall(1,0,card,points);assert.equal(card.team.yellowBall.total,'');startHole=1;
+event.scoring={day1:{a:{1:{yellowBall:{lost:true,playerId:'a'}}}}};assert.equal(ctx.yellowBallLoss(1,0).hole,1);
+event.manualScorecards={day1:{groups:{0:{status:'draft',team:{yellowBall:{total:'20',lossHole:'NONE'}}},1:{status:'submitted',team:{yellowBall:{total:'19',lossHole:'7'}}}}}};assert.equal(ctx.yellowBallLoss(1,0).hole,1);event.manualScorecards.day1.groups[0].status='submitted';assert.equal(ctx.yellowBallLoss(1,0),null);
+let rows=ctx.calculateLeaderboard({type:'yellowBall',day:1});assert.equal(rows[0].id,'d1g0');assert.equal(rows[0].total,20);assert.equal(rows[0].survived,18);assert.equal(rows[1].total,19);assert.equal(rows[1].survived,6);assert.equal(rows[1].loss.hole,7);
+assert(event.scoring.day1.a[1].yellowBall.lost);assert(!ctx.yellowBallIsOn(2));console.log('Passed Yellow Ball paper entry: access, real-player rotation, first-hole loss, shotgun order, incomplete cards, draft/submitted precedence, leaderboard and retained phone records');
