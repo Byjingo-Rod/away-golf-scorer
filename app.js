@@ -3552,7 +3552,7 @@ Count-back if tied
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
-        `<div class="scorecardCopyRow"><label>Copy complete card from<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copies all pars, indexes and hole lengths. The two cards can then be edited separately.</small></div>`,
+        `<div class="scorecardCopyRow"><label>Copy from tee<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><label>Copy<select id="copyScorecardMode"><option value="whole">Whole Card</option><option value="column">Column</option></select></label><label id="copyScorecardColumnLabel" hidden>Choose column<select id="copyScorecardColumn"><option value="par">Par</option><option value="index">Index</option><option value="metres">Metres</option></select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copy the whole card or only Par, Index or Metres. Other columns stay unchanged when copying one column.</small></div>`,
       );
     $(".scoreMini")?.insertAdjacentHTML(
       "afterend",
@@ -3609,6 +3609,7 @@ Count-back if tied
       c.activeScorecardTee = nextTee;
       courseDetail(id, nextTee);
     };
+    if ($("#copyScorecardMode")) $("#copyScorecardMode").onchange = () => { $("#copyScorecardColumnLabel").hidden = $("#copyScorecardMode").value !== "column"; };
     if ($("#copyScorecardButton"))
       $("#copyScorecardButton").onclick = () => {
         const sourceTee = $("#copyScorecardFrom").value;
@@ -3616,20 +3617,24 @@ Count-back if tied
           alert("Choose the tee scorecard you want to copy from.");
           return;
         }
+        captureCourseFields();
+        const column = $("#copyScorecardMode").value === "column" ? $("#copyScorecardColumn").value : "whole";
         const source = courseScorecard(c, sourceTee);
         if (!source) return;
         const sourceColour = teeMarkerColour(sourceTee, c),
           destinationColour = teeMarkerColour(activeCardTee, c);
         if (
           !confirm(
-            `Copy the complete ${sourceColour} scorecard into the ${destinationColour} scorecard?\n\nThis replaces all 18 pars, indexes and hole lengths currently entered for ${destinationColour}.`,
+            `Copy ${column === "whole" ? "the whole card" : "only the " + column + " column"} from ${sourceColour} into ${destinationColour}?\n\nThis replaces only the selected numbers currently entered for ${destinationColour}.`,
           )
         )
           return;
-        c.teeScorecards[activeCardTee] = cloneCourseCard(
-          source,
-          activeCardTee,
-        );
+        if (column === "whole") {
+          c.teeScorecards[activeCardTee] = cloneCourseCard(source, activeCardTee);
+        } else {
+          const destination = courseScorecard(c, activeCardTee, true);
+          destination[column] = [...source[column]];
+        }
         c.activeScorecardTee = activeCardTee;
         courseDetail(id, activeCardTee);
       };
