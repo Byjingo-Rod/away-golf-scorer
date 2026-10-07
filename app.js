@@ -1194,9 +1194,40 @@
         : store.players.find((p) => String(p.id) === String(id));
   const version = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
+  function courseDistanceUnit(card = {}) {
+    return card.distanceUnit === "yards" ? "yards" : "metres";
+  }
+  function courseDistanceAbbrev(card = {}) {
+    return courseDistanceUnit(card) === "yards" ? "yd" : "m";
+  }
+  function courseHoleDistance(card = {}, index) {
+    const metres = card.metres?.[index];
+    if (courseDistanceUnit(card) === "yards")
+      return card.yards?.[index] ?? (Number(metres) > 0 ? Math.round(Number(metres) / 0.9144) : "");
+    return metres ?? "";
+  }
+  function courseInputDistance(card = {}, index, unit = card.distanceInputUnit || courseDistanceUnit(card)) {
+    if (unit === "yards")
+      return card.yards?.[index] ?? (Number(card.metres?.[index]) > 0 ? Math.round(Number(card.metres[index]) / 0.9144) : "");
+    return card.metres?.[index] ?? "";
+  }
+  function recordCourseDistances(card, values, inputUnit, savedUnit) {
+    const yards = inputUnit === "yards";
+    card.distanceInputUnit = yards ? "yards" : "metres";
+    card.distanceUnit = yards && savedUnit === "yards" ? "yards" : "metres";
+    card.metres = values.map(value => Number(value) > 0 ? Math.round(Number(value) * (yards ? 0.9144 : 1)) : "");
+    if (yards) card.yards = values.map(value => Number(value) > 0 ? Number(value) : "");
+    else delete card.yards;
+  }
+  function courseDistanceTotal(card = {}) {
+    return Array.from({ length: 18 }, (_, i) => Number(courseHoleDistance(card, i)) || 0).reduce((sum, value) => sum + value, 0);
+  }
   function cloneCourseCard(card = {}, tee = "middle") {
     return {
       tee,
+      distanceUnit: courseDistanceUnit(card),
+      distanceInputUnit: card.distanceInputUnit || courseDistanceUnit(card),
+      ...(Array.isArray(card.yards) ? { yards: [...card.yards] } : {}),
       par: Array.from({ length: 18 }, (_, i) => card.par?.[i] ?? ""),
       index: Array.from({ length: 18 }, (_, i) => card.index?.[i] ?? ""),
       metres: Array.from({ length: 18 }, (_, i) => card.metres?.[i] ?? ""),
@@ -1228,6 +1259,9 @@
       const source = cards.middle || cards.back || cards.front || version(c) || {};
       cards[tee] = {
         tee,
+        distanceUnit: courseDistanceUnit(source),
+        distanceInputUnit: source.distanceInputUnit || courseDistanceUnit(source),
+        ...(source.distanceInputUnit === "yards" || courseDistanceUnit(source) === "yards" ? { yards: Array(18).fill("") } : {}),
         par: Array.from({ length: 18 }, (_, i) => source.par?.[i] ?? ""),
         index: Array(18).fill(""),
         metres: Array(18).fill(""),
@@ -2766,7 +2800,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.6", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.7", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3658,7 +3692,9 @@ Count-back if tied
           ? c.activeScorecardTee
           : availableCardTees[0] || "middle",
       v = courseScorecard(c, activeCardTee, true),
-      t = c.teeDetails;
+      t = c.teeDetails,
+      distanceInputUnit = v.distanceInputUnit || courseDistanceUnit(v),
+      distanceSavedUnit = courseDistanceUnit(v);
     c.activeScorecardTee = activeCardTee;
     store.courseFavourites = store.courseFavourites || [];
     const isFavourite = store.courseFavourites
@@ -3667,15 +3703,18 @@ Count-back if tied
     const nineRows = (first, last) =>
       Array.from({ length: last - first + 1 }, (_, j) => {
         let i = first - 1 + j;
-        return `<tr><td>${i + 1}</td><td><input type="text" inputmode="numeric" maxlength="1" class="scorecardInput" id="scPar${i}" value="${v.par?.[i] ?? ""}"></td><td><input type="text" inputmode="numeric" maxlength="8" class="scorecardInput" id="scIdx${i}" value="${esc(v.index?.[i] ?? "")}"></td><td><input type="text" inputmode="numeric" maxlength="3" class="scorecardInput" id="scMet${i}" value="${v.metres?.[i] ?? ""}"></td></tr>`;
+        return `<tr><td>${i + 1}</td><td><input type="text" inputmode="numeric" maxlength="1" class="scorecardInput" id="scPar${i}" value="${v.par?.[i] ?? ""}"></td><td><input type="text" inputmode="numeric" maxlength="8" class="scorecardInput" id="scIdx${i}" value="${esc(v.index?.[i] ?? "")}"></td><td><input type="text" inputmode="numeric" maxlength="4" class="scorecardInput" id="scMet${i}" value="${courseInputDistance(v, i, distanceInputUnit)}"></td></tr>`;
       }).join("");
     const scoreTable = (first, last, label) =>
-      `<table class="scoreNine"><thead><tr><th colspan="4">${label}</th></tr><tr><th class="holeCol">Hole</th><th class="parCol">Par</th><th class="indexCol">Index</th><th class="lengthCol">Length</th></tr></thead><tbody>${nineRows(first, last)}</tbody></table>`;
+      `<table class="scoreNine"><thead><tr><th colspan="4">${label}</th></tr><tr><th class="holeCol">Hole</th><th class="parCol">Par</th><th class="indexCol">Index</th><th class="lengthCol">Length (<span class="distanceInputLabel">${distanceInputUnit === "yards" ? "yd" : "m"}</span>)</th></tr></thead><tbody>${nineRows(first, last)}</tbody></table>`;
     const totalsMarkup = () => {
       const pars = Array.from({ length: 18 }, (_, i) => +$("#scPar" + i)?.value || +(v.par?.[i] || 0));
-      const metres = Array.from({ length: 18 }, (_, i) => +$("#scMet" + i)?.value || +(v.metres?.[i] || 0));
+      const raw = Array.from({ length: 18 }, (_, i) => $("#scMet" + i) ? $("#scMet" + i).value : courseInputDistance(v, i, distanceInputUnit));
+      const preview = {};
+      recordCourseDistances(preview, raw, distanceInputUnit, distanceSavedUnit);
+      const metres = Array.from({ length: 18 }, (_, i) => +courseHoleDistance(preview, i) || 0), unit = courseDistanceAbbrev(preview);
       const sum = (values) => values.reduce((total, value) => total + value, 0);
-      return `<div class="scorecardTotals"><div><b>OUT</b><span>${sum(metres.slice(0, 9))} m</span><span>Par ${sum(pars.slice(0, 9))}</span></div><div><b>IN</b><span>${sum(metres.slice(9))} m</span><span>Par ${sum(pars.slice(9))}</span></div><div><b>TOTAL</b><span>${sum(metres)} m</span><span>Par ${sum(pars)}</span></div></div>`;
+      return `<div class="scorecardTotals"><div><b>OUT</b><span>${sum(metres.slice(0, 9))} ${unit}</span><span>Par ${sum(pars.slice(0, 9))}</span></div><div><b>IN</b><span>${sum(metres.slice(9))} ${unit}</span><span>Par ${sum(pars.slice(9))}</span></div><div><b>TOTAL</b><span>${sum(metres)} ${unit}</span><span>Par ${sum(pars)}</span></div></div>`;
     };
     const teeRow = (key, label) => {
       const selectedColour = teeMarkerColour(key, c),
@@ -3683,7 +3722,7 @@ Count-back if tied
           (colour) =>
             `<option value="${colour}" ${colour === selectedColour ? "selected" : ""}>${colour}</option>`,
         ).join("");
-      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><input class="teeDetailEntry" id="${key}Length" value="${esc(t[key]?.length || "")}"></td></tr>`;
+      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key) || {})}</small></td></tr>`;
     };
     const cardOptions = EVENT_TEES.map((tee) => {
       const exists = Boolean(courseScorecard(c, tee));
@@ -3698,7 +3737,7 @@ Count-back if tied
       )
       .join("");
     $("#modalContent").innerHTML =
-      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label><label>Golf region<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley"></label><label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length (m)</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label><label>Golf region<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley"></label><label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
@@ -3725,8 +3764,10 @@ Count-back if tied
       for (let i = 0; i < 18; i++) {
         v.par[i] = +$("#scPar" + i).value || "";
         v.index[i] = $("#scIdx" + i).value.trim();
-        v.metres[i] = +$("#scMet" + i).value || "";
       }
+      recordCourseDistances(v, Array.from({ length: 18 }, (_, i) => $("#scMet" + i).value), distanceInputUnit, distanceSavedUnit);
+      c.teeDetails[activeCardTee].length = v.metres.reduce((sum, value) => sum + (+value || 0), 0);
+      c.teeDetails[activeCardTee].par = v.par.reduce((sum, value) => sum + (+value || 0), 0);
     };
     const captureCourseFields = () => {
       c.name = gcCourseName($("#mcname").value.trim() || c.name);
@@ -3748,9 +3789,30 @@ Count-back if tied
         c.teeDetails[key].slope = $("#" + key + "Slope").value.trim();
         c.teeDetails[key].scratch = $("#" + key + "Scratch").value.trim();
         c.teeDetails[key].par = $("#" + key + "Par").value.trim();
-        c.teeDetails[key].length = $("#" + key + "Length").value.trim();
+        const savedCard = c.teeScorecards?.[key];
+        if (savedCard) c.teeDetails[key].length = (savedCard.metres || []).reduce((sum, value) => sum + (+value || 0), 0);
       }
       captureVisibleCard();
+    };
+    const refreshDistanceLabels = () => {
+      $$(".distanceInputLabel").forEach(label => label.textContent = distanceInputUnit === "yards" ? "yd" : "m");
+      $("#scorecardTotals").innerHTML = totalsMarkup();
+    };
+    $("#courseDistanceInput").onchange = (event) => {
+      const next = event.target.value;
+      const card = {};
+      recordCourseDistances(card, Array.from({ length: 18 }, (_, i) => $("#scMet" + i).value), distanceInputUnit, distanceSavedUnit);
+      for (let i = 0; i < 18; i++) $("#scMet" + i).value = courseInputDistance(card, i, next);
+      distanceInputUnit = next;
+      if (next === "metres") distanceSavedUnit = "metres";
+      $("#courseDistanceSave").value = distanceSavedUnit;
+      $("#courseDistanceSave").options[0].textContent = next === "yards" ? "Convert to metres" : "Metres";
+      $("#courseDistanceSave").options[1].disabled = next !== "yards";
+      refreshDistanceLabels();
+    };
+    $("#courseDistanceSave").onchange = (event) => {
+      distanceSavedUnit = event.target.value;
+      refreshDistanceLabels();
     };
     $("#scorecardTeeSelect").onchange = (event) => {
       captureCourseFields();
@@ -3854,7 +3916,7 @@ Count-back if tied
         star = favIds.has(String(c.id))
           ? '<span class="courseFavouriteStar" title="Favourite course">★</span>'
           : "";
-      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${c.region ? esc(c.region) + " • " : ""}${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
+      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${c.region ? esc(c.region) + " • " : ""}${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
     };
     let ret = wizardReturnStep
       ? `<div class="returnSetupBar"><button class="soft" id="returnToWizardCourses">← Return to Setup</button></div>`
@@ -5596,7 +5658,8 @@ Count-back if tied
           r.push({
             hole: i + 1,
             index: String(v.index?.[i] ?? ""),
-            metres: v.metres?.[i] ?? "",
+            metres: courseHoleDistance(v, i),
+            distanceUnit: courseDistanceAbbrev(v),
           });
       let rank = (x) => {
         let n = parseInt(x.index.split("/")[0], 10);
@@ -5636,7 +5699,7 @@ Count-back if tied
         open = W.ntpChange === `${key}:${slot}`,
         used = W.event.ntpSelections[key].filter((_, i) => i !== slot),
         x = ch.find((q) => q.hole === sel);
-      return `<div class="ntpSelectCard"><div class="ntpDay"><b>${day}${W.event.ntpSelections[key].length > 1 ? ` — NTP ${slot + 1}` : ""}</b><span>${esc(course(cid)?.name || "Course")}</span></div><div class="ntpSelected"><div><small>SELECTED</small><strong>Hole ${sel || "—"}</strong><span>${x ? `Par 3${x.metres ? ` · ${x.metres} m` : ""}${x.index ? ` · Index ${esc(x.index)}` : ""}` : ""}</span></div><button type="button" class="soft" data-ntpchange="${key}:${slot}">${open ? "Close" : "Change"}</button></div>${open ? `<div class="ntpChoices"><b>Choose another Par 3</b>${ch.map((q) => `<button type="button" class="ntpChoice ${q.hole === sel ? "selected" : ""} ${used.includes(q.hole) ? "used" : ""}" ${used.includes(q.hole) ? "disabled" : ""} data-ntppick="${key}:${slot}:${q.hole}"><span>Hole ${q.hole}</span><small>${q.metres ? q.metres + " m · " : ""}${q.index ? "Index " + esc(q.index) : ""}${q.hole === sel ? " · Selected" : ""}</small></button>`).join("")}</div>` : ""}</div>`;
+      return `<div class="ntpSelectCard"><div class="ntpDay"><b>${day}${W.event.ntpSelections[key].length > 1 ? ` — NTP ${slot + 1}` : ""}</b><span>${esc(course(cid)?.name || "Course")}</span></div><div class="ntpSelected"><div><small>SELECTED</small><strong>Hole ${sel || "—"}</strong><span>${x ? `Par 3${x.metres ? ` · ${x.metres} ${x.distanceUnit}` : ""}${x.index ? ` · Index ${esc(x.index)}` : ""}` : ""}</span></div><button type="button" class="soft" data-ntpchange="${key}:${slot}">${open ? "Close" : "Change"}</button></div>${open ? `<div class="ntpChoices"><b>Choose another Par 3</b>${ch.map((q) => `<button type="button" class="ntpChoice ${q.hole === sel ? "selected" : ""} ${used.includes(q.hole) ? "used" : ""}" ${used.includes(q.hole) ? "disabled" : ""} data-ntppick="${key}:${slot}:${q.hole}"><span>Hole ${q.hole}</span><small>${q.metres ? q.metres + " " + q.distanceUnit + " · " : ""}${q.index ? "Index " + esc(q.index) : ""}${q.hole === sel ? " · Selected" : ""}</small></button>`).join("")}</div>` : ""}</div>`;
     };
     const dayHead = (day, key) =>
       `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>` : ""}</div>`;
@@ -10182,7 +10245,7 @@ Count-back if tied
       hole = sequence[position],
       index = hole - 1,
       par = +(v.par?.[index] || 4),
-      metres = v.metres?.[index] || "—",
+      metres = courseHoleDistance(v, index) || "—",
       agreement = ambroseHoleAgreement(day, ctx.groupIndex, hole),
       record = ambroseEntry(day, entryScorerId, hole),
       gross = record.self?.gross,
@@ -10229,7 +10292,7 @@ Count-back if tied
       <div class="ambroseRole"><div><small>AMBROSE · TEAM ${ctx.groupIndex + 1}</small><h2>${roleLabel}</h2></div><span>${completeCount}/18 agreed</span></div>
       <div class="holeTracker" aria-label="Ambrose hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${sequence.map((h, i) => { const state = statusFor(h); return `<button type="button" class="holeTrack ${state}" data-ambrosehole="${i}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : state === "mismatch" ? "<small>!</small>" : ""}</button>`; }).join("")}</div></div>
       ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
-      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>METRES</small><b>${metres}</b></div></div>
+      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres}</b></div></div>
       <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(player(selected)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span title="Final net appears after all 18 holes"><em>Final Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
         <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" class="stepValue" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
         <div class="ambroseDrive"><div class="ambroseDriveHeading"><b>Drive taken?</b><small>Tap correct player to correct an error.</small></div><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(player(id)?.name || "Player")}</span><small><b>+</b><strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong></small></button>`).join("")}</div></div>
@@ -10316,6 +10379,18 @@ Count-back if tied
     host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Ambrose Team Card Submitted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives — ${compliant ? "minimum satisfied ✓" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(player(id)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been submitted${roles.markerId ? " and the scorer and marker cards agree" : ""}. ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
     $("#backFromAmbroseComplete").onclick = () => { store.event.playerRoundMode = "preview"; save(); renderPlayerExperience(); };
   }
+  function scoreEntryControls(puttingOn, section, entry, par, stepper, pickup) {
+    const gross = stepper(section + "Gross", "Score", entry.gross, par || 4, 1, 20);
+    if (puttingOn)
+      return `<div class="scoreSteppers">${gross}${stepper(section + "Putts", "Putts", entry.putts, 2, 0, 9)}</div>${pickup(section + "Gross", entry.gross)}`;
+    return `<div class="scoreSteppers noPutting">${gross}<div class="scoreStepperWrap pickupControl"><small>Pick-up</small>${pickup(section + "Gross", entry.gross, true)}</div></div>`;
+  }
+  function scoreEntriesMismatch(left, right, puttsRequired) {
+    if (!scoreEntered(left?.gross) || !scoreEntered(right?.gross)) return false;
+    if (puttsRequired && (!scoreEntered(left?.putts) || !scoreEntered(right?.putts))) return false;
+    return String(left.gross).toUpperCase() !== String(right.gross).toUpperCase() ||
+      (puttsRequired && Number(left.putts) !== Number(right.putts));
+  }
   function renderHoleScoring(selected, day) {
     requestRoundWakeLock();
     const host = $("#playerExperience"),
@@ -10339,7 +10414,7 @@ Count-back if tied
     rec.self.playerId = selected;
     const par = +v.par?.[idx] || "",
       indexVal = v.index?.[idx] ?? "",
-      metres = v.metres?.[idx] || "";
+      metres = courseHoleDistance(v, idx) || "";
     const ntp = ntpHolesFor(day).includes(hole),
       holder = currentNtpHolder(day, hole),
       holderName = holder ? player(holder.id)?.name : "",
@@ -10519,9 +10594,9 @@ Count-back if tied
         val = picked ? "P" : has ? +value : +base;
       return `<div class="scoreStepperWrap ${isGross ? "grossControl" : "puttsControl"}"><small>${label}</small><div class="scoreStepper ${has ? "set" : "unset"}"><button type="button" data-step="${id}" data-delta="-1">−</button><button type="button" class="stepValue" data-confirm="${id}" data-base="${base}">${val}</button><button type="button" data-step="${id}" data-delta="1">+</button></div></div>`;
     };
-    const pickup = (id, value) => {
+    const pickup = (id, value, compact = false) => {
       const picked = String(value).toUpperCase() === "P";
-      return `<button type="button" class="pickupRow ${picked ? "picked" : ""}" data-pickup="${id}">${picked ? "✓ PICK-UP RECORDED (P)" : "P — PICK-UP"}</button>`;
+      return `<button type="button" class="pickupRow ${picked ? "picked" : ""}" data-pickup="${id}">${picked ? compact ? "✓ PICK-UP (P)" : "✓ PICK-UP RECORDED (P)" : "P — PICK-UP"}</button>`;
     };
     const timeText = rec.ntp?.confirmedAt
       ? new Date(rec.ntp.confirmedAt).toLocaleTimeString("en-AU", {
@@ -10546,20 +10621,9 @@ Count-back if tied
         marked = round[String(h)]?.official || {},
         markedPlayer = String(marked.playerId || targetId || ""),
         markedCheck = scoringDayStore(day)?.[markedPlayer]?.[String(h)]?.self || {},
-        entriesArrived = (left, right) =>
-          scoreEntered(left?.gross) &&
-          scoreEntered(left?.putts) &&
-          scoreEntered(right?.gross) &&
-          scoreEntered(right?.putts),
-        disagrees = (left, right) =>
-          String(left.gross).toUpperCase() !== String(right.gross).toUpperCase() ||
-          +left.putts !== +right.putts;
-      return (
-        (entriesArrived(own, ownOfficial) && disagrees(own, ownOfficial)) ||
-        (markedPlayer &&
-          entriesArrived(marked, markedCheck) &&
-          disagrees(marked, markedCheck))
-      );
+        puttsRequired = puttingOn;
+      return scoreEntriesMismatch(own, ownOfficial, puttsRequired) ||
+        Boolean(markedPlayer && scoreEntriesMismatch(marked, markedCheck, puttsRequired));
     };
     round._meta = round._meta || {};
     const furthestPos = Math.max(pos, +round._meta.furthestPos || 0);
@@ -10588,7 +10652,7 @@ Count-back if tied
       ? `<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length === 1 ? "" : "s"}: ${missingHoles.join(", ")}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`
       : "";
     const mismatchAlert = mismatchHoles.length
-      ? `<div class="mismatchHoleAlert"><div><strong>Hole${mismatchHoles.length === 1 ? "" : "s"} ${mismatchHoles.join(", ")} need${mismatchHoles.length === 1 ? "s" : ""} checking</strong><span>Your score or putts does not agree with the other card. Please check it now.</span></div><button type="button" id="firstMismatchHole">Check now</button></div>`
+      ? `<div class="mismatchHoleAlert"><div><strong>Hole${mismatchHoles.length === 1 ? "" : "s"} ${mismatchHoles.join(", ")} need${mismatchHoles.length === 1 ? "s" : ""} checking</strong><span>Your ${puttingOn ? "score or putts does" : "score does"} not agree with the other card. Please check it now.</span></div><button type="button" id="firstMismatchHole">Check now</button></div>`
       : "";
     const emergency = store.event.emergencyReplacements?.["day" + day],
       showVirtualGlance = emergency && +emergency.groupIndex === +ctx.groupIndex,
@@ -10607,9 +10671,9 @@ Count-back if tied
       ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
       : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
- <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>METRES</small><b>${metres || "—"}</b></div></div>
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div><div class="scoreSteppers">${stepper("officialGross", "Score", rec.official.gross, par || 4, 1, 20)}${stepper("officialPutts", "Putts", rec.official.putts, 2, 0, 9)}</div>${pickup("officialGross", rec.official.gross)}</div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallActive && String(selected) === String(yellowBallPlayerId) ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : ""}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div><div class="scoreSteppers">${stepper("selfGross", "Score", rec.self.gross, par || 4, 1, 20)}${stepper("selfPutts", "Putts", rec.self.putts, 2, 0, 9)}</div>${pickup("selfGross", rec.self.gross)}</div>
+ <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, par, stepper, pickup)}</div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallActive && String(selected) === String(yellowBallPlayerId) ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : ""}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
