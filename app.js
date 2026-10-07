@@ -700,24 +700,14 @@
   function restoreWorkspaceFromJournalIfShrunk() {
     const journal = readWorkspaceJournal(),
       saved = journal?.data;
-    if (
-      !saved ||
-      workspaceShrinkAuthorised ||
-      savedWorkspaceCount(saved) <= savedWorkspaceCount(store)
-    )
-      return false;
-    store.eventWorkspace = JSON.parse(
-      JSON.stringify(saved.eventWorkspace || []),
-    );
-    store.activeEventId = saved.activeEventId || null;
-    store.event = saved.event
-      ? JSON.parse(JSON.stringify(saved.event))
-      : null;
-    if (saved.cloud) store.cloud = JSON.parse(JSON.stringify(saved.cloud));
-    else delete store.cloud;
-    store.cloudPlayers = JSON.parse(
-      JSON.stringify(saved.cloudPlayers || []),
-    );
+    if (!saved || workspaceShrinkAuthorised) return false;
+    const current = store.eventWorkspace || [];
+    const ids = new Set(current.map(record => String(record.id)));
+    const missing = (saved.eventWorkspace || []).filter(record => !ids.has(String(record.id)));
+    if (!missing.length) return false;
+    // Restore missing identities without replacing newer plans or the active draft.
+    store.eventWorkspace = current.concat(JSON.parse(JSON.stringify(missing)));
+
     return true;
   }
 
@@ -761,6 +751,10 @@
     return true;
   }
 
+  window.addEventListener("pagehide", () => {
+    if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) === appTabId)
+      localStorage.removeItem(AWAY_GOLF_WRITER_LEASE_KEY);
+  });
   window.addEventListener("storage", (event) => {
     if (
       event.key === AWAY_GOLF_WRITER_LEASE_KEY &&
@@ -873,32 +867,11 @@
     return `exact:${JSON.stringify(event)}`;
   }
   function consolidateWorkspaceCloudDuplicates() {
-    const previousCount = store.eventWorkspace.length;
-    const activeId = String(store.activeEventId || "");
-    const byCloud = new Map();
-    const result = [];
-    for (const record of store.eventWorkspace) {
-      const key =
-        workspaceCloudIdentity(record) || workspaceExactIdentity(record);
-      if (!key || !byCloud.has(key)) {
-        result.push(record);
-        if (key) byCloud.set(key, record);
-        continue;
-      }
-      const kept = byCloud.get(key);
-      const useCurrent = String(record.id) === activeId;
-      const useNewer =
-        !useCurrent &&
-        String(kept.id) !== activeId &&
-        String(record.updatedAt || "") > String(kept.updatedAt || "");
-      if (useCurrent || useNewer) {
-        const index = result.indexOf(kept);
-        if (index >= 0) result[index] = record;
-        byCloud.set(key, record);
-      }
-    }
-    store.eventWorkspace = result;
-    if (result.length < previousCount) workspaceShrinkAuthorised = true;
+    // Cloud links and identical contents are not event identities. Separate
+    // saved plans must survive even when an older build copied either value.
+    // Keep all records here; only explicit organiser deletion may remove a plan.
+    return;
+
   }
   consolidateWorkspaceCloudDuplicates();
   function workspaceIdFor(event) {
@@ -910,14 +883,6 @@
     if (!store.event) return;
     let id = workspaceIdFor(store.event);
     let record = store.eventWorkspace.find((item) => String(item.id) === id);
-    const currentCloudId =
-      store.cloud?.role === "organiser"
-        ? String(store.cloud.eventId || "")
-        : "";
-    if (!record && currentCloudId)
-      record = store.eventWorkspace.find(
-        (item) => String(item.cloud?.eventId || "") === currentCloudId,
-      );
     if (!record) {
       record = { id, createdAt: new Date().toISOString() };
       store.eventWorkspace.push(record);
@@ -974,7 +939,7 @@
   writeLocalStore();
   function persistStore() {
     captureCurrentEvent();
-    writeLocalStore();
+    return writeLocalStore();
   }
   function normaliseCourseNames() {
     (store.courses || []).forEach((c) => (c.name = gcCourseName(c.name)));
@@ -1204,10 +1169,11 @@
   }
 
   const save = () => {
-    persistStore();
+    const saved = persistStore();
     renderHome();
     renderPlayersAdmin();
     renderCoursesAdmin();
+    return saved;
   };
   const surnameKey = (n) => {
     let p = String(n).trim().split(/\s+/);
@@ -2800,7 +2766,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.6", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4109,13 +4075,29 @@ Count-back if tied
   $("#saveEventDraft").onclick = () => {
     if (W.step === 1) syncEventFields();
     if (!W.event.name) return alert("Please enter an event name before saving the draft.");
-    saveWizardDraft();
+    if (!saveWizardDraft()) return;
     $("#wizardShade").classList.remove("open");
     nav("home");
     alert("Draft saved. You can reopen it from Event Options, continue later, or delegate it from Guest Organiser.");
   };
 
   function saveWizardDraft() {
+    // A closed lease owner releases its lock. Refresh stored records before
+    // resuming this editor so the other window's saved plans remain intact.
+    if (!localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY)) {
+      const latest = JSON.parse(localStorage.getItem("awayGolf13") || "null");
+      if (latest) store = latest;
+      localStorage.setItem(AWAY_GOLF_WRITER_LEASE_KEY, appTabId);
+      appTabSuperseded = false;
+    }
+    // Keep the editor open and its contents intact if another window owns saving.
+    if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) !== appTabId) {
+      markSupersededTab();
+      alert("Draft NOT saved: another Away Golf window is open. Keep this editor open, close the other window, then press Save Draft again.");
+      return false;
+    }
+    const previousStore = JSON.parse(JSON.stringify(store));
+    if (W.newEvent) captureCurrentEvent();
     const oldGroups = W.newEvent ? {} : (store.event?.groupSetup || {});
     if (W.newEvent) {
       closeCloudConnection();
@@ -4145,7 +4127,16 @@ Count-back if tied
       setupStage: "draft",
     };
     if (W.newEvent) resetDuplicatedEventRuntime(store.event);
-    save();
+    try {
+      if (!save()) throw new Error("Another Away Golf window took over saving.");
+      W.event.workspaceId = store.event.workspaceId;
+      W.newEvent = false;
+      return true;
+    } catch (error) {
+      store = previousStore;
+      alert("Draft NOT saved. Keep this editor open and try again. " + error.message);
+      return false;
+    }
   }
   function loadTemplate() {
     let t = store.template;

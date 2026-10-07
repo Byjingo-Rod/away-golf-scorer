@@ -1,0 +1,25 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('app.js','utf8');
+function extract(name){const start=source.indexOf('  function '+name+'(');assert(start>=0,name);const end=source.indexOf('\n  function ',start+10);const code=source.slice(start,end);return code.slice(0,code.indexOf('\n  }')+4);}
+const data=new Map(),messages=[];
+const ctx={Date,JSON,Map,Set,store:{},appTabId:'this-window',appTabSuperseded:false,workspaceShrinkAuthorised:false,AWAY_GOLF_WRITER_LEASE_KEY:'lease',AWAY_GOLF_WORKSPACE_JOURNAL_KEY:'journal',localStorage:{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)},document:{getElementById:()=>null},uid:()=> 'new-plan',forgetOrganiserEvent(){},closeCloudConnection(){},resetDuplicatedEventRuntime(){},eventDays:()=>[1],wizardPlanningPlayers:()=>[],alert:m=>messages.push(m)};
+vm.createContext(ctx);
+for(const name of ['readWorkspaceJournal','restoreWorkspaceFromJournalIfShrunk','writeWorkspaceJournal','markSupersededTab','writeLocalStore','consolidateWorkspaceCloudDuplicates','workspaceIdFor','captureCurrentEvent','persistStore','saveWizardDraft']) vm.runInContext(extract(name),ctx);
+ctx.save=()=>ctx.persistStore();
+const plain=v=>JSON.parse(JSON.stringify(v)),record=(id,name,cloud)=>({id,event:{workspaceId:id,name},cloud});
+ctx.store={eventWorkspace:[record('a','Newer A'),record('c','New C')],event:{workspaceId:'c',name:'New C'},activeEventId:'c'};
+data.set('journal',JSON.stringify({data:{eventWorkspace:[record('a','Old A'),record('b','Saved B')]}}));
+assert.equal(ctx.restoreWorkspaceFromJournalIfShrunk(),true);
+assert.deepEqual(plain(ctx.store.eventWorkspace.map(r=>r.id)),['a','c','b']);
+assert.equal(ctx.store.eventWorkspace[0].event.name,'Newer A');assert.equal(ctx.store.activeEventId,'c');
+ctx.workspaceShrinkAuthorised=true;ctx.store.eventWorkspace=[record('a','A')];assert.equal(ctx.restoreWorkspaceFromJournalIfShrunk(),false);ctx.workspaceShrinkAuthorised=false;
+ctx.store={eventWorkspace:[record('a','A',{eventId:'old'}),record('b','B',{eventId:'old'}),record('c','A')]};ctx.consolidateWorkspaceCloudDuplicates();assert.equal(ctx.store.eventWorkspace.length,3);
+ctx.store.event={workspaceId:'d',name:'Draft D'};ctx.store.cloud={role:'organiser',eventId:'old'};ctx.captureCurrentEvent();assert.equal(ctx.store.eventWorkspace.length,4);assert.equal(ctx.store.eventWorkspace[0].event.name,'A');
+ctx.W={newEvent:true,step:3,event:{name:'Test Vietnam'},invites:new Map(),competitions:new Set(),benefits:{}};
+data.set('lease','other-window');const before=JSON.stringify(ctx.store);assert.equal(ctx.saveWizardDraft(),false);assert.equal(JSON.stringify(ctx.store),before);assert.match(messages.pop(),/NOT saved/);
+data.delete('lease');data.set('awayGolf13',JSON.stringify({eventWorkspace:[record('latest','Other window plan')],event:{workspaceId:'latest',name:'Other window plan'}}));data.delete('journal');assert.equal(ctx.saveWizardDraft(),true);
+let saved=JSON.parse(data.get('awayGolf13'));assert.deepEqual(saved.eventWorkspace.map(r=>r.event.name),['Other window plan','Test Vietnam']);assert.equal(ctx.W.newEvent,false);
+ctx.W.event.name='Updated';assert.equal(ctx.saveWizardDraft(),true);saved=JSON.parse(data.get('awayGolf13'));assert.equal(saved.eventWorkspace.length,2);assert.equal(saved.eventWorkspace[1].event.name,'Updated');
+const prior=JSON.stringify(ctx.store);ctx.W.event.name='Unsaved edit';ctx.localStorage.setItem=()=>{throw new Error('Storage full');};assert.equal(ctx.saveWizardDraft(),false);assert.equal(JSON.stringify(ctx.store),prior);assert.equal(ctx.W.event.name,'Unsaved edit');assert.match(messages.pop(),/NOT saved/);
+assert.match(source,/if \(!saveWizardDraft\(\)\) return;/);
+console.log('Passed: identity recovery, intentional removal, shared stale cloud links, blocked writer, resumed editor, repeat saves, quota failure and truthful Save Draft UI.');
