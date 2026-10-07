@@ -987,6 +987,8 @@
         event[key] = idMap.get(String(event[key]));
   }
   function consolidateCourseCards() {
+    // Cloud record IDs are authoritative; do not merge same-named clubs from different locations.
+    if (Object.keys(store.courseLibrary?.bases || {}).length) return;
     const groups = new Map();
     for (const item of store.courses || []) {
       const key = String(item.name || "").trim().toLowerCase();
@@ -1058,7 +1060,7 @@
     const oatlands = (store.courses || []).find((c) =>
       /^oatlands gc$/i.test(String(c.name || "").trim()),
     );
-    if (!oatlands) return false;
+    if (!oatlands || store.courseLibrary?.bases?.[String(oatlands.id)]) return false;
     const card =
       (oatlands.versions || []).find(
         (item) => String(item.id) === String(oatlands.activeVersionId || ""),
@@ -1187,7 +1189,7 @@
     store.courses
       .filter((c) => c.available !== false)
       .sort((a, b) => a.name.localeCompare(b.name));
-  const course = (id) => store.courses.find((c) => c.id === id),
+  const course = (id, master = false) => (!master && store.event?.locked && (store.cloud?.courseCards || store.event.courseSnapshot)?.find(c => String(c.id) === String(id))) || store.courses.find((c) => c.id === id),
     player = (id) =>
       String(id) === NO_PARTNER_ID
         ? NO_PARTNER
@@ -1402,7 +1404,7 @@
     const oatlandsCourse = (store.courses || []).find((c) =>
       /^oatlands(?: gc| golf club)?$/i.test(String(c.name || "").trim()),
     );
-    if (!oatlandsCourse) return false;
+    if (!oatlandsCourse || store.courseLibrary?.bases?.[String(oatlandsCourse.id)]) return false;
     ensureCourseData(oatlandsCourse);
     const ov = version(oatlandsCourse) || {
       id: oatlandsCourse.activeVersionId || `oatlands-card-${Date.now()}`,
@@ -1536,6 +1538,7 @@
     const event = JSON.parse(JSON.stringify(sourceEvent || {}));
     normaliseTwoDaySingleStableford(event);
     synchroniseSingleTeeGroupStarts(event);
+    delete event.courseSnapshot;
     delete event.scoring;
     delete event.playerRoundMode;
     delete event.playerHolePos;
@@ -1616,6 +1619,7 @@
   }
 
   function resetDuplicatedEventRuntime(event) {
+    delete event.courseSnapshot;
     event.scoring = { day1: {}, day2: {} };
     event.roundFinalised = { day1: {}, day2: {} };
     event.prizesAwarded = {};
@@ -1676,6 +1680,7 @@
   }
   function applyRemoteCloud(bundle) {
     const payload = bundle?.event?.event_data || {};
+    if (store.cloud && payload.courses) store.cloud.courseCards = JSON.parse(JSON.stringify(payload.courses));
     normaliseTwoDaySingleStableford(payload.event);
     const activePageId = document.querySelector(".page.active")?.id || "home";
     const playerId = String(store.cloud?.playerId || "");
@@ -1778,7 +1783,7 @@
         const i = store.courses.findIndex(
           (c) => String(c.id) === String(remote.id),
         );
-        if (i >= 0) store.courses[i] = remote;
+        if (i >= 0) { if (store.cloud?.role !== "organiser") store.courses[i] = remote; }
         else store.courses.push(remote);
       });
       consolidateCourseCards();
@@ -2093,6 +2098,7 @@
         role: "organiser",
         eventId: result.event_id,
         joinCode: result.join_code,
+        courseCards: JSON.parse(JSON.stringify(payload.courses || [])),
       };
       // Event Preview deliberately uses the schema's existing `setup` status.
       // The preview/final distinction lives in event_data.event.setupStage.
@@ -2162,6 +2168,7 @@
         cloudPayload(),
         store.event?.locked ? "locked" : "setup",
       );
+      store.cloud.courseCards = JSON.parse(JSON.stringify(cloudPayload().courses));
       if (store.event.locked)
         store.event.finalUpdateCloudSentAt = new Date().toISOString();
       delete store.event.handicapUpdatePendingAt;
@@ -2316,6 +2323,7 @@
       closeCloudConnection();
       captureCurrentEvent();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       store.event.workspaceId = store.event.workspaceId || uid();
       (payload.players || []).forEach((remote) => {
         const i = store.players.findIndex(
@@ -2328,7 +2336,7 @@
         const i = store.courses.findIndex(
           (c) => String(c.id) === String(remote.id),
         );
-        if (i >= 0) store.courses[i] = remote;
+        if (i >= 0) { if (!store.courseLibrary?.bases?.[String(remote.id)]) store.courses[i] = remote; }
         else store.courses.push(remote);
       });
       consolidateCourseCards();
@@ -2389,6 +2397,7 @@
         throw new Error("The published event plan could not be read.");
       closeCloudConnection();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       let existingRecord = store.eventWorkspace.find(
         (item) => String(item.cloud?.eventId || "") === String(eventId),
       );
@@ -2404,7 +2413,7 @@
         const i = store.courses.findIndex(
           (c) => String(c.id) === String(remote.id),
         );
-        if (i >= 0) store.courses[i] = remote;
+        if (i >= 0) { if (!store.courseLibrary?.bases?.[String(remote.id)]) store.courses[i] = remote; }
         else store.courses.push(remote);
       });
       consolidateCourseCards();
@@ -2558,6 +2567,7 @@
       closeCloudConnection();
       const archivedJoinCode = String(bundle.event?.join_code || "").toUpperCase();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       const existingRecord = store.eventWorkspace.find(
         (item) => String(item.event?.pastCloudEventId || "") === String(eventId),
       );
@@ -2575,7 +2585,7 @@
       });
       (payload.courses || []).forEach((remote) => {
         const i = store.courses.findIndex((c) => String(c.id) === String(remote.id));
-        if (i >= 0) store.courses[i] = remote;
+        if (i >= 0) { if (!store.courseLibrary?.bases?.[String(remote.id)]) store.courses[i] = remote; }
         else store.courses.push(remote);
       });
       consolidateCourseCards();
@@ -2800,7 +2810,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.8", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.9", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3285,6 +3295,7 @@
       cloudReady = true;
       setCloudMessage("Secure connection ready");
       await refreshOwnerAccount();
+      void syncMasterCourses();
       if (sessionStorage.getItem("awayGolfRetired1539")) {
         try {
           const workspace = await AwayCloud.loadWorkspace();
@@ -3390,6 +3401,7 @@
     $$("nav button").forEach((x) =>
       x.classList.toggle("active", x.dataset.nav === id),
     );
+    if (id === "coursesPage") { renderCoursesAdmin(); void syncMasterCourses(); }
     if (id === "teamsPage") renderTeamsPage();
     if (id === "scorePage") renderPlayerExperience();
     if (id === "leaderboardPage") renderLeaderboard();
@@ -3681,6 +3693,73 @@ Count-back if tied
     save();
     return id;
   }
+  let masterCourseLibrary = null;
+  function getMasterCourseLibrary() {
+    if (!window.AwayCourseLibrary || !window.AwayCloud) return null;
+    if (!masterCourseLibrary) masterCourseLibrary = new AwayCourseLibrary.Library({
+      store: () => store, api: AwayCloud, persist: writeLocalStore,
+      changed: () => { renderMasterCoursePanel(); if (!$("#modalShade").classList.contains("open")) renderCoursesAdmin(); },
+    });
+    return masterCourseLibrary;
+  }
+  async function syncMasterCourses(force = false) {
+    if (!force && $("#modalShade").classList.contains("open")) return;
+    if (isPlayerDevice() || isSpectatorDevice() || isGuestOrganiser()) return;
+    const library=getMasterCourseLibrary();if(!library)return;
+    await library.sync();renderCoursesAdmin();
+  }
+  function queueMasterCourse(c) {
+    const library=getMasterCourseLibrary();if(!library)return;
+    try {library.queue(c);void syncMasterCourses(true);}catch(error){alert(error.message);}
+  }
+  function queueMasterCountry(name) {
+    const library=getMasterCourseLibrary();if(!library)return;
+    try {library.queueCountry(name);void syncMasterCourses(true);}catch(error){alert(error.message);}
+  }
+  function renderMasterCoursePanel() {
+    const panel=$("#masterCourseCloud");if(!panel)return;
+    const library=getMasterCourseLibrary();if(!library)return;
+    const conflicts=Object.keys(library.state().conflicts),pending=Object.keys(library.state().pending).length;
+    panel.innerHTML=`<b>Cloud Master Course List</b><p role="status">${esc(library.message)}</p><small>${pending ? pending+" course save(s) pending. " : ""}Changes download when you open Courses or refresh this list. Favourites stay personal to this device.</small><div class="rowBtns"><button class="primary" id="syncMasterCourseList" ${library.busy?'disabled':''}>${library.busy?'Synchronising…':'Refresh / Sync Courses'}</button>${!library.allowed?'<button class="soft" id="courseOwnerSignIn">Owner Sign-In</button>':''}${conflicts.length?'<button class="soft" id="reviewMasterCourses">Review Different Copies ('+conflicts.length+')</button>':''}</div>`;
+    $("#syncMasterCourseList").onclick=()=>void syncMasterCourses();
+    if($("#courseOwnerSignIn"))$("#courseOwnerSignIn").onclick=openOwnerAccount;
+    if($("#reviewMasterCourses"))$("#reviewMasterCourses").onclick=showMasterCourseConflicts;
+  }
+  function masterCourseReview(c) {
+    const data=JSON.parse(JSON.stringify(c));
+    return `<h3>${esc(data.name)}</h3><p>${esc([data.country||"Australia",data.state,data.region].filter(Boolean).join(" · "))}</p><p>${esc(data.address||"")}</p><p>${esc(data.notes||"")}</p>${EVENT_TEES.map(tee=>{
+      const card=courseScorecard(data,tee);if(!card)return "";
+      return `<details><summary>${esc(teeMarkerColour(tee,data))} tee — Slope ${esc(data.teeDetails?.[tee]?.slope||card.slope||"—")} · Scratch ${esc(data.teeDetails?.[tee]?.scratch||card.scratch||"—")}</summary><table><thead><tr><th>Hole</th><th>Par</th><th>Index</th><th>${courseDistanceUnit(card)==='yards'?'Yards':'Metres'}</th></tr></thead><tbody>${Array.from({length:18},(_,i)=>`<tr><td>${i+1}</td><td>${esc(card.par?.[i]??"")}</td><td>${esc(card.index?.[i]??"")}</td><td>${esc(courseHoleDistance(card,i))}</td></tr>`).join("")}</tbody></table></details>`;
+    }).join("")}`;
+  }
+  function showMasterCourseConflicts() {
+    const library=getMasterCourseLibrary(),ids=Object.keys(library.state().conflicts);
+    $("#modalContent").innerHTML=`<h2>Review Different Course Copies</h2><p>Your device and the cloud have different details. Both copies are retained until you choose.</p>${ids.map(id=>`<div class="courseConflict"><h3>${esc(course(id,true)?.name||id)}</h3><div class="rowBtns"><button class="soft" data-coursecompare="${esc(id)}">Compare / Choose</button></div></div>`).join("")}<div class="rowBtns"><button class="soft" id="useAllCloudCourses">Use Cloud Copies for All</button><button class="soft" id="closeCourseReview">Close</button></div>`;
+    $("#modalShade").classList.add("open");
+    $("#closeCourseReview").onclick=()=>$("#modalShade").classList.remove("open");
+    $("#useAllCloudCourses").onclick=()=>{if(!confirm(`Use the cloud copy for all ${ids.length} courses? Your replaced device copies will be retained in your organiser backup.`))return;for(const id of ids)library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $$('[data-coursecompare]').forEach(b=>b.onclick=()=>showMasterCourseComparison(b.dataset.coursecompare));
+  }
+  function showMasterCourseComparison(id) {
+    const library=getMasterCourseLibrary(),remote=library.state().conflicts[id];if(!remote)return;
+    $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div class="courseCompareColumns"><section><h3>On this device</h3>${masterCourseReview(course(id,true))}</section><section><h3>Cloud revision ${remote.revision}</h3>${masterCourseReview(remote.data)}</section></div><p>Choosing this device saves its details as a new cloud revision. Replaced device details remain in your organiser backup.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Save This Device’s Copy to Cloud</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
+    $("#chooseCloudCourse").onclick=()=>{library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#chooseDeviceCourse").onclick=()=>{if(!confirm('Save this device’s details as the next cloud revision?'))return;library.resolve(id,'local');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#backCourseConflicts").onclick=showMasterCourseConflicts;
+  }
+  async function showMasterCourseHistory(id) {
+    try {
+      const rows=await AwayCloud.masterCourseHistory(id);
+      $("#modalContent").innerHTML=`<h2>Previous Course Versions</h2><p>${esc(course(id,true)?.name||"")} — restoring creates a new revision.</p>${rows.map(r=>`<details><summary>Revision ${r.revision} · ${esc(new Date(r.saved_at).toLocaleString())}</summary>${masterCourseReview(r.data)}<button class="soft" data-restorecourse="${r.revision}">Restore as New Revision</button></details>`).join("")||'<p>No cloud versions yet. Synchronise this course first.</p>'}<button class="soft" id="closeCourseHistory">Close</button>`;
+      $("#modalShade").classList.add("open");$("#closeCourseHistory").onclick=()=>$("#modalShade").classList.remove("open");
+      $$('[data-restorecourse]').forEach(b=>b.onclick=()=>{
+        if(!confirm('Restore this course version? The current cloud version remains in history.'))return;
+        const row=rows.find(r=>String(r.revision)===b.dataset.restorecourse),library=getMasterCourseLibrary();
+        library.retainLocal(id);const i=store.courses.findIndex(c=>String(c.id)===String(id));store.courses[i]=JSON.parse(JSON.stringify(row.data));
+        queueMasterCourse(store.courses[i]);$("#modalShade").classList.remove("open");void syncMasterCourses();
+      });
+    }catch(error){alert('Course history could not be loaded: '+error.message);}
+  }
   const COURSE_AU_STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
   let courseLocationFilter = { country: "", state: "", region: "" };
   function cleanCourseLocation(value) {
@@ -3736,10 +3815,10 @@ Count-back if tied
     $("#courseLocationFilters").innerHTML = `<label>Country<select id="courseCountryFilter">${options(courseCountryList(), f.country, "All countries")}</select></label><label>State / Province<select id="courseStateFilter">${options(states, f.state, "All states / provinces")}</select></label><label>Region / Area<select id="courseRegionFilter">${options(regions, f.region, "All regions / areas")}</select></label><div class="rowBtns"><button class="soft" id="clearCourseFilters">Clear filters</button><button class="soft" id="adminAddCountry">+ Add country</button></div>`;
     for (const [id, key] of [["courseCountryFilter", "country"], ["courseStateFilter", "state"], ["courseRegionFilter", "region"]]) $("#" + id).onchange = e => { f[key] = e.target.value; if (key === "country") f.state = f.region = ""; if (key === "state") f.region = ""; renderCoursesAdmin(); };
     $("#clearCourseFilters").onclick = () => { courseLocationFilter = { country: "", state: "", region: "" }; $("#courseSearchMain").value = ""; renderCoursesAdmin(); };
-    $("#adminAddCountry").onclick = () => { const name = addCourseCountry(prompt("Country name")); if (name) { save(); renderCoursesAdmin(); } };
+    $("#adminAddCountry").onclick = () => { const name = addCourseCountry(prompt("Country name")); if (name) { save(); queueMasterCountry(name); renderCoursesAdmin(); } };
   }
   function courseDetail(id, requestedCardTee = "") {
-    let c = course(id);
+    let c = course(id, true);
     if (!c) return;
     ensureCourseData(c);
     const availableCardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee));
@@ -3965,11 +4044,14 @@ Count-back if tied
       c.activeScorecardTee = activeCardTee;
       addCourseCountry(c.country);
       if (!locationIssues.length) { delete c.locationRequired; c.locationIdentified = true; }
-      save();
+      if (!save()) return;
+      queueMasterCourse(c);
+      queueMasterCountry(c.country);
       $("#modalShade").classList.remove("open");
     };
   }
   function renderCoursesAdmin() {
+    renderMasterCoursePanel();
     renderCourseLocationFilters();
     store.courseFavourites = store.courseFavourites || [];
     const favIds = new Set(store.courseFavourites.map(String));
@@ -3999,7 +4081,7 @@ Count-back if tied
         star = favIds.has(String(c.id))
           ? '<span class="courseFavouriteStar" title="Favourite course">★</span>'
           : "";
-      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${esc([c.country || "Australia", c.state, c.region].filter(Boolean).join(" · "))} • ${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
+      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${esc([c.country || "Australia", c.state, c.region].filter(Boolean).join(" · "))} • ${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span><small>${esc(getMasterCourseLibrary()?.status(String(c.id)) || "On this device")}</small>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button><button class="soft" data-coursehistory="${c.id}">History</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
     };
     let ret = wizardReturnStep
       ? `<div class="returnSetupBar"><button class="soft" id="returnToWizardCourses">← Return to Setup</button></div>`
@@ -4106,16 +4188,20 @@ Count-back if tied
       save();
     }
     if (t.dataset.cinfo) courseDetail(t.dataset.cinfo);
+    if (t.dataset.coursehistory) void showMasterCourseHistory(t.dataset.coursehistory);
     if (t.dataset.cinactive) {
-      let c = course(t.dataset.cinactive);
+      let c = course(t.dataset.cinactive,true);
       if (confirm(`Make ${c.name} inactive?`)) {
         c.available = false;
         save();
+        queueMasterCourse(c);
       }
     }
     if (t.dataset.creactivate) {
-      course(t.dataset.creactivate).available = true;
+      const c=course(t.dataset.creactivate,true);
+      c.available = true;
       save();
+      queueMasterCourse(c);
     }
   });
 
@@ -12318,6 +12404,8 @@ Count-back if tied
       }
     };
   }
+  window.addEventListener("online", () => { if (!$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
   if ("serviceWorker" in navigator) {
     let reloadingForUpdate = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
