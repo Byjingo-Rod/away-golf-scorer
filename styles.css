@@ -6862,3 +6862,5 @@ body.playerDevice .cloudHeader {
 
 /* Daily and overall Single Stableford awards are independent. */
 .stablefordBenefitColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:14px}.stablefordBenefitCell{min-width:0;border:1px solid #d5e4da;border-radius:9px;padding:10px}.stablefordBenefitCell .benefitCurrent{margin:0 0 10px;text-align:center}.stablefordBenefitCell>.benefitBtn{width:100%;white-space:normal;line-height:1.4}.stablefordBenefitCell .benefitGrid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.stablefordBenefitCell.notApplicable{opacity:.7}.stablefordBenefitCell.notApplicable .benefitBtn{cursor:default}@media(max-width:650px){.stablefordBenefitColumns{grid-template-columns:1fr;gap:14px}}
+
+.lastDayNtpChoices{border:0;padding:0;margin:0}.lastDayNtpChoices legend{font-weight:800;margin-bottom:8px}.lastDayNtpChoices.inactive{color:#737b77;opacity:.6;filter:grayscale(1)}.lastDayNtpChoices.inactive label{cursor:default}.lastDayNtpHelp strong{font-weight:800}
