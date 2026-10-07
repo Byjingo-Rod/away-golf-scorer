@@ -2800,7 +2800,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.4", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.5", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5253,7 +5253,7 @@ Count-back if tied
           desc:
             d == 1
               ? "Choose one or two NTPs."
-              : "Choose the playing days and one or two NTP holes for each day.",
+              : "Tick the days you want to run NTP. You can also choose two NTP holes for the final day. The app will suggest suitable holes during setup.",
           tag: "NTP",
         },
         {
@@ -5346,6 +5346,10 @@ Count-back if tied
     const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
     return `<div class="ntpBox par3FormatBox"><b>Select Format</b><div class="par3FormatSection"><h5>Daily</h5>${choice("dailyPairs", "a) Aggregate Stableford points on the Par 3s for each 4BBB team")}${choice("dailyTeams", "b) Aggregate Stableford points on the Par 3s for each four-person team")}</div>${+event.days > 1 ? `<div class="par3FormatSection"><h5>Multi-day</h5>${choice("overallPlayers", "a) Aggregate Stableford points on the Par 3s for each player over the event")}${choice("overallPairs", `b) Aggregate Stableford points on the Par 3s for each 4BBB team — partners are the Day ${event.days} 4BBB partners`)}</div>` : ""}</div>`;
   }
+  function lastDayNtpHtml(event) {
+    const day = eventDays(event).length, enabled = competitionDays("ntp",event).includes(day);
+    return `<div class="ntpBox lastDayNtpBox"><fieldset class="lastDayNtpChoices ${enabled ? "" : "inactive"}" ${enabled ? "" : "disabled"}><legend>NTPs on the last day (Day ${day})</legend>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${enabled && ntpCount(day,event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join(" ")}</fieldset><small class="lastDayNtpHelp">${enabled ? "Choose one or two NTP holes for the final day. The app will suggest suitable holes on the NTP setup page." : `<strong>Tick Day ${day} in Playing days above to choose one or two NTP holes for the final day.</strong>`}</small></div>`;
+  }
   function renderStep3() {
     normaliseStablefordBenefits(W.benefits);
     const stablefordId = W.event.days === 1 ? "single" : "combined",
@@ -5435,7 +5439,7 @@ Count-back if tied
       bindCapTeams(W.event, ids, renderStep3);
     }
     if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${W.event.scratchFormat !== "aggregate" ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Aggregate over all days</label>` : ""}</div>`);
-    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", `<div class="ntpBox lastDayNtpBox"><b>NTPs on the last day (Day ${W.event.days})</b>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${ntpCount(W.event.days,W.event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join("")} <small class="lastDayNtpHelp">Tick Day ${W.event.days} in Playing days above to run NTP on the final day, then choose one or two NTP holes here. Choose the actual holes on the NTP setup page.</small></div>`);
+    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", lastDayNtpHtml(W.event));
     $("#wizardBody").onchange = (e) => {
       let t = e.target,
         id =
@@ -5479,7 +5483,7 @@ Count-back if tied
       }
       if (t.name === "p3Mode") { W.event.par3Mode = t.value; W.event.par3Format = t.value === "overallPairs" ? "aggregate" : "daily"; renderStep3(); }
       if (t.name === "scratchFormat") { W.event.scratchFormat = t.value; renderStep3(); }
-      if (t.name === "lastDayNtpCount") { W.event.ntpCounts ||= {}; W.event.ntpCounts["day" + W.event.days] = +t.value; if (W.event.days <= 2) W.event["ntpDay" + W.event.days + "Count"] = +t.value; }
+      if (t.name === "lastDayNtpCount") { if (!competitionDays("ntp",W.event).includes(+W.event.days) || ![1,2].includes(+t.value)) return; W.event.ntpCounts ||= {}; W.event.ntpCounts["day" + W.event.days] = +t.value; if (W.event.days <= 2) W.event["ntpDay" + W.event.days + "Count"] = +t.value; }
       if (t.dataset.yellowballday) {
         const day = +t.dataset.yellowballday,
           selectedDays = new Set(
