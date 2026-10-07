@@ -6864,3 +6864,27 @@ body.playerDevice .cloudHeader {
 .stablefordBenefitColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin-top:14px}.stablefordBenefitCell{min-width:0;border:1px solid #d5e4da;border-radius:9px;padding:10px}.stablefordBenefitCell .benefitCurrent{margin:0 0 10px;text-align:center}.stablefordBenefitCell>.benefitBtn{width:100%;white-space:normal;line-height:1.4}.stablefordBenefitCell .benefitGrid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.stablefordBenefitCell.notApplicable{opacity:.7}.stablefordBenefitCell.notApplicable .benefitBtn{cursor:default}@media(max-width:650px){.stablefordBenefitColumns{grid-template-columns:1fr;gap:14px}}
 
 .lastDayNtpChoices{border:0;padding:0;margin:0}.lastDayNtpChoices legend{font-weight:800;margin-bottom:8px}.lastDayNtpChoices.inactive{color:#737b77;opacity:.6;filter:grayscale(1)}.lastDayNtpChoices.inactive label{cursor:default}.lastDayNtpHelp strong{font-weight:800}
+
+/* Day-specific putting: Pick-up occupies the second control when unused. */
+.scoreSteppers.noPutting .pickupControl .pickupRow {
+  margin-top: 0;
+  min-height: 58px;
+  padding: 8px 6px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+.courseDistanceControls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin: 12px 0;
+  background: #e7f1ea;
+  border-radius: 10px;
+}
+.courseDistanceControls label { min-width: 0; font-weight: 800; }
+.courseDistanceControls select { width: 100%; margin-top: 5px; }
+.courseDistanceControls > small { grid-column: 1 / -1; line-height: 1.45; }
+@media (max-width: 420px) {
+  .courseDistanceControls { grid-template-columns: 1fr; }
+}
