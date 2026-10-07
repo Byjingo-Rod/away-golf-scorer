@@ -6840,3 +6840,17 @@ body.playerDevice .cloudHeader {
   .ambroseRole { align-items:flex-start; }
   .ambroseTeamRoles { grid-template-columns:1fr; }
 }
+
+
+/* One to seven playing days: retain usable controls on tablets and phones. */
+.multiDayTabs { display:flex; flex-wrap:wrap; gap:6px; }
+.multiDayTabs button { min-width:60px; flex:0 0 auto; }
+.dayAvailability { flex-wrap:wrap; gap:6px; max-width:220px; }
+.confirmedAvailability { flex-wrap:wrap; }
+.competitionDayChoices { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin:12px 0; padding:12px; background:#eaf3ed; border-radius:10px; }
+.competitionDayChoices b { width:100%; }
+.competitionDayChoices label { display:flex; align-items:center; gap:5px; margin:0; white-space:nowrap; }
+.competitionDayChoices input { width:auto; }
+.countingRounds { max-width:440px; margin:12px 0; }
+.countingRounds small { display:block; margin-top:6px; }
+.planTeeSelection { flex-wrap:wrap; }
