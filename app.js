@@ -165,6 +165,34 @@
     scratch: "Scratch",
     eclectic: "Eclectic",
   };
+  function eventDays(event = store.event) {
+    return Array.from({ length: Math.max(1, Math.min(7, Math.trunc(+event?.days || 1))) }, (_, i) => i + 1);
+  }
+  function eventDate(day, event = store.event) {
+    if (event?.dayDates?.["day" + day]) return event.dayDates["day" + day];
+    if (!event?.date) return "";
+    const date = new Date(event.date + "T12:00:00");
+    date.setDate(date.getDate() + day - 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+  function competitionDays(id, event = store.event) {
+    const all = eventDays(event), saved = event?.competitionDays?.[id] ||
+      (id === "yellowBall" ? event?.yellowBallDays : null);
+    return Array.isArray(saved) ? all.filter(day => saved.map(Number).includes(day)) : all;
+  }
+  function competitionIsOn(id, day, event = store.event) {
+    return (event?.competitions || []).includes(id) && competitionDays(id, event).includes(+day);
+  }
+  function countingRounds(event = store.event) {
+    const id = (event?.competitions || []).includes("combined") ? "combined" : "single";
+    return Math.max(1, Math.min(competitionDays(id, event).length || 1, Math.trunc(+event?.stablefordCountingRounds || competitionDays(id, event).length || 1)));
+  }
+  function dayTabs(attribute, selected, event = store.event, extraClass = "") {
+    return eventDays(event).length > 1 ? `<div class="dayTabs multiDayTabs ${extraClass}" aria-label="Select event day">${eventDays(event).map(day => `<button type="button" data-${attribute}="${day}" class="${+selected === day ? "active" : ""}">Day ${day}</button>`).join("")}</div>` : "";
+  }
+  function ntpCount(day, event = store.event) {
+    return Math.max(1, Math.min(2, +(event?.ntpCounts?.["day" + day] ?? event?.["ntpDay" + day + "Count"] ?? (day === 2 ? 2 : 1)) || 1));
+  }
   const gcCourseName = (name) =>
     String(name || "").replace(/\bGolf Club\b/g, "GC");
   function parsePlayingHandicap(value) {
@@ -220,7 +248,7 @@
   }
   function eventTeeMarkerColour(day, event = store.event) {
     const tee = selectedEventTee(day, event),
-      courseRecord = course(day === 1 ? event?.course1 : event?.course2);
+      courseRecord = course(event?.["course" + day]);
     return teeMarkerColour(tee, courseRecord);
   }
   function enabledEventTees(event = store.event, day = 1) {
@@ -329,7 +357,7 @@
     });
   }
   function teeRatingForDailyHandicap(day, tee, event = store.event) {
-    const c = course(day === 1 ? event?.course1 : event?.course2),
+    const c = course(event?.["course" + day]),
       detail = c?.teeDetails?.[tee] || {},
       cardPars = courseScorecard(c, tee)?.par || [],
       cardPar = cardPars.length === 18
@@ -831,7 +859,7 @@
   }
   function remapEventCourseIds(event, idMap) {
     if (!event) return;
-    for (const key of ["course1", "course2"])
+    for (const key of eventDays(event).map(day => "course" + day))
       if (idMap.has(String(event[key] || "")))
         event[key] = idMap.get(String(event[key]));
   }
@@ -1085,7 +1113,7 @@
   }
   function eventCourseScorecard(day, event = store.event) {
     if (!event) return {};
-    const c = course(day === 1 ? event.course1 : event.course2),
+    const c = course(event["course" + day]),
       tee = selectedEventTee(day, event);
     return courseScorecard(c, tee) || {};
   }
@@ -1328,7 +1356,7 @@
     return [...ids].filter((id) => player(id));
   }
   function normaliseTwoDaySingleStableford(event) {
-    if (!event || +event.days !== 2 || !Array.isArray(event.competitions)) return;
+    if (!event || +event.days < 2 || !Array.isArray(event.competitions)) return;
     // Two-day Stableford is represented by `combined`, with its daily,
     // aggregate or both format stored separately. A legacy `single` entry can
     // otherwise survive beside it and reappear on player phones as an unwanted
@@ -1372,7 +1400,7 @@
         notes: "",
       };
     });
-    const courseIds = [event.course1, event.course2]
+    const courseIds = eventDays(event).map(day => event["course" + day])
       .filter(Boolean)
       .map(String);
     const courses = store.courses
@@ -1386,10 +1414,7 @@
       return {
         id: String(id),
         name: p.name,
-        dailyHandicaps: {
-          day1: playerDailyHandicap(id, 1),
-          day2: store.event?.days === 2 ? playerDailyHandicap(id, 2) : null,
-        },
+        dailyHandicaps: Object.fromEntries(eventDays().map(day => ["day" + day, playerDailyHandicap(id, day)])),
       };
     });
   }
@@ -2617,7 +2642,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.93.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.0", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3288,30 +3313,30 @@ Count-back if tied
       title: "Scoring",
       text: "Scoring opens 15 minutes before the first tee time.",
     }];
-    const days = event.days === 2 ? [1, 2] : [1],
+    const days = eventDays(event),
       ruleDays = selectedDay ? [selectedDay] : days;
     ruleDays.forEach((day) => {
       const setting = preferredLiesSetting(event, day);
-      if (setting.enabled || event.days === 2 || selectedDay)
+      if (setting.enabled || event.days > 1 || selectedDay)
         sections.push({
           title:
-            event.days === 2 && !selectedDay
+            event.days > 1 && !selectedDay
               ? `Day ${day} — Preferred Lies`
               : "Preferred Lies",
           text: preferredLiesText(event, day),
         });
     });
-    if ((event.competitions || []).includes("teamPutts"))
+    if ((event.competitions || []).includes("teamPutts") && (!selectedDay || competitionIsOn("teamPutts", selectedDay, event)))
       sections.push({
         title: "Putting Competition Rules",
         text: event.puttingRulesCustom || puttingRulesText(event),
       });
-    if ((event.competitions || []).includes("scratch"))
+    if ((event.competitions || []).includes("scratch") && (!selectedDay || competitionIsOn("scratch", selectedDay, event)))
       sections.push({
         title: "Scratch Competition Rules",
         text: scratchRulesText(event),
       });
-    if ((event.competitions || []).includes("ambrose"))
+    if ((event.competitions || []).includes("ambrose") && (!selectedDay || competitionIsOn("ambrose", selectedDay, event)))
       sections.push({
         title: "Ambrose Rules",
         text: ambroseRulesText(event),
@@ -3374,7 +3399,7 @@ Count-back if tied
       };
     if (plan) {
       add(plan.course1, 1);
-      if (plan.days === 2) add(plan.course2, 2);
+      eventDays(plan).filter(day => day > 1).forEach(day => add(plan["course" + day], day));
     }
     return rows;
   }
@@ -3884,7 +3909,7 @@ Count-back if tied
     if (!store.event) return openWizard();
     const e = JSON.parse(JSON.stringify(store.event));
     e.singleStablefordFormat =
-      e.singleStablefordFormat || (e.days === 2 ? "aggregate" : "daily");
+      e.singleStablefordFormat || (e.days > 1 ? "aggregate" : "daily");
     W = {
       step: Math.min(6, Math.max(1, +(e.draftStep || 6))),
       newEvent: false,
@@ -3951,10 +3976,7 @@ Count-back if tied
       confirmed,
       invitationStatus,
       dayAvailability: JSON.parse(JSON.stringify(W.event.dayAvailability || {})),
-      dayFields: {
-        day1: wizardPlanningPlayers(1),
-        ...(W.event.days === 2 ? { day2: wizardPlanningPlayers(2) } : {}),
-      },
+      dayFields: Object.fromEntries(eventDays(W.event).map(day => ["day" + day, wizardPlanningPlayers(day)])),
       competitions: [...W.competitions],
       benefits: JSON.parse(JSON.stringify(W.benefits || {})),
       status: "planned",
@@ -4003,7 +4025,7 @@ Count-back if tied
     return accepted.filter((id) => {
       const a = W.event.dayAvailability?.[id];
       if (W.event.days === 1) return true;
-      return a ? Boolean(a[day]) : true;
+      return a ? a[day] !== false : true;
     });
   }
   function wizardPlanningPlayers(day) {
@@ -4088,11 +4110,20 @@ Count-back if tied
   }
   function scoringOpeningTime(day, event = store.event) {
     if (!event?.date) return null;
-    const date = new Date(`${event.date}T00:00:00`);
-    date.setDate(date.getDate() + day - 1);
+    const date = new Date(`${eventDate(day, event)}T00:00:00`);
     const [hour, minute] = firstEventTeeTime(day, event).split(":").map(Number);
     date.setHours(hour, minute - 15, 0, 0);
-    return date;
+    if (!event.timeZone) return date;
+    const [year,month,dayOfMonth]=eventDate(day,event).split("-").map(Number),
+      target=Date.UTC(year,month-1,dayOfMonth,hour,minute-15),
+      formatter=new Intl.DateTimeFormat("en-GB",{timeZone:event.timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"});
+    let instant=target;
+    for(let iteration=0;iteration<3;iteration++) {
+      const parts=Object.fromEntries(formatter.formatToParts(new Date(instant)).map(part=>[part.type,part.value])),
+        wall=Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute,+parts.second);
+      instant += target-wall;
+    }
+    return new Date(instant);
   }
   function scoringIsOpen(day, event = store.event, now = new Date()) {
     if (!event) return false;
@@ -4104,7 +4135,7 @@ Count-back if tied
   function scoringOpeningLabel(day, event = store.event) {
     const opens = scoringOpeningTime(day, event);
     return opens
-      ? opens.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })
+      ? opens.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", ...(event.timeZone?{timeZone:event.timeZone}:{}) })
       : "15 minutes before the first tee time";
   }
   function scheduleScoringOpening(day, event = store.event) {
@@ -4149,8 +4180,12 @@ Count-back if tied
             ? "Please select a course."
             : "Please select a Day 1 course.",
         );
-      if (W.event.days === 2 && !W.event.course2)
-        return alert("Please select a Day 2 course.");
+      for (const day of eventDays(W.event)) {
+        if (!W.event["course" + day]) return alert(`Please select a Day ${day} course.`);
+        const date = eventDate(day, W.event);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return alert(`Please enter the Day ${day} date.`);
+        if (day > 1 && date <= eventDate(day - 1, W.event)) return alert("Playing dates must be in day order. Leave a gap for a rest day if needed.");
+      }
       for (let day = 1; day <= W.event.days; day++) {
         const m = startMethodFor(W.event, day),
           h = startHolesFor(W.event, day);
@@ -4169,24 +4204,23 @@ Count-back if tied
       }
     }
     if (W.step === 2) {
-      const need = +W.event.fieldSize || 0,
-        d1 = wizardPlanningPlayers(1),
-        d2 = W.event.days === 2 ? wizardPlanningPlayers(2) : [];
-      if (d1.length < need)
-        return alert(
-          W.event.days === 1
-            ? `The event needs ${need} invited or accepted players. You currently have ${d1.length}.`
-            : `Day 1 needs ${need} invited or accepted players. You currently have ${d1.length}.`,
-        );
-      if (W.event.days === 2 && d2.length < need)
-        return alert(
-          `Day 2 needs ${need} invited or accepted players. You currently have ${d2.length}.`,
-        );
-      if (
-        d1.filter((x) => x === NO_PARTNER_ID).length > 1 ||
-        d2.filter((x) => x === NO_PARTNER_ID).length > 1
-      )
-        return alert("Only one No Partner position can be used on a day.");
+      const selected = [...W.invites].filter(([, status]) => ["accepted", "awaiting"].includes(status)).length;
+      if (selected < (+W.event.fieldSize || 0)) return alert(`Select your trip field of ${W.event.fieldSize} players first. Then untick any days they are resting.`);
+      for (const day of eventDays(W.event)) {
+        const ids = wizardPlanningPlayers(day);
+        const realCount = ids.filter(id => id !== NO_PARTNER_ID).length;
+        if (realCount < 4 || realCount === 5) return alert(`Day ${day} needs four real players, or at least six, to form the supported teams of three or four. Review that day's availability.`);
+        if (ids.filter(id => id === NO_PARTNER_ID).length > 1) return alert("Only one No Partner position can be used on a day.");
+      }
+    }
+    if (W.step === 3) {
+      if (!W.competitions.size) return alert("Select at least one competition.");
+      if (W.competitions.has("ambrose")) {
+        const ambroseDays = competitionDays("ambrose", W.event);
+        const conflicts = [...W.competitions].filter(id=>!["ambrose","ntp"].includes(id) && competitionDays(id,W.event).some(day=>ambroseDays.includes(day)));
+        if (conflicts.length) return alert("Ambrose uses team stroke scoring. Select separate playing days for Ambrose and the individual/Stableford competitions.");
+      }
+      for (const day of eventDays(W.event)) if (![...W.competitions].some(id=>competitionDays(id,W.event).includes(day))) return alert(`Select a competition for Day ${day}.`);
     }
     return true;
   }
@@ -4260,7 +4294,7 @@ Count-back if tied
           (b.onclick = () => {
             W.event[chosenKey] = b.dataset.pickcourse;
             W.event.scorecardsChecked = false;
-            if (day === 1 && W.event.days === 2 && !W.event.course2)
+            if (day === 1 && W.event.days > 1 && !W.event.course2)
               W.event.course2 = b.dataset.pickcourse;
             $("#modalShade").classList.remove("open");
             renderStep1();
@@ -4301,104 +4335,65 @@ Count-back if tied
     return `<div class="singleTeeSetup teeScheduleRow"><label>Hole #<select id="weD${day}T1">${holeOptions(holes[0])}</select></label><label>First Tee Time<input id="weD${day}Time1" type="time" value="${times[0]}"></label><label>Tee Time Interval<select id="weD${day}Interval1">${intervalOptions(intervals[0])}</select></label></div>`;
   }
   function renderStep1() {
-    W.event.startMethods = W.event.startMethods || {
-      day1: W.event.startMethod || "single",
-      day2: W.event.startMethod || "single",
-    };
-    W.event.startHoles = W.event.startHoles || {
-      day1: startHolesFor(W.event, 1),
-      day2: startHolesFor(W.event, 2),
-    };
-    W.event.startTimes = W.event.startTimes || { day1: ["07:30", "07:30"], day2: ["07:30", "07:30"] };
-    W.event.teeIntervals = W.event.teeIntervals || { day1: [8, 8], day2: [8, 8] };
+    W.event.days = eventDays(W.event).length;
+    W.event.dayDates ||= {};
+    W.event.startMethods ||= {};
+    W.event.startHoles ||= {};
+    W.event.startTimes ||= {};
+    W.event.teeIntervals ||= {};
+    for (const day of eventDays(W.event)) {
+      W.event["course" + day] ??= W.event.course1 || activeCourses()[0]?.id || "";
+    }
     $("#wizardBody").innerHTML = `<h3>Event details</h3>
- <label>Event name<input id="weName" value="${esc(W.event.name)}" placeholder="e.g. Hunter Valley Weekend"></label>
- <div class="grid3">
-   <div class="field"><label>Start date</label><input id="weDate" type="date" value="${W.event.date}"></div>
-   <div class="field"><label>Event length</label><select id="weDays"><option value="1" ${W.event.days == 1 ? "selected" : ""}>One day</option><option value="2" ${W.event.days == 2 ? "selected" : ""}>Two days</option></select></div>
-   <div class="field"><label>Size of Field</label><div class="fieldSizeStepper" role="group" aria-label="Size of Field"><button type="button" id="weFieldMinus" aria-label="Reduce field size">−</button><input id="weField" type="number" inputmode="numeric" min="1" max="60" value="${W.event.fieldSize}" aria-label="Number of players"><button type="button" id="weFieldPlus" aria-label="Increase field size">+</button></div></div>
- </div>
- <div class="daySetupCard">
-   <div class="daySetupHead"><b>${W.event.days === 1 ? "Course & Start" : "Day 1"}</b><span>Course and starting arrangement</span></div>
-   <label>${W.event.days === 1 ? "Course" : "Day 1 course"}</label><div class="courseSelectRow">${courseChoiceControl(1)}<button class="soft" id="weC1Details">Course Details</button></div>
-   <div class="dayStartFormat"><label>${W.event.days === 1 ? "Start Format" : "Day 1 Start Format"}</label><select id="weStart1">${startFormatOptions(startMethodFor(W.event, 1))}</select></div>
-   <div id="day1StartControls">${dayStartControls(1)}</div>
- </div>
- <div id="day2wrap" class="daySetupCard" style="${W.event.days == 2 ? "" : "display:none"}">
-   <div class="daySetupHead"><b>Day 2</b><span>Course and starting arrangement</span></div>
-   <label>Day 2 course</label><div class="courseSelectRow">${courseChoiceControl(2)}<button class="soft" id="weC2Details">Course Details</button></div>
-   <div class="dayStartFormat"><label>Day 2 Start Format</label><select id="weStart2">${startFormatOptions(startMethodFor(W.event, 2))}</select></div>
-   <div id="day2StartControls">${dayStartControls(2)}</div>
- </div>
- <div class="rowBtns" style="margin-top:12px"><button class="soft" id="wizardAddCourse">+ Add Club / Course</button><button class="soft" id="wizardManageCourses">Manage Club / Course List</button></div>
- <div class="status">✓ Each day's course and starting arrangement are set independently.</div>`;
-    $("#weName").focus();
-    const changeFieldSize = (delta) => {
-      const input = $("#weField");
-      input.value = Math.max(1, Math.min(60, (+input.value || 8) + delta));
-      W.event.fieldSize = +input.value;
-    };
-    $("#weFieldMinus").onclick = () => changeFieldSize(-1);
-    $("#weFieldPlus").onclick = () => changeFieldSize(1);
-    [
-      "weName",
-      "weDate",
-      "weDays",
-      "weField",
-      "weC1",
-      "weC2",
-      "weStart1",
-      "weStart2",
-      "weD1T1",
-      "weD1T2",
-      "weD2T1",
-      "weD2T2",
-      "weD1Time1", "weD1Time2", "weD2Time1", "weD2Time2",
-      "weD1Interval1", "weD1Interval2", "weD2Interval1", "weD2Interval2",
-    ].forEach((id) => {
-      let x = $("#" + id);
-      if (x)
-        x.onchange = () => {
-          syncEventFields();
-          if (id === "weDays" || id === "weStart1" || id === "weStart2")
-            renderStep1();
-        };
+      <label>Event name<input id="weName" value="${esc(W.event.name)}" placeholder="e.g. Vietnam Golf Trip"></label>
+      <div class="grid3"><label>Start date<input id="weDate" type="date" value="${esc(W.event.date)}"></label>
+      <label>Event length<select id="weDays">${Array.from({length:7}, (_, i) => `<option value="${i+1}" ${W.event.days===i+1?"selected":""}>${i+1} playing day${i?"s":""}</option>`).join("")}</select></label>
+      <label>Size of Field<div class="fieldSizeStepper"><button type="button" id="weFieldMinus">−</button><input id="weField" type="number" min="3" max="60" value="${W.event.fieldSize}"><button type="button" id="weFieldPlus">+</button></div></label></div>
+      <label>Course time zone<select id="weTimezone"><option value="" ${!W.event.timeZone?"selected":""}>This device's local time</option><option value="Australia/Sydney" ${W.event.timeZone==="Australia/Sydney"?"selected":""}>Sydney / NSW</option><option value="Asia/Ho_Chi_Minh" ${W.event.timeZone==="Asia/Ho_Chi_Minh"?"selected":""}>Vietnam</option></select></label>
+      <p class="hint">Set each playing day independently. Dates default to consecutive days; change a date to allow a rest day. Tee times are local course times.</p>
+      ${eventDays(W.event).map(day => `<div class="daySetupCard"><div class="daySetupHead"><b>${W.event.days===1?"Course & Start":`Day ${day}`}</b><span>Course and starting arrangement</span></div>
+      ${day>1?`<label>Playing date<input type="date" id="weDayDate${day}" value="${eventDate(day,W.event)}"></label>`:""}
+      <div class="courseSelectRow">${courseChoiceControl(day)}<button class="soft" id="weC${day}Details">Course Details</button></div>
+      <div class="dayStartFormat"><label>Start Format</label><select id="weStart${day}">${startFormatOptions(startMethodFor(W.event,day))}</select></div>
+      ${dayStartControls(day)}</div>`).join("")}
+      <div class="rowBtns"><button class="soft" id="wizardAddCourse">+ Add Club / Course</button><button class="soft" id="wizardManageCourses">Manage Club / Course List</button></div>`;
+    $("#weFieldMinus").onclick = () => { $("#weField").value=Math.max(3,+$("#weField").value-1); syncEventFields(); };
+    $("#weFieldPlus").onclick = () => { $("#weField").value=Math.min(60,+$("#weField").value+1); syncEventFields(); };
+    $$("#wizardBody input, #wizardBody select").forEach(input => input.onchange = () => {
+      syncEventFields();
+      if(input.id === "weDays" || input.id === "weDate" || input.id.startsWith("weStart")) renderStep1();
     });
-    $("#weC1Details").onclick = () => {
-      syncEventFields();
-      courseDetail(W.event.course1);
-    };
-    if ($("#weC2Details"))
-      $("#weC2Details").onclick = () => {
-        syncEventFields();
-        courseDetail(W.event.course2);
-      };
-    $("#chooseCourse1").onclick = () => openCoursePicker(1);
-    if ($("#chooseCourse2"))
-      $("#chooseCourse2").onclick = () => openCoursePicker(2);
-    $("#wizardAddCourse").onclick = () => {
-      syncEventFields();
-      wizardReturnStep = 1;
-      $("#wizardShade").classList.remove("open");
-      nav("coursesPage");
-      addCourse();
-    };
-    $("#wizardManageCourses").onclick = () => {
-      syncEventFields();
-      wizardReturnStep = 1;
-      $("#wizardShade").classList.remove("open");
-      nav("coursesPage");
-      renderCoursesAdmin();
-    };
+    for(const day of eventDays(W.event)) {
+      $("#weC"+day+"Details").onclick = () => { syncEventFields(); courseDetail(W.event["course"+day]); };
+      $("#chooseCourse"+day).onclick = () => openCoursePicker(day);
+    }
+    $("#wizardAddCourse").onclick = () => { syncEventFields(); wizardReturnStep=1; $("#wizardShade").classList.remove("open"); nav("coursesPage"); addCourse(); };
+    $("#wizardManageCourses").onclick = () => { syncEventFields(); wizardReturnStep=1; $("#wizardShade").classList.remove("open"); nav("coursesPage"); renderCoursesAdmin(); };
   }
   function syncEventFields() {
     if (!$("#weName")) return;
+    const previousStart = W.event.date;
+    const previousDays = eventDays(W.event);
     W.event.name = $("#weName").value.trim();
     W.event.date = $("#weDate").value;
     W.event.days = +$("#weDays").value;
+    for (const [id, selected] of Object.entries(W.event.competitionDays || {})) {
+      if (previousDays.every(day => selected.map(Number).includes(day)))
+        W.event.competitionDays[id] = eventDays(W.event);
+    }
+    if (W.event.yellowBallDays && previousDays.every(day => W.event.yellowBallDays.map(Number).includes(day)))
+      W.event.yellowBallDays = eventDays(W.event);
     W.event.fieldSize = +$("#weField").value || 8;
+    W.event.timeZone = $("#weTimezone")?.value || "";
     W.event.course1 = $("#weC1").value;
-    W.event.course2 = $("#weC2")?.value || W.event.course1;
+    W.event.dayDates ||= {};
+    for (const day of eventDays(W.event)) {
+      W.event["course" + day] = $("#weC" + day)?.value || W.event["course" + day] || W.event.course1;
+      const dateInput = $("#weDayDate" + day);
+      if (dateInput && dateInput.value !== eventDate(day, { ...W.event, date: previousStart, dayDates: {} })) W.event.dayDates["day" + day] = dateInput.value;
+      else if (dateInput) delete W.event.dayDates["day" + day];
+      if ($("#weStart" + day)) W.event.startMethods["day" + day] = $("#weStart" + day).value;
+    }
     W.event.startMethods = W.event.startMethods || {
       day1: "single",
       day2: "single",
@@ -4408,7 +4403,7 @@ Count-back if tied
     W.event.teeIntervals = W.event.teeIntervals || { day1: [8, 8], day2: [8, 8] };
     if ($("#weStart1")) W.event.startMethods.day1 = $("#weStart1").value;
     if ($("#weStart2")) W.event.startMethods.day2 = $("#weStart2").value;
-    for (let day = 1; day <= 2; day++) {
+    for (const day of eventDays(W.event)) {
       const m = startMethodFor(W.event, day),
         a = $("#weD" + day + "T1"),
         b = $("#weD" + day + "T2");
@@ -4423,10 +4418,7 @@ Count-back if tied
       W.event.teeIntervals["day" + day] = [+(interval1?.value || teeIntervalsFor(W.event, day)[0] || 8), +(interval2?.value || teeIntervalsFor(W.event, day)[1] || interval1?.value || 8)];
     }
     W.event.startMethod = W.event.startMethods.day1;
-    W.event.twoTeeStarts = {
-      day1: startHolesFor(W.event, 1),
-      day2: startHolesFor(W.event, 2),
-    };
+    W.event.twoTeeStarts = Object.fromEntries(eventDays(W.event).map(day=>["day"+day,startHolesFor(W.event,day)]));
   }
   function openPlayerListManager(onClose = renderStep2) {
     store.playerLists = Array.isArray(store.playerLists) ? store.playerLists : [];
@@ -4548,30 +4540,14 @@ Count-back if tied
           W.event.days === 1 ||
           W.event.dayAvailability?.[String(p.id)]?.[1] !== false,
       );
-      const d2 =
-        W.event.days === 2
-          ? planning.filter(
-              (p) => W.event.dayAvailability?.[String(p.id)]?.[2] !== false,
-            )
-          : [];
       const need = +W.event.fieldSize || 0;
-      const complete =
-        W.event.days === 1
-          ? d1.length >= need
-          : d1.length >= need && d2.length >= need;
-      const status =
-        W.event.days === 1
-          ? complete
-            ? `✅ Planning field complete — ${d1.length} selected (${confirmed.length} accepted${planning.length - confirmed.length ? ` · ${planning.length - confirmed.length} awaiting reply` : ""}).`
-            : `${d1.length} selected — ${Math.max(0, need - d1.length)} places still to fill.`
-          : complete
-            ? `✅ Planning field complete — Day 1: ${d1.length} players · Day 2: ${d2.length} players · ${confirmed.length} accepted.`
-            : `Day 1: ${d1.length}/${need} · Day 2: ${d2.length}/${need}`;
+      const complete = planning.length >= need;
+      const status = `${complete ? "✓ Trip field selected" : `${planning.length}/${need} trip players selected`} — ${eventDays(W.event).map(day => `Day ${day}: ${wizardPlanningPlayers(day).length} playing`).join(" · ")}. Untick a day when a golfer is resting.`;
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
-  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${W.event.days === 2 ? '<button class="soft" data-setcoursehcp="2">Review Day 2 Calculations</button>' : ""}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
+  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${eventDays(W.event).filter(day => day>1).map(day => `<button class="soft" data-setcoursehcp="${day}">Review Day ${day} Calculations</button>`).join("")}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
   <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
-  <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days === 2 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
+  <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
       $("#wpSearch").value = q;
       if (keepSearchFocus) {
@@ -4669,7 +4645,7 @@ Count-back if tied
           .map((p) => {
             const id = String(p.id),
               a = W.event.dayAvailability[id] || { 1: true, 2: true };
-            return `<div class="playerRow confirmedAvailability ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(p.name)}</b><small>${p.system ? "Missing player position" : esc(p.golfLink)}</small></div>${W.event.days === 2 ? `<div class="dayAvailability"><label><input type="checkbox" data-wday="${id}|1" ${a[1] !== false ? "checked" : ""}> D1</label><label><input type="checkbox" data-wday="${id}|2" ${a[2] !== false ? "checked" : ""}> D2</label></div>` : "<span>✓</span>"}</div>`;
+            return `<div class="playerRow confirmedAvailability ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(p.name)}</b><small>${p.system ? "Missing player position" : esc(p.golfLink)}</small></div>${W.event.days > 1 ? `<div class="dayAvailability">${eventDays(W.event).map(day => `<label><input type="checkbox" data-wday="${id}|${day}" ${a[day] !== false ? "checked" : ""}> D${day}</label>`).join("")}</div>` : "<span>✓</span>"}</div>`;
           })
           .join("") ||
         '<p class="hint" style="padding:10px">Accepted players appear here.</p>';
@@ -4756,7 +4732,7 @@ Count-back if tied
       $("#modalShade").classList.remove("open");
     $("#saveQuickHandicaps").onclick = () => {
       inputs.forEach(storeValue);
-      if (day === 1 && W.event.days === 2) {
+      if (day === 1 && W.event.days > 1) {
         const d1 = W.event.dailyHandicaps.day1,
           d2 = (W.event.dailyHandicaps.day2 =
             W.event.dailyHandicaps.day2 || {});
@@ -4786,11 +4762,11 @@ Count-back if tied
     const initialDay1 = JSON.parse(
       JSON.stringify(W.event.teeHandicaps.day1 || {}),
     );
-    if (day === 2)
+    if (day > 1 && String(W.event["course"+day]) === String(W.event.course1))
       tees.forEach((tee) =>
         ids.forEach((id) => {
           const d1 = teeHandicapsFor(1, tee, W.event),
-            d2 = teeHandicapsFor(2, tee, W.event);
+            d2 = teeHandicapsFor(day, tee, W.event);
           if ((d2[id] === "" || d2[id] == null) && d1[id] != null)
             d2[id] = d1[id];
         }),
@@ -4822,7 +4798,7 @@ Count-back if tied
         return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day === 2 ? "Review Day 2" : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on both days. You can then edit any Daily Handicap manually.</p></div><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on every playing day. You can then edit any Daily Handicap manually.</p></div><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     $("#modalShade").classList.add("open");
     const inputs = tees.flatMap((tee) => ids.map((id) => $(`[data-teequickhcp="${tee}|${id}"]`))).filter(Boolean);
     const gaInputs = $$('[data-eventga]');
@@ -4932,7 +4908,7 @@ Count-back if tied
       gaInputs.forEach(storeGaValue);
       inputs.forEach((inp) => storeValue(inp, false));
       saveEventGaToPlayerProfiles(allIds, W.event);
-      if (day === 1 && W.event.days === 2 && !W.event.gaHandicapSetAt)
+      if (day === 1 && W.event.days === 2 && !W.event.gaHandicapSetAt && String(W.event.course1) === String(W.event.course2))
         EVENT_TEES.forEach((tee) => {
           const d1 = teeHandicapsFor(1, tee, W.event),
             d2 = teeHandicapsFor(2, tee, W.event),
@@ -5058,7 +5034,7 @@ Count-back if tied
           desc:
             d == 1
               ? "Highest Stableford score over the round."
-              : "Choose daily winners, the two-day aggregate winner or both.",
+              : "Choose daily winners, the overall trip winner or both.",
           tag: d == 1 ? "INDIVIDUAL" : "FORMAT CHOICE",
         },
         {
@@ -5067,7 +5043,7 @@ Count-back if tied
           desc:
             d == 1
               ? "Played by each 4BBB pair."
-              : "Separate 4BBB Stableford on Day 1 and Day 2.",
+              : "Separate 4BBB Stableford on the selected days.",
           tag: "2-PLAYER PAIRS",
         },
         {
@@ -5097,7 +5073,7 @@ Count-back if tied
           desc:
             d == 1
               ? "The team ball rotates through the playing group. Its Stableford score is recorded until it is lost or the round is complete."
-              : "Choose Day 1, Day 2 or both days for the rotating team ball event.",
+              : "Choose the playing days for the rotating team ball event.",
           tag: "TEAM ROTATION",
         },
         {
@@ -5115,7 +5091,7 @@ Count-back if tied
           desc:
             d == 1
               ? "Choose one or two NTPs."
-              : "One on Day 1 and one or two on Day 2.",
+              : "Choose the playing days and one or two NTP holes for each day.",
           tag: "NTP",
         },
         {
@@ -5131,7 +5107,7 @@ Count-back if tied
         name: "Eclectic",
         desc: same
           ? "Best Stableford score on each hole over the two rounds."
-          : "Available only when the same course is played on both days.",
+          : "Available only when the same course is played on every playing day.",
         tag: same
           ? "AVAILABLE — SAME COURSE"
           : "NOT AVAILABLE — DIFFERENT COURSES",
@@ -5190,11 +5166,25 @@ Count-back if tied
     const ballChoices = id === "yellowBall" ? [1, 2, 3] : [1, 2, 3, 4, 6, 8, 12];
     return `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label><label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`;
   }
+  function competitionScheduleHtml(id) {
+    const days = competitionDays(id, W.event), all = eventDays(W.event);
+    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
+  }
   function renderStep3() {
+    const stablefordId = W.event.days === 1 ? "single" : "combined",
+      previousId = W.event.days === 1 ? "combined" : "single";
+    if (W.competitions.has(previousId)) {
+      W.competitions.delete(previousId);
+      W.competitions.add(stablefordId);
+      if (W.event.competitionDays?.[previousId]) {
+        W.event.competitionDays[stablefordId] = W.event.competitionDays[previousId];
+        delete W.event.competitionDays[previousId];
+      }
+    }
     let defs = compDefinitions(),
       ec = defs.find((x) => x.id === "eclectic");
     const ambroseOn = W.competitions.has("ambrose");
-    if (ambroseOn)
+    if (ambroseOn && W.event.days === 1)
       [...W.competitions].forEach((id) => {
         if (!["ambrose", "ntp"].includes(id)) W.competitions.delete(id);
       });
@@ -5213,8 +5203,8 @@ Count-back if tied
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${defs
         .map((c) => {
           let on = W.competitions.has(c.id),
-            disabled = c.unavailable || (ambroseOn && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Two-Day Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each day — a separate Single Stableford winner on Day 1 and Day 2</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Two-day aggregate — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the two-day aggregate winner</label></div>` : ""}${on && !c.unavailable ? benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days == 2 ? `<div class="ntpBox"><b>Day 2 NTPs</b><label><input style="width:auto" type="radio" name="n2" value="1" ${W.event.ntpDay2Count == 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n2" value="2" ${W.event.ntpDay2Count != 1 ? "checked" : ""}> Two</label><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+            disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Trip Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall trip total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall trip winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days === 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -5224,9 +5214,9 @@ Count-back if tied
             ? W.competitions.add(x.dataset.comp)
             : W.competitions.delete(x.dataset.comp);
           if (x.checked && x.dataset.comp === "yellowBall")
-            W.event.yellowBallDays = W.event.days === 2 ? [1, 2] : [1];
+            W.event.yellowBallDays = W.eventDays(event);
           if (x.checked && x.dataset.comp === "ambrose") {
-            W.competitions = new Set(["ambrose"]);
+            if (W.event.days === 1) W.competitions = new Set(["ambrose"]);
             W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerOnly";
             W.event.ambroseMinimumDrives = +W.event.ambroseMinimumDrives || 3;
             W.event.ntpDay1Count = 0;
@@ -5244,20 +5234,6 @@ Count-back if tied
           renderStep3();
         }),
     );
-    const yellowBallComp = $('[data-comp="yellowBall"]')?.closest(".comp");
-    if (
-      yellowBallComp &&
-      W.competitions.has("yellowBall") &&
-      W.event.days === 2
-    ) {
-      const yellowDays = Array.isArray(W.event.yellowBallDays)
-        ? W.event.yellowBallDays.map(Number)
-        : [1, 2];
-      yellowBallComp.insertAdjacentHTML(
-        "beforeend",
-        `<div class="ntpBox yellowBallDays"><b>Yellow Ball Days</b><label><input style="width:auto" type="checkbox" data-yellowballday="1" ${yellowDays.includes(1) ? "checked" : ""}> Day 1</label><label><input style="width:auto" type="checkbox" data-yellowballday="2" ${yellowDays.includes(2) ? "checked" : ""}> Day 2</label><small>Select either day or both days.</small></div>`,
-      );
-    }
     const ambroseComp = $('[data-comp="ambrose"]')?.closest(".comp");
     if (ambroseComp && W.competitions.has("ambrose"))
       ambroseComp.insertAdjacentHTML(
@@ -5284,6 +5260,23 @@ Count-back if tied
           t.dataset.bcontrib ||
           t.dataset.bplus ||
           t.dataset.bextra;
+      if (t.dataset.compday || t.dataset.compalldays) {
+        const [id, rawDay] = (t.dataset.compday || t.dataset.compalldays).split("|");
+        W.event.competitionDays ||= {};
+        const selected = new Set(competitionDays(id, W.event));
+        if (t.dataset.compalldays) {
+          if (!t.checked) { t.checked = true; return; }
+          W.event.competitionDays[id] = eventDays(W.event);
+        } else {
+          t.checked ? selected.add(+rawDay) : selected.delete(+rawDay);
+          if (!selected.size) { t.checked=true; return alert("Select at least one playing day, or untick the competition above."); }
+          W.event.competitionDays[id] = [...selected].sort((a,b)=>a-b);
+        }
+        if (id === "yellowBall") W.event.yellowBallDays = [...W.event.competitionDays[id]];
+        if (id === "combined") W.event.stablefordCountingRounds = Math.min(+W.event.stablefordCountingRounds || selected.size, W.event.competitionDays[id].length);
+        renderStep3(); return;
+      }
+      if (t.id === "stablefordCountingRounds") W.event.stablefordCountingRounds = +t.value;
       if (t.name === "singleFormat") W.event.singleStablefordFormat = t.value;
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
       if (t.name === "scratchScoringMode")
@@ -5352,12 +5345,12 @@ Count-back if tied
     const preferredCard = (day) => {
       const key = `day${day}`,
         pref = Boolean(W.event.preferredLiesByDay[key]),
-        courseName = course(day === 1 ? W.event.course1 : W.event.course2)?.name;
-      return `<div class="ruleCard preferredCard"><h4>${W.event.days === 2 ? `Day ${day} — ${esc(courseName || "Course")}` : "Preferred Lies"}</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? `Preferred lies are in use ${W.event.days === 2 ? `on Day ${day}` : "for this event"}.` : "Play the ball as it lies."}</div><button type="button" class="soft" data-change-preferred="${day}">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select data-pref-area="${day}"><option value="general" ${W.event.preferredLiesAreaByDay[key] === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesAreaByDay[key] === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>`;
+        courseName = course(W.event["course" + day])?.name;
+      return `<div class="ruleCard preferredCard"><h4>${W.event.days > 1 ? `Day ${day} — ${esc(courseName || "Course")}` : "Preferred Lies"}</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? `Preferred lies are in use ${W.event.days > 1 ? `on Day ${day}` : "for this event"}.` : "Play the ball as it lies."}</div><button type="button" class="soft" data-change-preferred="${day}">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select data-pref-area="${day}"><option value="general" ${W.event.preferredLiesAreaByDay[key] === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesAreaByDay[key] === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>`;
     };
     $("#wizardBody").innerHTML =
       `<div class="rulesHead"><div><h3>Rules</h3><p class="hint">Set any conditions that differ from normal play.</p></div><span class="rulesBadge">EVENT RULES</span></div>
- <div class="preferredDayGrid ${W.event.days === 2 ? "twoDays" : ""}">${preferredCard(1)}${W.event.days === 2 ? preferredCard(2) : ""}</div>
+ <div class="preferredDayGrid ${W.event.days > 1 ? "twoDays" : ""}">${eventDays(W.event).map(preferredCard).join("")}</div>
  ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
  ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
  ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(ambroseRulesText(W.event))}</div></div>` : ""}
@@ -5429,11 +5422,11 @@ Count-back if tied
       return r.sort((x, y) => rank(y) - rank(x) || x.hole - y.hole);
     };
     const ensure = (key, id, count) => {
-      let ch = par3s(id, key === "day2" ? 2 : 1),
+      let ch = par3s(id, +key.replace("day", "")),
         v = Array.isArray(W.event.ntpSelections[key])
           ? W.event.ntpSelections[key].map(Number)
           : [];
-      const day = key === "day2" ? 2 : 1,
+      const day = +key.replace("day", ""),
         source = `${String(id || "")}|${selectedEventTee(day, W.event)}`;
       if (W.event.ntpSelectionSources[key] !== source) v = [];
       v = v
@@ -5447,10 +5440,6 @@ Count-back if tied
       W.event.ntpSelectionSources[key] = source;
       return ch;
     };
-    const n1 = W.event.days == 1 ? +W.event.ntpDay1Count || 1 : 1,
-      d1 = ensure("day1", W.event.course1, n1),
-      n2 = W.event.days == 2 ? +W.event.ntpDay2Count || 2 : 0,
-      d2 = W.event.days == 2 ? ensure("day2", W.event.course2, n2) : [];
     const startLabel = (day) => {
       const method = startMethodFor(W.event, day),
         holes = startHolesFor(W.event, day);
@@ -5469,7 +5458,13 @@ Count-back if tied
     const dayHead = (day, key) =>
       `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>` : ""}</div>`;
     $("#wizardBody").innerHTML =
-      `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div><div class="ntpDayGroup">${dayHead(1, "day1")}${Array.from({ length: n1 }, (_, i) => row(W.event.days === 1 ? "NTP" : "Day 1", "day1", i, d1, W.event.course1)).join("")}</div>${W.event.days == 2 ? `<div class="ntpDayGroup">${dayHead(2, "day2")}${Array.from({ length: n2 }, (_, i) => row("Day 2", "day2", i, d2, W.event.course2)).join("")}</div>` : ""}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+      `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
+        const key="day"+day, cid=W.event["course"+day], count=ntpCount(day,W.event), choices=ensure(key,cid,count);
+        return `<div class="ntpDayGroup">${dayHead(day,key)}<label>Number of NTP holes<select data-ntpcount="${day}"><option value="1" ${count===1?"selected":""}>One</option><option value="2" ${count===2?"selected":""}>Two</option></select></label>${Array.from({length:count},(_,i)=>row(`Day ${day}`,key,i,choices,cid)).join("")}</div>`;
+      }).join("")}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+    $$("[data-ntpcount]").forEach(input=>input.onchange=()=>{
+      W.event.ntpCounts ||= {}; W.event.ntpCounts["day"+input.dataset.ntpcount]=+input.value; renderStep5();
+    });
     $$("[data-ntpchange]").forEach(
       (b) =>
         (b.onclick = () => {
@@ -5502,269 +5497,31 @@ Count-back if tied
   }
   function renderStep6() {
     ensureEventTeePlanning(W.event);
-    const displayDate = (iso) => {
-      if (!iso) return "No date";
-      const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
-    };
-    const joinHoles = (arr) => {
-      const holes = (arr || []).map((h) => "Hole " + h);
-      if (holes.length <= 1) return holes[0] || "Not selected";
-      if (holes.length === 2) return holes[0] + " and " + holes[1];
-      return holes.slice(0, -1).join(", ") + " and " + holes[holes.length - 1];
-    };
-    const noPartnerCount = W.invites.get(NO_PARTNER_ID) === "accepted" ? 1 : 0,
-      confirmed = [...W.invites.entries()]
-        .filter(([id, s]) => s === "accepted")
-        .map(([id]) => player(id))
-        .filter((p) => p && !p.system),
-      awaiting = [...W.invites.entries()]
-        .filter(([id, s]) => s === "awaiting")
-        .map(([id]) => player(id))
-        .filter((p) => p && !p.system);
-    const day1Ids = wizardPlanningPlayers(1),
-      day2Ids = W.event.days === 2 ? wizardPlanningPlayers(2) : [];
-    const selectedDefs = compDefinitions().filter(
-      (c) => W.competitions.has(c.id) && !c.unavailable,
-    );
-    const c1 = course(W.event.course1),
-      c2 = W.event.days == 2 ? course(W.event.course2) : null;
-    const cardResults = Array.from({ length: W.event.days || 1 }, (_, index) => {
-      const day = index + 1,
-        cardCourse = day === 1 ? c1 : c2,
-        tee = selectedEventTee(day, W.event);
-      return cardCourse
-        ? { course: cardCourse, tee, result: validateCourseScorecard(cardCourse, tee) }
-        : null;
-    }).filter(Boolean);
-    const expectedCards = W.event.days || 1,
-      cardsValid =
-        cardResults.length === expectedCards &&
-        cardResults.every((item) => item.result.ok);
-    const rules = [];
-    Array.from({ length: W.event.days || 1 }, (_, index) => index + 1).forEach(
-      (day) => {
-        const setting = preferredLiesSetting(W.event, day);
-        rules.push(
-          `${W.event.days === 2 ? `Day ${day} Preferred Lies` : "Preferred Lies"}: ${setting.enabled ? (setting.area === "fairway" ? "Yes — closely mown part of the course" : "Yes — General Area") : "No — play the ball as it lies"}`,
-        );
-      },
-    );
-    if (W.competitions.has("teamPutts"))
-      rules.push("Putting Competition Rules included");
-    if ((W.event.specialRules || "").trim())
-      rules.push("Special Rules entered");
-
-    const ntpText = () => {
-      if (!W.competitions.has("ntp")) return "Not included";
-      let d1 = joinHoles(W.event.ntpSelections?.day1);
-      if (W.event.days == 1) return d1;
-      let d2 = joinHoles(W.event.ntpSelections?.day2);
-      return `Day 1 — ${d1}<br>Day 2 — ${d2}`;
-    };
-
-    const invitedCount = confirmed.length + awaiting.length + noPartnerCount,
-      teamText = (ids) =>
-        ids.length % 4 === 0
-          ? `${ids.length / 4} team${ids.length === 4 ? "" : "s"} of 4`
-          : `${ids.length} playing positions`,
-      d1Ntp = W.event.ntpSelections?.day1 || [],
-      d2Ntp = W.event.ntpSelections?.day2 || [],
-      ntpLabel =
-        W.event.days === 1
-          ? d1Ntp.length === 1
-            ? `NTP Hole Selected: One NTP — Hole ${d1Ntp[0]}`
-            : `NTP Holes Selected: ${d1Ntp.length} NTPs — Holes ${joinHoles(d1Ntp).replaceAll("Hole ", "")}`
-          : `NTP Holes Selected: Day 1 — ${joinHoles(d1Ntp)}; Day 2 — ${joinHoles(d2Ntp)}`;
-    const checks = [
-      {
-        ok: Boolean((W.event.name || "").trim()),
-        label: `Event Name: ${W.event.name || "Not entered"}`,
-      },
-      {
-        ok: Boolean(W.event.date),
-        label: `Start Date: ${displayDate(W.event.date)}`,
-      },
-      {
-        ok: Boolean(W.event.course1),
-        label:
-          W.event.days === 1
-            ? `Course: ${c1?.name || "Not selected"} · ${startMethodFor(W.event, 1) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 1)[0]}`
-            : `Day 1: ${c1?.name || "Not selected"} · ${startMethodFor(W.event, 1) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 1)[0]}`,
-      },
-      ...(W.event.days === 2
-        ? [
-            {
-              ok: Boolean(W.event.course2),
-              label: `Day 2: ${c2?.name || "Not selected"} · ${startMethodFor(W.event, 2) === "shotgun" ? "Shotgun Time" : "First Tee Time"}: ${startTimesFor(W.event, 2)[0]}`,
-            },
-          ]
-        : []),
-      {
-        ok: Array.from({ length: W.event.days }, (_, i) =>
-          startHolesFor(W.event, i + 1).length > 0,
-        ).every(Boolean),
-        label: `First Tee: ${Array.from(
-          { length: W.event.days },
-          (_, i) => {
-            const hole = +(startHolesFor(W.event, i + 1)[0] || 1),
-              suffix = [11, 12, 13].includes(hole % 100)
-                ? "th"
-                : hole % 10 === 1
-                  ? "st"
-                  : hole % 10 === 2
-                    ? "nd"
-                    : hole % 10 === 3
-                      ? "rd"
-                      : "th";
-            return `${W.event.days === 1 ? "" : `Day ${i + 1}: `}${hole}${suffix}`;
-          },
-        ).join(" · ")}`,
-      },
-      {
-        ok: cardsValid && Boolean(W.event.scorecardsChecked),
-        label: `Course Scorecard Checked Against Official Card: ${
-          cardsValid && W.event.scorecardsChecked
-            ? "Confirmed"
-            : cardsValid
-              ? "Confirmation required"
-              : "Course data needs correction"
-        }`,
-      },
-      {
-        ok: invitedCount > 0,
-        label: `Players Invited: ${invitedCount} · Confirmed: ${confirmed.length}${noPartnerCount ? ` · No Partner: ${noPartnerCount}` : ""}`,
-      },
-      ...Array.from({ length: W.event.days }, (_, i) => {
-        const day = i + 1,
-          tees = enabledEventTees(W.event, day), complete = tees.every((tee) =>
-            teeHandicapsComplete(day, tee, W.event),
-          );
-        return {
-          ok: complete,
-          label: `${W.event.days === 1 ? "" : `Day ${day} `}${tees.map((tee) => EVENT_TEE_LABELS[tee]).join(", ")} Tee Handicaps: ${complete ? "Complete" : "Incomplete"}`,
-        };
-      }),
-      {
-        ok:
-          day1Ids.length >= (+W.event.fieldSize || 0) &&
-          (W.event.days === 1 || day2Ids.length >= (+W.event.fieldSize || 0)),
-        label:
-          W.event.days === 1
-            ? `Daily Field Selected: ${teamText(day1Ids)}`
-            : `Daily Fields Selected: Day 1 — ${teamText(day1Ids)}; Day 2 — ${teamText(day2Ids)}`,
-      },
-      {
-        ok: selectedDefs.length > 0,
-        label: `Competitions Selected: ${selectedDefs.length}`,
-      },
-      ...(W.competitions.has("ntp")
-        ? [
-            {
-              ok:
-                Boolean(d1Ntp.length) &&
-                (W.event.days === 1 || Boolean(d2Ntp.length)),
-              label: ntpLabel,
-            },
-          ]
-        : []),
-    ];
-    const allReady = checks.every((x) => x.ok);
-
-    const dayStartDesc = (day) => {
-      const m = startMethodFor(W.event, day),
-        h = startHolesFor(W.event, day);
-      if (m === "shotgun") return "Shotgun";
-      if (m === "two") return `Two Tees — Holes ${h[0]} and ${h[1]}`;
-      return `Single Tee — Hole ${h[0]}`;
-    };
-    const startDesc =
-      W.event.days === 2
-        ? `Day 1: ${dayStartDesc(1)} · Day 2: ${dayStartDesc(2)}`
-        : dayStartDesc(1);
-
-    $("#wizardBody").innerHTML =
-      `<div class="startHead"><div><h3>Event Plan Ready</h3><p class="hint">Review the plan before proceeding to scoring setup. The plan remains editable until you Lock Event.</p></div><span class="startBadge ${allReady ? "ready" : "check"}">${allReady ? "READY" : "CHECK"}</span></div>
-
- <div class="startSummaryGrid">
-   <div class="startCard">
-     <h4>Event</h4>
-     <p><b>${esc(W.event.name || "Unnamed event")}</b></p>
-     <p>${esc(displayDate(W.event.date))} · ${W.event.days == 2 ? "2 days" : "1 day"} · ${esc(startDesc)}</p>
-     <p>Field size: ${W.event.fieldSize}</p>
-   </div>
-
-   <div class="startCard">
-     <h4>Courses</h4>
-     <p>${W.event.days === 1 ? `<b>${esc(c1?.name || "Not selected")}</b> · Provisional ${esc(eventTeeMarkerColour(1, W.event))} Tee` : `<b>Day 1:</b> ${esc(c1?.name || "Not selected")} · Provisional ${esc(eventTeeMarkerColour(1, W.event))} Tee`}</p>
-     ${W.event.days == 2 ? `<p><b>Day 2:</b> ${esc(c2?.name || "Not selected")} · Provisional ${esc(eventTeeMarkerColour(2, W.event))} Tee</p>` : ""}
-   </div>
-
-   <div class="startCard">
-     <h4>Players</h4>
-     <p><b>${confirmed.length}</b> accepted${awaiting.length ? ` · <b>${awaiting.length}</b> awaiting reply` : ""}</p><p>${W.event.days === 1 ? `<b>${day1Ids.length}</b> planning positions` : `<b>Day 1:</b> ${day1Ids.length} planning positions · <b>Day 2:</b> ${day2Ids.length} positions`}</p><p>${[
-       ...confirmed,
-       ...awaiting,
-     ]
-       .slice(0, 9)
-       .map(
-         (p) =>
-           `${esc(p.name)}${W.invites.get(String(p.id)) === "awaiting" ? " (awaiting)" : ""}`,
-       )
-       .join(", ")}${confirmed.length + awaiting.length > 9 ? "…" : ""}</p>
-   </div>
-
-   <div class="startCard">
-     <h4>Competitions</h4>
-     <p>${selectedDefs.length ? selectedDefs.map((c) => esc(c.name)).join(" · ") : "None selected"}</p>
-   </div>
-
-   <div class="startCard">
-     <h4>Rules</h4>
-     <p>${rules.map(esc).join("<br>")}</p>
-   </div>
-
-   <div class="startCard">
-     <h4>Nearest the Pin</h4>
-     <p>${ntpText()}</p>
-   </div>
- </div>
-
- <div class="finalCheck">
-   <h4>Final Check</h4>
-   <div class="checkList">${checks.map((x) => `<div class="${x.ok ? "ok" : "warn"}"><span>${x.ok ? "✓" : "!"}</span>${x.label}</div>`).join("")}</div>
- </div>
-
- <label class="cardCheckedConfirm ${cardsValid ? "" : "disabled"}"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked ? "checked" : ""} ${cardsValid ? "" : "disabled"}><span><b>Card checked</b> — I have checked the course scorecard against the official card.</span></label>
-
- <div class="startNotice ${allReady ? "oneLine" : ""}">
-   ${allReady ? "<b>Everything required for setup is complete but you can make changes to any element until Lock Event is used.</b>" : "<b>A setup item still needs attention.</b><span>Use Back to correct anything marked with ! before proceeding.</span>"}
- </div>
-
- <div class="planTeeSelection"><div><b>Provisional Playing Tee</b><span>Choose the expected tee now. Final details are locked shortly before play.</span></div>${Array.from({ length: W.event.days }, (_, i) => { const day = i + 1, selected = selectedEventTee(day, W.event), eventCourse = course(day === 1 ? W.event.course1 : W.event.course2); return `<div class="planTeeDay"><strong>${W.event.days === 1 ? "Event" : `Day ${day}`}</strong>${enabledEventTees(W.event, day).map((tee) => `<button type="button" data-wizardplayingtee="${day}|${tee}" class="${selected === tee ? "active" : ""}">${esc(teeMarkerColour(tee, eventCourse))}<small>${EVENT_TEE_LABELS[tee]}</small></button>`).join("")}</div>`; }).join("")}</div>
- <div class="startConfirmRow"><div><b>Starting Hole Check</b><span>${esc(startDesc)}</span></div><button type="button" class="soft" id="changeStartingTee">Change Starting Hole</button></div>
- <button type="button" class="startEventBig" id="startEventBig" ${allReady ? "" : "disabled"}>SAVE EVENT PLAN – PROCEED TO SET UP SCORING</button>`;
-
-    $("#changeStartingTee").onclick = () => {
-      W.step = 1;
-      renderWizard();
-    };
-    $("#scorecardsChecked").onchange = (event) => {
-      W.event.scorecardsChecked = event.target.checked;
-      renderStep6();
-    };
-    $$("[data-wizardplayingtee]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          const [day, tee] = button.dataset.wizardplayingtee.split("|");
-          selectEventTee(+day, tee, W.event);
-          renderStep6();
-        }),
-    );
-    $("#startEventBig").onclick = () => {
-      if (!allReady) return;
-      finishEvent();
-    };
+    const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
+      cardResults = days.map(day=>{ const c=course(W.event["course"+day]); return c && validateCourseScorecard(c,selectedEventTee(day,W.event)); }),
+      cardsValid = cardResults.every(result=>result?.ok),
+      checks = [
+        {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
+        {ok:Boolean(W.event.date),label:`Start Date: ${W.event.date||"Not entered"}`},
+        ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} · ${eventDate(day,W.event)} · First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
+        {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
+        ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
+        ...days.map(day=>({ok:enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event)),label:`Day ${day} Tee Handicaps: ${enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event))?"Complete":"Incomplete"}`})),
+        {ok:selected.length>0,label:`Competitions Selected: ${selected.length}`},
+        ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
+      ], allReady=checks.every(check=>check.ok);
+    $("#wizardBody").innerHTML = `<div class="startHead"><div><h3>Event Plan Ready</h3><p>Review all ${days.length} playing day${days.length>1?"s":""} before proceeding to scoring setup.</p></div><span class="startBadge ${allReady?"ready":"check"}">${allReady?"READY":"CHECK"}</span></div>
+      <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p></div>
+      ${days.map(day=>`<div class="startCard"><h4>Day ${day}</h4><p>${esc(eventDate(day,W.event))} · ${esc(course(W.event["course"+day])?.name||"No course")}</p><p>${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)} · ${esc(startMethodFor(W.event,day))} start</p><p>${selected.filter(comp=>competitionDays(comp.id,W.event).includes(day)).map(comp=>esc(comp.name)).join(" · ")}</p></div>`).join("")}
+      ${W.competitions.has("combined")&&W.event.singleStablefordFormat!=="daily"?`<div class="startCard"><h4>Overall Stableford</h4><p>Best ${countingRounds({...W.event,competitions:[...W.competitions]})} of ${competitionDays("combined",W.event).length} rounds count.</p></div>`:""}</div>
+      <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
+      <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> — I have checked every course scorecard against the official card.</span></label>
+      <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>`<div class="planTeeDay"><strong>Day ${day}</strong>${enabledEventTees(W.event,day).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${tee}" class="${selectedEventTee(day,W.event)===tee?"active":""}">${esc(teeMarkerColour(tee,course(W.event["course"+day])))}<small>${EVENT_TEE_LABELS[tee]}</small></button>`).join("")}</div>`).join("")}</div>
+      <button class="soft" id="changeStartingTee">Change Course / Starting Arrangement</button><button class="startEventBig" id="startEventBig" ${allReady?"":"disabled"}>SAVE EVENT PLAN – PROCEED TO SET UP SCORING</button>`;
+    $("#scorecardsChecked").onchange=e=>{W.event.scorecardsChecked=e.target.checked;renderStep6();};
+    $("#changeStartingTee").onclick=()=>{W.step=1;renderWizard();};
+    $$("[data-wizardplayingtee]").forEach(button=>button.onclick=()=>{const [day,tee]=button.dataset.wizardplayingtee.split("|");selectEventTee(+day,tee,W.event);renderStep6();});
+    $("#startEventBig").onclick=()=>{if(allReady)finishEvent();};
   }
   function finishEvent() {
     if (W.newEvent) captureCurrentEvent();
@@ -5778,8 +5535,7 @@ Count-back if tied
       JSON.stringify(W.event.dayAvailability || {}),
     );
     const dayFields = {};
-    dayFields.day1 = wizardPlanningPlayers(1);
-    if (W.event.days === 2) dayFields.day2 = wizardPlanningPlayers(2);
+    eventDays(W.event).forEach(day => dayFields["day" + day] = wizardPlanningPlayers(day));
     const oldGroups = W.newEvent ? null : store.event?.groupSetup;
     if (W.newEvent) {
       closeCloudConnection();
@@ -5861,8 +5617,8 @@ Count-back if tied
       for (let j = i + 1; j < g.length; j++) {
         score += playedTogetherCount(g[i], g[j]);
         // Strongly discourage repeating Day 1 group-mates on Day 2.
-        if (day === 2) {
-          const d1 = store.event?.groupSetup?.day1?.groups || [];
+        if (day > 1) {
+          const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
           if (
             d1.some(
               (old) =>
@@ -5876,8 +5632,8 @@ Count-back if tied
     // Repeated 4BBB partnerships are more important than simply sharing the four.
     if (g.length >= 2) {
       score += 2 * partneredCount(g[0], g[1]);
-      if (day === 2) {
-        const d1 = store.event?.groupSetup?.day1?.groups || [];
+      if (day > 1) {
+        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
         if (
           d1.some(
             (old) =>
@@ -5898,8 +5654,8 @@ Count-back if tied
     }
     if (g.length >= 4) {
       score += 2 * partneredCount(g[2], g[3]);
-      if (day === 2) {
-        const d1 = store.event?.groupSetup?.day1?.groups || [];
+      if (day > 1) {
+        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
         if (
           d1.some(
             (old) =>
@@ -5940,9 +5696,9 @@ Count-back if tied
       .sort()
       .join("|");
   }
-  function repeatsDay1Fourball(groups) {
+  function repeatsDay1Fourball(groups, day = 2) {
     const oldPairs = new Set(
-      (store.event?.groupSetup?.day1?.groups || [])
+      eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[])
         .flatMap((g) => [g.slice(0, 2), g.slice(2, 4)])
         .filter(
           (p) => p.length === 2 && !p.some((x) => String(x) === NO_PARTNER_ID),
@@ -5962,19 +5718,19 @@ Count-back if tied
     const seen = new Set(),
       candidates = [];
     for (let n = 0; n < 1800; n++) {
-      const cand = makeGroups(shuffleCopy(ids));
+      const cand = makeGroups(shuffleCopy(ids), day);
       const signature = fourballDrawSignature(cand);
       if (seen.has(signature)) continue;
       seen.add(signature);
       candidates.push({
         groups: cand,
         score: drawRepeatScore(cand, day),
-        repeatsPartner: day === 2 && repeatsDay1Fourball(cand),
+        repeatsPartner: day > 1 && repeatsDay1Fourball(cand, day),
       });
     }
-    if (!candidates.length) return makeGroups(ids);
+    if (!candidates.length) return makeGroups(ids, day);
     const eligible =
-      day === 2 && candidates.some((x) => !x.repeatsPartner)
+      day > 1 && candidates.some((x) => !x.repeatsPartner)
         ? candidates.filter((x) => !x.repeatsPartner)
         : candidates;
     eligible.sort((a, b) => a.score - b.score);
@@ -6219,7 +5975,7 @@ Count-back if tied
     }
     return a;
   }
-  function makeGroups(ids) {
+  function makeGroups(ids, day = store.event?.activeGroupDay || 1) {
     const real = ids.filter(id => String(id) !== NO_PARTNER_ID);
     if (real.length < 6) {
       const out = [];
@@ -6230,7 +5986,7 @@ Count-back if tied
     let offset=0;
     return Array.from({length:count},(_,index)=>{
       const size=base+(index<extra?1:0), group=real.slice(offset,offset+size);offset+=size;
-      if(size===3&&!ambroseIsOn())group.push(NO_PARTNER_ID);
+      if(size===3&&!ambroseIsOn(store.event, day))group.push(NO_PARTNER_ID);
       return group;
     });
   }
@@ -6324,7 +6080,7 @@ Count-back if tied
     return a.length ? a[Math.floor(Math.random() * a.length)] : null;
   }
   function ensureOneShortTeamSelections(setup, day) {
-    const ctx = ambroseIsOn()
+    const ctx = ambroseIsOn(store.event, day)
       ? ambroseThreePlayerContext(setup.groups, setup.shortTeamIndex ?? null)
       : noPartnerContext(setup.groups, day, setup.shortTeamIndex ?? null);
     if (!ctx) {
@@ -6333,7 +6089,7 @@ Count-back if tied
       setup.ntpExtraPlayers = {};
       return;
     }
-    if (ambroseIsOn()) setup.virtualPlayer = null;
+    if (ambroseIsOn(store.event, day)) setup.virtualPlayer = null;
     else if (
       !setup.virtualPlayer ||
       !ctx.candidates.map(String).includes(String(setup.virtualPlayer))
@@ -6344,7 +6100,7 @@ Count-back if tied
       setup.virtualPlayer = emergency.virtualPlayerId;
       setup.ntpExtraPlayers = emergency.ntpExtraPlayers || {};
       setup.ntpExtraPlayer = null;
-    } else if ((store.event.competitions || []).includes("ntp")) {
+    } else if (competitionIsOn("ntp", day)) {
       const eligible = ctx.realInGroup.map(String);
       // Preserve existing locked single-VP events; new draws rotate attempts by hole.
       if (setup.ntpExtraPlayer && (setup.saved || store.event.locked) && !Object.keys(setup.ntpExtraPlayers || {}).length) return;
@@ -6396,14 +6152,14 @@ Count-back if tied
     const emergency=store.event.emergencyReplacements?.['day'+day];
     if(emergency?.virtualPlayerId)used.add(String(emergency.virtualPlayerId));
     const shortIndexes=setup.groups.map((g,i)=>g.filter(id=>String(id)!==NO_PARTNER_ID).length===3?i:-1).filter(i=>i>=0);
-    const legacyIndex=setup.groups.findIndex(g=>g.some(id=>String(id)===NO_PARTNER_ID) || (ambroseIsOn()&&g.length===3));
+    const legacyIndex=setup.groups.findIndex(g=>g.some(id=>String(id)===NO_PARTNER_ID) || (ambroseIsOn(store.event, day)&&g.length===3));
     for(const gi of shortIndexes){
-      if(!ambroseIsOn()&&!setup.groups[gi].some(id=>String(id)===NO_PARTNER_ID))setup.groups[gi].push(NO_PARTNER_ID);
+      if(!ambroseIsOn(store.event, day)&&!setup.groups[gi].some(id=>String(id)===NO_PARTNER_ID))setup.groups[gi].push(NO_PARTNER_ID);
       const legacy=!setup.shortTeams&&gi===legacyIndex ? {virtualPlayer:setup.virtualPlayer,ntpExtraPlayer:setup.ntpExtraPlayer,ntpExtraPlayers:setup.ntpExtraPlayers} : {};
       const local={...setup,...legacy,...previous[String(gi)],shortTeamIndex:gi};
       if(!previous[String(gi)]&&!Object.keys(legacy).length){local.virtualPlayer=null;local.ntpExtraPlayer=null;local.ntpExtraPlayers={};local.ntpRotation=[];}
       ensureOneShortTeamSelections(local,day);
-      if(!ambroseIsOn()){
+      if(!ambroseIsOn(store.event, day)){
         const ctx=noPartnerContext(setup.groups,day,gi);
         const reserved=emergency?.groupIndex===gi;
         if(!reserved && used.has(String(local.virtualPlayer))) local.virtualPlayer=chooseRandom(ctx.candidates,[...used]);
@@ -6440,7 +6196,8 @@ Count-back if tied
         current &&
         current.groups &&
         current.groups.flat().map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") ===
-          expectedIds.map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|");
+          expectedIds.map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") &&
+        current.groups.every(group=>ambroseIsOn(store.event,day) ? !group.includes(NO_PARTNER_ID) : group.filter(id=>id!==NO_PARTNER_ID).length!==3 || group.includes(NO_PARTNER_ID));
       if (!same) {
         // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
         // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
@@ -6492,7 +6249,7 @@ Count-back if tied
   }
   function groupCompetitionText() {
     if (!store.event) return "";
-    let c = new Set(store.event.competitions || []),
+    let c = manualSelectedCompetitions(store.event.activeGroupDay || 1),
       parts = [];
     if (c.has("fourball"))
       parts.push("4BBB partners are the two pairs shown in each group");
@@ -6743,7 +6500,7 @@ Count-back if tied
     });
   }
   function officialCardProgress(day, playerId) {
-    const puttsRequired = (store.event.competitions || []).includes("teamPutts"),
+    const puttsRequired = competitionIsOn("teamPutts", day),
       records = Array.from({ length: 18 }, (_, i) =>
         findOfficialForPlayer(day, playerId, i + 1),
       ),
@@ -6761,7 +6518,7 @@ Count-back if tied
   }
   function verificationIssueCount(day, playerId) {
     const mine = scoringDayStore(day)?.[String(playerId)] || {},
-      puttsRequired = (store.event.competitions || []).includes("teamPutts");
+      puttsRequired = competitionIsOn("teamPutts", day);
     return Array.from({ length: 18 }, (_, i) => i + 1).filter((h) => {
       const self = mine[String(h)]?.self || {},
         off = findOfficialForPlayer(day, playerId, h),
@@ -6781,7 +6538,7 @@ Count-back if tied
   }
   function verificationIssueHoles(day, playerId) {
     const mine = scoringDayStore(day)?.[String(playerId)] || {},
-      puttsRequired = (store.event.competitions || []).includes("teamPutts");
+      puttsRequired = competitionIsOn("teamPutts", day);
     return Array.from({ length: 18 }, (_, i) => i + 1).filter((h) => {
       const self = mine[String(h)]?.self || {},
         off = findOfficialForPlayer(day, playerId, h);
@@ -6842,7 +6599,7 @@ Count-back if tied
         group: ctx.groupIndex + 1,
       };
     }
-    if (ambroseIsOn() && ctx) {
+    if (ambroseIsOn(store.event, day) && ctx) {
       const checks = Array.from({ length: 18 }, (_, index) =>
           ambroseHoleAgreement(day, ctx.groupIndex, index + 1),
         ),
@@ -6898,7 +6655,7 @@ Count-back if tied
     if (entered === 18 && !issues) {
       state = "ready";
       label = "Ready to finalise";
-      detail = (store.event.competitions || []).includes("teamPutts")
+      detail = competitionIsOn("teamPutts", day)
         ? "Both cards agree on all scores and putts"
         : "Both cards agree on all scores";
     }
@@ -7211,7 +6968,7 @@ Count-back if tied
         .map(String),
       scorer = String(scorerId || ids[0] || ""),
       targetId = markerTargetFor(scorer, day),
-      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       existing = Object.keys(scoringDayStore(day)?.[scorer] || {}).filter(
         (x) => /^\d+$/.test(x),
@@ -7311,7 +7068,7 @@ Count-back if tied
     inputs[0]?.focus();
   }
   function emergencyRuleText(day, virtualId, affectedId, ntpExtraPlayers) {
-    const prefix = store.event.days === 2 ? `Day ${day}: ` : "";
+    const prefix = store.event.days > 1 ? `Day ${day}: ` : "";
     const base = `${prefix}We are a player short for our Away Golf Event today. ${player(virtualId)?.name || "A player"} has been randomly selected to be the virtual player to partner ${player(affectedId)?.name || "the player with the missing partner"} in all multiplayer competitions.`;
     const shots = Object.entries(ntpExtraPlayers || {}).map(([hole, id]) => `${player(id)?.name || "A player"} has been randomly selected to have 2 shots on the NTP hole ${hole}.`);
     return [base, ...shots].join(" ");
@@ -7430,8 +7187,8 @@ Count-back if tied
       `<label class="${css}"><span>${label}</span><input inputmode="numeric" pattern="[0-9]*" data-manual="${esc(prefix + "." + key)}" ${required && key === "total" ? "data-required" : ""} value="${esc(values[key] ?? "")}"></label>`;
     return `<div class="manualSummaryFields">${field("total", "Total", "manualTotal")}${field("back9", "Back 9")}${field("last6", "Last 6")}${field("last3", "Last 3")}</div>`;
   }
-  function manualSelectedCompetitions() {
-    return new Set(store.event?.competitions || []);
+  function manualSelectedCompetitions(day = store.event?.liveControlDay || 1) {
+    return new Set((store.event?.competitions || []).filter(id=>competitionIsOn(id,day)));
   }
   function manualPar3Holes(day) {
     const v = eventCourseScorecard(day);
@@ -7471,7 +7228,7 @@ Count-back if tied
     return Boolean(groupHasScoreEntries(day, groupIndex));
   }
   function manualRequirements(day, groupIndex) {
-    const comps = manualSelectedCompetitions(),
+    const comps = manualSelectedCompetitions(day),
       setup = store.event?.groupSetup?.["day" + day],
       raw = setup?.groups?.[groupIndex] || [],
       virtualId = raw.some((id) => String(id) === NO_PARTNER_ID)
@@ -7655,7 +7412,7 @@ Count-back if tied
   function renderManualTeamCard(day, groupIndex) {
     const req = manualRequirements(day, groupIndex),
       card = manualGroupCard(day, groupIndex),
-      playingCourse = course(day === 1 ? store.event.course1 : store.event.course2),
+      playingCourse = course(store.event["course" + day]),
       playingVersion = eventCourseScorecard(day),
       comps = [],
       summarySection = (title, body, note = "") =>
@@ -7861,7 +7618,7 @@ Count-back if tied
             );
           }),
       ),
-      comps = manualSelectedCompetitions(),
+      comps = manualSelectedCompetitions(day),
       ntpReady =
         !comps.has("ntp") ||
         ntpHolesInPlayingOrder(day).every(
@@ -7875,7 +7632,7 @@ Count-back if tied
       setup = store.event?.groupSetup?.["day" + selectedDay],
       dayStore = manualDayStore(selectedDay),
       groups = setup?.groups || [];
-    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>ORGANISER PAPER-CARD ENTRY</small><h2>Record All Scores</h2><p>Enter one signed team card at a time. Draft entries do not affect results.</p></div>${days === 2 ? `<div class="liveDayTabs manualDayTabs"><button data-manualday="1" class="${selectedDay === 1 ? "active" : ""}">Day 1</button><button data-manualday="2" class="${selectedDay === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="manualTeamDashboard">${groups
+    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>ORGANISER PAPER-CARD ENTRY</small><h2>Record All Scores</h2><p>Enter one signed team card at a time. Draft entries do not affect results.</p></div>${dayTabs("manualday", selectedDay, store.event, "manualDayTabs")}<div class="manualTeamDashboard">${groups
       .map((raw, index) => {
         const req = manualRequirements(selectedDay, index),
           ids = req.ids,
@@ -7883,7 +7640,7 @@ Count-back if tied
           status = card?.status === "submitted" ? "Submitted ✓" : card ? "Draft" : "Not started";
         return `<section class="manualTeamTile ${card?.status || "empty"}"><div><small>TEAM ${index + 1}</small><h3>${ids.map((id) => `${esc(player(id)?.name || "Player")}${id === req.virtualId ? ' <em class="manualVirtualLabel">(VIRTUAL PLAYER)</em>' : ""}`).join(" · ")}</h3><span>${status}</span></div><button class="${card?.status === "submitted" ? "soft" : "primary"}" data-openmanualteam="${index}">${card?.status === "submitted" ? "Review / Edit" : card ? "Continue" : "Open Team Card"}</button></section>`;
       })
-      .join("") || '<p class="leaderEmpty">Save the teams for this day before recording paper cards.</p>'}</div>${manualSelectedCompetitions().has("ntp") ? renderManualNtpEditor(selectedDay) : ""}<div class="manualDayFinish"><div><b>${manualDayReady(selectedDay) ? `Day ${selectedDay} entry complete ✓` : `Day ${selectedDay} remains in progress`}</b><span>${manualDayReady(selectedDay) ? "All paper cards and NTP results are ready for the leaderboards." : "Submit every team card and complete the NTP result before finishing the day."}</span></div><button class="primary" id="completeManualDay" ${manualDayReady(selectedDay) ? "" : "disabled"}>Complete Day ${selectedDay} Results</button></div><button class="soft emergencyClose" id="closeManualScores">Close</button>`;
+      .join("") || '<p class="leaderEmpty">Save the teams for this day before recording paper cards.</p>'}</div>${manualSelectedCompetitions(selectedDay).has("ntp") ? renderManualNtpEditor(selectedDay) : ""}<div class="manualDayFinish"><div><b>${manualDayReady(selectedDay) ? `Day ${selectedDay} entry complete ✓` : `Day ${selectedDay} remains in progress`}</b><span>${manualDayReady(selectedDay) ? "All paper cards and NTP results are ready for the leaderboards." : "Submit every team card and complete the NTP result before finishing the day."}</span></div><button class="primary" id="completeManualDay" ${manualDayReady(selectedDay) ? "" : "disabled"}>Complete Day ${selectedDay} Results</button></div><button class="soft emergencyClose" id="closeManualScores">Close</button>`;
     $("#modalShade").classList.add("open");
     $$('[data-manualday]').forEach(
       (button) =>
@@ -7918,7 +7675,7 @@ Count-back if tied
       $("#modalShade").classList.remove("open");
   }
   function openManualScores(day = 1) {
-    if (ambroseIsOn()) {
+    if (ambroseIsOn(store.event, day)) {
       alert("Ambrose paper-card entry will use its dedicated team score and selected-drives card in the next stage.");
       return;
     }
@@ -7929,7 +7686,7 @@ Count-back if tied
       unsupported = [
       ["scratch", "Scratch"],
       ["eclectic", "Eclectic"],
-    ].filter(([key]) => manualSelectedCompetitions().has(key));
+    ].filter(([key]) => manualSelectedCompetitions(selectedDay).has(key));
     if (unsupported.length) {
       alert(
         `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")} on Day ${selectedDay}. Keep using phone scoring for that day, or remove that competition before entering paper cards.`,
@@ -7980,7 +7737,7 @@ Count-back if tied
       allFinal = Boolean(rows.length && finalised === rows.length),
       scoringOpen = scoringIsOpen(day);
     scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${days === 2 ? `<div class="liveDayTabs"><button data-liveday="1" class="${day === 1 ? "active" : ""}">Day 1</button><button data-liveday="2" class="${day === 2 ? "active" : ""}">Day 2</button></div>` : ""}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     if (!scoringOpen) {
       const actions = host.querySelector(".liveControlActions");
       actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
@@ -9064,7 +8821,7 @@ Count-back if tied
     if (g.length === 3)
       return String(g[(pos + 1) % 3]);
     // Prefer the 4BBB partner because the two golfers naturally mark/verify each other.
-    if ((store.event.competitions || []).includes("fourball")) {
+    if (competitionIsOn("fourball", day)) {
       const pairStart = ctx.playerIndex < 2 ? 0 : 2;
       const other = ctx.group
         .slice(pairStart, pairStart + 2)
@@ -9075,7 +8832,7 @@ Count-back if tied
     return String(g[(pos + 1) % g.length] || "");
   }
   function ntpHolesFor(day) {
-    return (store.event.ntpSelections?.["day" + day] || []).map(Number);
+    return competitionIsOn("ntp",day) ? (store.event.ntpSelections?.["day" + day] || []).map(Number) : [];
   }
   function ntpHolesInPlayingOrder(day) {
     const holes = ntpHolesFor(day);
@@ -9178,7 +8935,7 @@ Count-back if tied
     if (store.event?.ntpJackpot && nextSlot) {
       const destination =
         state.mode === "rolling" ? nextSlot : slots[slots.length - 1];
-      return `Hole ${hole}: No Winner — ${prize || "Prize"} carries to Hole ${destination.hole}${store.event.days === 2 ? ` Day ${destination.day}` : ""}`;
+      return `Hole ${hole}: No Winner — ${prize || "Prize"} carries to Hole ${destination.hole}${store.event.days > 1 ? ` Day ${destination.day}` : ""}`;
     }
     return `Hole ${hole}: No Winner${prize ? ` — ${prize}` : "Prize"} not awarded`;
   }
@@ -9209,7 +8966,7 @@ Count-back if tied
       ).length,
       cards = Array.from({ length: event.days || 1 }, (_, index) => {
         const day = index + 1,
-          item = course(day === 1 ? event.course1 : event.course2);
+          item = course(event["course" + day]);
         return item ? { item, tee: selectedEventTee(day, event) } : null;
       }).filter(Boolean),
       cardsChecked =
@@ -9235,7 +8992,7 @@ Count-back if tied
         { ok: Boolean(event.date), label: `Start Date: ${displayDate(event.date)}` },
         ...Array.from({ length: event.days || 1 }, (_, index) => {
           const day = index + 1,
-            eventCourse = course(day === 1 ? event.course1 : event.course2),
+            eventCourse = course(event["course" + day]),
             timeLabel = startMethodFor(event, day) === "shotgun" ? "Shotgun Time" : "First Tee Time";
           return {
             ok: Boolean(eventCourse),
@@ -9267,7 +9024,7 @@ Count-back if tied
           label:
             event.days === 1
               ? `Daily Field Selected: ${teamText(dayFieldIds(1))}`
-              : `Daily Fields Selected: Day 1 — ${teamText(dayFieldIds(1))}; Day 2 — ${teamText(dayFieldIds(2))}`,
+              : `Daily Fields Selected: ${eventDays(event).map(day=>`Day ${day} — ${teamText(dayFieldIds(day))}`).join("; ")}`,
         },
         {
           ok: (event.competitions || []).length > 0,
@@ -9275,12 +9032,11 @@ Count-back if tied
         },
         ...((event.competitions || []).includes("ntp")
           ? [{
-              ok: (event.ntpSelections?.day1 || []).length > 0 &&
-                (event.days === 1 || (event.ntpSelections?.day2 || []).length > 0),
+              ok: competitionDays("ntp",event).every(day=>(event.ntpSelections?.["day"+day]||[]).length>0),
               label:
                 event.days === 1
                   ? `NTP Holes Selected: ${joinHoles(event.ntpSelections?.day1)}`
-                  : `NTP Holes Selected: Day 1 — ${joinHoles(event.ntpSelections?.day1)}; Day 2 — ${joinHoles(event.ntpSelections?.day2)}`,
+                  : `NTP Holes Selected: ${competitionDays("ntp",event).map(day=>`Day ${day} — ${joinHoles(event.ntpSelections?.["day"+day])}`).join("; ")}`,
             }]
           : []),
       ].filter((check) => check.ok);
@@ -9305,11 +9061,11 @@ Count-back if tied
       groups = setup.groups;
     const teamsSaved = Boolean(setup.saved);
     const cname =
-      course(day === 1 ? store.event.course1 : store.event.course2)?.name ||
+      course(store.event["course" + day])?.name ||
       "Course";
     const method = startMethodFor(store.event, day),
       ids = dayFieldIds(day),
-      ctx = ambroseIsOn()
+      ctx = ambroseIsOn(store.event, day)
         ? ambroseThreePlayerContext(groups)
         : noPartnerContext(groups, day);
     const vp = setup.virtualPlayer ? player(setup.virtualPlayer) : null;
@@ -9345,13 +9101,13 @@ Count-back if tied
       return esc(player(id)?.name || "");
     };
     const pairBlock = (g, gi) => {
-      if (!(store.event.competitions || []).includes("fourball")) return "";
+      if (!competitionIsOn("fourball", day)) return "";
       const one = g.slice(0, 2).map(id=>pairName(id,gi)).join(" & "),
         two = g.slice(2, 4).map(id=>pairName(id,gi)).join(" & ");
       return `<div class="partnerBlock"><div class="partnerHeading">Partners in 4BBB</div><div class="pairSummary"><span>${one || "—"}</span><span>${two || "—"}</span></div></div>`;
     };
     const ambroseRoleBlock = (g, gi) => {
-      if (!ambroseIsOn()) return "";
+      if (!ambroseIsOn(store.event, day)) return "";
       const team = g.map(String).filter((id) => id && id !== NO_PARTNER_ID),
         roles = ambroseRoles(day, gi),
         started = ambroseTeamHasEntries(day, gi),
@@ -9379,12 +9135,12 @@ Count-back if tied
       scoreEntry = firstDayScoreEntry(day),
       teeScoringStarted = Boolean(scoreEntry),
       selectedTeeComplete = teeHandicapsComplete(day, selectedTee),
-      eventCourse = course(day === 1 ? store.event.course1 : store.event.course2),
+      eventCourse = course(store.event["course" + day]),
       eventScoringStarted = Array.from({ length: store.event.days || 1 }, (_, index) => firstDayScoreEntry(index + 1)).some(Boolean),
       markerIncluded = store.event.ambroseScoringMode !== "scorerOnly",
-      markerChoice = ambroseIsOn() ? `<div class="ambroseMarkerChoice"><b>Score Marker</b><button type="button" id="toggleAmbroseMarker" class="${markerIncluded ? "included" : ""}" ${eventScoringStarted ? "disabled" : ""}>${markerIncluded ? "✓ Marker Included" : "Click to include a Score Marker"}</button><small>${eventScoringStarted ? "Scoring has started — setting locked." : "Applies to every team in this event."}</small></div>` : "",
+      markerChoice = ambroseIsOn(store.event, day) ? `<div class="ambroseMarkerChoice"><b>Score Marker</b><button type="button" id="toggleAmbroseMarker" class="${markerIncluded ? "included" : ""}" ${eventScoringStarted ? "disabled" : ""}>${markerIncluded ? "✓ Marker Included" : "Click to include a Score Marker"}</button><small>${eventScoringStarted ? "Scoring has started — setting locked." : "Applies to every team in this event."}</small></div>` : "",
       teeChangeControl = locked && teeFinal && !teeScoringStarted ? '<button type="button" class="soft reopenTeeBtn" id="reopenEventTee">Change Tee Before Scoring</button>' : "",
-      teePanel = `<div class="eventTeePanel ${ambroseIsOn() ? "ambroseTeePanel" : ""} ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${esc(eventTeeMarkerColour(day))} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : `Provisional selection. ${enabledEventTees(store.event, day).length === 3 ? "All three" : "Both"} handicap sets remain stored.`}</p></div><div class="eventTeeButtons">${enabledEventTees(store.event, day).map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${esc(teeMarkerColour(tee, eventCourse))}<small>${EVENT_TEE_LABELS[tee]} · ${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${teeChangeControl}${markerChoice}${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
+      teePanel = `<div class="eventTeePanel ${ambroseIsOn(store.event, day) ? "ambroseTeePanel" : ""} ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${esc(eventTeeMarkerColour(day))} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : `Provisional selection. ${enabledEventTees(store.event, day).length === 3 ? "All three" : "Both"} handicap sets remain stored.`}</p></div><div class="eventTeeButtons">${enabledEventTees(store.event, day).map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${esc(teeMarkerColour(tee, eventCourse))}<small>${EVENT_TEE_LABELS[tee]} · ${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${teeChangeControl}${markerChoice}${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
       startingHole = +(startHolesFor(store.event, day)[0] || 1),
       scoringBlocker = scoreEntry
         ? `${player(scoreEntry.scorerId)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
@@ -9395,7 +9151,7 @@ Count-back if tied
           : "";
     const affected = ctx?.affected ? player(ctx.affected) : null;
     const shortNotice = ctx
-      ? ambroseIsOn()
+      ? ambroseIsOn(store.event, day)
         ? `<div class="virtualNotice"><h4>${store.event.days === 1 ? "Three-Player Ambrose Team" : `Three-Player Ambrose Team — Day ${day}`}</h4><p>This team plays with its three actual golfers. No Virtual Player score is used.</p>${ambroseExtraAttempts.length ? `<p><b>NTP Extra Shots:</b> ${ambroseExtraAttempts.map((attempt) => `Hole ${attempt.hole} — ${esc(attempt.name)}`).join("; ")}. The extra attempt rotates to a different golfer when two NTP holes are selected; either tee shot may qualify.</p>` : ""}</div>`
         : `<div class="virtualNotice">
    <h4>${store.event.days === 1 ? "Short Team Arrangement" : `Short Team Arrangement — Day ${day}`}</h4>
@@ -9406,10 +9162,10 @@ Count-back if tied
       : "";
     host.innerHTML = `<div class="teamsTop">
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
-   <div class="teamsTopActions">${store.event.days == 2 ? `<div class="dayTabs" aria-label="Select event day"><button type="button" class="${day === 1 ? "active" : ""}" data-groupday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-groupday="2">Day 2</button></div>` : ""}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
+   <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
  ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
- ${day === 2 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day 2 balancing:</b> today's draw treats Day 1 groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
+ ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
  ${startingHolePanel}
@@ -9420,7 +9176,7 @@ Count-back if tied
    <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected · Cancel" : "Swap"}</button></div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ambroseRoleBlock(g, gi)}
-   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn()?'Three-player Ambrose team':'Virtual Player: '+esc(player(a.virtualPlayer)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(player(id)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(player(a.ntpExtraPlayer)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
+   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn(store.event, day)?'Three-player Ambrose team':'Virtual Player: '+esc(player(a.virtualPlayer)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(player(id)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(player(a.ntpExtraPlayer)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
    ${
      !locked && !teamsSaved &&
      store.event.swapPlayer &&
@@ -9441,7 +9197,7 @@ Count-back if tied
    .join("")}</div>
  ${
    !locked
-     ? `<div class="dailyHandicapPanel"><div class="dailyHandicapHead"><div><b>${store.event.days === 1 ? "Daily Handicaps" : `Daily Handicaps — Day ${day}`}</b><span>Enter the playing handicap used for ${ambroseIsOn() ? "the Ambrose team handicap" : "Stableford"}. Tick Plus for a plus-handicap player.</span></div><span>${ids.filter((x) => String(x) !== NO_PARTNER_ID && playerDailyHandicap(x, day) == null).length ? "Complete before Lock Event" : "✓ Complete"}</span></div><div class="dailyHandicapGrid">${ids
+     ? `<div class="dailyHandicapPanel"><div class="dailyHandicapHead"><div><b>${store.event.days === 1 ? "Daily Handicaps" : `Daily Handicaps — Day ${day}`}</b><span>Enter the playing handicap used for ${ambroseIsOn(store.event, day) ? "the Ambrose team handicap" : "Stableford"}. Tick Plus for a plus-handicap player.</span></div><span>${ids.filter((x) => String(x) !== NO_PARTNER_ID && playerDailyHandicap(x, day) == null).length ? "Complete before Lock Event" : "✓ Complete"}</span></div><div class="dailyHandicapGrid">${ids
          .filter((x) => String(x) !== NO_PARTNER_ID)
          .map((id) => {
            const h = playerDailyHandicap(id, day),
@@ -9630,7 +9386,7 @@ Count-back if tied
       store.event.drawMode = "random";
       store.event.manualMode = false;
       store.event.swapPlayer = null;
-      setup.groups = makeGroups(shuffleCopy(ids));
+      setup.groups = makeGroups(shuffleCopy(ids), day);
       setup.starts = defaultStarts(setup.groups, method, day);
       setup.saved = false;
       ensureShortTeamSelections(setup, day);
@@ -9726,7 +9482,7 @@ Count-back if tied
             return;
           }
           h[id] = val;
-          if (day === 1 && store.event.days === 2) {
+          if (day === 1 && store.event.days === 2 && String(store.event.course1) === String(store.event.course2)) {
             const d2 = eventDayHandicaps(2);
             if (d2[id] === "" || d2[id] == null) d2[id] = val;
           }
@@ -9781,8 +9537,8 @@ Count-back if tied
 
   function formatEventDate(iso, day = 1) {
     if (!iso) return "";
-    let d = new Date(iso + "T12:00:00");
-    d.setDate(d.getDate() + day - 1);
+    let d = new Date((iso === store.event?.date ? eventDate(day) : iso) + "T12:00:00");
+    if (iso !== store.event?.date) d.setDate(d.getDate() + day - 1);
     return d.toLocaleDateString("en-AU", {
       weekday: "long",
       day: "numeric",
@@ -9806,8 +9562,7 @@ Count-back if tied
         month: "short",
         year: "numeric",
       });
-    const end = new Date(start);
-    end.setDate(start.getDate() + days - 1);
+    const end = new Date(eventDate(days, event) + "T12:00:00");
     return `${shortPart(start)} – ${end.toLocaleDateString("en-AU", {
       weekday: "short",
       day: "numeric",
@@ -9825,8 +9580,8 @@ Count-back if tied
     }
     return null;
   }
-  function ambroseIsOn(event = store.event) {
-    return Boolean((event?.competitions || []).includes("ambrose"));
+  function ambroseIsOn(event = store.event, day = event?.activeGroupDay || 1) {
+    return competitionIsOn("ambrose", day, event);
   }
   function ambroseTeam(day, groupIndex, event = store.event) {
     return (event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || [])
@@ -9925,10 +9680,7 @@ Count-back if tied
   function yellowBallIsOn(day, event = store.event) {
     if (!(event?.competitions || []).includes("yellowBall")) return false;
     if ((event.days || 1) === 1) return +day === 1;
-    const selectedDays = Array.isArray(event.yellowBallDays)
-      ? event.yellowBallDays.map(Number)
-      : [1, 2];
-    return selectedDays.includes(+day);
+    return competitionDays("yellowBall", event).includes(+day);
   }
   function yellowBallTeam(day, groupIndex, event = store.event) {
     const setup = event?.groupSetup?.["day" + day],
@@ -10036,7 +9788,7 @@ Count-back if tied
       return renderPlayerExperience();
     }
     const p = player(selected),
-      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       hcp = playerDailyHandicap(selected, day),
       ctx = playerGroupContext(selected, day),
@@ -10085,10 +9837,10 @@ Count-back if tied
     $("#backFromCompletedCardBottom").onclick = goBack;
   }
   function scorecardVerificationRows(day, playerId) {
-    const c = course(day === 1 ? store.event.course1 : store.event.course2),
+    const c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       mine = scorerStore(day, playerId),
-      puttsRequired = (store.event.competitions || []).includes("teamPutts"),
+      puttsRequired = competitionIsOn("teamPutts", day),
       hcp = playerDailyHandicap(playerId, day);
     return Array.from({ length: 18 }, (_, i) => i + 1).map((h) => {
       const self = mine[String(h)]?.self || {},
@@ -10128,7 +9880,7 @@ Count-back if tied
     const targetId = markerTargetFor(scorerId, day),
       markerRound = scorerStore(day, scorerId),
       playerRound = targetId ? scorerStore(day, targetId) : {},
-      puttsRequired = (store.event.competitions || []).includes("teamPutts");
+      puttsRequired = competitionIsOn("teamPutts", day);
     const rows = Array.from({ length: 18 }, (_, i) => i + 1).map((h) => {
       const marked = markerRound[String(h)]?.official || {},
         checked = playerRound[String(h)]?.self || {},
@@ -10163,11 +9915,11 @@ Count-back if tied
     const host = $("#playerExperience"),
       ctx = playerGroupContext(selected, day),
       setup = ctx?.setup,
-      c = course(day === 1 ? store.event.course1 : store.event.course2);
+      c = course(store.event["course" + day]);
     if (!ctx) return renderPlayerExperience();
     const start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start),
-      puttsRequired = (store.event.competitions || []).includes("teamPutts"),
+      puttsRequired = competitionIsOn("teamPutts", day),
       ownRows = scorecardVerificationRows(day, selected),
       ownMismatches = ownRows.filter((r) => !r.match),
       stage = ownMismatches.length
@@ -10236,7 +9988,7 @@ Count-back if tied
       editable = [roles.scorerId, roles.markerId].includes(String(selected)),
       entryScorerId = editable ? String(selected) : roles.scorerId,
       isPrimary = String(selected) === roles.scorerId,
-      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       sequence = scoreSequence(start),
@@ -10385,7 +10137,7 @@ Count-back if tied
       ctx = playerGroupContext(selected, day);
     if (!p || !ctx) return renderPlayerExperience();
     const setup = ctx.setup,
-      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start);
@@ -10523,7 +10275,7 @@ Count-back if tied
         id,
         total: puttsThrough(id),
       }));
-    const puttingOn = (store.event.competitions || []).includes("teamPutts"),
+    const puttingOn = competitionIsOn("teamPutts", day),
       puttingFormat = store.event.puttingFormat === "pairs" ? "pairs" : "team",
       puttingIds = puttingFormat === "pairs" ? pairIds : teamIds,
       puttingValues = puttingIds.map(puttsThrough),
@@ -10554,7 +10306,7 @@ Count-back if tied
       best3Total = best3Values.every((x) => x != null)
         ? best3Values.reduce((a, b) => a + b, 0)
         : null,
-      best3On = (store.event.competitions || []).includes("best3of4"),
+      best3On = competitionIsOn("best3of4", day),
       yellowBallOn = yellowBallIsOn(day),
       yellowBallPlayerId = yellowBallOn
         ? yellowBallPlayerForHole(day, ctx.groupIndex, hole)
@@ -10595,9 +10347,7 @@ Count-back if tied
       const r = round[String(h)] || {},
         grossDone =
           scoreEntered(r.official?.gross) && scoreEntered(r.self?.gross);
-      const puttsRequired = (store.event.competitions || []).includes(
-        "teamPutts",
-      );
+      const puttsRequired = competitionIsOn("teamPutts", day);
       return (
         grossDone &&
         (!puttsRequired ||
@@ -10861,7 +10611,7 @@ Count-back if tied
           originalId === NO_PARTNER_ID
             ? `${player(id)?.name || "Virtual Player"} (VP for ${player(setup.missingPlayerId)?.name || "missing player"})`
             : player(id)?.name || "Player",
-        filled = ambroseIsOn()
+        filled = ambroseIsOn(store.event, day)
           ? group.filter((id) => id !== NO_PARTNER_ID)
           : group
               .map((id) =>
@@ -10939,6 +10689,12 @@ Count-back if tied
     return row;
   }
   function leaderCountback(a, b, higher = true) {
+    if (a.tripCountback && b.tripCountback) {
+      for (let index=0;index<Math.min(a.tripCountback.length,b.tripCountback.length);index++) {
+        const diff=b.tripCountback[index]-a.tripCountback[index]; if(diff) return diff;
+      }
+      return 0;
+    }
     if ((a.manual && !a.cbTotals) || (b.manual && !b.cbTotals)) return 0;
     if (a.cbTotals || b.cbTotals) {
       const totals = (row) => {
@@ -11025,51 +10781,29 @@ Count-back if tied
       (selected.has("single") || selected.has("combined"))
     )
       add("single-d1", "Single Stableford", "single", 1, { countback: true });
-    if (days === 2 && (selected.has("combined") || selected.has("single"))) {
-      const format = selected.has("combined")
-        ? store.event.singleStablefordFormat ||
-          (store.event.testMode ? "aggregate" : "both")
-        : "daily";
-      const aggregateOnly = format === "aggregate",
-        both = format === "both",
-        day1Label = aggregateOnly
-          ? "Single Stableford — Day 1"
-          : both
-            ? "Day 1 Single Stableford"
-            : "Single Stableford",
-        day2Label = aggregateOnly
-          ? "Single Stableford — Day 2"
-          : both
-            ? "Day 2 Single Stableford"
-            : "Single Stableford";
-      add("combined-leg-d1", day1Label, "single", 1, {
-        countback: true,
-        awardable: !aggregateOnly,
-        aggregateLeg: aggregateOnly,
+    if (days > 1 && (selected.has("combined") || selected.has("single"))) {
+      const id = selected.has("combined") ? "combined" : "single",
+        format = id === "combined" ? store.event.singleStablefordFormat || "aggregate" : "daily",
+        selectedDays = competitionDays(id), aggregateOnly = format === "aggregate";
+      for (const day of selectedDays) add(`combined-leg-d${day}`, `Single Stableford — Day ${day}`, "single", day, {
+        countback: true, awardable: !aggregateOnly, aggregateLeg: aggregateOnly,
       });
-      add("combined-leg-d2", day2Label, "single", 2, {
-        countback: true,
-        awardable: !aggregateOnly,
-        aggregateLeg: aggregateOnly,
+      if (format !== "daily") add("combined", `Single Stableford — Best ${countingRounds()} of ${selectedDays.length}`, "combined", 0, {
+        countback: true, aggregateResult: true, days: selectedDays,
       });
-      if (format === "aggregate" || format === "both")
-        add("combined", "Single Stableford — 2 Days", "combined", 0, {
-          countback: true,
-          aggregateResult: true,
-        });
     }
     for (let day = 1; day <= days; day++) {
       const suffix = days === 1 ? "" : ` — Day ${day}`;
-      if (selected.has("ambrose"))
+      if (competitionIsOn("ambrose", day))
         add(`ambrose-d${day}`, `Ambrose${suffix}`, "ambrose", day, {
           lower: true,
           countback: true,
         });
-      if (selected.has("fourball"))
+      if (competitionIsOn("fourball", day))
         add(`fourball-d${day}`, `4BBB${suffix}`, "fourball", day, {
           countback: true,
         });
-      if (selected.has("teamPutts"))
+      if (competitionIsOn("teamPutts", day))
         add(
           `putts-d${day}`,
           `${store.event.puttingFormat === "pairs" ? "Pairs" : "Team"} Putting${suffix}`,
@@ -11077,25 +10811,25 @@ Count-back if tied
           day,
           { lower: true, countback: true },
         );
-      if (selected.has("best3of4"))
+      if (competitionIsOn("best3of4", day))
         add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day);
       if (selected.has("yellowBall") && yellowBallIsOn(day))
         add(`yellow-ball-d${day}`, `Yellow Ball${suffix}`, "yellowBall", day);
-      if (selected.has("scratch"))
+      if (competitionIsOn("scratch", day))
         add(`scratch-d${day}`, `Scratch${suffix}`, "scratch", day, {
           lower: true,
           countback: true,
         });
-      if (selected.has("ntp"))
+      if (competitionIsOn("ntp", day))
         add(`ntp-d${day}`, `Nearest the Pin${suffix}`, "ntp", day);
     }
     if (selected.has("par3")) {
-      if (days === 2 && store.event.par3Format === "aggregate")
+      if (days === 2 && store.event.par3Format === "aggregate" && competitionDays("par3").length === 2)
         add("par3-agg", "Par 3 Pairs — 2 Days", "par3aggregate", 0, {
           countback: true,
         });
       else
-        for (let day = 1; day <= days; day++)
+        for (const day of competitionDays("par3"))
           add(
             `par3-d${day}`,
             `Par 3 Pairs${days === 1 ? "" : ` — Day ${day}`}`,
@@ -11104,7 +10838,7 @@ Count-back if tied
             { countback: true },
           );
     }
-    if (selected.has("eclectic"))
+    if (selected.has("eclectic") && days === 2 && competitionDays("eclectic").length === 2)
       add("eclectic", "Eclectic — 2 Days", "eclectic", 0, { countback: true });
     return defs;
   }
@@ -11124,43 +10858,33 @@ Count-back if tied
           leaderRow(id, player(id)?.name || "Player", "", points(def.day, id))
         );
       });
-    if (def.type === "combined")
-      rows = field(1)
-        .filter((id) => field(2).includes(id))
-        .map((id) => {
-          const d1Manual = manualPlayerSummary(1, id, "single"),
-            d2Manual = manualPlayerSummary(2, id, "single"),
-            d1 = points(1, id),
-            d2 = points(2, id),
-            d1Complete = d1Manual || d1.every((value) => value != null),
-            d2Complete = d2Manual || d2.every((value) => value != null),
-            d1Total = d1Manual ? +d1Manual.total : leaderSum(d1),
-            d2Total = d2Manual ? +d2Manual.total : leaderSum(d2),
-            r = leaderRow(
-              id,
-              player(id)?.name || "Player",
-              "Day 1 + Day 2",
-              [],
-              36,
-            );
-          r.total = d1Total + d2Total;
-          r.thru = (d1Complete ? 18 : d1.filter((x) => x != null).length) +
-            (d2Complete ? 18 : d2.filter((x) => x != null).length);
-          r.cbHoles = d2;
-          if (
-            d2Manual &&
-            [d2Manual.back9, d2Manual.last6, d2Manual.last3].some(
-              (value) => value !== "" && value != null,
-            )
-          )
-            r.cbTotals = {
-              back9: +(d2Manual.back9 || 0),
-              last6: +(d2Manual.last6 || 0),
-              last3: +(d2Manual.last3 || 0),
-            };
-          r.manual = Boolean(d1Manual || d2Manual);
-          return r;
+    if (def.type === "combined") {
+      const selectedDays = def.days || competitionDays("combined"), count = countingRounds();
+      rows = [...new Set(selectedDays.flatMap(field))].map(id => {
+        const rounds = selectedDays.filter(day => field(day).includes(id)).map(day => {
+          const manual = manualPlayerSummary(day, id, "single"), holes = points(day, id);
+          return {day, manual, holes, total: manual ? +manual.total : leaderSum(holes),
+            complete: Boolean(manual) || holes.every(value => value != null),
+            thru: manual ? 18 : holes.filter(value => value != null).length};
         });
+        const ranked = [...rounds].sort((a,b) => Number(b.complete)-Number(a.complete) || b.total-a.total || b.day-a.day),
+          counted = ranked.slice(0,count), completed = rounds.filter(round => round.complete).length,
+          last = [...counted].sort((a,b) => b.day-a.day)[0],
+          row = leaderRow(id, player(id)?.name || "Player", `Best ${count} of ${selectedDays.length} · ${completed} complete · Counting days ${counted.map(r=>r.day).sort((a,b)=>a-b).join(", ") || "—"}`, [], count*18);
+        row.total = counted.reduce((total,round) => total+round.total,0);
+        row.thru = counted.reduce((total,round) => total+round.thru,0);
+        row.cbHoles = last?.holes || [];
+        if (last?.manual) row.cbTotals = {back9:+last.manual.back9||0,last6:+last.manual.last6||0,last3:+last.manual.last3||0};
+        if (eventDays().length > 2) row.tripCountback = counted.filter(round=>round.complete).map(round=>round.total).sort((a,b)=>a-b);
+        row.manual = counted.some(round=>round.manual);
+        row.insufficientRounds = completed < count;
+        // A golfer who sat out too many days remains visible, but is ineligible for the overall prize.
+        if (selectedDays.every(eventDayComplete) && completed < count) {
+          row.disqualified = true; row.disqualificationReason = `${completed} completed rounds; ${count} required`;
+        }
+        return row;
+      });
+    }
     if (def.type === "ambrose")
       rows = leaderboardUnits(def.day, "team").map((unit) => {
         const groupIndex = +String(unit.id).replace(/^d\d+g/, ""),
@@ -11431,7 +11155,7 @@ Count-back if tied
           r.thru = d2.filter((value) => value != null).length;
           return r;
         });
-    if (def.type === "scratch" || def.type === "ambrose") {
+    if (["scratch", "ambrose", "combined"].includes(def.type)) {
       const active = rankLeaderRows(
         rows.filter((r) => !r.disqualified),
         !def.lower,
@@ -11468,9 +11192,7 @@ Count-back if tied
   function leaderboardComplete(def, rows) {
     const finalised = def.day
       ? eventDayComplete(def.day)
-      : store.event.days === 2
-        ? eventDayComplete(1) && eventDayComplete(2)
-        : eventDayComplete(1);
+      : (def.days || eventDays()).every(eventDayComplete);
     if (def.type === "ntp")
       return (
         finalised &&
@@ -11489,9 +11211,9 @@ Count-back if tied
     }
     if (def.type === "yellowBall")
       return Boolean(finalised && rows.length);
-    return Boolean(
-      finalised && rows.length && rows.every((r) => r.thru === r.target),
-    );
+    const eligible = rows.filter(row => !row.disqualified);
+    if (def.type === "combined" && finalised && rows.length && !eligible.length) return true;
+    return Boolean(finalised && eligible.length && eligible.every(row => row.thru === row.target));
   }
   function summaryCompetitionResult(def) {
     if (def.type === "ntp") {
@@ -11520,6 +11242,7 @@ Count-back if tied
         text: "Result announced at the end of play",
         awardable: def.awardable !== false,
       };
+    if (def.type === "combined" && complete && !top) return {complete:true,status:"Completed",text:"No golfer completed the required number of rounds",awardable:false};
     if (!top || (!top.thru && def.type !== "yellowBall"))
       return {
         complete: false,
@@ -11559,7 +11282,7 @@ Count-back if tied
             : `${top.total} pts · all 18 holes completed`
           : `${top.total} ${def.type === "putts" ? "putts" : "pts"}`;
     const resultText = def.aggregateLeg
-      ? `${top.name} led Day ${def.day} of the two-day event — ${result}${top.cb ? " CB" : ""}`
+      ? `${top.name} led Day ${def.day} of the trip — ${result}${top.cb ? " CB" : ""}`
       : def.aggregateResult
         ? `${top.name} — Aggregate ${result}${top.cb ? " CB" : ""}`
         : `${top.name}${teamMembers} — ${result}${top.cb ? " CB" : ""}`;
@@ -11613,9 +11336,8 @@ Count-back if tied
   }
   function buildFinalPlayerMessages(defs) {
     const outcomes = {};
-    dayFieldIds(1)
-      .filter((id) => String(id) !== NO_PARTNER_ID)
-      .forEach((id) => (outcomes[String(id)] = []));
+    [...new Set(eventDays().flatMap(dayFieldIds))]
+      .filter(id=>String(id)!==NO_PARTNER_ID).forEach(id=>outcomes[String(id)]=[]);
     defs.forEach((def) =>
       competitionWinnerIds(def).forEach((id) => {
         if (outcomes[id] && !outcomes[id].includes(def.label))
@@ -11737,23 +11459,11 @@ Count-back if tied
   }
   function renderLeaderboardSummary(host, defs, viewTabs) {
     const groups = [
-      {
-        title: store.event.days === 1 ? "Event Results" : "Day 1 Results",
-        defs: defs.filter((d) => d.scope === 1),
-      },
-      { title: "Day 2 Results", defs: defs.filter((d) => d.scope === 2) },
-      {
-        title: "Overall Event Results",
-        defs: defs.filter((d) => d.scope === "overall"),
-      },
-    ].filter((g) => g.defs.length);
-    const organiser =
-        !store.event.pastEventReadOnly &&
-        !["player", "spectator"].includes(store.cloud?.role),
-      day1Complete = eventDayComplete(1),
-      day2Complete =
-        store.event.days !== 2 ? true : eventDayComplete(2),
-      eventComplete = day1Complete && day2Complete,
+      ...eventDays().map(day => ({title: store.event.days===1?"Event Results":`Day ${day} Results`, defs:defs.filter(d=>d.scope===day)})),
+      {title:"Overall Event Results",defs:defs.filter(d=>d.scope==="overall")},
+    ].filter(group=>group.defs.length);
+    const organiser = !store.event.pastEventReadOnly && !["player","spectator"].includes(store.cloud?.role),
+      eventComplete = eventDays().every(eventDayComplete),
       eventClosed = Boolean(store.event.finalResults?.confirmedAt);
     let eventControl = "";
     if (organiser && eventClosed) {
@@ -11764,13 +11474,9 @@ Count-back if tied
           return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)} ${esc(m.message)}</span></div>`;
         })
         .join("")}</div></section>`;
-    } else if (
-      organiser &&
-      store.event.days === 2 &&
-      day1Complete &&
-      !day2Complete
-    ) {
-      eventControl = `<section class="finishControl dayCompleteControl"><h3>✓ Day 1 Complete — Event Remains Open</h3><p>Award and tick off the Day 1 prizes above. Day 2 scoring and the overall event remain open.</p><button class="finishEventBtn" id="openDay2Btn">OPEN DAY 2</button></section>`;
+    } else if (organiser && !eventComplete && eventDays().some(eventDayComplete)) {
+      const next = eventDays().find(day=>!eventDayComplete(day));
+      eventControl = `<section class="finishControl dayCompleteControl"><h3>Completed days can be awarded — Event Remains Open</h3><p>Complete the remaining days before closing the trip.</p><button class="finishEventBtn" id="openNextDayBtn" data-nextday="${next}">OPEN DAY ${next}</button></section>`;
     } else if (organiser && !eventComplete) {
       eventControl = `<section class="finishControl eventInProgress"><h3>Event In Progress</h3><p>Complete the remaining scoring before closing the event. Prizes for a completed day can still be awarded above.</p></section>`;
     } else if (organiser) {
@@ -11797,9 +11503,7 @@ Count-back if tied
         const d = defs.find((x) => x.id === b.dataset.summaryopen);
         store.event.leaderboardView =
           d?.scope === "overall"
-            ? store.event.days === 2
-              ? 2
-              : 1
+            ? eventDays().length
             : d?.scope || 1;
         store.event.leaderboardTab = b.dataset.summaryopen;
         writeLocalStore();
@@ -11838,9 +11542,9 @@ Count-back if tied
       };
     if ($("#finishEventBtn"))
       $("#finishEventBtn").onclick = confirmResultsAndCloseEvent;
-    if ($("#openDay2Btn"))
-      $("#openDay2Btn").onclick = () => {
-        store.event.leaderboardView = 2;
+    if ($("#openNextDayBtn"))
+      $("#openNextDayBtn").onclick = () => {
+        store.event.leaderboardView = +$("#openNextDayBtn").dataset.nextday;
         writeLocalStore();
         renderLeaderboard();
       };
@@ -11869,10 +11573,7 @@ Count-back if tied
       );
     if (days === 1 && view !== "summary") view = 1;
     store.event.leaderboardView = view;
-    const viewTabs =
-      days === 2
-        ? `<div class="leaderViewTabs"><button data-leaderview="1" class="${view == 1 ? "active" : ""}">Day 1</button><button data-leaderview="2" class="${view == 2 ? "active" : ""}">Day 2</button><button data-leaderview="summary" class="${view === "summary" ? "active" : ""}">Summary</button></div>`
-        : `<div class="leaderViewTabs"><button data-leaderview="1" class="${view == 1 ? "active" : ""}">Today</button><button data-leaderview="summary" class="${view === "summary" ? "active" : ""}">Summary</button></div>`;
+    const viewTabs = `<div class="leaderViewTabs multiDayTabs">${eventDays().map(day=>`<button data-leaderview="${day}" class="${+view===day?"active":""}">${days===1?"Today":`Day ${day}`}</button>`).join("")}<button data-leaderview="summary" class="${view==="summary"?"active":""}">Summary</button></div>`;
     if (view === "summary") {
       renderLeaderboardSummary(host, defs, viewTabs);
       $$("[data-leaderview]").forEach(
@@ -11891,7 +11592,7 @@ Count-back if tied
     const visible = defs.filter(
       (d) =>
         d.scope === +view ||
-        (d.scope === "overall" && !(+view === 1 && d.type === "combined")),
+        (d.scope === "overall"),
     );
     let active = store.event.leaderboardTab || visible[0]?.id;
     if (!visible.some((d) => d.id === active)) active = visible[0]?.id;
@@ -11969,7 +11670,7 @@ Count-back if tied
                       : `${r.grossTotal} <small>gross</small>`
                     : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
-              return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>${def.type === "ambrose" ? "Required Drives Not Recorded" : "Withdrawn from this Competition"}</small></span><span class="leaderScore">—</span><span class="leaderThru">${def.type === "ambrose" ? esc(r.disqualificationReason || "Drive minimum not satisfied") : `Pick-up on Hole ${r.pickupHole}`}</span></div>`;
+              return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>${def.type === "combined" ? "Not eligible for overall prize" : def.type === "ambrose" ? "Required Drives Not Recorded" : "Withdrawn from this Competition"}</small></span><span class="leaderScore">—</span><span class="leaderThru">${["ambrose","combined"].includes(def.type) ? esc(r.disqualificationReason || "Requirements not satisfied") : `Pick-up on Hole ${r.pickupHole}`}</span></div>`;
             const progress =
               def.type === "yellowBall"
                 ? r.loss
@@ -11987,7 +11688,7 @@ Count-back if tied
           .join("") ||
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
     }
-    const par3Day = +view === 2 ? 2 : 1,
+    const par3Day = Math.min(eventDays().length, Math.max(1, +view || 1)),
       par3Version = eventCourseScorecard(par3Day),
       par3Count = (par3Version.par || []).filter((par) => +par === 3).length,
       par3Total = ["par3", "par3aggregate"].includes(def.type)
@@ -12041,19 +11742,12 @@ Count-back if tied
     initialiseGroups();
     const days = store.event.days || 1;
     let day = Math.min(store.event.playerPreviewDay || 1, days);
-    if (
-      store.cloud?.role === "player" &&
-      days === 2 &&
-      day === 1 &&
-      manualDayFinalised(1)
-    ) {
-      // A completed organiser paper-card entry is the official Day 1 result.
-      // Skip the unused Day 1 phone card and retain Day 2's normal time lock.
-      day = 2;
-      store.event.playerPreviewDay = 2;
-      store.event.playerRoundMode = "preview";
-      store.event.playerHolePos = 0;
-      writeLocalStore();
+    if (store.cloud?.role === "player" && manualDayFinalised(day)) {
+      const next = eventDays().find(next => next > day && dayFieldIds(next).includes(String(store.cloud.playerId)) && !eventDayComplete(next));
+      if (next) {
+        day = next; store.event.playerPreviewDay = next;
+        store.event.playerRoundMode = "preview"; store.event.playerHolePos = 0; writeLocalStore();
+      }
     }
     let field = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
     if (store.cloud?.role === "player")
@@ -12073,20 +11767,20 @@ Count-back if tied
       return;
     }
     if (store.event.playerRoundMode === "scoring")
-      return ambroseIsOn()
+      return ambroseIsOn(store.event, day)
         ? renderAmbroseScoring(selected, day)
         : renderHoleScoring(selected, day);
     if (store.event.playerRoundMode === "verify")
       return renderRoundVerification(selected, day);
     if (store.event.playerRoundMode === "completed")
-      return ambroseIsOn()
+      return ambroseIsOn(store.event, day)
         ? renderAmbroseCompleted(selected, day)
         : renderCompletedScorecard(selected, day);
     const p = player(selected),
       ctx = playerGroupContext(selected, day);
     if (!p || !ctx) {
-      host.innerHTML =
-        '<div class="card"><h2>Player View</h2><p>No player is available for this day.</p></div>';
+      host.innerHTML = `${dayTabs("previewday",day)}<div class="card"><h2>Day ${day}</h2><p>You are not playing on this day. Select another day to view your round.</p></div>`;
+      $$("[data-previewday]").forEach(button=>button.onclick=()=>{store.event.playerPreviewDay=+button.dataset.previewday;store.event.playerRoundMode="preview";save();renderPlayerExperience();});
       return;
     }
     if (isPlayerDevice() && !playerHasSeenWelcome(selected)) {
@@ -12102,13 +11796,13 @@ Count-back if tied
     }
     const g = ctx.group,
       setup = ctx.setup,
-      c = course(day === 1 ? store.event.course1 : store.event.course2),
+      c = course(store.event["course" + day]),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       startText = `Hole ${start}`,
       teeTime = groupTeeTime(day, ctx.groupIndex),
       previewStage = !store.event.locked;
     let partner = null;
-    if ((store.event.competitions || []).includes("fourball")) {
+    if (competitionIsOn("fourball", day)) {
       const pairStart = ctx.playerIndex < 2 ? 0 : 2;
       let other = g
         .slice(pairStart, pairStart + 2)
@@ -12149,7 +11843,7 @@ Count-back if tied
       completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${team.map((id) => id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown").join(" · ")}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
-      finalised = ambroseIsOn()
+      finalised = ambroseIsOn(store.event, day)
         ? ambroseTeamComplete(day, ctx.groupIndex)
         : roundFinalisedFor(day, selected),
       scoringOpen = scoringIsOpen(day),
@@ -12157,25 +11851,26 @@ Count-back if tied
         store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null && scoringOpen,
       ),
       rulesOpen = Boolean(store.event.playerRulesOpen);
-    host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${days === 2 ? `<div class="previewDayTabs" aria-label="Select scoring day"><button type="button" class="${day === 1 ? "active" : ""}" data-previewday="1">Day 1</button><button type="button" class="${day === 2 ? "active" : ""}" data-previewday="2">Day 2</button></div>` : ""}</div></div>
- <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days === 2 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
+    host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
+ <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
  <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day)) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day)) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}
- ${isAffected || isExtra || yellowBallOn || ambroseIsOn() ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn() ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = player(roles.scorerId)?.name || "the first listed player", markerName = player(roles.markerId)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn() ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra || yellowBallOn || ambroseIsOn(store.event, day) ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn(store.event, day) ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = player(roles.scorerId)?.name || "the first listed player", markerName = player(roles.markerId)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn(store.event, day) ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(
          store.event.competitions || []
        )
+         .filter(id => competitionIsOn(id,day))
          .map((id) => {
            const singleFormat =
                store.event.singleStablefordFormat ||
                (store.event.testMode ? "aggregate" : "both"),
              label =
                id === "combined"
-                 ? `Single Stableford (${singleFormat === "daily" ? "Each Day" : singleFormat === "both" ? "Each Day + 2-Day Aggregate" : "2-Day Aggregate"})`
+                 ? `Single Stableford (${singleFormat === "daily" ? "Each Day" : singleFormat === "both" ? "Daily + Trip Total" : `Best ${countingRounds()} Trip Total`})`
                  : id === "teamPutts"
                    ? `Putting Competition (${store.event.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`
                    : competitionNames[id] || id;
@@ -12285,4 +11980,3 @@ Count-back if tied
       .catch(() => {});
   }
 })();
-
