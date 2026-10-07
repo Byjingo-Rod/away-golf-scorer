@@ -559,8 +559,35 @@
       return `Putting Competition (${store.event?.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`;
     return competitionNames[id] || id;
   }
+  function stablefordBenefit(id, benefits = {}) {
+    if (id === "dailyStableford") {
+      const saved = benefits.dailyStableford || benefits.single || benefits.combined || {};
+      return {balls:saved.balls || ""};
+    }
+    if (id === "overallStableford") return {...(benefits.overallStableford || benefits.combined || benefits.single || {})};
+    return benefits[id] || {};
+  }
+  function normaliseStablefordBenefits(benefits) {
+    benefits.dailyStableford = stablefordBenefit("dailyStableford",benefits);
+    if (!Object.prototype.hasOwnProperty.call(benefits,"overallStableford")) benefits.overallStableford = stablefordBenefit("overallStableford",benefits);
+  }
+  function stablefordPrizeFormats(event) {
+    const format = event.singleStablefordFormat || "aggregate", multi = +event.days > 1;
+    return {daily:!multi || format !== "aggregate", overall:multi && format !== "daily"};
+  }
+  function stablefordBenefitsHtml() {
+    const formats = stablefordPrizeFormats(W.event);
+    return `<div class="stablefordBenefitColumns">${[["dailyStableford","Daily Stableford",formats.daily],["overallStableford","Overall Event Stableford",formats.overall]].map(([id,label,enabled]) => {
+      const summary = enabled ? benefitSummary(id) : "Not Applicable", open = enabled && W.benefitOpen.has(id);
+      return `<section class="stablefordBenefitCell ${enabled ? "" : "notApplicable"}"><div class="benefitCurrent ${enabled && summary === "Not Yet Set" ? "notSet" : ""}" role="status">${esc(summary)}</div><button type="button" class="soft benefitBtn" data-benefit="${id}" ${enabled ? "" : "disabled"}>Set/Change Win Benefit ${label}</button>${enabled ? `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid">${prizeFields(id,stablefordBenefit(id,W.benefits))}</div></div>` : ""}</section>`;
+    }).join("")}</div>`;
+  }
+  function stablefordPlayerPrizesHtml(event) {
+    const formats = stablefordPrizeFormats(event);
+    return [["dailyStableford","Daily Stableford",formats.daily],["overallStableford","Overall Event Stableford",formats.overall]].filter(([,label,on]) => on).map(([id,label]) => `<div data-competition="${id}"><span>${label}</span><b>${esc(competitionBenefitText(id,event.benefits))}</b></div>`).join("");
+  }
   function competitionBenefitText(id, benefits) {
-    const b = benefits?.[id] || {};
+    const b = stablefordBenefit(id,benefits || {});
     if (["best3of4", "yellowBall"].includes(id) && b.mode === "lottery")
       return b.contribution
         ? `This is the only team that DOES NOT contribute $${b.contribution} to the Lottery Pool`
@@ -2759,7 +2786,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.2", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5158,7 +5185,7 @@ Count-back if tied
           desc:
             d == 1
               ? "Highest Stableford score over the round."
-              : "Choose daily winners, the overall trip winner or both.",
+              : "Choose daily winners, the overall Event winner or both.",
           tag: d == 1 ? "INDIVIDUAL" : "FORMAT CHOICE",
         },
         {
@@ -5268,6 +5295,7 @@ Count-back if tied
     return p.length ? `Currently Set at ${p.join(" ")}` : "Not Yet Set";
   }
   function benefitHtml(id) {
+    if (["single","combined"].includes(id)) return stablefordBenefitsHtml();
     let b = W.benefits[id] || {},
       open = W.benefitOpen.has(id);
     const supportsLottery = ["best3of4", "yellowBall"].includes(id);
@@ -5291,18 +5319,20 @@ Count-back if tied
   }
   function prizeFields(id, b) {
     const ballChoices = id === "yellowBall" ? [1, 2, 3] : [1, 2, 3, 4, 6, 8, 12];
-    return `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label><label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`;
+    const balls = `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label>`;
+    return balls + (id === "dailyStableford" ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
   }
   function competitionScheduleHtml(id) {
     const days = competitionDays(id, W.event), all = eventDays(W.event);
     if (id === "capTeams" || (id === "scratch" && W.event.scratchFormat === "aggregate") || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
-    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
+    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
   }
   function par3FormatHtml(event) {
     const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
     return `<div class="ntpBox par3FormatBox"><b>Select Format</b><div class="par3FormatSection"><h5>Daily</h5>${choice("dailyPairs", "a) Aggregate Stableford points on the Par 3s for each 4BBB team")}${choice("dailyTeams", "b) Aggregate Stableford points on the Par 3s for each four-person team")}</div>${+event.days > 1 ? `<div class="par3FormatSection"><h5>Multi-day</h5>${choice("overallPlayers", "a) Aggregate Stableford points on the Par 3s for each player over the event")}${choice("overallPairs", `b) Aggregate Stableford points on the Par 3s for each 4BBB team — partners are the Day ${event.days} 4BBB partners`)}</div>` : ""}</div>`;
   }
   function renderStep3() {
+    normaliseStablefordBenefits(W.benefits);
     const stablefordId = W.event.days === 1 ? "single" : "combined",
       previousId = W.event.days === 1 ? "combined" : "single";
     if (W.competitions.has(previousId)) {
@@ -5336,7 +5366,7 @@ Count-back if tied
         .map((c) => {
           let on = W.competitions.has(c.id),
             disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Trip Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall trip total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall trip winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -5416,7 +5446,7 @@ Count-back if tied
         renderStep3(); return;
       }
       if (t.id === "stablefordCountingRounds") W.event.stablefordCountingRounds = +t.value;
-      if (t.name === "singleFormat") W.event.singleStablefordFormat = t.value;
+      if (t.name === "singleFormat") { W.event.singleStablefordFormat = t.value; renderStep3(); return; }
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
       if (t.name === "scratchScoringMode")
         W.event.scratchScoringMode = t.value;
@@ -11434,7 +11464,7 @@ Count-back if tied
             : `${top.total} pts · all 18 holes completed`
           : `${top.total} ${def.type === "putts" ? "putts" : "pts"}`;
     const resultText = def.aggregateLeg
-      ? `${top.name} led Day ${def.day} of the trip — ${result}${top.cb ? " CB" : ""}`
+      ? `${top.name} led Day ${def.day} of the Event — ${result}${top.cb ? " CB" : ""}`
       : def.aggregateResult
         ? `${top.name} — Aggregate ${result}${top.cb ? " CB" : ""}`
         : `${top.name}${teamMembers} — ${result}${top.cb ? " CB" : ""}`;
@@ -11563,13 +11593,10 @@ Count-back if tied
     renderHome();
   }
   function leaderboardBenefitId(def) {
-    if (def.type === "single")
-      return (store.event.competitions || []).includes("combined")
-        ? "combined"
-        : "single";
+    if (def.type === "single") return "dailyStableford";
     return (
       {
-        combined: "combined",
+        combined: "overallStableford",
         fourball: "fourball",
         putts: "teamPutts",
         best3: "best3of4",
@@ -11588,6 +11615,7 @@ Count-back if tied
     );
   }
   function summaryPrizeDetails(def) {
+    if (def.awardable === false) return {id:leaderboardBenefitId(def),text:"Not Applicable",configured:false,awarded:false};
     const id = leaderboardBenefitId(def),
       text = competitionBenefitText(id, store.event.benefits),
       configured = text !== "Prize not set",
@@ -12022,12 +12050,13 @@ Count-back if tied
        )
          .filter(id => competitionIsOn(id,day))
          .map((id) => {
+           if (["single","combined"].includes(id)) return stablefordPlayerPrizesHtml(store.event);
            const singleFormat =
                store.event.singleStablefordFormat ||
                (store.event.testMode ? "aggregate" : "both"),
              label =
                id === "combined"
-                 ? `Single Stableford (${singleFormat === "daily" ? "Each Day" : singleFormat === "both" ? "Daily + Trip Total" : `Best ${countingRounds()} Trip Total`})`
+                 ? `Single Stableford (${singleFormat === "daily" ? "Each Day" : singleFormat === "both" ? "Daily + Event Total" : `Best ${countingRounds()} Event Total`})`
                  : id === "teamPutts"
                    ? `Putting Competition (${store.event.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`
                    : competitionNames[id] || id;

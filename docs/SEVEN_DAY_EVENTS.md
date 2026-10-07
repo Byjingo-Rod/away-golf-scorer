@@ -1,6 +1,6 @@
 # Away Golf Scorer — one to seven playing days
 
-Available from version 15.94.2.
+Available from version 15.94.3.
 
 1. Create a new event and select **Event length: 1–7 playing days**. Set the trip roster size.
 2. Choose the course, start format, tee time and interval for each day. Dates default to consecutive days; change a playing date to leave a gap for a rest day. For Vietnam, select **Course time zone: Vietnam** so phones and the organiser PC use the same scoring-opening time.
@@ -12,6 +12,12 @@ Available from version 15.94.2.
 8. Phones, organiser live control, paper-card entry and results show day buttons through Day 7. Select the day you want to view. Days are stored independently. The overall trip closes only after every scheduled playing day is finalised.
 
 For trips longer than two days, ties in the overall total use the lowest counting round first, then the next lowest, comparing only counted rounds. Equal counted round totals remain tied. Existing two-day countback keeps its final-day hole rules.
+
+## Single Stableford prizes
+
+Daily Stableford and Overall Event Stableford have independent **Set/Change Win Benefit** controls. Each shows its current prize above the button. An unselected format displays **Not Applicable**. Daily prizes are balls only; the overall event prize also allows an additional prize and description. For a one-day event only the Daily prize applies.
+
+The selected benefits are retained in event drafts and templates, published with the event, and used separately in player views and final results. Existing shared Stableford benefits are retained as starting values: the balls setting starts both prize selections, while the additional prize is retained only for Overall Event. Review these choices before publishing.
 
 ## Black Cap – White Cap
 
