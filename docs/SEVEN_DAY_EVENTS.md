@@ -1,6 +1,6 @@
 # Away Golf Scorer — one to seven playing days
 
-Available from version 15.94.3.
+Available from version 15.94.4.
 
 1. Create a new event and select **Event length: 1–7 playing days**. Set the trip roster size.
 2. Choose the course, start format, tee time and interval for each day. Dates default to consecutive days; change a playing date to leave a gap for a rest day. For Vietnam, select **Course time zone: Vietnam** so phones and the organiser PC use the same scoring-opening time.
@@ -26,6 +26,8 @@ Select **Black Cap – White Cap** in Competition Setup. The app assigns two fix
 Use the two **Choose golfer to swap** lists and **Swap selected golfers** to change cap teams. **Balance GA totals again** replaces those changes with a fresh balanced split. These controls are also available on Groups & Teams. Cap teams remain separate from the daily playing groups and 4BBB pairs. Cap teams and the virtual player cannot change after the event is locked, scoring begins, or a paper day is submitted. The virtual-player donor remains in the larger cap team and cannot be swapped into the short team. Rebalancing before lock draws a new virtual player.
 
 The competition covers every event day automatically. **y is always the full cap-team size, including its fixed virtual-player slot when present, and x = y − 1.** Each day adds the best x daily Stableford totals from that team. A golfer resting that day contributes zero and is treated as a lowest score. With one golfer absent, all golfers who play have their scores counted. With two absent, all golfers who play count and one zero remains in the counting scores. The short cap team copies its fixed virtual player’s daily Stableford score from the other cap team. If that golfer rests, their actual and copied scores both contribute zero. Daily playing-group virtual players are separate and never add extra cap-team slots. An unfinished playing golfer’s card (including the fixed virtual-player donor’s card) keeps that day pending; it is not treated as a rest day or zero. Submitted paper Single Stableford totals are supported, even when only the cap competition is selected.
+
+**Win Benefit:** choose **Balls**, **Prize**, or **Both**. Balls lets you select balls per winner. Prize provides a description field without requiring any balls. Both provides both fields. The current reward and final results use only the selected choice; switching choices retains your inputs for later editing.
 
 The team’s completed daily totals are added for the overall result. The higher total wins; equal totals remain tied. The leaderboard shows each day’s counting total and pending days.
 
