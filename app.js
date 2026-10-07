@@ -559,7 +559,21 @@
       return `Putting Competition (${store.event?.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`;
     return competitionNames[id] || id;
   }
+  function capRewardChoice(benefit = {}) {
+    if (Object.prototype.hasOwnProperty.call(benefit,"rewardChoice") && ["", "balls", "prize", "both"].includes(benefit.rewardChoice)) return benefit.rewardChoice;
+    const prize = Boolean(benefit.plus || benefit.extra);
+    return benefit.balls ? prize ? "both" : "balls" : prize ? "prize" : "";
+  }
+  function capRewardBenefit(benefit = {}) {
+    const choice = capRewardChoice(benefit), balls = ["balls","both"].includes(choice), prize = ["prize","both"].includes(choice);
+    return {...benefit, balls:balls ? benefit.balls || "" : "", plus:prize, extra:prize ? benefit.extra || "" : ""};
+  }
+  function capRewardFields(benefit) {
+    const choice = capRewardChoice(benefit), balls = ["balls","both"].includes(choice), prize = ["prize","both"].includes(choice);
+    return `<label>Reward choice<select data-breward="capTeams"><option value="" ${!choice ? "selected" : ""}>Not Yet Set</option>${[["balls","Balls"],["prize","Prize"],["both","Both"]].map(([value,label]) => `<option value="${value}" ${choice === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>${balls ? prizeFields("capTeams",benefit,true) : ""}${prize ? `<label class="prizeLabel"><span>Specify Prize</span><input data-bextra="capTeams" value="${esc(benefit.extra || "")}" placeholder="Describe the prize"></label>` : ""}`;
+  }
   function stablefordBenefit(id, benefits = {}) {
+    if (id === "capTeams") return capRewardBenefit(benefits.capTeams);
     if (id === "dailyStableford") {
       const saved = benefits.dailyStableford || benefits.single || benefits.combined || {};
       return {balls:saved.balls || ""};
@@ -594,7 +608,7 @@
         : "This is the only team that does not contribute to the Lottery Pool";
     const parts = [];
     if (b.balls) parts.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
-    if (b.plus) parts.push("+ Prize");
+    if (b.plus) parts.push(id === "capTeams" && !b.balls ? "Prize" : "+ Prize");
     if (b.extra) parts.push(b.extra);
     return parts.join(" ") || "Prize not set";
   }
@@ -2786,7 +2800,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.3", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -5270,7 +5284,7 @@ Count-back if tied
     return defs;
   }
   function benefitSummary(id) {
-    let b = W.benefits[id] || {};
+    let b = id === "capTeams" ? capRewardBenefit(W.benefits[id]) : W.benefits[id] || {};
     if (["best3of4", "yellowBall"].includes(id)) {
       const mode =
         b.mode ||
@@ -5282,7 +5296,7 @@ Count-back if tied
       if (mode === "prize") {
         let p = [];
         if (b.balls) p.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
-        if (b.plus) p.push("+ Prize");
+        if (b.plus) p.push(id === "capTeams" && !b.balls ? "Prize" : "+ Prize");
         if (b.extra) p.push(`(${b.extra})`);
         return p.length ? `Currently Set at ${p.join(" ")}` : "Not Yet Set";
       }
@@ -5290,7 +5304,7 @@ Count-back if tied
     }
     let p = [];
     if (b.balls) p.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
-    if (b.plus) p.push("+ Prize");
+    if (b.plus) p.push(id === "capTeams" && !b.balls ? "Prize" : "+ Prize");
     if (b.extra) p.push(`(${b.extra})`);
     return p.length ? `Currently Set at ${p.join(" ")}` : "Not Yet Set";
   }
@@ -5317,10 +5331,11 @@ Count-back if tied
         : `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid">${prizeFields(id, b)}</div></div>`;
     return `<div class="benefitControlRow ${id === "ambrose" ? "ambroseBenefitRow" : ""}"><button class="soft benefitBtn" data-benefit="${id}">Set/Change Win Benefit</button><div class="benefitCurrent ${benefitSummary(id) === "Not Yet Set" ? "notSet" : ""}">${benefitSummary(id)}</div>${ambroseDrives}</div>${body}`;
   }
-  function prizeFields(id, b) {
+  function prizeFields(id, b, ballsOnly = false) {
+    if (id === "capTeams" && !ballsOnly) return capRewardFields(b);
     const ballChoices = id === "yellowBall" ? [1, 2, 3] : [1, 2, 3, 4, 6, 8, 12];
     const balls = `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label>`;
-    return balls + (id === "dailyStableford" ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
+    return balls + (id === "dailyStableford" || ballsOnly ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
   }
   function competitionScheduleHtml(id) {
     const days = competitionDays(id, W.event), all = eventDays(W.event);
@@ -5424,6 +5439,7 @@ Count-back if tied
     $("#wizardBody").onchange = (e) => {
       let t = e.target,
         id =
+          t.dataset.breward ||
           t.dataset.bmode ||
           t.dataset.bballs ||
           t.dataset.bcontrib ||
@@ -5490,6 +5506,7 @@ Count-back if tied
       }
       if (id) {
         W.benefits[id] = W.benefits[id] || {};
+        if (t.dataset.breward) W.benefits[id].rewardChoice = t.value;
         if (t.dataset.bmode) W.benefits[id].mode = t.value;
         if (t.dataset.bballs) W.benefits[id].balls = +t.value || "";
         if (t.dataset.bcontrib) W.benefits[id].contribution = +t.value || "";
