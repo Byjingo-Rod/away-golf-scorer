@@ -180,7 +180,8 @@
     ids = [...new Set(ids.map(String))].filter(id => id !== NO_PARTNER_ID);
     const values = ids.map(id => eventGaHandicap(id, event));
     if (values.some(v => v === "" || v == null || !Number.isFinite(+v))) return null;
-    const size = Math.floor(ids.length / 2), total = values.reduce((n,v) => n + +v, 0);
+    const donor = ids.length % 2 ? Math.floor(Math.random() * ids.length) : -1, virtualGa = donor >= 0 ? +values[donor] : 0,
+      size = Math.floor(ids.length / 2), total = values.reduce((n,v) => n + +v, 0) + virtualGa;
     let best = [], difference = Infinity;
     if (ids.length <= 20) {
       const search = (start, selected, sum) => {
@@ -189,17 +190,18 @@
           if (gap < difference - 0.000001) { difference = gap; best = [...selected]; }
           return;
         }
-        for (let i = start; i <= ids.length - (size - selected.length); i++) search(i + 1, [...selected, i], sum + +values[i]);
+        for (let i = start; i <= ids.length - (size - selected.length); i++) { if (i !== donor) search(i + 1, [...selected, i], sum + +values[i]); }
       };
-      search(0, [], 0);
+      search(0, [], virtualGa);
     } else {
-      const ranked = ids.map((id,i) => i).sort((a,b) => +values[b] - +values[a]);
-      const teams = [[], []], sums = [0, 0], sizes = [size, ids.length - size];
+      const ranked = ids.map((id,i) => i).filter(i => i !== donor).sort((a,b) => +values[b] - +values[a]);
+      const teams = [[], donor >= 0 ? [donor] : []], sums = [virtualGa, virtualGa], sizes = [size, ids.length - size];
       ranked.forEach(i => { const t = teams[0].length >= sizes[0] ? 1 : teams[1].length >= sizes[1] ? 0 : sums[0] <= sums[1] ? 0 : 1; teams[t].push(i); sums[t] += +values[i]; });
       let improved = true;
       while (improved) {
         improved = false;
         for (let a = 0; a < teams[0].length; a++) for (let b = 0; b < teams[1].length; b++) {
+          if (teams[1][b] === donor) continue;
           const change = +values[teams[1][b]] - +values[teams[0][a]];
           if (Math.abs(sums[0] - sums[1] + 2 * change) < Math.abs(sums[0] - sums[1]) - 0.000001) {
             [teams[0][a], teams[1][b]] = [teams[1][b], teams[0][a]]; sums[0] += change; sums[1] -= change; improved = true;
@@ -209,14 +211,30 @@
       best = teams[0];
     }
     const chosen = new Set(best);
-    return {black: ids.filter((id,i) => chosen.has(i)), white: ids.filter((id,i) => !chosen.has(i))};
+    return {black: ids.filter((id,i) => chosen.has(i)), white: ids.filter((id,i) => !chosen.has(i)), ...(donor >= 0 ? {virtualPlayer:ids[donor], virtualTeam:"black"} : {})};
+  }
+  function capVirtualInfo(teams) {
+    if (!teams || Math.abs(teams.black.length - teams.white.length) !== 1) return null;
+    const side = teams.black.length < teams.white.length ? "black" : "white", other = side === "black" ? "white" : "black", id = String(teams.virtualPlayer || "");
+    return teams.virtualTeam === side && teams[other].map(String).includes(id) && !teams[side].map(String).includes(id) ? {side, id} : null;
+  }
+  function capRulesText(event = store.event) {
+    return "Event players split into two teams that remain fixed for the duration of the event. The lowest score for each team is eliminated each day and the remaining scores aggregated. A resting golfer contributes zero and is treated as a lowest score. The winning team has the highest aggregate Stableford points over the duration of the event. In the event of an odd number of players, a random Virtual Player will be appointed before the event begins and that player will be the Virtual Player for the short team for the duration of the event.";
   }
   function capTeamsLocked(event = store.event) {
     return Boolean(event.locked || event.pastEventReadOnly || eventDays(event).some(day => Object.values(event.scoring?.["day" + day] || {}).some(round => Object.entries(round || {}).some(([hole,rec]) => /^([1-9]|1[0-8])$/.test(hole) && [rec?.self?.gross,rec?.self?.putts,rec?.official?.gross,rec?.official?.putts].some(v => v !== "" && v != null))) || event.manualScorecards?.["day" + day]?.status === "submitted"));
   }
   function ensureCapTeams(event, ids) {
     const saved = event.capTeams, actual = [...(saved?.black || []), ...(saved?.white || [])].map(String);
-    if (saved && actual.length === ids.length && new Set(actual).size === ids.length && ids.every(id => actual.includes(String(id)))) return saved;
+    if (saved && actual.length === ids.length && new Set(actual).size === ids.length && ids.every(id => actual.includes(String(id)))) {
+      if (ids.length % 2 && !capVirtualInfo(saved)) {
+        if (capTeamsLocked(event)) return null;
+        const side = saved.black.length < saved.white.length ? "black" : "white", other = side === "black" ? "white" : "black";
+        saved.virtualTeam = side;
+        saved.virtualPlayer = saved[other][Math.floor(Math.random() * saved[other].length)];
+      }
+      return saved;
+    }
     if (capTeamsLocked(event)) return null;
     return event.capTeams = balanceCapTeams(ids, event);
   }
@@ -224,15 +242,17 @@
     if (capTeamsLocked(event)) return false;
     const teams = event.capTeams, a = teams?.black.indexOf(String(blackId)), b = teams?.white.indexOf(String(whiteId));
     if (a == null || b == null || a < 0 || b < 0) return false;
+    const virtual = capVirtualInfo(teams);
+    if (virtual && (String(blackId) === virtual.id || String(whiteId) === virtual.id)) return false;
     [teams.black[a], teams.white[b]] = [teams.white[b], teams.black[a]];
     return true;
   }
   function capTeamsHtml(event, ids, locked = false) {
     locked ||= capTeamsLocked(event);
     const teams = ensureCapTeams(event, ids);
-    if (!teams) return '<div class="ntpBox"><b>Black Cap – White Cap</b><p>Enter a current GA handicap for every selected golfer to balance the cap teams.</p></div>';
-    const options = side => teams[side].map(id => `<option value="${esc(id)}">${esc(player(id)?.name || "Player")}</option>`).join("");
-    return `<div class="ntpBox capTeamsEditor"><b>Black Cap – White Cap · all ${event.days || 1} day(s)</b><p>Fixed trip teams, separate from playing groups and 4BBB pairs. Each day counts the best x of y Stableford scores, where y is the full cap-team size and x = y − 1. A resting golfer contributes zero and is treated as a lowest score; with one golfer resting, every golfer who plays counts. No virtual-player scores.</p><div class="capTeamColumns">${["black", "white"].map(side => `<div><h4>${side === "black" ? "Black" : "White"} Cap · ${teams[side].length} golfers</h4><b>GA total: ${teams[side].reduce((n,id) => n + (+eventGaHandicap(id,event) || 0),0).toFixed(1)}</b><ul>${teams[side].map(id => `<li>${esc(player(id)?.name || "Player")} · GA ${esc(eventGaHandicap(id,event))}</li>`).join("")}</ul>${!locked ? `<label>Choose golfer to swap<select id="cap-${side}">${options(side)}</select></label>` : ""}</div>`).join("")}</div>${locked ? '<small>Cap teams are fixed once the event is locked or scoring has started.</small>' : '<button type="button" class="soft" id="swapCapPlayers">Swap selected golfers</button> <button type="button" class="soft" id="rebalanceCapTeams">Balance GA totals again</button>'}</div>`;
+    if (!teams) return `<div class="ntpBox"><b>Black Cap – White Cap</b><p>${locked ? "Cap-team setup is incomplete. Review it before starting a new event; existing scored cap teams cannot be changed." : "Enter a current GA handicap for every selected golfer to balance the cap teams."}</p></div>`;
+    const virtual = capVirtualInfo(teams), options = side => teams[side].filter(id => !virtual || String(id) !== virtual.id).map(id => `<option value="${esc(id)}">${esc(player(id)?.name || "Player")}</option>`).join("");
+    return `<div class="ntpBox capTeamsEditor"><b>Black Cap – White Cap · all ${event.days || 1} ${(event.days || 1) === 1 ? "day" : "days"}</b><p>${esc(capRulesText(event))}</p>${virtual ? `<p class="capVirtualNote"><b>Fixed Virtual Player: ${esc(player(virtual.id)?.name || "Player")}</b> · ${virtual.side === "black" ? "Black" : "White"} Cap. Their daily Stableford score is copied from the other cap team. A rest day contributes zero. This golfer stays in the other team and cannot be swapped into the short team.</p>` : ""}<div class="capTeamColumns">${["black", "white"].map(side => { const hasVirtual = virtual?.side === side, members = [...teams[side], ...(hasVirtual ? [virtual.id] : [])]; return `<div><h4>${side === "black" ? "Black" : "White"} Cap · ${members.length} players${hasVirtual ? " (including VP)" : ""}</h4><b>GA total: ${members.reduce((n,id) => n + (+eventGaHandicap(id,event) || 0),0).toFixed(1)}</b><ul>${teams[side].map(id => `<li>${esc(player(id)?.name || "Player")} · GA ${esc(eventGaHandicap(id,event))}</li>`).join("")}${hasVirtual ? `<li><b>VP: ${esc(player(virtual.id)?.name || "Player")}</b> · GA ${esc(eventGaHandicap(virtual.id,event))}</li>` : ""}</ul>${!locked ? `<label>Choose golfer to swap<select id="cap-${side}">${options(side)}</select></label>` : ""}</div>`; }).join("")}</div>${locked ? '<small>Cap teams and the virtual player are fixed once the event is locked or scoring has started.</small>' : '<button type="button" class="soft" id="swapCapPlayers">Swap selected golfers</button> <button type="button" class="soft" id="rebalanceCapTeams">Balance GA totals again</button>'}</div>`;
   }
   function bindCapTeams(event, ids, refresh) {
     const swap = $("#swapCapPlayers"), balance = $("#rebalanceCapTeams");
@@ -241,16 +261,24 @@
   }
   function capTeamRows() {
     const event = store.event, teams = event.capTeams;
-    if (!teams) return [];
+    if (!teams || ((teams.black.length + teams.white.length) % 2 && !capVirtualInfo(teams))) return [];
+    const virtual = capVirtualInfo(teams);
     return ["black", "white"].map(side => {
+      const members = [...teams[side], ...(virtual?.side === side ? [virtual.id] : [])], count = Math.max(0, members.length - 1);
       const daily = eventDays(event).map(day => {
-        const playing = teams[side].filter(id => dayFieldIds(day).map(String).includes(String(id))), count = Math.max(0, teams[side].length - 1);
-        const rounds = playing.map(id => { const manual = manualPlayerSummary(day,id,"single"); if (manual && manual.total !== "" && manual.total != null && Number.isFinite(+manual.total)) return +manual.total; const scores = leaderboardPlayerPoints(day,id); return scores.length === 18 && scores.every(x => x != null) ? leaderSum(scores) : null; });
-        const complete = count === 0 || rounds.every(x => x != null);
-        const total = complete ? [...rounds.filter(x => x != null), ...Array(teams[side].length - playing.length).fill(0)].sort((a,b) => b - a).slice(0,count).reduce((n,v) => n + v,0) : null;
-        return {day, count, playing:playing.length, size:teams[side].length, total};
+        const field = dayFieldIds(day).map(String), playing = members.filter(id => field.includes(String(id)));
+        const rounds = members.map(id => {
+          if (!field.includes(String(id))) return 0;
+          const manual = manualPlayerSummary(day,id,"single");
+          if (manual && manual.total !== "" && manual.total != null && Number.isFinite(+manual.total)) return +manual.total;
+          const scores = leaderboardPlayerPoints(day,id);
+          return scores.length === 18 && scores.every(x => x != null) ? leaderSum(scores) : null;
+        });
+        const complete = count === 0 || rounds.every(x => x != null), total = complete ? rounds.filter(x => x != null).sort((a,b) => b - a).slice(0,count).reduce((n,v) => n + v,0) : null;
+        return {day, count, playing:playing.length, size:members.length, total};
       });
-      const row = leaderRow(side, side === "black" ? "Black Cap" : "White Cap", daily.map(d => `Day ${d.day}: ${d.total == null ? "pending" : d.total + " pts"} (best ${d.count} of ${d.size}${d.playing < d.size ? ` · ${d.size - d.playing} resting` : ""})`).join(" · "), daily.map(d => d.total), daily.length);
+      const detail = daily.map(d => `Day ${d.day}: ${d.total == null ? "pending" : d.total + " pts"} (best ${d.count} of ${d.size}${d.playing < d.size ? ` · ${d.size - d.playing} resting` : ""})`).join(" · ") + (virtual?.side === side ? ` · Fixed VP: ${player(virtual.id)?.name || "Player"}` : "");
+      const row = leaderRow(side, side === "black" ? "Black Cap" : "White Cap", detail, daily.map(d => d.total), daily.length);
       row.daily = daily;
       return row;
     });
@@ -2731,7 +2759,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3430,7 +3458,7 @@ Count-back if tied
         title: "Ambrose Rules",
         text: ambroseRulesText(event),
       });
-    if ((event.competitions || []).includes("capTeams")) sections.push({title:"Black Cap – White Cap", text:"Fixed cap teams compete across every event day. Each day counts the best x of y Stableford scores, where y is the full cap-team size and x = y − 1. Resting golfers receive zero and are treated as lowest scores. With one golfer absent, all golfers who play have their scores counted. Virtual-player scores are excluded. Team daily totals are added across the trip. The highest total wins."});
+    if ((event.competitions || []).includes("capTeams")) sections.push({title:"Black Cap – White Cap", text:capRulesText(event)});
     const emergencyRules = Object.keys(event.emergencyReplacements || {})
       .sort()
       .map((key) => event.emergencyReplacements[key]?.ruleText)
@@ -5271,8 +5299,8 @@ Count-back if tied
     return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
   }
   function par3FormatHtml(event) {
-    const mode = par3Mode(event), choices = [["dailyPairs", "Daily a) Aggregate Stableford points on the Par 3s for each 4BBB team"], ["dailyTeams", "Daily b) Aggregate Stableford points on the Par 3s for each four-person team"], ...(+event.days > 1 ? [["overallPlayers", "Multi Day a) Aggregate Stableford points on the Par 3s for each player over the event"], ["overallPairs", `Multi Day b) Aggregate Stableford points on the Par 3s for each 4BBB team — partners are the Day ${event.days} 4BBB partners`]] : [])];
-    return `<div class="ntpBox"><b>Select Format</b>${choices.map(([value,label]) => `<label><input style="width:auto" type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}> ${label}</label>`).join("")}</div>`;
+    const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
+    return `<div class="ntpBox par3FormatBox"><b>Select Format</b><div class="par3FormatSection"><h5>Daily</h5>${choice("dailyPairs", "a) Aggregate Stableford points on the Par 3s for each 4BBB team")}${choice("dailyTeams", "b) Aggregate Stableford points on the Par 3s for each four-person team")}</div>${+event.days > 1 ? `<div class="par3FormatSection"><h5>Multi-day</h5>${choice("overallPlayers", "a) Aggregate Stableford points on the Par 3s for each player over the event")}${choice("overallPairs", `b) Aggregate Stableford points on the Par 3s for each 4BBB team — partners are the Day ${event.days} 4BBB partners`)}</div>` : ""}</div>`;
   }
   function renderStep3() {
     const stablefordId = W.event.days === 1 ? "single" : "combined",
@@ -5362,7 +5390,7 @@ Count-back if tied
       bindCapTeams(W.event, ids, renderStep3);
     }
     if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${W.event.scratchFormat !== "aggregate" ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Aggregate over all days</label>` : ""}</div>`);
-    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>NTPs on the last day (Day ${W.event.days})</b>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${ntpCount(W.event.days,W.event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join("")}<small>Applies when NTP is selected on the final day. Choose the holes on the NTP setup page.</small></div>`);
+    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", `<div class="ntpBox lastDayNtpBox"><b>NTPs on the last day (Day ${W.event.days})</b>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${ntpCount(W.event.days,W.event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join("")} <small class="lastDayNtpHelp">Tick Day ${W.event.days} in Playing days above to run NTP on the final day, then choose one or two NTP holes here. Choose the actual holes on the NTP setup page.</small></div>`);
     $("#wizardBody").onchange = (e) => {
       let t = e.target,
         id =
