@@ -273,6 +273,39 @@
     return data?.workspace_data || null;
   }
 
+  async function loadCourseLibrary() {
+    await ensureSignedIn();
+    const access = await client.rpc("away_course_library_access");
+    if (access.error) throw access.error;
+    if (!access.data) throw Object.assign(new Error("Owner or approved organiser-tablet access required"), {code:"42501"});
+    const courses=[];
+    for(let offset=0;;offset+=500) {
+      const result=await client.from("away_master_courses").select("id,data,revision,updated_at").order("id").range(offset,offset+499);
+      if(result.error)throw result.error;
+      courses.push(...result.data);if(result.data.length<500)break;
+    }
+    const countries=await client.from("away_master_course_countries").select("name").order("name");
+    if(countries.error)throw countries.error;
+    return {courses,countries:countries.data.map(row=>row.name)};
+  }
+  async function loadMasterCourse(id) {
+    await ensureSignedIn();
+    const {data,error}=await client.from("away_master_courses").select("id,data,revision,updated_at").eq("id",id).maybeSingle();
+    if(error)throw error;return data;
+  }
+  async function saveMasterCourse(id,payload,revision) {
+    await ensureSignedIn();
+    const {data,error}=await client.rpc("save_away_master_course",{p_id:id,p_data:payload,p_revision:revision});
+    if(error)throw error;return data;
+  }
+  async function saveMasterCountry(name) {
+    await ensureSignedIn();const {error}=await client.rpc("add_away_master_course_country",{p_name:name});if(error)throw error;
+  }
+  async function masterCourseHistory(id) {
+    await ensureSignedIn();
+    const {data,error}=await client.from("away_master_course_history").select("revision,data,saved_at").eq("course_id",id).order("revision",{ascending:false}).limit(20);
+    if(error)throw error;return data;
+  }
   async function loadLatestOwnedEvent() {
     await ensureSignedIn();
     const { data, error } = await client
@@ -446,6 +479,11 @@
     releasePlayer,
     saveWorkspace,
     loadWorkspace,
+    loadCourseLibrary,
+    loadMasterCourse,
+    saveMasterCourse,
+    saveMasterCountry,
+    masterCourseHistory,
     loadLatestOwnedEvent,
     loadRecentOwnedEvents,
     loadPastOwnedEvents,
@@ -460,3 +498,4 @@
     subscribe,
   };
 })();
+

@@ -6895,3 +6895,12 @@ body.playerDevice .cloudHeader {
 #mcstateField { display: block; }
 #mcstateField input, #mcstateField select { width: 100%; }
 @media (max-width: 600px) { .courseLocationFilters { grid-template-columns: 1fr; } }
+
+.masterCourseCloud { background:#e7f1ea; border:1px solid #9dbfab; padding:14px; border-radius:12px; margin-top:12px; }
+.masterCourseCloud p { margin:8px 0; font-weight:700; }
+.masterCourseCloud .rowBtns { margin-top:10px; flex-wrap:wrap; }
+.courseCompareColumns { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.courseCompareColumns section { min-width:0; padding:12px; background:#eef5f0; border-radius:10px; }
+.courseCompareColumns table { width:100%; text-align:center; }
+.courseConflict { padding:10px; border-bottom:1px solid #b9cbbb; }
+@media(max-width:600px){ .courseCompareColumns{grid-template-columns:1fr;} }
