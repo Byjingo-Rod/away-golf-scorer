@@ -164,9 +164,96 @@
     ntp: "Nearest the Pin",
     scratch: "Scratch",
     eclectic: "Eclectic",
+    capTeams: "Black Cap – White Cap",
   };
   function eventDays(event = store.event) {
     return Array.from({ length: Math.max(1, Math.min(7, Math.trunc(+event?.days || 1))) }, (_, i) => i + 1);
+  }
+  function par3Mode(event = store.event) {
+    const mode = event?.par3Mode || (event?.par3Format === "aggregate" ? "overallPairs" : "dailyPairs");
+    return +event?.days === 1 && ["overallPlayers", "overallPairs"].includes(mode) ? "dailyPairs" : mode;
+  }
+  function capRoster(event = store.event) {
+    return [...new Set(eventDays(event).flatMap(day => event.dayFields?.["day" + day] || event.confirmed || []))].map(String).filter(id => id !== NO_PARTNER_ID);
+  }
+  function balanceCapTeams(ids, event = store.event) {
+    ids = [...new Set(ids.map(String))].filter(id => id !== NO_PARTNER_ID);
+    const values = ids.map(id => eventGaHandicap(id, event));
+    if (values.some(v => v === "" || v == null || !Number.isFinite(+v))) return null;
+    const size = Math.floor(ids.length / 2), total = values.reduce((n,v) => n + +v, 0);
+    let best = [], difference = Infinity;
+    if (ids.length <= 20) {
+      const search = (start, selected, sum) => {
+        if (selected.length === size) {
+          const gap = Math.abs(total - 2 * sum);
+          if (gap < difference - 0.000001) { difference = gap; best = [...selected]; }
+          return;
+        }
+        for (let i = start; i <= ids.length - (size - selected.length); i++) search(i + 1, [...selected, i], sum + +values[i]);
+      };
+      search(0, [], 0);
+    } else {
+      const ranked = ids.map((id,i) => i).sort((a,b) => +values[b] - +values[a]);
+      const teams = [[], []], sums = [0, 0], sizes = [size, ids.length - size];
+      ranked.forEach(i => { const t = teams[0].length >= sizes[0] ? 1 : teams[1].length >= sizes[1] ? 0 : sums[0] <= sums[1] ? 0 : 1; teams[t].push(i); sums[t] += +values[i]; });
+      let improved = true;
+      while (improved) {
+        improved = false;
+        for (let a = 0; a < teams[0].length; a++) for (let b = 0; b < teams[1].length; b++) {
+          const change = +values[teams[1][b]] - +values[teams[0][a]];
+          if (Math.abs(sums[0] - sums[1] + 2 * change) < Math.abs(sums[0] - sums[1]) - 0.000001) {
+            [teams[0][a], teams[1][b]] = [teams[1][b], teams[0][a]]; sums[0] += change; sums[1] -= change; improved = true;
+          }
+        }
+      }
+      best = teams[0];
+    }
+    const chosen = new Set(best);
+    return {black: ids.filter((id,i) => chosen.has(i)), white: ids.filter((id,i) => !chosen.has(i))};
+  }
+  function capTeamsLocked(event = store.event) {
+    return Boolean(event.locked || event.pastEventReadOnly || eventDays(event).some(day => Object.values(event.scoring?.["day" + day] || {}).some(round => Object.entries(round || {}).some(([hole,rec]) => /^([1-9]|1[0-8])$/.test(hole) && [rec?.self?.gross,rec?.self?.putts,rec?.official?.gross,rec?.official?.putts].some(v => v !== "" && v != null))) || event.manualScorecards?.["day" + day]?.status === "submitted"));
+  }
+  function ensureCapTeams(event, ids) {
+    const saved = event.capTeams, actual = [...(saved?.black || []), ...(saved?.white || [])].map(String);
+    if (saved && actual.length === ids.length && new Set(actual).size === ids.length && ids.every(id => actual.includes(String(id)))) return saved;
+    if (capTeamsLocked(event)) return null;
+    return event.capTeams = balanceCapTeams(ids, event);
+  }
+  function swapCapPlayers(event, blackId, whiteId) {
+    if (capTeamsLocked(event)) return false;
+    const teams = event.capTeams, a = teams?.black.indexOf(String(blackId)), b = teams?.white.indexOf(String(whiteId));
+    if (a == null || b == null || a < 0 || b < 0) return false;
+    [teams.black[a], teams.white[b]] = [teams.white[b], teams.black[a]];
+    return true;
+  }
+  function capTeamsHtml(event, ids, locked = false) {
+    locked ||= capTeamsLocked(event);
+    const teams = ensureCapTeams(event, ids);
+    if (!teams) return '<div class="ntpBox"><b>Black Cap – White Cap</b><p>Enter a current GA handicap for every selected golfer to balance the cap teams.</p></div>';
+    const options = side => teams[side].map(id => `<option value="${esc(id)}">${esc(player(id)?.name || "Player")}</option>`).join("");
+    return `<div class="ntpBox capTeamsEditor"><b>Black Cap – White Cap · all ${event.days || 1} day(s)</b><p>Fixed trip teams, separate from playing groups and 4BBB pairs. Each day counts the best x of y Stableford scores, where y is the full cap-team size and x = y − 1. A resting golfer contributes zero and is treated as a lowest score; with one golfer resting, every golfer who plays counts. No virtual-player scores.</p><div class="capTeamColumns">${["black", "white"].map(side => `<div><h4>${side === "black" ? "Black" : "White"} Cap · ${teams[side].length} golfers</h4><b>GA total: ${teams[side].reduce((n,id) => n + (+eventGaHandicap(id,event) || 0),0).toFixed(1)}</b><ul>${teams[side].map(id => `<li>${esc(player(id)?.name || "Player")} · GA ${esc(eventGaHandicap(id,event))}</li>`).join("")}</ul>${!locked ? `<label>Choose golfer to swap<select id="cap-${side}">${options(side)}</select></label>` : ""}</div>`).join("")}</div>${locked ? '<small>Cap teams are fixed once the event is locked or scoring has started.</small>' : '<button type="button" class="soft" id="swapCapPlayers">Swap selected golfers</button> <button type="button" class="soft" id="rebalanceCapTeams">Balance GA totals again</button>'}</div>`;
+  }
+  function bindCapTeams(event, ids, refresh) {
+    const swap = $("#swapCapPlayers"), balance = $("#rebalanceCapTeams");
+    if (swap) swap.onclick = () => { if (swapCapPlayers(event, $("#cap-black").value, $("#cap-white").value)) { if (event === store.event) save(); refresh(); } };
+    if (balance) balance.onclick = () => { if (capTeamsLocked(event)) return; event.capTeams = balanceCapTeams(ids,event); if (event === store.event) save(); refresh(); };
+  }
+  function capTeamRows() {
+    const event = store.event, teams = event.capTeams;
+    if (!teams) return [];
+    return ["black", "white"].map(side => {
+      const daily = eventDays(event).map(day => {
+        const playing = teams[side].filter(id => dayFieldIds(day).map(String).includes(String(id))), count = Math.max(0, teams[side].length - 1);
+        const rounds = playing.map(id => { const manual = manualPlayerSummary(day,id,"single"); if (manual && manual.total !== "" && manual.total != null && Number.isFinite(+manual.total)) return +manual.total; const scores = leaderboardPlayerPoints(day,id); return scores.length === 18 && scores.every(x => x != null) ? leaderSum(scores) : null; });
+        const complete = count === 0 || rounds.every(x => x != null);
+        const total = complete ? [...rounds.filter(x => x != null), ...Array(teams[side].length - playing.length).fill(0)].sort((a,b) => b - a).slice(0,count).reduce((n,v) => n + v,0) : null;
+        return {day, count, playing:playing.length, size:teams[side].length, total};
+      });
+      const row = leaderRow(side, side === "black" ? "Black Cap" : "White Cap", daily.map(d => `Day ${d.day}: ${d.total == null ? "pending" : d.total + " pts"} (best ${d.count} of ${d.size}${d.playing < d.size ? ` · ${d.size - d.playing} resting` : ""})`).join(" · "), daily.map(d => d.total), daily.length);
+      row.daily = daily;
+      return row;
+    });
   }
   function eventDate(day, event = store.event) {
     if (event?.dayDates?.["day" + day]) return event.dayDates["day" + day];
@@ -176,7 +263,9 @@
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
   function competitionDays(id, event = store.event) {
-    const all = eventDays(event), saved = event?.competitionDays?.[id] ||
+    const all = eventDays(event);
+    if (id === "capTeams" || (id === "scratch" && event?.scratchFormat === "aggregate") || (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)))) return all;
+    const saved = event?.competitionDays?.[id] ||
       (id === "yellowBall" ? event?.yellowBallDays : null);
     return Array.isArray(saved) ? all.filter(day => saved.map(Number).includes(day)) : all;
   }
@@ -2642,7 +2731,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.0", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3341,6 +3430,7 @@ Count-back if tied
         title: "Ambrose Rules",
         text: ambroseRulesText(event),
       });
+    if ((event.competitions || []).includes("capTeams")) sections.push({title:"Black Cap – White Cap", text:"Fixed cap teams compete across every event day. Each day counts the best x of y Stableford scores, where y is the full cap-team size and x = y − 1. Resting golfers receive zero and are treated as lowest scores. With one golfer absent, all golfers who play have their scores counted. Virtual-player scores are excluded. Team daily totals are added across the trip. The highest total wins."});
     const emergencyRules = Object.keys(event.emergencyReplacements || {})
       .sort()
       .map((key) => event.emergencyReplacements[key]?.ruleText)
@@ -4013,6 +4103,8 @@ Count-back if tied
         : t.par3Format === "day1" || t.par3Format === "day2"
           ? "daily"
           : t.par3Format || "daily";
+    W.event.par3Mode = t.par3Mode || (W.event.par3Format === "aggregate" ? "overallPairs" : "dailyPairs");
+    W.event.scratchFormat = t.scratchFormat || "daily";
     W.event.ntpDay1Count = t.ntpDay1Count || 1;
     W.event.ntpDay2Count = t.ntpDay2Count || 2;
     W.event.ntpJackpot = Boolean(t.ntpJackpot);
@@ -4215,6 +4307,10 @@ Count-back if tied
     }
     if (W.step === 3) {
       if (!W.competitions.size) return alert("Select at least one competition.");
+      if (W.competitions.has("capTeams")) {
+        const ids = [...new Set(eventDays(W.event).flatMap(wizardPlanningPlayers))].filter(id => id !== NO_PARTNER_ID);
+        if (!ensureCapTeams(W.event,ids)) return alert("Enter a GA handicap for each golfer before balancing the Black Cap – White Cap teams.");
+      }
       if (W.competitions.has("ambrose")) {
         const ambroseDays = competitionDays("ambrose", W.event);
         const conflicts = [...W.competitions].filter(id=>!["ambrose","ntp"].includes(id) && competitionDays(id,W.event).some(day=>ambroseDays.includes(day)));
@@ -5079,10 +5175,7 @@ Count-back if tied
         {
           id: "par3",
           name: "Par 3 Competition",
-          desc:
-            d == 1
-              ? "Aggregate Stableford score on the par 3s by each 4BBB pair."
-              : "Choose one-day or two-day format.",
+          desc: "Choose daily or multi-day format",
           tag: "PAR 3",
         },
         {
@@ -5093,6 +5186,12 @@ Count-back if tied
               ? "Choose one or two NTPs."
               : "Choose the playing days and one or two NTP holes for each day.",
           tag: "NTP",
+        },
+        {
+          id: "capTeams",
+          name: "Black Cap – White Cap",
+          desc: "Balanced GA teams across all days; daily best all-but-one Stableford scores.",
+          tag: "TRIP TEAMS",
         },
         {
           id: "scratch",
@@ -5168,7 +5267,12 @@ Count-back if tied
   }
   function competitionScheduleHtml(id) {
     const days = competitionDays(id, W.event), all = eventDays(W.event);
+    if (id === "capTeams" || (id === "scratch" && W.event.scratchFormat === "aggregate") || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
     return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
+  }
+  function par3FormatHtml(event) {
+    const mode = par3Mode(event), choices = [["dailyPairs", "Daily a) Aggregate Stableford points on the Par 3s for each 4BBB team"], ["dailyTeams", "Daily b) Aggregate Stableford points on the Par 3s for each four-person team"], ...(+event.days > 1 ? [["overallPlayers", "Multi Day a) Aggregate Stableford points on the Par 3s for each player over the event"], ["overallPairs", `Multi Day b) Aggregate Stableford points on the Par 3s for each 4BBB team — partners are the Day ${event.days} 4BBB partners`]] : [])];
+    return `<div class="ntpBox"><b>Select Format</b>${choices.map(([value,label]) => `<label><input style="width:auto" type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}> ${label}</label>`).join("")}</div>`;
   }
   function renderStep3() {
     const stablefordId = W.event.days === 1 ? "single" : "combined",
@@ -5204,7 +5308,7 @@ Count-back if tied
         .map((c) => {
           let on = W.competitions.has(c.id),
             disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Trip Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall trip total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall trip winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && W.event.days === 2 ? `<div class="ntpBox"><b>Competition Format</b><label><input style="width:auto" type="radio" name="p3" value="daily" ${!W.event.par3Format || W.event.par3Format === "daily" ? "checked" : ""}> One Par 3 event each day</label><label><input style="width:auto" type="radio" name="p3" value="aggregate" ${W.event.par3Format === "aggregate" ? "checked" : ""}> Aggregate Par 3 event over 2 days — partner is Day 2 4BBB partner</label></div>` : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Trip Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall trip total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall trip winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -5214,7 +5318,7 @@ Count-back if tied
             ? W.competitions.add(x.dataset.comp)
             : W.competitions.delete(x.dataset.comp);
           if (x.checked && x.dataset.comp === "yellowBall")
-            W.event.yellowBallDays = W.eventDays(event);
+            W.event.yellowBallDays = eventDays(W.event);
           if (x.checked && x.dataset.comp === "ambrose") {
             if (W.event.days === 1) W.competitions = new Set(["ambrose"]);
             W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerOnly";
@@ -5252,6 +5356,13 @@ Count-back if tied
         "beforeend",
         `<div class="ntpBox"><b>Number of NTPs</b><label><input style="width:auto" type="radio" name="n1" value="1" ${W.event.ntpDay1Count != 2 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n1" value="2" ${W.event.ntpDay1Count == 2 ? "checked" : ""}> Two</label></div>`,
       );
+    if (W.competitions.has("capTeams")) {
+      const ids = [...new Set(eventDays(W.event).flatMap(wizardPlanningPlayers))].filter(id => id !== NO_PARTNER_ID);
+      $('[data-comp="capTeams"]')?.closest(".comp")?.insertAdjacentHTML("beforeend", capTeamsHtml(W.event, ids));
+      bindCapTeams(W.event, ids, renderStep3);
+    }
+    if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${W.event.scratchFormat !== "aggregate" ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Aggregate over all days</label>` : ""}</div>`);
+    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>NTPs on the last day (Day ${W.event.days})</b>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${ntpCount(W.event.days,W.event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join("")}<small>Applies when NTP is selected on the final day. Choose the holes on the NTP setup page.</small></div>`);
     $("#wizardBody").onchange = (e) => {
       let t = e.target,
         id =
@@ -5292,7 +5403,9 @@ Count-back if tied
         W.event.ntpDay2Count = count;
         renderStep3();
       }
-      if (t.name === "p3") W.event.par3Format = t.value;
+      if (t.name === "p3Mode") { W.event.par3Mode = t.value; W.event.par3Format = t.value === "overallPairs" ? "aggregate" : "daily"; renderStep3(); }
+      if (t.name === "scratchFormat") { W.event.scratchFormat = t.value; renderStep3(); }
+      if (t.name === "lastDayNtpCount") { W.event.ntpCounts ||= {}; W.event.ntpCounts["day" + W.event.days] = +t.value; if (W.event.days <= 2) W.event["ntpDay" + W.event.days + "Count"] = +t.value; }
       if (t.dataset.yellowballday) {
         const day = +t.dataset.yellowballday,
           selectedDays = new Set(
@@ -5580,6 +5693,8 @@ Count-back if tied
         ? +W.event.ambroseMinimumDrives
         : 3,
       par3Format: W.event.par3Format || "daily",
+      par3Mode: par3Mode(W.event),
+      scratchFormat: W.event.scratchFormat || "daily",
       ntpDay1Count: W.event.ntpDay1Count || 1,
       ntpDay2Count: W.event.ntpDay2Count || 2,
       ntpJackpot: Boolean(W.event.ntpJackpot),
@@ -6015,12 +6130,11 @@ Count-back if tied
   }
   function aggregatePar3Partner(playerId) {
     if (
-      store.event?.days !== 2 ||
-      store.event?.par3Format !== "aggregate" ||
+      par3Mode(store.event) !== "overallPairs" ||
       !(store.event?.competitions || []).includes("par3")
     )
       return "";
-    const groups = store.event?.groupSetup?.day2?.groups || [],
+    const groups = store.event?.groupSetup?.["day" + store.event.days]?.groups || [],
       id = String(playerId || ""),
       group = groups.find((team) => team.map(String).includes(id));
     if (!group) return "";
@@ -7243,7 +7357,7 @@ Count-back if tied
       ids,
       virtualId,
       shortTeam: Boolean(virtualId),
-      single: comps.has("single") || comps.has("combined"),
+      single: comps.has("single") || comps.has("combined") || comps.has("capTeams"),
       fourball: comps.has("fourball"),
       best3: comps.has("best3of4"),
       putting: comps.has("teamPutts"),
@@ -9162,6 +9276,7 @@ Count-back if tied
       : "";
     host.innerHTML = `<div class="teamsTop">
    <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
+   ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
  ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
@@ -9533,6 +9648,7 @@ Count-back if tied
         renderTeamsPage();
       }
     };
+    if ((store.event.competitions || []).includes("capTeams")) bindCapTeams(store.event, capRoster(), renderTeamsPage);
   }
 
   function formatEventDate(iso, day = 1) {
@@ -10815,7 +10931,7 @@ Count-back if tied
         add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day);
       if (selected.has("yellowBall") && yellowBallIsOn(day))
         add(`yellow-ball-d${day}`, `Yellow Ball${suffix}`, "yellowBall", day);
-      if (competitionIsOn("scratch", day))
+      if (competitionIsOn("scratch", day) && store.event.scratchFormat !== "aggregate")
         add(`scratch-d${day}`, `Scratch${suffix}`, "scratch", day, {
           lower: true,
           countback: true,
@@ -10823,20 +10939,12 @@ Count-back if tied
       if (competitionIsOn("ntp", day))
         add(`ntp-d${day}`, `Nearest the Pin${suffix}`, "ntp", day);
     }
+    if (selected.has("scratch") && store.event.scratchFormat === "aggregate") add("scratch-agg", "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
+    if (selected.has("capTeams")) add("cap-teams", "Black Cap – White Cap", "capTeams", 0, {days:eventDays()});
     if (selected.has("par3")) {
-      if (days === 2 && store.event.par3Format === "aggregate" && competitionDays("par3").length === 2)
-        add("par3-agg", "Par 3 Pairs — 2 Days", "par3aggregate", 0, {
-          countback: true,
-        });
-      else
-        for (const day of competitionDays("par3"))
-          add(
-            `par3-d${day}`,
-            `Par 3 Pairs${days === 1 ? "" : ` — Day ${day}`}`,
-            "par3",
-            day,
-            { countback: true },
-          );
+      const mode = par3Mode();
+      if (["overallPlayers", "overallPairs"].includes(mode)) add("par3-agg", mode === "overallPairs" ? `Par 3 Pairs — ${days} Days (Day ${days} partners)` : `Par 3 Individual — ${days} Days`, mode === "overallPairs" ? "par3aggregate" : "par3individualaggregate", 0, {countback:true, days:eventDays()});
+      else for (const day of competitionDays("par3")) add(`par3-d${day}`, `Par 3 ${mode === "dailyTeams" ? "Teams" : "Pairs"}${days === 1 ? "" : ` — Day ${day}`}`, mode === "dailyTeams" ? "par3team" : "par3", day, {countback:true});
     }
     if (selected.has("eclectic") && days === 2 && competitionDays("eclectic").length === 2)
       add("eclectic", "Eclectic — 2 Days", "eclectic", 0, { countback: true });
@@ -10912,6 +11020,20 @@ Count-back if tied
             : row.grossTotal;
         return row;
       });
+    if (def.type === "capTeams") rows = capTeamRows();
+    if (def.type === "scratchaggregate") {
+      const days = eventDays(), max = scratchHandicapLimit();
+      rows = [...new Set(days.flatMap(field))].filter(id => days.some(day => { const hcp = playerDailyHandicap(id,day); return field(day).includes(id) && (max == null || (hcp != null && hcp <= max)); })).map(id => {
+        const scores = days.flatMap(day => scratchGrossScores(day,id,eventCourseScorecard(day))), r = leaderRow(id,player(id)?.name || "Player","All days · every round required",scores,18 * days.length);
+        r.grossTotal = r.total;
+        r.total = days.reduce((total,day) => total + scratchGrossScores(day,id,eventCourseScorecard(day)).reduce((n,g,i) => n + (g == null ? 0 : g - (+eventCourseScorecard(day).par?.[i] || 0)),0),0);
+        r.scratchToPar = r.total;
+        const pickupDay = store.event.scratchScoringMode === "maxDoubleBogey" ? null : days.find(day => scratchPickupHole(day,id));
+        const ineligible = days.some(day => { const hcp = playerDailyHandicap(id,day); return !field(day).includes(id) || (max != null && (hcp == null || hcp > max)); });
+        if (pickupDay || ineligible) { r.disqualified = true; r.pickupHole = pickupDay ? scratchPickupHole(pickupDay,id) : null; r.disqualificationReason = pickupDay ? `Pick-up on Day ${pickupDay}, Hole ${r.pickupHole}` : "A qualifying Scratch round is required on every day"; }
+        return r;
+      });
+    }
     if (def.type === "scratch") {
       const v = eventCourseScorecard(def.day),
         max = scratchHandicapLimit();
@@ -11066,12 +11188,12 @@ Count-back if tied
       });
       return rows;
     }
-    if (def.type === "par3") {
+    if (["par3", "par3team"].includes(def.type)) {
       const v = eventCourseScorecard(def.day),
         ix = Array.from({ length: 18 }, (_, i) => i).filter(
           (i) => +v.par?.[i] === 3,
         );
-      rows = leaderboardUnits(def.day, "pair").map((u) =>
+      rows = leaderboardUnits(def.day, def.type === "par3team" ? "team" : "pair").map((u) =>
         leaderRow(
           u.id,
           u.name,
@@ -11087,7 +11209,7 @@ Count-back if tied
         ),
       );
     }
-    if (def.type === "par3aggregate") {
+    if (["par3aggregate", "par3individualaggregate"].includes(def.type)) {
       const effectivePlayer = (day, id) => {
         const emergency = store.event.emergencyReplacements?.["day" + day];
         return emergency && String(emergency.missingPlayerId) === String(id)
@@ -11100,9 +11222,10 @@ Count-back if tied
           (i) => +v.par?.[i] === 3,
         );
       };
-      rows = leaderboardUnits(2, "pair").map((u) => {
+      const units = def.type === "par3aggregate" ? leaderboardUnits(store.event.days, "pair") : [...new Set(eventDays().flatMap(field))].map(id => ({id, name:player(id)?.name || "Player", ids:[id]}));
+      rows = units.map((u) => {
         const holes = [];
-        for (const d of [1, 2]) {
+        for (const d of eventDays()) {
           const effectiveIds = u.ids.map((id) => effectivePlayer(d, id)),
             conflictingVirtualPair =
               new Set(effectiveIds).size !== effectiveIds.length;
@@ -11112,6 +11235,7 @@ Count-back if tied
               return;
             }
             const vals = effectiveIds.map((effectiveId) => {
+              if (!field(d).includes(effectiveId)) return 0; // A scheduled rest day has no score; pending playing-day scores remain null.
               const manual = manualPar3Point(d, effectiveId, i + 1);
               return manual == null ? points(d, effectiveId)[i] : manual;
             });
@@ -11121,7 +11245,7 @@ Count-back if tied
         return leaderRow(
           u.id,
           u.name,
-          "Day 2 partnership · both rounds",
+          def.type === "par3aggregate" ? `Day ${store.event.days} partnership · all rounds` : "Individual · all rounds",
           holes,
           holes.length,
         );
@@ -11155,7 +11279,7 @@ Count-back if tied
           r.thru = d2.filter((value) => value != null).length;
           return r;
         });
-    if (["scratch", "ambrose", "combined"].includes(def.type)) {
+    if (["scratch", "scratchaggregate", "ambrose", "combined"].includes(def.type)) {
       const active = rankLeaderRows(
         rows.filter((r) => !r.disqualified),
         !def.lower,
@@ -11164,7 +11288,7 @@ Count-back if tied
       const disqualified = rows
         .filter((r) => r.disqualified)
         .sort(
-          (a, b) => def.type === "scratch"
+          (a, b) => ["scratch", "scratchaggregate"].includes(def.type)
             ? a.pickupHole - b.pickupHole || a.name.localeCompare(b.name)
             : a.name.localeCompare(b.name),
         );
@@ -11203,7 +11327,7 @@ Count-back if tied
               leaderboardPlayerPoints(def.day, id).every((x) => x != null),
             ))
       );
-    if (def.type === "scratch") {
+    if (["scratch", "scratchaggregate"].includes(def.type)) {
       const active = rows.filter((r) => !r.disqualified);
       return Boolean(
         finalised && active.length && active.every((r) => r.thru === r.target),
@@ -11268,7 +11392,7 @@ Count-back if tied
           ? `+${top.scratchToPar}`
           : `${top.scratchToPar}`;
     const result =
-      def.type === "scratch"
+      ["scratch", "scratchaggregate"].includes(def.type)
         ? complete
           ? `${top.grossTotal} strokes (${scratchScore})`
           : `${scratchScore} · Thru ${top.thru}`
@@ -11306,8 +11430,9 @@ Count-back if tied
     const rows = calculateLeaderboard(def).filter((row) => !row.disqualified);
     if (!leaderboardComplete(def, rows) || !rows.length) return [];
     const winners = rows.filter((row) => row.rank === 1);
-    if (["single", "combined", "scratch", "eclectic"].includes(def.type))
+    if (["single", "combined", "scratch", "scratchaggregate", "par3individualaggregate", "eclectic"].includes(def.type))
       return winners.map((row) => String(row.id));
+    if (def.type === "capTeams") return winners.flatMap(row => store.event.capTeams?.[row.id] || []).map(String);
     if (def.type === "yellowBall")
       return [
         ...new Set(
@@ -11318,13 +11443,13 @@ Count-back if tied
         ),
       ].map(String);
     const kind =
-      def.type === "best3" ||
+      def.type === "best3" || def.type === "par3team" ||
       def.type === "ambrose" ||
       def.type === "yellowBall" ||
       (def.type === "putts" && store.event.puttingFormat !== "pairs")
         ? "team"
         : "pair";
-    const day = def.day || (def.type === "par3aggregate" ? 2 : 1);
+    const day = def.day || (def.type === "par3aggregate" ? store.event.days : 1);
     const units = leaderboardUnits(day, kind);
     return [
       ...new Set(
@@ -11426,6 +11551,10 @@ Count-back if tied
         ntp: "ntp",
         par3: "par3",
         par3aggregate: "par3",
+        par3individualaggregate: "par3",
+        par3team: "par3",
+        scratchaggregate: "scratch",
+        capTeams: "capTeams",
         eclectic: "eclectic",
       }[def.type] || def.type
     );
@@ -11660,7 +11789,7 @@ Count-back if tied
                 competitionComplete &&
                 (def.type === "yellowBall" || rowComplete),
               score =
-                def.type === "scratch"
+                ["scratch", "scratchaggregate"].includes(def.type)
                   ? isFinal
                     ? `${r.grossTotal} <small>strokes (${toPar(r.scratchToPar)})</small>`
                     : toPar(r.scratchToPar)
@@ -11670,7 +11799,7 @@ Count-back if tied
                       : `${r.grossTotal} <small>gross</small>`
                     : `${r.total} <small>${unit}</small>`;
             if (r.disqualified)
-              return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>${def.type === "combined" ? "Not eligible for overall prize" : def.type === "ambrose" ? "Required Drives Not Recorded" : "Withdrawn from this Competition"}</small></span><span class="leaderScore">—</span><span class="leaderThru">${["ambrose","combined"].includes(def.type) ? esc(r.disqualificationReason || "Requirements not satisfied") : `Pick-up on Hole ${r.pickupHole}`}</span></div>`;
+              return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">—</span><span class="leaderName">${esc(r.name)}<small>${def.type === "combined" ? "Not eligible for overall prize" : def.type === "ambrose" ? "Required Drives Not Recorded" : "Withdrawn from this Competition"}</small></span><span class="leaderScore">—</span><span class="leaderThru">${["ambrose","combined","scratchaggregate"].includes(def.type) ? esc(r.disqualificationReason || "Requirements not satisfied") : `Pick-up on Hole ${r.pickupHole}`}</span></div>`;
             const progress =
               def.type === "yellowBall"
                 ? r.loss
@@ -11691,8 +11820,8 @@ Count-back if tied
     const par3Day = Math.min(eventDays().length, Math.max(1, +view || 1)),
       par3Version = eventCourseScorecard(par3Day),
       par3Count = (par3Version.par || []).filter((par) => +par === 3).length,
-      par3Total = ["par3", "par3aggregate"].includes(def.type)
-        ? `<span class="par3Total">Total Par 3 Holes <b>${par3Count}</b></span>`
+      par3Total = ["par3", "par3team", "par3aggregate", "par3individualaggregate"].includes(def.type)
+        ? `<span class="par3Total">Total Par 3 Holes <b>${def.day ? par3Count : eventDays().reduce((n,day) => n + (eventCourseScorecard(day).par || []).filter(p => +p === 3).length,0)}</b></span>`
         : "";
     const pastEventNotice = store.event.pastEventReadOnly
       ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
