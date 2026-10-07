@@ -6854,3 +6854,6 @@ body.playerDevice .cloudHeader {
 .countingRounds { max-width:440px; margin:12px 0; }
 .countingRounds small { display:block; margin-top:6px; }
 .planTeeSelection { flex-wrap:wrap; }
+
+/* Fixed cap teams remain separate from daily playing groups. */
+.capTeamColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:12px 0}.capTeamColumns>div{padding:12px;border:1px solid #bad5c6;border-radius:10px}.capTeamsEditor p{line-height:1.45}.capTeamsEditor button{margin:4px 6px 4px 0}.capTeamColumns select{width:100%;max-width:100%}@media(max-width:600px){.capTeamColumns{grid-template-columns:1fr}}
