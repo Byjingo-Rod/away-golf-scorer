@@ -2800,7 +2800,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.7", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.94.8", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3681,6 +3681,63 @@ Count-back if tied
     save();
     return id;
   }
+  const COURSE_AU_STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
+  let courseLocationFilter = { country: "", state: "", region: "" };
+  function cleanCourseLocation(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
+  }
+  function courseCountryList(extra = "") {
+    const names = new Map();
+    for (const value of ["Australia", ...(store.courseCountries || []), ...store.courses.map(c => c.country), extra]) {
+      const name = cleanCourseLocation(value);
+      if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+    }
+    return [...names.values()].sort((a, b) => a.localeCompare(b));
+  }
+  function canonicalCourseCountry(value) {
+    const name = cleanCourseLocation(value);
+    return courseCountryList().find(c => c.toLowerCase() === name.toLowerCase()) || name;
+  }
+  function addCourseCountry(value) {
+    const name = canonicalCourseCountry(value);
+    if (!name) return "";
+    store.courseCountries = courseCountryList(name);
+    return name;
+  }
+  function courseLocationMatches(c, filters) {
+    const norm = value => cleanCourseLocation(value).toLowerCase();
+    return (!filters.country || norm(c.country || "Australia") === norm(filters.country)) &&
+      (!filters.state || norm(c.state) === norm(filters.state)) &&
+      (!filters.region || norm(c.region) === norm(filters.region));
+  }
+  function courseLocationIssues(c) {
+    const issues = [];
+    if (!cleanCourseLocation(c.country)) issues.push("Choose a country.");
+    if (!cleanCourseLocation(c.region)) issues.push("Enter a Region / Area.");
+    if (c.country === "Australia" && !COURSE_AU_STATES.includes(c.state)) issues.push("Choose an Australian state or territory.");
+    return issues;
+  }
+  function courseLocationFields(c) {
+    const country = canonicalCourseCountry(c.country || "Australia");
+    return `<label>Country<select id="mccountry">${courseCountryList(country).map(name => `<option value="${esc(name)}" ${name === country ? "selected" : ""}>${esc(name)}</option>`).join("")}<option value="__add_country__">Add a country…</option></select></label><label><span id="mcstateLabel">${country === "Australia" ? "State / Territory" : "State / Province (optional)"}</span><span id="mcstateField">${courseStateField(country, c.state)}</span></label><label>Region / Area<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley or Da Nang"></label>`;
+  }
+  function courseStateField(country, state = "") {
+    return country === "Australia" ? `<select id="mcstate"><option value="">Choose</option>${COURSE_AU_STATES.map(name => `<option value="${name}" ${name === state ? "selected" : ""}>${name}</option>`).join("")}</select>` : `<input id="mcstate" value="${esc(state)}" placeholder="State / Province">`;
+  }
+  function renderCourseLocationFilters() {
+    const f = courseLocationFilter;
+    const matching = store.courses.filter(c => courseLocationMatches(c, { country: f.country, state: "", region: "" }));
+    const unique = values => [...new Map(values.map(cleanCourseLocation).filter(Boolean).map(v => [v.toLowerCase(), v])).values()].sort((a,b) => a.localeCompare(b));
+    const states = unique(matching.map(c => c.state));
+    if (f.state && !states.includes(f.state)) f.state = "";
+    const regions = unique(matching.filter(c => courseLocationMatches(c, { state: f.state })).map(c => c.region));
+    if (f.region && !regions.includes(f.region)) f.region = "";
+    const options = (values, selected, all) => `<option value="">${all}</option>` + values.map(v => `<option value="${esc(v)}" ${v === selected ? "selected" : ""}>${esc(v)}</option>`).join("");
+    $("#courseLocationFilters").innerHTML = `<label>Country<select id="courseCountryFilter">${options(courseCountryList(), f.country, "All countries")}</select></label><label>State / Province<select id="courseStateFilter">${options(states, f.state, "All states / provinces")}</select></label><label>Region / Area<select id="courseRegionFilter">${options(regions, f.region, "All regions / areas")}</select></label><div class="rowBtns"><button class="soft" id="clearCourseFilters">Clear filters</button><button class="soft" id="adminAddCountry">+ Add country</button></div>`;
+    for (const [id, key] of [["courseCountryFilter", "country"], ["courseStateFilter", "state"], ["courseRegionFilter", "region"]]) $("#" + id).onchange = e => { f[key] = e.target.value; if (key === "country") f.state = f.region = ""; if (key === "state") f.region = ""; renderCoursesAdmin(); };
+    $("#clearCourseFilters").onclick = () => { courseLocationFilter = { country: "", state: "", region: "" }; $("#courseSearchMain").value = ""; renderCoursesAdmin(); };
+    $("#adminAddCountry").onclick = () => { const name = addCourseCountry(prompt("Country name")); if (name) { save(); renderCoursesAdmin(); } };
+  }
   function courseDetail(id, requestedCardTee = "") {
     let c = course(id);
     if (!c) return;
@@ -3737,7 +3794,7 @@ Count-back if tied
       )
       .join("");
     $("#modalContent").innerHTML =
-      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label><label>Golf region<input id="mcregion" value="${esc(c.region || "")}" placeholder="e.g. Hunter Valley"></label><label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label>${courseLocationFields(c)}<label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
@@ -3747,6 +3804,21 @@ Count-back if tied
       "afterend",
       `<div id="scorecardTotals">${totalsMarkup()}</div>`,
     );
+    let selectedCountry = canonicalCourseCountry(c.country || "Australia");
+    $("#mccountry").onchange = e => {
+      let next = e.target.value;
+      if (next === "__add_country__") {
+        next = canonicalCourseCountry(prompt("New country name"));
+        if (!next) { e.target.value = selectedCountry; return; }
+        e.target.innerHTML = courseCountryList(next).map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join("") + '<option value="__add_country__">Add a country…</option>';
+        e.target.value = next;
+      }
+      if (next !== selectedCountry) {
+        $("#mcstateField").innerHTML = courseStateField(next);
+        $("#mcstateLabel").textContent = next === "Australia" ? "State / Territory" : "State / Province (optional)";
+      }
+      selectedCountry = next;
+    };
     $("#modalShade").classList.add("open");
     $("#closeModal").onclick = () => $("#modalShade").classList.remove("open");
     if ($("#openMapLink"))
@@ -3771,7 +3843,9 @@ Count-back if tied
     };
     const captureCourseFields = () => {
       c.name = gcCourseName($("#mcname").value.trim() || c.name);
-      c.region = $("#mcregion").value.trim();
+      c.country = canonicalCourseCountry($("#mccountry").value);
+      c.state = cleanCourseLocation($("#mcstate").value);
+      c.region = cleanCourseLocation($("#mcregion").value);
       c.clubPhone = $("#mcClubPhone").value.trim();
       c.proPhone = $("#mcProPhone").value.trim();
       c.phone = c.proPhone;
@@ -3870,6 +3944,12 @@ Count-back if tied
       }),
     );
     $("#saveCourseModal").onclick = () => {
+      const location = { country: canonicalCourseCountry($("#mccountry").value), state: $("#mcstate").value, region: $("#mcregion").value };
+      const locationIssues = courseLocationIssues(location);
+      if ((c.locationRequired || c.locationIdentified) && locationIssues.length) {
+        alert("Complete the course location before saving:\n\n" + locationIssues.join("\n"));
+        return;
+      }
       captureCourseFields();
       const cardCheck = validateCourseScorecard(c, activeCardTee);
       if (!cardCheck.ok) {
@@ -3883,16 +3963,19 @@ Count-back if tied
         return;
       }
       c.activeScorecardTee = activeCardTee;
+      addCourseCountry(c.country);
+      if (!locationIssues.length) { delete c.locationRequired; c.locationIdentified = true; }
       save();
       $("#modalShade").classList.remove("open");
     };
   }
   function renderCoursesAdmin() {
+    renderCourseLocationFilters();
     store.courseFavourites = store.courseFavourites || [];
     const favIds = new Set(store.courseFavourites.map(String));
     let q = ($("#courseSearchMain").value || "").toLowerCase(),
       cs = [...store.courses]
-        .filter((c) => c.name.toLowerCase().includes(q))
+        .filter((c) => c.name.toLowerCase().includes(q) && courseLocationMatches(c, courseLocationFilter))
         .sort((x, y) => x.name.localeCompare(y.name)),
       act = cs.filter((c) => c.available !== false),
       ina = cs.filter((c) => c.available === false),
@@ -3916,7 +3999,7 @@ Count-back if tied
         star = favIds.has(String(c.id))
           ? '<span class="courseFavouriteStar" title="Favourite course">★</span>'
           : "";
-      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${c.region ? esc(c.region) + " • " : ""}${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
+      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>${cardTees.length} tee scorecard${cardTees.length === 1 ? "" : "s"} stored</small><small>${esc([c.country || "Australia", c.state, c.region].filter(Boolean).join(" · "))} • ${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
     };
     let ret = wizardReturnStep
       ? `<div class="returnSetupBar"><button class="soft" id="returnToWizardCourses">← Return to Setup</button></div>`
@@ -3927,6 +4010,7 @@ Count-back if tied
         ? `<div class="courseSectionTitle">★ Favourite Courses</div>${fav.map(row).join("")}<div class="courseSectionTitle">All Other Courses</div>`
         : "") +
       other.map(row).join("") +
+      (!cs.length ? '<p>No courses match these filters. Clear filters or add a course.</p>' : "") +
       (ina.length
         ? `<div class="divider">Inactive Courses (${ina.length})</div>` +
           ina.map(row).join("")
@@ -3951,6 +4035,10 @@ Count-back if tied
     let c = {
       id,
       name,
+      country: courseLocationFilter.country || "Australia",
+      state: courseLocationFilter.state || "",
+      region: courseLocationFilter.region || "",
+      locationRequired: true,
       available: true,
       address: "",
       phone: "",
@@ -3989,6 +4077,7 @@ Count-back if tied
     };
     store.courses.push(c);
     save();
+    courseDetail(id);
     return id;
   }
 
