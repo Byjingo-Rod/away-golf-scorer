@@ -6888,3 +6888,10 @@ body.playerDevice .cloudHeader {
 @media (max-width: 420px) {
   .courseDistanceControls { grid-template-columns: 1fr; }
 }
+
+.courseLocationFilters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; padding: 12px; background: #e7f1ea; border-radius: 10px; }
+.courseLocationFilters label { display: flex; flex-direction: column; gap: 5px; font-weight: 700; }
+.courseLocationFilters .rowBtns { grid-column: 1 / -1; }
+#mcstateField { display: block; }
+#mcstateField input, #mcstateField select { width: 100%; }
+@media (max-width: 600px) { .courseLocationFilters { grid-template-columns: 1fr; } }
