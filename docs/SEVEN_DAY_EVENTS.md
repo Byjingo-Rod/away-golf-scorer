@@ -1,6 +1,6 @@
 # Away Golf Scorer — one to seven playing days
 
-Available from version 15.94.1.
+Available from version 15.94.2.
 
 1. Create a new event and select **Event length: 1–7 playing days**. Set the trip roster size.
 2. Choose the course, start format, tee time and interval for each day. Dates default to consecutive days; change a playing date to leave a gap for a rest day. For Vietnam, select **Course time zone: Vietnam** so phones and the organiser PC use the same scoring-opening time.
@@ -15,11 +15,11 @@ For trips longer than two days, ties in the overall total use the lowest countin
 
 ## Black Cap – White Cap
 
-Select **Black Cap – White Cap** in Competition Setup. The app assigns two fixed trip teams with equal sizes (or one golfer difference for an odd roster) and balanced total GA handicaps. For up to 20 golfers it finds the smallest possible difference; larger rosters use a balanced draw with improving swaps. All golfers need GA handicaps before the teams can be generated. Plus handicaps count as negative values.
+Select **Black Cap – White Cap** in Competition Setup. The app assigns two fixed trip teams with equal playing strengths and balanced total GA handicaps. For an odd roster, a random golfer from the larger cap team also acts as the fixed virtual player for the smaller cap team; both cap teams then have the same number of counting slots. GA balancing includes that virtual-player slot. For up to 20 golfers it finds the smallest possible difference; larger rosters use a balanced draw with improving swaps. All golfers need GA handicaps before the teams can be generated. Plus handicaps count as negative values.
 
-Use the two **Choose golfer to swap** lists and **Swap selected golfers** to change cap teams. **Balance GA totals again** replaces those changes with a fresh balanced split. These controls are also available on Groups & Teams. Cap teams remain separate from the daily playing groups and 4BBB pairs. Cap teams cannot change after the event is locked, scoring begins, or a paper day is submitted.
+Use the two **Choose golfer to swap** lists and **Swap selected golfers** to change cap teams. **Balance GA totals again** replaces those changes with a fresh balanced split. These controls are also available on Groups & Teams. Cap teams remain separate from the daily playing groups and 4BBB pairs. Cap teams and the virtual player cannot change after the event is locked, scoring begins, or a paper day is submitted. The virtual-player donor remains in the larger cap team and cannot be swapped into the short team. Rebalancing before lock draws a new virtual player.
 
-The competition covers every event day automatically. **y is always the full cap-team size and x = y − 1.** Each day adds the best x daily Stableford totals from that team. A golfer resting that day contributes zero and is treated as a lowest score. With one golfer absent, all golfers who play have their scores counted. With two absent, all golfers who play count and one zero remains in the counting scores. Virtual players never contribute. An unfinished playing golfer’s card keeps that day pending; it is not treated as a rest day or zero. Submitted paper Single Stableford totals are supported, even when only the cap competition is selected.
+The competition covers every event day automatically. **y is always the full cap-team size, including its fixed virtual-player slot when present, and x = y − 1.** Each day adds the best x daily Stableford totals from that team. A golfer resting that day contributes zero and is treated as a lowest score. With one golfer absent, all golfers who play have their scores counted. With two absent, all golfers who play count and one zero remains in the counting scores. The short cap team copies its fixed virtual player’s daily Stableford score from the other cap team. If that golfer rests, their actual and copied scores both contribute zero. Daily playing-group virtual players are separate and never add extra cap-team slots. An unfinished playing golfer’s card (including the fixed virtual-player donor’s card) keeps that day pending; it is not treated as a rest day or zero. Submitted paper Single Stableford totals are supported, even when only the cap competition is selected.
 
 The team’s completed daily totals are added for the overall result. The higher total wins; equal totals remain tied. The leaderboard shows each day’s counting total and pending days.
 
