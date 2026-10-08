@@ -6904,3 +6904,7 @@ body.playerDevice .cloudHeader {
 .courseCompareColumns table { width:100%; text-align:center; }
 .courseConflict { padding:10px; border-bottom:1px solid #b9cbbb; }
 @media(max-width:600px){ .courseCompareColumns{grid-template-columns:1fr;} }
+
+.teeLengthValue { display:flex; align-items:center; gap:3px; white-space:nowrap; }
+.teeTable .teeLengthValue input { width:6ch; min-width:0; flex:1 1 auto; }
+.teeLengthValue small { flex:0 0 auto; }

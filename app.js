@@ -2810,7 +2810,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.3", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.4", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3818,17 +3818,22 @@ Count-back if tied
     return GolfCourseLocations.areas(country,store.courses,[...(store.courseRegions?.[country]||[]),extra]);
   }
   function courseRegionField(country,value="") {
+    value = GolfCourseLocations.area(value);
     return `<select id="mcregion"><option value="">Choose</option>${courseRegionList(country,value).map(name=>`<option value="${esc(name)}" ${name===value?"selected":""}>${esc(name)}</option>`).join("")}<option value="__add_region__">Add a new area…</option></select>`;
   }
   function bindCourseRegion(country) {
-    $("#mcregion").onchange=e=>{if(e.target.value!=="__add_region__")return;const value=cleanCourseLocation(prompt("New Region / Area"));if(value){void AwayCloud.addCourseLocation?.(country,value).catch(error=>console.warn(error));store.courseRegions ||= {};store.courseRegions[country]=GolfCourseLocations.unique([...(store.courseRegions[country]||[]),value]);writeLocalStore();}const label=e.target.parentElement;label.innerHTML="Region / Area"+courseRegionField(country,value);bindCourseRegion(country);};
+    $("#mcregion").onchange=e=>{if(e.target.value!=="__add_region__")return;const value=GolfCourseLocations.area(prompt("New Region / Area"));if(value){void AwayCloud.addCourseLocation?.(country,value).catch(error=>console.warn(error));store.courseRegions ||= {};store.courseRegions[country]=GolfCourseLocations.unique([...(store.courseRegions[country]||[]),value]);writeLocalStore();}const label=e.target.parentElement;label.innerHTML="Region / Area"+courseRegionField(country,value);bindCourseRegion(country);};
   }
   function courseLocationFields(c) {
     const country = canonicalCourseCountry(c.country || "Australia");
     return `<label>Country<select id="mccountry">${courseCountryList(country).map(name => `<option value="${esc(name)}" ${name === country ? "selected" : ""}>${esc(name)}</option>`).join("")}<option value="__add_country__">Add a country…</option></select></label><label><span id="mcstateLabel">${country === "Australia" ? "State / Territory" : "State / Province (optional)"}</span><span id="mcstateField">${courseStateField(country, c.state)}</span></label><label>Region / Area${courseRegionField(country,c.region||"")}</label>`;
   }
   function courseStateField(country, state = "") {
-    return country === "Australia" ? `<select id="mcstate"><option value="">Choose</option>${COURSE_AU_STATES.map(name => `<option value="${name}" ${name === state ? "selected" : ""}>${name}</option>`).join("")}</select>` : `<input id="mcstate" value="${esc(state)}" placeholder="State / Province">`;
+    const values = GolfCourseLocations.provinces(country,store.courses,[...(store.courseProvinces?.[country]||[]),state]);
+    return `<select id="mcstate"><option value="">Choose</option>${values.map(name=>`<option value="${esc(name)}" ${name===state?"selected":""}>${esc(name)}</option>`).join("")}${country === "Australia" ? "" : '<option value="__add_state__">Add a state / province…</option>'}</select>`;
+  }
+  function bindCourseProvince(country) {
+    $("#mcstate").onchange=e=>{if(e.target.value!=="__add_state__")return;const value=cleanCourseLocation(prompt("New State / Province"));if(value){store.courseProvinces ||= {};store.courseProvinces[country]=GolfCourseLocations.unique([...(store.courseProvinces[country]||[]),value]);writeLocalStore();}$("#mcstateField").innerHTML=courseStateField(country,value);bindCourseProvince(country);};
   }
   function renderCourseLocationFilters() {
     const f = courseLocationFilter;
@@ -3889,7 +3894,7 @@ Count-back if tied
           (colour) =>
             `<option value="${colour}" ${colour === selectedColour ? "selected" : ""}>${colour}</option>`,
         ).join("");
-      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key) || {})}</small></td></tr>`;
+      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><span class="teeLengthValue"><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key) || {})}</small></span></td></tr>`;
     };
     const cardOptions = EVENT_TEES.map((tee) => {
       const exists = Boolean(courseScorecard(c, tee));
@@ -3926,7 +3931,7 @@ Count-back if tied
         e.target.value = next;
       }
       if (next !== selectedCountry) {
-        $("#mcstateField").innerHTML = courseStateField(next);
+        $("#mcstateField").innerHTML = courseStateField(next);bindCourseProvince(next);
         $("#mcregion").parentElement.innerHTML="Region / Area"+courseRegionField(next);bindCourseRegion(next);
         $("#mcstateLabel").textContent = next === "Australia" ? "State / Territory" : "State / Province (optional)";
       }
@@ -3945,7 +3950,7 @@ Count-back if tied
       writeLocalStore();
       renderCoursesAdmin();
     };
-    bindCourseRegion(c.country || "Australia");
+    bindCourseRegion(c.country || "Australia");bindCourseProvince(c.country || "Australia");
     const captureVisibleCard = () => {
       for (let i = 0; i < 18; i++) {
         v.par[i] = +$("#scPar" + i).value || "";
