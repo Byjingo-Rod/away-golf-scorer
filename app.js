@@ -2810,7 +2810,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.0", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.1", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3889,7 +3889,7 @@ Count-back if tied
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
-        `<div class="scorecardCopyRow"><label>Copy complete card from<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copies all pars, indexes and hole lengths. The two cards can then be edited separately.</small></div>`,
+        `<div class="scorecardCopyRow"><label>Copy from tee<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><label>Copy<select id="copyScorecardMode"><option value="whole">Whole Card</option><option value="par">Par only</option><option value="index">Index only</option><option value="metres">Length only</option></select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copy the whole card or only Par, Index or Length. A single-column copy keeps the other columns and tee ratings.</small></div>`,
       );
     $(".scoreMini")?.insertAdjacentHTML(
       "afterend",
@@ -3997,18 +3997,33 @@ Count-back if tied
         }
         const source = courseScorecard(c, sourceTee);
         if (!source) return;
+        const selection = $("#copyScorecardMode").value;
+        const labels = { whole: "the whole card", par: "only the Par column", index: "only the Index column", metres: "only the Length column" };
+        if (!Object.hasOwn(labels, selection)) return;
         const sourceColour = teeMarkerColour(sourceTee, c),
           destinationColour = teeMarkerColour(activeCardTee, c);
         if (
           !confirm(
-            `Copy the complete ${sourceColour} scorecard into the ${destinationColour} scorecard?\n\nThis replaces all 18 pars, indexes and hole lengths currently entered for ${destinationColour}.`,
+            `Copy ${labels[selection]} from ${sourceColour} into ${destinationColour}?\n\n${selection === "whole" ? "This replaces all 18 pars, indexes and hole lengths." : "This replaces only that column. Other columns and tee ratings stay unchanged."}`,
           )
         )
           return;
-        c.teeScorecards[activeCardTee] = cloneCourseCard(
-          source,
-          activeCardTee,
-        );
+        captureCourseFields();
+        if (selection === "whole") {
+          c.teeScorecards[activeCardTee] = cloneCourseCard(source, activeCardTee);
+        } else if (selection === "metres") {
+          const distances = cloneCourseCard(source, activeCardTee);
+          v.metres = distances.metres;
+          v.distanceUnit = distances.distanceUnit;
+          v.distanceInputUnit = distances.distanceInputUnit;
+          if (distances.yards) v.yards = distances.yards;
+          else delete v.yards;
+        } else {
+          v[selection] = Array.from({ length: 18 }, (_, i) => source[selection]?.[i] ?? "");
+        }
+        const result = c.teeScorecards[activeCardTee];
+        c.teeDetails[activeCardTee].par = result.par.reduce((sum, value) => sum + (+value || 0), 0);
+        c.teeDetails[activeCardTee].length = result.metres.reduce((sum, value) => sum + (+value || 0), 0);
         c.activeScorecardTee = activeCardTee;
         courseDetail(id, activeCardTee);
       };

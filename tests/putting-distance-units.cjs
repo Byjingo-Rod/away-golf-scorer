@@ -24,6 +24,30 @@ node('#saveCourseModal').onclick();assert.equal(ctx.store.courses[0].teeDetails.
 change=node('#courseDistanceSave');change.value='metres';change.onchange({target:change});assert.match(node('#scorecardTotals').innerHTML,/4932 m/);node('#saveCourseModal').onclick();
 ctx.courseDetail(c.id,'middle');assert.equal(node('#scMet0').value,'300');node('#saveCourseModal').onclick();assert.equal(ctx.store.courses[0].teeScorecards.middle.metres[0],274);assert.equal(ctx.store.courses[0].teeScorecards.middle.yards[0],300);
 change=node('#scorecardTeeSelect');change.value='back';change.onchange({target:change});assert.equal(node('#courseDistanceInput').value,'yards');assert.equal(node('#scMet0').value,'');node('#copyScorecardFrom').value='middle';node('#copyScorecardButton').onclick();assert.equal(ctx.store.courses[0].teeScorecards.back.metres[0],274);assert.equal(ctx.store.courses[0].teeScorecards.back.yards[0],300);assert.equal(node('#scMet0').value,'300');
+// Column copy uses the destination's current entries and preserves unselected fields.
+ctx.store.courses[0].teeScorecards.back.index=Array.from({length:18},(_,i)=>`${i+1}/${i+19}`);
+for(const destination of ['middle','front']){
+ ctx.courseDetail(c.id,destination);
+ const original=plain(ctx.store.courses[0].teeScorecards[destination]);
+ const ratings=plain(ctx.store.courses[0].teeDetails[destination]);
+ node('#copyScorecardFrom').value='back';node('#copyScorecardMode').value='index';node('#copyScorecardButton').onclick();
+ const result=ctx.store.courses[0].teeScorecards[destination];
+ assert.deepEqual(plain(result.index),plain(ctx.store.courses[0].teeScorecards.back.index));
+ for(const field of ['par','metres','yards','distanceUnit','distanceInputUnit'])assert.deepEqual(plain(result[field]),plain(original[field]),field);
+ for(const field of ['slope','scratch','colour'])assert.equal(ctx.store.courses[0].teeDetails[destination][field],ratings[field]);
+}
+ctx.courseDetail(c.id,'middle');node('#scMet0').value='333';node('#mcnotes').value='Unsaved note kept';
+node('#copyScorecardFrom').value='back';node('#copyScorecardMode').value='index';node('#copyScorecardButton').onclick();
+assert.equal(node('#scMet0').value,'333');assert.equal(node('#mcnotes').value,'Unsaved note kept');
+assert.equal(ctx.store.courses[0].teeScorecards.middle.metres[0],304);
+node('#saveCourseModal').onclick();ctx.store=plain(ctx.saved);ctx.courseDetail(c.id,'middle');
+assert.equal(node('#scIdx0').value,'1/19');assert.equal(node('#scMet0').value,'333');
+const retainedIndex=plain(ctx.store.courses[0].teeScorecards.middle.index);
+node('#copyScorecardFrom').value='back';node('#copyScorecardMode').value='par';node('#copyScorecardButton').onclick();
+assert.deepEqual(plain(ctx.store.courses[0].teeScorecards.middle.index),retainedIndex);assert.equal(node('#scMet0').value,'333');
+node('#copyScorecardFrom').value='back';node('#copyScorecardMode').value='metres';node('#copyScorecardButton').onclick();
+assert.equal(node('#scMet0').value,'300');assert.deepEqual(plain(ctx.store.courses[0].teeScorecards.middle.index),retainedIndex);
+console.log('Passed: Blue indexes including secondary strokes copied to White/Yellow without changing par, lengths, units or ratings; unsaved edits retained; save/reopen; Par-only and Length-only copies.');
 // Actual location editor handlers: mandatory new-course location, country addition,
 // state switching, persistence and case-insensitive country identity.
 let edited=ctx.store.courses[0];edited.locationRequired=true;
