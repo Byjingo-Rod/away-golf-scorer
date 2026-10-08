@@ -2810,7 +2810,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.1", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.2", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3830,8 +3830,12 @@ Count-back if tied
     $("#adminAddCountry").onclick = () => { const name = addCourseCountry(prompt("Country name")); if (name) { save(); queueMasterCountry(name); renderCoursesAdmin(); } };
   }
   function courseDetail(id, requestedCardTee = "") {
-    let c = course(id, true);
-    if (!c) return;
+    const acceptedCourse = course(id, true);
+    if (!acceptedCourse) return;
+    const draftKey = "awayGolfCourseDraft:" + id;
+    let draft;
+    try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
+    let c = JSON.parse(JSON.stringify(draft?.course?.id === id ? draft.course : acceptedCourse));
     ensureCourseData(c);
     const availableCardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee));
     let activeCardTee = EVENT_TEES.includes(requestedCardTee)
@@ -3885,7 +3889,7 @@ Count-back if tied
       )
       .join("");
     $("#modalContent").innerHTML =
-      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label>${courseLocationFields(c)}<label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="primary" id="saveCourseModal">Save Course Details</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label>${courseLocationFields(c)}<label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="soft" id="saveCourseDraft">Save Draft</button><button class="primary" id="saveCourseModal">Save Completed Course</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
@@ -3895,6 +3899,8 @@ Count-back if tied
       "afterend",
       `<div id="scorecardTotals">${totalsMarkup()}</div>`,
     );
+    $("#modalContent .rowBtns")?.insertAdjacentHTML("beforebegin", '<p id="courseDraftStatus" role="status" style="margin:12px 0">Drafts save automatically on this device. Complete cards are shared with the cloud master.</p>');
+    if (draft?.savedAt) $("#courseDraftStatus").textContent = "Resumed draft saved " + new Date(draft.savedAt).toLocaleString() + ". Drafts stay on this device until the completed course is saved.";
     let selectedCountry = canonicalCourseCountry(c.country || "Australia");
     $("#mccountry").onchange = e => {
       let next = e.target.value;
@@ -3961,6 +3967,24 @@ Count-back if tied
       }
       captureVisibleCard();
     };
+    const saveCourseDraft = (capture = true) => {
+      if (!$("#saveCourseDraft")) return true;
+      if (capture) captureCourseFields();
+      c.activeScorecardTee = activeCardTee;
+      try {
+        const savedAt = new Date().toISOString();
+        localStorage.setItem(draftKey, JSON.stringify({savedAt, course:c}));
+        $("#courseDraftStatus").textContent = "Draft saved on this device at " + new Date(savedAt).toLocaleTimeString() + ". You can close this editor and resume later. Completed cloud card unchanged.";
+        return true;
+      } catch (error) {
+        $("#courseDraftStatus").textContent = "Draft could not be saved. Keep this editor open. " + error.message;
+        return false;
+      }
+    };
+    $("#saveCourseDraft").onclick = saveCourseDraft;
+    $("#modalContent").oninput = saveCourseDraft;
+    $("#modalContent").onchange = saveCourseDraft;
+    $("#closeModal").onclick = () => { if(saveCourseDraft()) { $("#modalContent").oninput = $("#modalContent").onchange = null; $("#modalShade").classList.remove("open"); } };
     const refreshDistanceLabels = () => {
       $$(".distanceInputLabel").forEach(label => label.textContent = distanceInputUnit === "yards" ? "yd" : "m");
       $("#scorecardTotals").innerHTML = totalsMarkup();
@@ -3986,6 +4010,7 @@ Count-back if tied
       const nextTee = event.target.value;
       courseScorecard(c, nextTee, true);
       c.activeScorecardTee = nextTee;
+      if (!saveCourseDraft()) return;
       courseDetail(id, nextTee);
     };
     if ($("#copyScorecardButton"))
@@ -4025,6 +4050,7 @@ Count-back if tied
         c.teeDetails[activeCardTee].par = result.par.reduce((sum, value) => sum + (+value || 0), 0);
         c.teeDetails[activeCardTee].length = result.metres.reduce((sum, value) => sum + (+value || 0), 0);
         c.activeScorecardTee = activeCardTee;
+        if (!saveCourseDraft(false)) return;
         courseDetail(id, activeCardTee);
       };
     const entryOrder = [];
@@ -4052,6 +4078,7 @@ Count-back if tied
       }),
     );
     $("#saveCourseModal").onclick = () => {
+      if (!saveCourseDraft()) return;
       const location = { country: canonicalCourseCountry($("#mccountry").value), state: $("#mcstate").value, region: $("#mcregion").value };
       const locationIssues = courseLocationIssues(location);
       if ((c.locationRequired || c.locationIdentified) && locationIssues.length) {
@@ -4059,7 +4086,8 @@ Count-back if tied
         return;
       }
       captureCourseFields();
-      const cardCheck = validateCourseScorecard(c, activeCardTee);
+      const cardChecks = Object.keys(c.teeScorecards || {}).map(tee => ({tee, ...validateCourseScorecard(c, tee)}));
+      const cardCheck = {ok:cardChecks.every(check => check.ok), issues:cardChecks.flatMap(check => check.issues.map(issue => teeMarkerColour(check.tee,c) + ": " + issue))};
       if (!cardCheck.ok) {
         alert(
           "The scorecard cannot be saved yet:\n\n" +
@@ -4073,8 +4101,13 @@ Count-back if tied
       c.activeScorecardTee = activeCardTee;
       addCourseCountry(c.country);
       if (!locationIssues.length) { delete c.locationRequired; c.locationIdentified = true; }
-      if (!save()) return;
-      queueMasterCourse(c);
+      const previous = JSON.parse(JSON.stringify(acceptedCourse));
+      for (const key of Object.keys(acceptedCourse)) delete acceptedCourse[key];
+      Object.assign(acceptedCourse, c);
+      if (!save()) { for (const key of Object.keys(acceptedCourse)) delete acceptedCourse[key]; Object.assign(acceptedCourse, previous); return; }
+      try { localStorage.removeItem(draftKey); } catch {}
+      $("#modalContent").oninput = $("#modalContent").onchange = null;
+      queueMasterCourse(acceptedCourse);
       queueMasterCountry(c.country);
       $("#modalShade").classList.remove("open");
     };
