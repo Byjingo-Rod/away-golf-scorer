@@ -1,0 +1,9 @@
+/* Same review surface in both apps. Course values are always rendered as text. */
+(() => {
+  const add=(parent,tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;parent.append(n);return n;};
+  function card(parent,label,doc){const section=add(parent,'details');add(section,'summary',label);add(section,'p',[doc.country||'Australia',doc.state,doc.region].filter(Boolean).join(' · '));
+    for(const [tee,values] of Object.entries(doc.teeScorecards||{})){add(section,'h4',`${doc.teeDetails?.[tee]?.colour||tee} · Slope ${doc.teeDetails?.[tee]?.slope||'—'} · Scratch ${doc.teeDetails?.[tee]?.scratch||'—'}`);const table=add(section,'table'),head=add(table,'tr');['Hole','Par','Index','Metres'].forEach(x=>add(head,'th',x));for(let i=0;i<18;i++){const row=add(table,'tr');[i+1,values.par?.[i],values.index?.[i],values.metres?.[i]].forEach(x=>add(row,'td',x??'—'));}}
+  }
+  window.GolfCatalogueReview={async render(host,api,changed=()=>{}){host.replaceChildren();add(host,'h3','Shared Course Reviews');const status=add(host,'p','Loading…');try{const rows=await api.courseReviews();status.textContent=rows.length?`${rows.length} different course copy/copies need review.`:'No different course copies need review.';for(const r of rows){const item=add(host,'section');add(item,'h4',r.name);card(item,'Current saved course',r.current||{});card(item,'Incoming course from the other app',r.incoming);for(const [accept,label] of [[true,'Use incoming course'],[false,'Keep current course']]){const b=add(item,'button',label);b.type='button';b.onclick=async()=>{if(!confirm(`${label} for ${r.name}? Previous details remain in history.`))return;b.disabled=true;try{await api.resolveCourse(r.id,accept);await changed();await this.render(host,api,changed);}catch(e){status.textContent=e.message;b.disabled=false;}};}}}catch(e){status.textContent='Shared catalogue review is unavailable: '+e.message;}}
+  };
+})();
