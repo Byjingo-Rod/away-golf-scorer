@@ -461,7 +461,13 @@
       .subscribe();
   }
 
+  async function catalogueRpc(name,args={}) {await ensureSignedIn();const {data,error}=await client.rpc(name,args);if(error)throw error;return data;}
+  async function loadCourseLocations(){await ensureSignedIn();const {data,error}=await client.from('golf_course_locations').select('country,region').order('country');if(error)throw error;return data;}
   window.AwayCloud = {
+    loadCourseLocations,
+    addCourseLocation:(country,region)=>catalogueRpc('golf_add_location',{p_country:country,p_region:region}),
+    courseReviews:()=>catalogueRpc('golf_catalogue_reviews'),
+    resolveCourse:(id,accept)=>catalogueRpc('golf_resolve_course',{p_id:id,p_accept:accept}),
     client,
     ensureSignedIn,
     ownerAccount,
