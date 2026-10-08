@@ -116,3 +116,13 @@ let teeSelect=node('#scorecardTeeSelect');teeSelect.value='middle';teeSelect.onc
 assert.match(ctx.lastAlert,/Yellow.*distance/);assert.deepEqual(plain(ctx.store.courses[0]),completedMaster);
 assert.equal(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+draftId)).course.teeScorecards.front.metres[0],'');
 console.log('Passed: completion checks every entered tee and retains unfinished tee drafts.');
+
+vm.runInContext(extract('retainCourseDraftBeforeCloud'),ctx);
+ctx.writeLocalStore=()=>true;
+const rawDraft=localStorage.getItem('awayGolfCourseDraft:'+draftId);
+assert(ctx.retainCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
+assert.deepEqual(plain(ctx.store.replacedCourseDrafts[draftId].draft),JSON.parse(rawDraft));
+ctx.courseDetail(draftId,'front');assert.equal(node('#scMet0').value,String(ctx.courseInputDistance(ctx.store.courses[0].teeScorecards.front,0)));
+node('#scMet0').value='';node('#saveCourseDraft').onclick();ctx.writeLocalStore=()=>false;
+assert.equal(ctx.retainCourseDraftBeforeCloud(draftId),false);assert(localStorage.getItem('awayGolfCourseDraft:'+draftId),'failed retention must keep original draft');
+console.log('Passed: selecting a cloud copy retains the old draft in organiser backup, clears stale editor recovery, and refuses unsafe retention.');

@@ -2810,7 +2810,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.2", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.3", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -3735,18 +3735,33 @@ Count-back if tied
       return `<details><summary>${esc(teeMarkerColour(tee,data))} tee — Slope ${esc(data.teeDetails?.[tee]?.slope||card.slope||"—")} · Scratch ${esc(data.teeDetails?.[tee]?.scratch||card.scratch||"—")}</summary><table><thead><tr><th>Hole</th><th>Par</th><th>Index</th><th>${courseDistanceUnit(card)==='yards'?'Yards':'Metres'}</th></tr></thead><tbody>${Array.from({length:18},(_,i)=>`<tr><td>${i+1}</td><td>${esc(card.par?.[i]??"")}</td><td>${esc(card.index?.[i]??"")}</td><td>${esc(courseHoleDistance(card,i))}</td></tr>`).join("")}</tbody></table></details>`;
     }).join("")}`;
   }
+  function retainCourseDraftBeforeCloud(id) {
+    const key = "awayGolfCourseDraft:" + id;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return true;
+      store.replacedCourseDrafts ||= {};
+      store.replacedCourseDrafts[id] = {replacedAt:new Date().toISOString(), draft:JSON.parse(raw)};
+      if (!writeLocalStore()) return false;
+      localStorage.removeItem(key);
+      return true;
+    } catch (error) {
+      alert("The draft could not be retained safely. Keep the device copy for now. " + error.message);
+      return false;
+    }
+  }
   function showMasterCourseConflicts() {
     const library=getMasterCourseLibrary(),ids=Object.keys(library.state().conflicts);
     $("#modalContent").innerHTML=`<h2>Review Different Course Copies</h2><p>Your device and the cloud have different details. Both copies are retained until you choose.</p>${ids.map(id=>`<div class="courseConflict"><h3>${esc(course(id,true)?.name||id)}</h3><div class="rowBtns"><button class="soft" data-coursecompare="${esc(id)}">Compare / Choose</button></div></div>`).join("")}<div class="rowBtns"><button class="soft" id="useAllCloudCourses">Use Cloud Copies for All</button><button class="soft" id="closeCourseReview">Close</button></div>`;
     $("#modalShade").classList.add("open");
     $("#closeCourseReview").onclick=()=>$("#modalShade").classList.remove("open");
-    $("#useAllCloudCourses").onclick=()=>{if(!confirm(`Use the cloud copy for all ${ids.length} courses? Your replaced device copies will be retained in your organiser backup.`))return;for(const id of ids)library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#useAllCloudCourses").onclick=()=>{if(!confirm(`Use the cloud copy for all ${ids.length} courses? Your replaced device copies will be retained in your organiser backup.`))return;for(const id of ids){if(!retainCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');}$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $$('[data-coursecompare]').forEach(b=>b.onclick=()=>showMasterCourseComparison(b.dataset.coursecompare));
   }
   function showMasterCourseComparison(id) {
     const library=getMasterCourseLibrary(),remote=library.state().conflicts[id];if(!remote)return;
     $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div class="courseCompareColumns"><section><h3>On this device</h3>${masterCourseReview(course(id,true))}</section><section><h3>Cloud revision ${remote.revision}</h3>${masterCourseReview(remote.data)}</section></div><p>Choosing this device saves its details as a new cloud revision. Replaced device details remain in your organiser backup.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Save This Device’s Copy to Cloud</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
-    $("#chooseCloudCourse").onclick=()=>{library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#chooseCloudCourse").onclick=()=>{if(!retainCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#chooseDeviceCourse").onclick=()=>{if(!confirm('Save this device’s details as the next cloud revision?'))return;library.resolve(id,'local');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#backCourseConflicts").onclick=showMasterCourseConflicts;
   }
