@@ -6908,3 +6908,7 @@ body.playerDevice .cloudHeader {
 .teeLengthValue { display:flex; align-items:center; gap:3px; white-space:nowrap; }
 .teeTable .teeLengthValue input { width:6ch; min-width:0; flex:1 1 auto; }
 .teeLengthValue small { flex:0 0 auto; }
+
+.gesProposedHandicap{padding:12px;background:#edf6ef;color:#234936;border-radius:8px;margin-bottom:12px}.gesProposedHandicap>div{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.gesProposedHandicap label{flex:1;min-width:150px}.gesProposedHandicap input,.gesProposedHandicap select{font-size:16px;width:100%;box-sizing:border-box}.gesProposedHandicap small{display:block;margin:6px 0}
+
+.playerContactAddress{display:grid;grid-template-columns:1fr 1fr;gap:12px}.playerContactAddress input,.profileEditForm input,.profileEditForm select{font-size:16px;box-sizing:border-box;width:100%}.playerContactAddress textarea{width:100%;box-sizing:border-box}@media(max-width:600px){.playerContactAddress{grid-template-columns:1fr}}
