@@ -308,7 +308,11 @@
     return eventDays(event).length > 1 ? `<div class="dayTabs multiDayTabs ${extraClass}" aria-label="Select event day">${eventDays(event).map(day => `<button type="button" data-${attribute}="${day}" class="${+selected === day ? "active" : ""}">Day ${day}</button>`).join("")}</div>` : "";
   }
   function ntpCount(day, event = store.event) {
-    return Math.max(1, Math.min(2, +(event?.ntpCounts?.["day" + day] ?? event?.["ntpDay" + day + "Count"] ?? (day === 2 ? 2 : 1)) || 1));
+    // The former two-day default must not add a second NTP on Day 2
+    // of a longer trip. Explicit per-day choices always take precedence.
+    const legacyCount = day === 1 || +(event?.days || 1) <= 2
+      ? event?.["ntpDay" + day + "Count"] : undefined;
+    return Math.max(1, Math.min(2, +(event?.ntpCounts?.["day" + day] ?? legacyCount ?? (day === 2 && +event?.days === 2 ? 2 : 1)) || 1));
   }
   const gcCourseName = (name) =>
     String(name || "").replace(/\bGolf Club\b/g, "GC");
@@ -389,6 +393,15 @@
       : [];
     if (saved.length >= 2) return saved;
     return event.teePlanningVersion ? [...EVENT_TEES] : ["back", "middle"];
+  }
+  function setEventFrontTee(event, day, enabled, scope = "course") {
+    event.enabledTeesByDay ||= {};
+    const days = +day === 1 && scope === "all"
+      ? Array.from({ length: Math.max(1, +event.days || 1) }, (_, i) => i + 1)
+      : [+day];
+    for (const d of days)
+      event.enabledTeesByDay["day" + d] = enabled
+        ? ["back", "middle", "front"] : ["back", "middle"];
   }
   function ensureEventTeePlanning(event = store.event) {
     if (!event) return;
@@ -2811,7 +2824,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.5", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.6", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -4482,7 +4495,8 @@ Count-back if tied
     W.event.par3Mode = t.par3Mode || (W.event.par3Format === "aggregate" ? "overallPairs" : "dailyPairs");
     W.event.scratchFormat = t.scratchFormat || "daily";
     W.event.ntpDay1Count = t.ntpDay1Count || 1;
-    W.event.ntpDay2Count = t.ntpDay2Count || 2;
+    W.event.ntpDay2Count = t.ntpDay2Count;
+    W.event.ntpCounts = JSON.parse(JSON.stringify(t.ntpCounts || {}));
     W.event.ntpJackpot = Boolean(t.ntpJackpot);
     W.event.ntpJackpotMode = t.ntpJackpotMode === "rolling" ? "rolling" : "final";
   }
@@ -5313,7 +5327,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on every playing day. You can then edit any Daily Handicap manually.</p></div><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on every playing day. You can then edit any Daily Handicap manually.</p></div><div class="thirdTeeControls"><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label>${+day === 1 && +W.event.days > 1 ? `<label class="thirdTeeScope">Apply Front tee choice to<select id="frontTeeScope"><option value="all" ${W.event.frontTeeScope === "all" ? "selected" : ""}>All Courses</option><option value="course" ${W.event.frontTeeScope !== "all" ? "selected" : ""}>This Course Only</option></select></label>` : ""}</div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     $("#modalShade").classList.add("open");
     const inputs = tees.flatMap((tee) => ids.map((id) => $(`[data-teequickhcp="${tee}|${id}"]`))).filter(Boolean);
     const gaInputs = $$('[data-eventga]');
@@ -5397,7 +5411,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         }
       if (ratingIssues.length)
         return alert(`Daily Handicaps cannot be calculated yet. Enter Slope, Scratch Rating and Par in Course Details for:\n\n${ratingIssues.join("\n")}`);
-      if (!confirm("Calculate every player's Daily Handicap for all enabled tees on both event days? Existing tee handicaps will be replaced, but you can still edit any result manually afterwards.")) return;
+      if (!confirm("Calculate every player's Daily Handicap for all enabled tees on all event days? Existing tee handicaps will be replaced, but you can still edit any result manually afterwards.")) return;
       const issues = applyCalculatedEventHandicaps(W.event);
       W.event.gaHandicapSetAt = new Date().toISOString();
       saveEventGaToPlayerProfiles(allIds, W.event);
@@ -5406,10 +5420,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
       openWizardHandicapEntry(day);
     };
     $("#enableFrontTee").onchange = (e) => {
-      W.event.enabledTeesByDay = W.event.enabledTeesByDay || {};
-      W.event.enabledTeesByDay[key] = e.target.checked
-        ? ["back", "middle", "front"]
-        : ["back", "middle"];
+      setEventFrontTee(W.event, day, e.target.checked, W.event.frontTeeScope);
+
+      openWizardHandicapEntry(day);
+    };
+    const frontScope = $("#frontTeeScope");
+    if (frontScope) frontScope.onchange = (e) => {
+      W.event.frontTeeScope = e.target.value;
+      setEventFrontTee(W.event, day, $("#enableFrontTee").checked, W.event.frontTeeScope);
       openWizardHandicapEntry(day);
     };
     $$('[data-teequickplus]').forEach(
@@ -6128,7 +6146,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       par3Mode: par3Mode(W.event),
       scratchFormat: W.event.scratchFormat || "daily",
       ntpDay1Count: W.event.ntpDay1Count || 1,
-      ntpDay2Count: W.event.ntpDay2Count || 2,
+      ntpDay2Count: ntpCount(2, W.event),
+      ntpCounts: JSON.parse(JSON.stringify(W.event.ntpCounts || {})),
       ntpJackpot: Boolean(W.event.ntpJackpot),
       ntpJackpotMode: W.event.ntpJackpotMode === "rolling" ? "rolling" : "final",
     };

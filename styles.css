@@ -6856,7 +6856,7 @@ body.playerDevice .cloudHeader {
 .planTeeSelection { flex-wrap:wrap; }
 
 /* Fixed cap teams remain separate from daily playing groups. */
-.capTeamColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:12px 0}.capTeamColumns>div{padding:12px;border:1px solid #bad5c6;border-radius:10px}.capTeamsEditor p{line-height:1.45}.capTeamsEditor button{margin:4px 6px 4px 0}.capTeamColumns select{width:100%;max-width:100%}@media(max-width:600px){.capTeamColumns{grid-template-columns:1fr}}
+.capTeamColumns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:12px 0}.capTeamColumns>div{padding:12px;border:1px solid #bad5c6;border-radius:10px}.capTeamsEditor p{line-height:1.45;color:#234936;opacity:1}.capTeamsEditor button{margin:4px 6px 4px 0}.capTeamColumns select{width:100%;max-width:100%}@media(max-width:600px){.capTeamColumns{grid-template-columns:1fr}}
 
 .par3FormatSection{margin:12px 0;padding-top:10px;border-top:1px solid #c6dacf}.par3FormatSection h5{font-size:1rem;margin:0 0 8px}.ntpBox .par3FormatChoice{display:flex;align-items:flex-start;gap:10px;margin:10px 0;line-height:1.45}.ntpBox .par3FormatChoice input{width:auto;flex:0 0 auto;margin-top:4px}.lastDayNtpHelp{display:block;margin-top:10px;line-height:1.45}.capVirtualNote{padding:10px;border:1px solid #b9d3c5;border-radius:8px}
 
@@ -6912,3 +6912,5 @@ body.playerDevice .cloudHeader {
 .gesProposedHandicap{padding:12px;background:#edf6ef;color:#234936;border-radius:8px;margin-bottom:12px}.gesProposedHandicap>div{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.gesProposedHandicap label{flex:1;min-width:150px}.gesProposedHandicap input,.gesProposedHandicap select{font-size:16px;width:100%;box-sizing:border-box}.gesProposedHandicap small{display:block;margin:6px 0}
 
 .playerContactAddress{display:grid;grid-template-columns:1fr 1fr;gap:12px}.playerContactAddress input,.profileEditForm input,.profileEditForm select{font-size:16px;box-sizing:border-box;width:100%}.playerContactAddress textarea{width:100%;box-sizing:border-box}@media(max-width:600px){.playerContactAddress{grid-template-columns:1fr}}
+
+.thirdTeeControls{display:grid;gap:10px;min-width:220px}.thirdTeeScope{display:grid;gap:6px;font-weight:600}.thirdTeeScope select{width:100%;font:inherit;padding:10px}
