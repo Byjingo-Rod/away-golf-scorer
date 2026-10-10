@@ -300,6 +300,31 @@
   function competitionIsOn(id, day, event = store.event) {
     return (event?.competitions || []).includes(id) && competitionDays(id, event).includes(+day);
   }
+  function dailyCompetitionSummary(day, event = store.event) {
+    const ids = [...new Set(event?.competitions || [])], items = [], multi = +event?.days > 1;
+    for (const id of ids) {
+      if (!competitionNames[id] || !competitionDays(id, event).includes(+day)) continue;
+      if (id === "single" && ids.includes("combined")) continue;
+      if (id === "combined") {
+        const format = multi ? event.singleStablefordFormat || "aggregate" : "daily";
+        if (format !== "aggregate") items.push({id:"stableford-daily", name:"Single Stableford", aggregate:false});
+        if (format !== "daily") items.push({id:"stableford-aggregate", name:"Overall Stableford — aggregate round", aggregate:true});
+        continue;
+      }
+      const aggregate = multi && (id === "capTeams" || id === "eclectic" ||
+        (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event))) ||
+        (id === "scratch" && event.scratchFormat === "aggregate"));
+      items.push({id, name:competitionNames[id] + (aggregate ? " — aggregate round" : ""), aggregate});
+    }
+    return items;
+  }
+  function dailyCompetitionChecks(event = store.event) {
+    return eventDays(event).map(day => {
+      const items = dailyCompetitionSummary(day, event), aggregates = items.filter(item => item.aggregate).length;
+      return {ok:(event.competitions || []).length > 0,
+        label:`Day ${day} Competitions: ${items.length}${aggregates ? ` (including ${aggregates} aggregate round${aggregates === 1 ? "" : "s"})` : ""}`};
+    });
+  }
   function countingRounds(event = store.event) {
     const id = (event?.competitions || []).includes("combined") ? "combined" : "single";
     return Math.max(1, Math.min(competitionDays(id, event).length || 1, Math.trunc(+event?.stablefordCountingRounds || competitionDays(id, event).length || 1)));
@@ -2824,7 +2849,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.6", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.7", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6070,12 +6095,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
         {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
         ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
         ...days.map(day=>({ok:enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event)),label:`Day ${day} Tee Handicaps: ${enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event))?"Complete":"Incomplete"}`})),
-        {ok:selected.length>0,label:`Competitions Selected: ${selected.length}`},
+        ...dailyCompetitionChecks({...W.event, competitions:selected.map(comp=>comp.id)}),
         ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
       ], allReady=checks.every(check=>check.ok);
     $("#wizardBody").innerHTML = `<div class="startHead"><div><h3>Event Plan Ready</h3><p>Review all ${days.length} playing day${days.length>1?"s":""} before proceeding to scoring setup.</p></div><span class="startBadge ${allReady?"ready":"check"}">${allReady?"READY":"CHECK"}</span></div>
       <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p></div>
-      ${days.map(day=>`<div class="startCard"><h4>Day ${day}</h4><p>${esc(eventDate(day,W.event))} · ${esc(course(W.event["course"+day])?.name||"No course")}</p><p>${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)} · ${esc(startMethodFor(W.event,day))} start</p><p>${selected.filter(comp=>competitionDays(comp.id,W.event).includes(day)).map(comp=>esc(comp.name)).join(" · ")}</p></div>`).join("")}
+      ${days.map(day=>`<div class="startCard"><h4>Day ${day}</h4><p>${esc(eventDate(day,W.event))} · ${esc(course(W.event["course"+day])?.name||"No course")}</p><p>${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)} · ${esc(startMethodFor(W.event,day))} start</p><p>${dailyCompetitionSummary(day,{...W.event,competitions:selected.map(comp=>comp.id)}).map(comp=>esc(comp.name)).join(" · ")}</p></div>`).join("")}
       ${W.competitions.has("combined")&&W.event.singleStablefordFormat!=="daily"?`<div class="startCard"><h4>Overall Stableford</h4><p>Best ${countingRounds({...W.event,competitions:[...W.competitions]})} of ${competitionDays("combined",W.event).length} rounds count.</p></div>`:""}</div>
       <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
       <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> — I have checked every course scorecard against the official card.</span></label>
@@ -9591,10 +9616,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
               ? `Daily Field Selected: ${teamText(dayFieldIds(1))}`
               : `Daily Fields Selected: ${eventDays(event).map(day=>`Day ${day} — ${teamText(dayFieldIds(day))}`).join("; ")}`,
         },
-        {
-          ok: (event.competitions || []).length > 0,
-          label: `Competitions Selected: ${(event.competitions || []).length}`,
-        },
+        ...dailyCompetitionChecks(event),
         ...((event.competitions || []).includes("ntp")
           ? [{
               ok: competitionDays("ntp",event).every(day=>(event.ntpSelections?.["day"+day]||[]).length>0),
