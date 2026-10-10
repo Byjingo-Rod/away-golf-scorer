@@ -2849,7 +2849,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.7", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.8", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6330,6 +6330,105 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const shortlist = eligible.filter((x) => x.score <= best + 2).slice(0, 12);
     return shortlist[Math.floor(Math.random() * shortlist.length)].groups;
   }
+  function drawMixingStats(draw) {
+    const groups = new Map(), partners = new Map(), mates = new Map();
+    for (const [day, teams] of Object.entries(draw)) for (const team of teams) {
+      const real = team.filter(id => String(id) !== NO_PARTNER_ID).map(String);
+      for (const id of real) if (!mates.has(id)) mates.set(id, new Set());
+      for (let i=0;i<real.length;i++) for (let j=i+1;j<real.length;j++) {
+        const key=pairKey(real[i],real[j]);
+        groups.set(key,[...(groups.get(key)||[]),+day]);
+        mates.get(real[i]).add(real[j]);mates.get(real[j]).add(real[i]);
+      }
+      for (const pair of [team.slice(0,2),team.slice(2,4)]) {
+        if (pair.length!==2 || pair.some(id=>String(id)===NO_PARTNER_ID)) continue;
+        const key=pairKey(...pair);partners.set(key,[...(partners.get(key)||[]),+day]);
+      }
+    }
+    const repeated = map => [...map].filter(([,days])=>days.length>1).map(([key,days])=>({ids:key.split('|'),days}));
+    return {groupRepeats:repeated(groups),partnerRepeats:repeated(partners),
+      groupRepeatEncounters:[...groups.values()].reduce((n,ds)=>n+Math.max(0,ds.length-1),0),
+      partnerRepeatEncounters:[...partners.values()].reduce((n,ds)=>n+Math.max(0,ds.length-1),0),
+      distinctMates:Object.fromEntries([...mates].map(([id,seen])=>[id,seen.size]))};
+  }
+  function maximumMixingDraw(fields) {
+    const days=Object.keys(fields).map(Number).sort((a,b)=>a-b), first=fields[days[0]] || [];
+    const exact=first.length===16 && days.length<=5 && days.every(day=>
+      fields[day].length===16 && [...fields[day]].map(String).sort().join('|')===[...first].map(String).sort().join('|'));
+    if (exact) {
+      // Lines of the affine plane over GF(4): five partitions of sixteen
+      // points into fours. Every pair of points lies on exactly one line.
+      const ids=shuffleCopy(first), slopes=shuffleCopy([0,1,2,3,4]);
+      const multiply=(a,b)=>{let result=0;for(let i=0;i<2;i++){if(b&1)result^=a;b>>=1;a<<=1;if(a&4)a^=7;}return result;};
+      return Object.fromEntries(days.map((day,index)=>{
+        const slope=slopes[index], teams=[];
+        for(let intercept=0;intercept<4;intercept++) {
+          const group=[];
+          for(let x=0;x<4;x++) {
+            const y=slope===4?x:multiply(slope,x)^intercept;
+            group.push(ids[slope===4?intercept*4+y:x*4+y]);
+          }
+          teams.push(shuffleCopy(group));
+        }
+        return [day,shuffleCopy(teams)];
+      }));
+    }
+    // For other field sizes/attendance, search complete schedules rather
+    // than committing one day at a time. Repeated partners take priority.
+    let best=null,bestScore=Infinity;
+    for(let attempt=0;attempt<30;attempt++) {
+      const draw={},groupCounts=new Map(),partnerCounts=new Map();
+      for(const day of days) {
+        let chosen=null,chosenScore=Infinity;
+        for(let trial=0;trial<45;trial++) {
+          const teams=makeGroups(shuffleCopy(fields[day]),day);let score=0;
+          for(const team of teams) {
+            const real=team.filter(id=>String(id)!==NO_PARTNER_ID);
+            for(let i=0;i<real.length;i++)for(let j=i+1;j<real.length;j++)score+=10*(groupCounts.get(pairKey(real[i],real[j]))||0);
+            for(const pair of [team.slice(0,2),team.slice(2,4)])if(pair.length===2&&!pair.includes(NO_PARTNER_ID))score+=100*(partnerCounts.get(pairKey(...pair))||0);
+          }
+          if(score<chosenScore){chosen=teams;chosenScore=score;}
+          if(score===0)break;
+        }
+        draw[day]=chosen;
+        for(const team of chosen) {
+          const real=team.filter(id=>String(id)!==NO_PARTNER_ID);
+          for(let i=0;i<real.length;i++)for(let j=i+1;j<real.length;j++){const k=pairKey(real[i],real[j]);groupCounts.set(k,(groupCounts.get(k)||0)+1);}
+          for(const pair of [team.slice(0,2),team.slice(2,4)])if(pair.length===2&&!pair.includes(NO_PARTNER_ID)){const k=pairKey(...pair);partnerCounts.set(k,(partnerCounts.get(k)||0)+1);}
+        }
+      }
+      const stats=drawMixingStats(draw), counts=Object.values(stats.distinctMates);
+      const score=10000*stats.partnerRepeatEncounters+100*stats.groupRepeatEncounters+(Math.max(...counts,0)-Math.min(...counts));
+      if(score<bestScore){best=draw;bestScore=score;}
+      if(score===0)break;
+    }
+    return best;
+  }
+  function mixingSummaryHtml(event=store.event) {
+    const draw=Object.fromEntries(eventDays(event).map(day=>[day,event.groupSetup?.['day'+day]?.groups||[]]));
+    const stats=drawMixingStats(draw), counts=Object.values(stats.distinctMates);
+    if(!counts.length)return '';
+    const repeats=(rows)=>rows.map(row=>`<li>${row.ids.map(id=>esc(player(id)?.name||'Player')).join(' &amp; ')} — Days ${row.days.join(', ')}</li>`).join('');
+    const low=Math.min(...counts),high=Math.max(...counts);
+    return `<section class="ntpBox mixingSummary"><b>Player Mixing — whole event</b><p>Repeated 4BBB partnerships: <strong>${stats.partnerRepeats.length}</strong> · Repeated groupmate combinations: <strong>${stats.groupRepeats.length}</strong>.</p><p>Different groupmates per golfer: <strong>${low===high?low:low+'–'+high}</strong>. Counts cover the current draw across all playing days, including saved teams.</p>${stats.partnerRepeats.length||stats.groupRepeats.length?`<details><summary>Review repeated combinations</summary><h4>Repeated 4BBB partners</h4>${stats.partnerRepeats.length?`<ul>${repeats(stats.partnerRepeats)}</ul>`:'<p>None.</p>'}<h4>Repeated groupmates (including partners)</h4><ul>${repeats(stats.groupRepeats)}</ul></details>`:''}</section>`;
+  }
+  function applyMaximumPlayerMixing() {
+    const event=store.event,days=eventDays(event);
+    if(event.locked || event.pastEventReadOnly || days.some(day=>firstDayScoreEntry(day) || Object.keys(event.manualScorecards?.["day"+day]?.groups || {}).length))return alert('Maximum Player Mixing is available before the event is locked or scoring starts.');
+    if(event.emergencyReplacements && Object.keys(event.emergencyReplacements).length)return alert('An emergency replacement is already assigned. Keep the existing teams or resolve the replacement before drawing the whole event again.');
+    const fields=Object.fromEntries(days.map(day=>[day,dayFieldIds(day)]));
+    if(days.some(day=>fields[day].length<4))return alert('Select at least four players on every playing day before drawing the whole event.');
+    if(!confirm('Draw all playing days using Maximum Player Mixing? This replaces the current teams and 4BBB partnerships, including saved days. Check and save each day afterwards.'))return;
+    const draw=maximumMixingDraw(fields);
+    for(const day of days) {
+      const key='day'+day,setup=event.groupSetup[key];
+      setup.groups=draw[day];setup.starts=defaultStarts(setup.groups,startMethodFor(event,day),day);setup.saved=false;
+      delete setup.shortTeams;delete setup.virtualPlayer;delete setup.ntpExtraPlayer;delete setup.ntpExtraPlayers;
+      ensureShortTeamSelections(setup,day);
+    }
+    event.drawMode='mixing';event.manualMode=false;event.swapPlayer=null;delete event.teamOrderSwap;
+    writeLocalStore();renderTeamsPage();
+  }
   function playerHistoryAgainstGroup(pid, g) {
     return g
       .filter((x) => String(x) !== String(pid))
@@ -9752,7 +9851,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
    ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous history and on Day 2 strongly avoids repeating Day 1 combinations."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
+ ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button><p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
+ ${mixingSummaryHtml()}
  ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
  ${teePanel}
@@ -9957,6 +10058,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         save();
         renderTeamsPage();
       };
+    if ($("#maximumPlayerMixing")) $("#maximumPlayerMixing").onclick = applyMaximumPlayerMixing;
     if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
       delete store.event.teamOrderSwap;
       store.event.drawMode = "history";

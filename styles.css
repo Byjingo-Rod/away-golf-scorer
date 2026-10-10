@@ -6914,3 +6914,5 @@ body.playerDevice .cloudHeader {
 .playerContactAddress{display:grid;grid-template-columns:1fr 1fr;gap:12px}.playerContactAddress input,.profileEditForm input,.profileEditForm select{font-size:16px;box-sizing:border-box;width:100%}.playerContactAddress textarea{width:100%;box-sizing:border-box}@media(max-width:600px){.playerContactAddress{grid-template-columns:1fr}}
 
 .thirdTeeControls{display:grid;gap:10px;min-width:220px}.thirdTeeScope{display:grid;gap:6px;font-weight:600}.thirdTeeScope select{width:100%;font:inherit;padding:10px}
+
+.mixingChoice p,.mixingSummary p{color:#234936;line-height:1.5}.mixingSummary details{margin-top:10px}.mixingSummary li{margin:6px 0}
