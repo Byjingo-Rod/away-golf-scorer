@@ -6916,3 +6916,5 @@ body.playerDevice .cloudHeader {
 .thirdTeeControls{display:grid;gap:10px;min-width:220px}.thirdTeeScope{display:grid;gap:6px;font-weight:600}.thirdTeeScope select{width:100%;font:inherit;padding:10px}
 
 .mixingChoice p,.mixingSummary p{color:#234936;line-height:1.5}.mixingSummary details{margin-top:10px}.mixingSummary li{margin:6px 0}
+
+.teamsToolbar{flex-direction:column;align-items:flex-start}.teamsStatus{font-size:1rem;text-align:left;line-height:1.5;color:#234936}.mixingChoice button{margin:0 8px 8px 0}

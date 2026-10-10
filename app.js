@@ -2849,7 +2849,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.8", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.9", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -6412,6 +6412,28 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const low=Math.min(...counts),high=Math.max(...counts);
     return `<section class="ntpBox mixingSummary"><b>Player Mixing — whole event</b><p>Repeated 4BBB partnerships: <strong>${stats.partnerRepeats.length}</strong> · Repeated groupmate combinations: <strong>${stats.groupRepeats.length}</strong>.</p><p>Different groupmates per golfer: <strong>${low===high?low:low+'–'+high}</strong>. Counts cover the current draw across all playing days, including saved teams.</p>${stats.partnerRepeats.length||stats.groupRepeats.length?`<details><summary>Review repeated combinations</summary><h4>Repeated 4BBB partners</h4>${stats.partnerRepeats.length?`<ul>${repeats(stats.partnerRepeats)}</ul>`:'<p>None.</p>'}<h4>Repeated groupmates (including partners)</h4><ul>${repeats(stats.groupRepeats)}</ul></details>`:''}</section>`;
   }
+  function lockAllEventTeams() {
+    const event=store.event;
+    if(!event || event.locked || event.pastEventReadOnly)return;
+    const days=eventDays(event);
+    const incomplete=days.filter(day=>{
+      const setup=event.groupSetup?.["day"+day],ids=dayFieldIds(day).map(String).sort();
+      const drawn=(setup?.groups||[]).flat().map(String).filter(id=>id!==NO_PARTNER_ID).sort();
+      return ids.length<4 || ids.join("|")!==drawn.join("|");
+    });
+    if(incomplete.length)return alert(`Review the player lists and teams for Day ${incomplete.join(", Day ")} before locking all teams.`);
+    const previous=JSON.parse(JSON.stringify(event.groupSetup));
+    const oldSwap=event.swapPlayer,oldOrder=event.teamOrderSwap;
+    try {
+      for(const day of days){const setup=event.groupSetup["day"+day];ensureShortTeamSelections(setup,day);setup.saved=true;}
+      event.swapPlayer=null;delete event.teamOrderSwap;
+      if(save()===false)throw new Error("Saving did not complete. Please try again.");
+    } catch(error) {
+      event.groupSetup=previous;event.swapPlayer=oldSwap;event.teamOrderSwap=oldOrder;
+      alert("Teams could not be locked: "+error.message);
+    }
+    renderTeamsPage();
+  }
   function applyMaximumPlayerMixing() {
     const event=store.event,days=eventDays(event);
     if(event.locked || event.pastEventReadOnly || days.some(day=>firstDayScoreEntry(day) || Object.keys(event.manualScorecards?.["day"+day]?.groups || {}).length))return alert('Maximum Player Mixing is available before the event is locked or scoring starts.');
@@ -9852,7 +9874,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
  ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
- ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button><p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
+ ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button> <button type="button" class="primary" id="lockAllEventTeams" ${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?"disabled":""}>Lock All Teams All Days</button>${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?'<p><b>All days’ teams are saved and locked.</b></p>':''}<p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
  ${mixingSummaryHtml()}
  ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
  ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
@@ -10058,6 +10080,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         save();
         renderTeamsPage();
       };
+    if ($("#lockAllEventTeams")) $("#lockAllEventTeams").onclick = lockAllEventTeams;
     if ($("#maximumPlayerMixing")) $("#maximumPlayerMixing").onclick = applyMaximumPlayerMixing;
     if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
       delete store.event.teamOrderSwap;
