@@ -380,6 +380,9 @@
     "Yellow",
     "Green",
     "Red",
+    "Silver",
+    "Brown",
+    "Gold",
   ];
   const DEFAULT_TEE_MARKER_COLOURS = {
     back: "Blue",
@@ -2849,7 +2852,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.9", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.10", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
