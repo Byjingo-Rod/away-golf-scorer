@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const app=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
+const start=app.indexOf('  function calculateLeaderboard('),end=app.indexOf('\n  function ',start+10);
+const rounds={1:Array(18).fill(2)};
+const ctx={store:{event:{days:5}},NO_PARTNER_ID:'NP',dayFieldIds:()=>['a'],player:()=>({name:'A'}),leaderboardPlayerPoints:d=>rounds[d]||Array(18).fill(null),leaderboardPlayerGross:()=>[],manualPlayerSummary:()=>null,countingRounds:()=>4,competitionDays:()=>[1,2,3,4,5],eventDays:()=>[1,2,3,4,5],leaderSum:a=>a.reduce((s,v)=>s+(v??0),0),leaderRow:(id,name,detail)=>({id,name,detail}),eventDayComplete:()=>false,rankLeaderRows:r=>r};
+vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+let r=ctx.calculateLeaderboard({type:'combined'})[0];
+assert.equal(r.total,36);assert.equal(r.thru,18);assert(r.detail.endsWith('Counting days 1'));
+assert.equal(r.cbHoles.length,18);assert.equal(r.cbHoles[0],2);
+rounds[2]=[3,...Array(17).fill(null)];r=ctx.calculateLeaderboard({type:'combined'})[0];
+assert.equal(r.total,39);assert.equal(r.thru,19);assert(r.detail.endsWith('Counting days 1, 2'));
+for(let d=2;d<=5;d++)rounds[d]=Array(18).fill(d);
+r=ctx.calculateLeaderboard({type:'combined'})[0];
+assert.equal(r.total,252);assert.equal(r.thru,72);assert(r.detail.endsWith('Counting days 2, 3, 4, 5'));
+console.log('Unplayed days excluded; partial rounds retained; best-four selection and countback use actual scored rounds.');

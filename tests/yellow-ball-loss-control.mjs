@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const source=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
+const extract=name=>{const start=source.indexOf('  function '+name+'('),end=source.indexOf('\n  function ',start+10);assert(start>=0,name);return source.slice(start,end);};
+const event={groupSetup:{day1:{groups:[['a','b','c','d'],['e','f','g','h']],starts:[1,1]}},scoring:{day1:{b:{14:{yellowBall:{lost:true,playerId:'b'}}}}}};
+const ctx={store:{event},NO_PARTNER_ID:'NP',yellowBallIsOn:()=>true,groupStartingHole:(e,d,g)=>e.groupSetup['day'+d].starts[g]};
+vm.createContext(ctx);
+for(const name of ['scoreSequence','yellowBallTeam','yellowBallPlayerForHole','yellowBallLoss','yellowBallHoleState'])vm.runInContext(extract(name),ctx);
+assert.equal(ctx.yellowBallHoleState(1,0,13,{}).active,true);
+const loss=event.scoring.day1.b[14];
+assert.equal(ctx.yellowBallHoleState(1,0,14,loss).active,false,'Highlight clears immediately');
+assert.equal(ctx.yellowBallHoleState(1,0,14,loss).canRecord,true,'Undo stays available on loss hole');
+assert.equal(ctx.yellowBallHoleState(1,0,14,loss).lostHere,true);
+for(let h=15;h<=18;h++){const state=ctx.yellowBallHoleState(1,0,h,{});assert.equal(state.active,false);assert.equal(state.canRecord,false);}
+assert.equal(ctx.yellowBallHoleState(1,1,15,{}).active,true,'Other teams continue');
+delete event.scoring.day1.b[14].yellowBall;
+assert.equal(ctx.yellowBallHoleState(1,0,15,{}).active,true,'Undo restores rotation');
+event.groupSetup.day1.starts[0]=10;
+event.scoring.day1.a={4:{yellowBall:{lost:true,playerId:'a'}}};
+assert.equal(ctx.yellowBallHoleState(1,0,3,{}).active,true);
+assert.equal(ctx.yellowBallHoleState(1,0,4,event.scoring.day1.a[4]).active,false);
+assert.equal(ctx.yellowBallHoleState(1,0,5,{}).active,false,'Shotgun follows playing order');
+assert(source.includes('${yellowBallButton(targetId)}'),'Player card has loss control');
+assert(source.includes('${yellowBallButton(selected)}'),'Marker card has loss control');
+console.log('Yellow Ball player/marker control, immediate highlight removal, later-hole rotation, undo, other teams and shotgun order passed.');

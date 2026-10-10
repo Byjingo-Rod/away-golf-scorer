@@ -6918,3 +6918,27 @@ body.playerDevice .cloudHeader {
 .mixingChoice p,.mixingSummary p{color:#234936;line-height:1.5}.mixingSummary details{margin-top:10px}.mixingSummary li{margin:6px 0}
 
 .teamsToolbar{flex-direction:column;align-items:flex-start}.teamsStatus{font-size:1rem;text-align:left;line-height:1.5;color:#234936}.mixingChoice button{margin:0 8px 8px 0}
+
+/* Yellow Ball results need room for the loss/completion description. */
+.yellowBallLeaderboard .leaderRow {
+  grid-template-columns: 42px minmax(0, 1fr) 72px minmax(100px, 180px);
+}
+.yellowBallLeaderboard .leaderName,
+.yellowBallLeaderboard .leaderThru {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.yellowBallLeaderboard .leaderThru {
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.35;
+}
+@media (max-width: 650px) {
+  .yellowBallLeaderboard .leaderRow {
+    grid-template-columns: 32px minmax(0, 1fr) 58px;
+  }
+  .yellowBallLeaderboard .leaderThru {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+}

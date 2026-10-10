@@ -2852,7 +2852,7 @@
     const data = JSON.parse(JSON.stringify(store));
     delete data.cloud;
     data.cloudPlayers = [];
-    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.10", exportedAt: new Date().toISOString(), data };
+    return { format: "Away Golf Organiser Backup", backupVersion: 1, appVersion: "15.95.11", exportedAt: new Date().toISOString(), data };
   }
   function downloadOrganiserBackup(payload) {
     const stamp = new Date().toISOString().slice(0, 10),
@@ -10449,6 +10449,17 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     return loss;
   }
+  function yellowBallHoleState(day, groupIndex, hole, record, event = store.event) {
+    const playerId = yellowBallIsOn(day, event) ? yellowBallPlayerForHole(day, groupIndex, hole, event) : "";
+    const position = scoreSequence(groupStartingHole(event, day, groupIndex)).indexOf(+hole);
+    const loss = playerId ? yellowBallLoss(day, groupIndex, event) : null;
+    return {
+      playerId,
+      active: Boolean(playerId && position >= 0 && (!loss || position < loss.position)),
+      canRecord: Boolean(playerId && position >= 0 && (!loss || position <= loss.position)),
+      lostHere: Boolean(record?.yellowBall?.lost && String(record.yellowBall.playerId || "") === String(playerId)),
+    };
+  }
   function findOfficialForPlayer(day, playerId, hole) {
     const correction = organiserCorrectionFor(day, playerId, hole);
     if (correction) return { ...correction, authoritative: true };
@@ -11036,20 +11047,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? best3Values.reduce((a, b) => a + b, 0)
         : null,
       best3On = competitionIsOn("best3of4", day),
-      yellowBallOn = yellowBallIsOn(day),
-      yellowBallPlayerId = yellowBallOn
-        ? yellowBallPlayerForHole(day, ctx.groupIndex, hole)
-        : "",
-      yellowBallTeamLoss = yellowBallOn
-        ? yellowBallLoss(day, ctx.groupIndex)
-        : null,
-      yellowBallActive =
-        yellowBallOn &&
-        (!yellowBallTeamLoss || pos <= yellowBallTeamLoss.position),
-      yellowBallLostHere = Boolean(
-        rec.yellowBall?.lost &&
-          String(rec.yellowBall.playerId || "") === String(yellowBallPlayerId),
-      ),
+      yellowBallState = yellowBallHoleState(day, ctx.groupIndex, hole, rec),
+      yellowBallPlayerId = yellowBallState.playerId,
+      yellowBallActive = yellowBallState.active,
+      yellowBallLostHere = yellowBallState.lostHere,
+      yellowBallButton = (playerId) => yellowBallState.canRecord && String(playerId) === String(yellowBallPlayerId)
+        ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : "",
       yellowBallClass = (playerId) =>
         yellowBallActive && String(playerId) === String(yellowBallPlayerId)
           ? "yellowBallTurn"
@@ -11140,8 +11143,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
  <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, par, stepper, pickup)}</div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallActive && String(selected) === String(yellowBallPlayerId) ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : ""}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, par, stepper, pickup)}</div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
@@ -11578,7 +11581,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             thru: manual ? 18 : holes.filter(value => value != null).length};
         });
         const ranked = [...rounds].sort((a,b) => Number(b.complete)-Number(a.complete) || b.total-a.total || b.day-a.day),
-          counted = ranked.slice(0,count), completed = rounds.filter(round => round.complete).length,
+          counted = ranked.filter(round => round.complete || round.thru > 0).slice(0,count), completed = rounds.filter(round => round.complete).length,
           last = [...counted].sort((a,b) => b.day-a.day)[0],
           row = leaderRow(id, player(id)?.name || "Player", `Best ${count} of ${selectedDays.length} · ${completed} complete · Counting days ${counted.map(r=>r.day).sort((a,b)=>a-b).join(", ") || "—"}`, [], count*18);
         row.total = counted.reduce((total,round) => total+round.total,0);
@@ -12426,7 +12429,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const pastEventNotice = store.event.pastEventReadOnly
       ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
       : "";
-    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");
     if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
     $$("[data-leaderview]").forEach(
