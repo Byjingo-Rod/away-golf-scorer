@@ -7207,7 +7207,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (+entry.day !== +day) return false;
       const id = String(playerId);
       if (entry.type === "self-score-copy")
-        return String(entry.recoveredPlayerId) === id;
+        return String(entry.recoveredPlayerId) === id ||
+          String(entry.recoveredFailedPlayerId || "") === id;
       if (entry.type === "virtual-player-marker-card")
         return [entry.scorerId, entry.markedPlayerId].map(String).includes(id);
       return false;
@@ -7560,6 +7561,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       .filter((id) => String(id) !== NO_PARTNER_ID)
       .map(String);
     const failed = String(failedScorerId || ids[0] || ""),
+      puttsRequired = competitionIsOn("teamPutts", day),
       markedId = markerTargetFor(failed, day),
       marked = player(markedId),
       own = scoringDayStore(day)?.[String(markedId)] || {},
@@ -7574,7 +7576,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ? missing
           .map(
             (r) =>
-              `<tr><td>${r.h}</td><td><input class="recoveryEdit" data-recoverygross="${r.h}" inputmode="text" maxlength="2" value="${esc(r.gross)}" aria-label="Hole ${r.h} gross strokes"></td><td><input class="recoveryEdit" data-recoveryputts="${r.h}" inputmode="numeric" maxlength="1" value="${scoreEntered(r.putts) ? esc(r.putts) : ""}" placeholder="Required" aria-label="Hole ${r.h} putts"></td><td>${scoreEntered(r.gross) && scoreEntered(r.putts) ? "Ready" : "Complete entry"}</td></tr>`,
+              `<tr><td>${r.h}</td><td><input class="recoveryEdit" data-recoverygross="${r.h}" inputmode="text" maxlength="2" value="${esc(r.gross)}" aria-label="Hole ${r.h} gross strokes"></td>${puttsRequired ? `<td><input class="recoveryEdit" data-recoveryputts="${r.h}" inputmode="numeric" maxlength="1" value="${scoreEntered(r.putts) ? esc(r.putts) : ""}" placeholder="Required" aria-label="Hole ${r.h} putts"></td>` : ""}<td>${scoreEntered(r.gross) && (!puttsRequired || scoreEntered(r.putts)) ? "Ready" : "Complete entry"}</td></tr>`,
           )
           .join("")
       : '<tr><td colspan="4">No recoverable missing scores were found.</td></tr>';
@@ -7583,18 +7585,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
           putts = Number(row.putts);
         return (
           scoreEntered(gross) &&
-          scoreEntered(row.putts) &&
           (gross === "P" ||
             (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20)) &&
-          Number.isInteger(putts) &&
-          putts >= 0 &&
-          putts <= 9 &&
-          (gross === "P" || putts <= +gross)
+          (!puttsRequired || (scoreEntered(row.putts) &&
+            Number.isInteger(putts) && putts >= 0 && putts <= 9 &&
+            (gross === "P" || putts <= +gross)))
         );
       },
       recoveryReady = () =>
         missing.length > 0 && missing.every(recoveryRowValid);
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE · DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking →</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare every entry with the manually completed card. Fill any missing score or putts before accepting. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th><th>Putts</th><th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div><div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="acceptSelfRecovery" ${recoveryReady() ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE · DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking →</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare every entry with the manually completed card. Fill any missing ${puttsRequired ? "score or putts" : "score"} before accepting. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th>${puttsRequired ? "<th>Putts</th>" : ""}<th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div>${officialCardProgress(day, failed).complete ? `<label class="recoveryNotice"><input id="acceptFailedOfficial" type="checkbox" checked style="width:auto"> Also accept ${esc(player(failed)?.name || "the failed-phone player")}’s completed official card after checking it. Their failed phone cannot verify the remaining holes.</label>` : ""}<div class="emergencyActions"><button class="soft" id="backEmergency">← Back</button><button class="primary" id="acceptSelfRecovery" ${recoveryReady() ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
     $("#failedScorer").onchange = (e) =>
       renderSelfScoreRecovery(day, e.target.value);
     $("#backEmergency").onclick = openEmergencyRecovery;
@@ -7612,9 +7612,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
     });
     if ($("#acceptSelfRecovery"))
       $("#acceptSelfRecovery").onclick = async () => {
+        if (!recoveryReady()) return;
+        const acceptFailedOfficial = Boolean($("#acceptFailedOfficial")?.checked && officialCardProgress(day, failed).complete);
         if (
           !confirm(
-            `Copy ${missing.length} ${marked?.name || "player"} self-score entries into the missing official card?`,
+            `Copy ${missing.length} ${marked?.name || "player"} self-score entries into the missing official card?${acceptFailedOfficial ? ` Also accept ${player(failed)?.name || "the failed-phone player"}'s completed official card.` : ""}`,
           )
         )
           return;
@@ -7624,13 +7626,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
             rec.official = {
               playerId: String(markedId),
               gross: r.gross,
-              putts: r.putts,
+              ...(puttsRequired ? { putts: r.putts } : {}),
               emergencyRecovered: true,
               recoveredAt: new Date().toISOString(),
             };
             recordOrganiserCorrection(day, markedId, r.h, {
               gross: r.gross,
-              putts: +r.putts,
+              ...(puttsRequired ? { putts: +r.putts } : {}),
               scorerId: String(failed),
               emergencyRecovered: true,
             });
@@ -7641,13 +7643,18 @@ function estimateEventGa(handicap, rating, category, calculate) {
           day,
           failedScorerId: failed,
           recoveredPlayerId: String(markedId),
+          recoveredFailedPlayerId: acceptFailedOfficial ? failed : null,
+          failedSelfMissingHoles: acceptFailedOfficial ? Array.from({length:18}, (_,i) => i+1).filter(h => !scoreEntered(scorerStore(day, failed)[String(h)]?.self?.gross)) : [],
           holes: missing.map((x) => x.h),
         });
         emergencyFinaliseIfVerified(day, markedId, true);
+        if (acceptFailedOfficial) emergencyFinaliseIfVerified(day, failed, true);
         writeLocalStore();
-        queueCloudRound(day, failed);
-        if (store.cloud?.role === "organiser" && store.cloud?.eventId)
+        if (store.cloud?.role === "organiser" && store.cloud?.eventId) {
+          await flushCloudRound(day, failed);
+          await flushCloudRound(day, markedId);
           await updateCloudEvent();
+        }
         closeEmergencyRecovery();
         renderHome();
         renderLeaderboard();
