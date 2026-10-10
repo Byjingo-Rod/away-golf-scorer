@@ -292,7 +292,7 @@
   }
   function competitionDays(id, event = store.event) {
     const all = eventDays(event);
-    if (id === "capTeams" || (id === "scratch" && event?.scratchFormat === "aggregate") || (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)))) return all;
+    if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(event?.scratchFormat)) || (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)))) return all;
     const saved = event?.competitionDays?.[id] ||
       (id === "yellowBall" ? event?.yellowBallDays : null);
     return Array.isArray(saved) ? all.filter(day => saved.map(Number).includes(day)) : all;
@@ -313,7 +313,7 @@
       }
       const aggregate = multi && (id === "capTeams" || id === "eclectic" ||
         (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event))) ||
-        (id === "scratch" && event.scratchFormat === "aggregate"));
+        (id === "scratch" && ["aggregate", "bestAggregate"].includes(event.scratchFormat)));
       items.push({id, name:competitionNames[id] + (aggregate ? " — aggregate round" : ""), aggregate});
     }
     return items;
@@ -5737,7 +5737,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function competitionScheduleHtml(id) {
     const days = competitionDays(id, W.event), all = eventDays(W.event);
-    if (id === "capTeams" || (id === "scratch" && W.event.scratchFormat === "aggregate") || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
+    if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(W.event.scratchFormat)) || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
     return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
   }
   function par3FormatHtml(event) {
@@ -5836,7 +5836,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       $('[data-comp="capTeams"]')?.closest(".comp")?.insertAdjacentHTML("beforeend", capTeamsHtml(W.event, ids));
       bindCapTeams(W.event, ids, renderStep3);
     }
-    if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${W.event.scratchFormat !== "aggregate" ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Aggregate over all days</label>` : ""}</div>`);
+    if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${!["aggregate", "bestAggregate"].includes(W.event.scratchFormat) ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Score over full event — all ${W.event.days} rounds</label><label><input style="width:auto" type="radio" name="scratchFormat" value="bestAggregate" ${W.event.scratchFormat === "bestAggregate" ? "checked" : ""}> Score best ${Math.max(1, W.event.days - 1)} of ${W.event.days} rounds</label><p class="hint">Best rounds drops one round. A missed round or pick-up can be dropped; the required number of qualifying completed rounds must still be played.</p>` : ""}</div>`);
     if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", lastDayNtpHtml(W.event));
     $("#wizardBody").onchange = (e) => {
       let t = e.target,
@@ -11533,10 +11533,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
           { lower: true, countback: true },
         );
       if (competitionIsOn("best3of4", day))
-        add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day);
+        add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day, { countback: true });
       if (selected.has("yellowBall") && yellowBallIsOn(day))
         add(`yellow-ball-d${day}`, `Yellow Ball${suffix}`, "yellowBall", day);
-      if (competitionIsOn("scratch", day) && store.event.scratchFormat !== "aggregate")
+      if (competitionIsOn("scratch", day) && !["aggregate", "bestAggregate"].includes(store.event.scratchFormat))
         add(`scratch-d${day}`, `Scratch${suffix}`, "scratch", day, {
           lower: true,
           countback: true,
@@ -11544,7 +11544,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (competitionIsOn("ntp", day))
         add(`ntp-d${day}`, `Nearest the Pin${suffix}`, "ntp", day);
     }
-    if (selected.has("scratch") && store.event.scratchFormat === "aggregate") add("scratch-agg", "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
+    if (selected.has("scratch") && ["aggregate", "bestAggregate"].includes(store.event.scratchFormat)) add("scratch-agg", store.event.scratchFormat === "bestAggregate" ? `Scratch — Best ${Math.max(1, days - 1)} of ${days} rounds` : "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
     if (selected.has("capTeams")) add("cap-teams", "Black Cap – White Cap", "capTeams", 0, {days:eventDays()});
     if (selected.has("par3")) {
       const mode = par3Mode();
@@ -11627,16 +11627,50 @@ function estimateEventGa(handicap, rating, category, calculate) {
       });
     if (def.type === "capTeams") rows = capTeamRows();
     if (def.type === "scratchaggregate") {
-      const days = eventDays(), max = scratchHandicapLimit();
-      rows = [...new Set(days.flatMap(field))].filter(id => days.some(day => { const hcp = playerDailyHandicap(id,day); return field(day).includes(id) && (max == null || (hcp != null && hcp <= max)); })).map(id => {
-        const scores = days.flatMap(day => scratchGrossScores(day,id,eventCourseScorecard(day))), r = leaderRow(id,player(id)?.name || "Player","All days · every round required",scores,18 * days.length);
-        r.grossTotal = r.total;
-        r.total = days.reduce((total,day) => total + scratchGrossScores(day,id,eventCourseScorecard(day)).reduce((n,g,i) => n + (g == null ? 0 : g - (+eventCourseScorecard(day).par?.[i] || 0)),0),0);
-        r.scratchToPar = r.total;
-        const pickupDay = store.event.scratchScoringMode === "maxDoubleBogey" ? null : days.find(day => scratchPickupHole(day,id));
-        const ineligible = days.some(day => { const hcp = playerDailyHandicap(id,day); return !field(day).includes(id) || (max != null && (hcp == null || hcp > max)); });
-        if (pickupDay || ineligible) { r.disqualified = true; r.pickupHole = pickupDay ? scratchPickupHole(pickupDay,id) : null; r.disqualificationReason = pickupDay ? `Pick-up on Day ${pickupDay}, Hole ${r.pickupHole}` : "A qualifying Scratch round is required on every day"; }
-        return r;
+      const days = def.days || eventDays(), max = scratchHandicapLimit(),
+        best = store.event.scratchFormat === "bestAggregate",
+        count = best ? Math.max(1, days.length - 1) : days.length,
+        finished = days.every(eventDayComplete);
+      rows = [...new Set(days.flatMap(field))].filter(id => days.some(day => {
+        const hcp = playerDailyHandicap(id, day);
+        return field(day).includes(id) && (max == null || (hcp != null && hcp <= max));
+      })).map(id => {
+        const rounds = days.map(day => {
+          const card = eventCourseScorecard(day), hcp = playerDailyHandicap(id, day),
+            eligible = field(day).includes(id) && (max == null || (hcp != null && hcp <= max)),
+            pickup = store.event.scratchScoringMode === "maxDoubleBogey" ? null : scratchPickupHole(day, id),
+            holes = eligible && !pickup ? scratchGrossScores(day, id, card) : Array(18).fill(null),
+            toParHoles = holes.map((gross, i) => gross == null ? null : gross - (+card.par?.[i] || 0));
+          return { day, eligible, pickup, holes, toParHoles,
+            complete: holes.every(gross => gross != null),
+            thru: holes.filter(gross => gross != null).length,
+            gross: leaderSum(holes), total: leaderSum(toParHoles) };
+        });
+        const available = rounds.filter(round => round.eligible && !round.pickup),
+          completed = available.filter(round => round.complete).length,
+          ranked = best ? [...available].sort((a,b) => Number(b.complete) - Number(a.complete) || a.total - b.total || b.day - a.day) : available,
+          counted = ranked.filter(round => round.thru > 0).slice(0, count).sort((a,b) => a.day - b.day),
+          row = leaderRow(id, player(id)?.name || "Player", best
+            ? `Best ${count} of ${days.length} · ${completed} complete · Counting days ${counted.map(round => round.day).join(", ") || "—"}`
+            : "All days · every round required", counted.flatMap(round => round.holes), count * 18);
+        row.grossTotal = leaderSum(counted.map(round => round.gross));
+        row.total = leaderSum(counted.map(round => round.total));
+        row.scratchToPar = row.total;
+        row.insufficientRounds = completed < count;
+        // Count back on the latest counting round, using scores relative to par
+        // so different course pars do not change the tie-break comparison.
+        if (best) row.cbHoles = counted.at(-1)?.toParHoles || [];
+        const potential = available.filter(round => round.complete || !eventDayComplete(round.day)).length,
+          failed = best ? potential < count || (finished && completed < count) : available.length < count;
+        if (failed) {
+          const pickupRound = rounds.find(round => round.pickup);
+          row.disqualified = true;
+          row.pickupHole = pickupRound?.pickup || null;
+          row.disqualificationReason = best
+            ? `${completed} qualifying completed rounds; ${count} required`
+            : pickupRound ? `Pick-up on Day ${pickupRound.day}, Hole ${pickupRound.pickup}` : "A qualifying Scratch round is required on every day";
+        }
+        return row;
       });
     }
     if (def.type === "scratch") {
