@@ -3497,7 +3497,18 @@
   startOrganiserPolling();
   startPlayerPolling();
 
+  function openOrganiserInstructions() {
+    if(isPlayerDevice() || isSpectatorDevice())return;
+    const panel=$("#modalContent");
+    GolfOrganiserGuide.render(panel);
+    const close=document.createElement("button");close.type="button";close.className="soft guideClose";close.textContent="Close Instructions";
+    close.onclick=()=>$("#modalShade").classList.remove("open");panel.prepend(close);
+    $("#modalShade").classList.add("open");panel.querySelector("#guideTopic")?.focus();
+  }
   function renderHome() {
+    const instructions=$("#organiserInstructions");
+    if(instructions){instructions.hidden=isPlayerDevice() || isSpectatorDevice();instructions.onclick=openOrganiserInstructions;}
+
     updateOwnerAccountButton();
     $("#homeEvent").textContent = store.event?.name || "Not set";
     $("#homePlayers").textContent = store.event
@@ -8582,7 +8593,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       allFinal = Boolean(rows.length && finalised === rows.length),
       scoringOpen = scoringIsOpen(day);
     scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     if (!scoringOpen) {
       const actions = host.querySelector(".liveControlActions");
       actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
@@ -8603,6 +8614,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $("#emergencyRecovery").onclick = openEmergencyRecovery;
     $("#recordAllScores").onclick = () => openManualScores(day);
     $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
+    $("#liveOrganiserInstructions").onclick = openOrganiserInstructions;
     if ($("#openScoringNow"))
       $("#openScoringNow").onclick = async () => {
         if (!confirm(`Open all Day ${day} scorecards now?`)) return;
