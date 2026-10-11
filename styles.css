@@ -6948,3 +6948,7 @@ body.playerDevice .cloudHeader {
 
 #teamsPage .teamsInstructions { color: #173d2c; font-size: 16px; line-height: 1.5; }
 #teamsPageHeading { overflow-wrap: anywhere; }
+
+.scoringCredit { display: block; font-size: 14px; font-weight: 400; line-height: 1.5; margin-top: 12px; }
+.playerFinish h1 { font-size: 24px; line-height: 1.4; }
+.playerFinish .scoringCredit { margin-top: 16px; }

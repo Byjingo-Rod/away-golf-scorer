@@ -12155,9 +12155,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function finalMessageForPlayer(id) {
     const first = playerFirstName(id);
     return {
-      heading: `Well done, ${first}.`,
-      message:
-        "Thanks for joining this Away Golf Event and I look forward to seeing you at future Events.",
+      heading: `Thanks for joining this Golf Event, ${first}, and hope you can join other events in the future.`,
+      message: "",
+      scoringCredit: "Scoring run on Away Golf Scorer",
     };
   }
   async function confirmResultsAndCloseEvent() {
@@ -12279,7 +12279,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         .filter((id) => String(id) !== NO_PARTNER_ID)
         .map((id) => {
           const m = finalMessageForPlayer(id);
-          return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)} ${esc(m.message)}</span></div>`;
+          return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)}${m.message ? ` ${esc(m.message)}` : ""}<small class="scoringCredit">${esc(m.scoringCredit)}</small></span></div>`;
         })
         .join("")}</div></section>`;
     } else if (organiser && !eventComplete && eventDays().some(eventDayComplete)) {
@@ -12572,7 +12572,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (isPlayerDevice() && store.event.finalResults?.confirmedAt) {
       const message = finalMessageForPlayer(selected);
-      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot-finish.png" alt="Away Golf golfer"><div><small>AWAY GOLF</small><h1>${esc(message.heading)}</h1><h2>${esc(message.message)}</h2></div></div>`;
+      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot-finish.png" alt="Away Golf golfer"><div><h1>${esc(message.heading)}</h1>${message.message ? `<h2>${esc(message.message)}</h2>` : ""}<p class="scoringCredit">${esc(message.scoringCredit)}</p></div></div>`;
       return;
     }
     if (store.event.playerRoundMode === "scoring")
