@@ -10853,7 +10853,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     $("#nextHole").onclick = async () => {
       if (warnIncompleteEntry()) return;
-      if (editable) await flushCloudRound(day, entryScorerId);
+      if (editable) { writeLocalStore(); queueCloudRound(day, entryScorerId); }
       if (position < 17) { store.event.playerHolePos = position + 1; save(); return renderAmbroseScoring(selected, day); }
       if (!editable) return alert("Only the team scorer or checking marker can complete the Ambrose team card.");
       if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
@@ -11308,10 +11308,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       save();
       renderHoleScoring(selected, day);
     };
-    $("#nextHole").onclick = async () => {
+    $("#nextHole").onclick = () => {
       $("#nextHole").disabled = true;
-      await flushCloudRound(day, selected);
       if (ntp && rec.ntp.confirmedAt) rec.ntp.locked = true;
+      writeLocalStore();
+      queueCloudRound(day, selected);
       if (pos === 17) {
         store.event.playerVerificationStage = "mine";
         store.event.returnToMarkedVerification = false;
