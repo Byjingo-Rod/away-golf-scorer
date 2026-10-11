@@ -22,9 +22,10 @@
       const signed = await client.auth.signInAnonymously();
       if (signed.error) throw signed.error;
       return signed.data.session;
-    })().catch((error) => {
+    })().finally(() => {
+      // Deduplicate concurrent sign-in checks, but never retain an old user's
+      // session after an owner signs in or signs out on this device.
       initPromise = null;
-      throw error;
     });
     return initPromise;
   }

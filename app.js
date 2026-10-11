@@ -797,6 +797,12 @@
     if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) === appTabId)
       localStorage.removeItem(AWAY_GOLF_WRITER_LEASE_KEY);
   });
+  window.addEventListener("pageshow", (event) => {
+    // A back/forward-cache return resumes this script without running startup.
+    // Reclaim a released lease only if another tab has not superseded this one.
+    if (event.persisted && !appTabSuperseded && !localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY))
+      localStorage.setItem(AWAY_GOLF_WRITER_LEASE_KEY, appTabId);
+  });
   window.addEventListener("storage", (event) => {
     if (
       event.key === AWAY_GOLF_WRITER_LEASE_KEY &&
@@ -1329,7 +1335,7 @@
       }),
       issues = [];
     pars.forEach((par, i) => {
-      if (!Number.isFinite(par) || par < 3 || par > 6)
+      if (!Number.isInteger(par) || par < 3 || par > 6)
         issues.push(`Hole ${i + 1}: par must be 3, 4, 5 or 6.`);
     });
     metres.forEach((distance, i) => {
@@ -1512,7 +1518,9 @@
     cloudMessage = "Connecting securely…",
     cloudChannel = null,
     cloudReloadTimer = null,
-    organiserPollTimer = null;
+    organiserPollTimer = null,
+    cloudPollInFlight = false,
+    lastCloudBundleSignature = "";
   const cloudRoundTimers = new Map();
   const cloudRoundChains = new Map();
   const isPlayerDevice = () =>
@@ -1598,6 +1606,8 @@
     delete event.playerPreviewDay;
     delete event.playerPreviewAck;
     delete event.playerRulesOpen;
+    delete event.playerVerificationStage;
+    delete event.returnToMarkedVerification;
     delete event.leaderboardTab;
     delete event.leaderboardView;
     delete event.liveControlDay;
@@ -1731,6 +1741,8 @@
     requestAnimationFrame(restoreScrollPositions);
   }
   function applyRemoteCloud(bundle) {
+    const signature = JSON.stringify([store.cloud?.eventId, store.cloud?.role, bundle]);
+    if (!store.cloud?.restorePublished && signature === lastCloudBundleSignature) return false;
     const payload = bundle?.event?.event_data || {};
     if (store.cloud && payload.courses) store.cloud.courseCards = JSON.parse(JSON.stringify(payload.courses));
     normaliseTwoDaySingleStableford(payload.event);
@@ -1784,6 +1796,8 @@
         store.cloud?.role === "player"
           ? {
               playerRoundMode: store.event?.playerRoundMode || "preview",
+              playerVerificationStage: store.event?.playerVerificationStage || "mine",
+              returnToMarkedVerification: Boolean(store.event?.returnToMarkedVerification),
               playerHolePos: startingHoleChanged
                 ? 0
                 : store.event?.playerHolePos || 0,
@@ -1862,6 +1876,7 @@
     store.cloudSpectatorCount = +(
       bundle?.spectatorCount ?? bundle?.spectator_count ?? 0
     ) || 0;
+    lastCloudBundleSignature = signature;
     writeLocalStore();
     renderHome();
     renderPlayerExperienceAfterCloudRefresh();
@@ -1984,10 +1999,20 @@
     const eventName = store.event?.name || "this event";
     if (
       !confirm(
-        `Leave ${eventName} on this device and enter a different event code?\n\nAny scores already sent remain safe online.`,
+        `Leave ${eventName} on this device and enter a different event code?\n\nScores already sent remain safe online. Unsent scores will not automatically appear when you rejoin. A local safety copy will be kept on this device; download an Organiser Backup first if scores have not synced.`,
       )
     )
       return;
+    try {
+      if (store.event) {
+        localStorage.setItem("awayGolfBeforeLeavingPlayerEvent", JSON.stringify({savedAt:new Date().toISOString(),event:store.event,cloud:store.cloud,players:store.players,courses:store.courses}));
+        captureCurrentEvent();
+        if (writeLocalStore() === false) throw new Error("Another app tab controls this device's saved data.");
+      }
+    } catch (error) {
+      alert("Could not back up your phone scores. Stay in this event and download a backup before leaving.");
+      return;
+    }
     closeCloudConnection();
     store.event = null;
     delete store.cloud;
@@ -2006,6 +2031,7 @@
   }
   async function syncCloudNow() {
     if (!store.cloud?.eventId || cloudBusy) return false;
+    const connection = store.cloud;
     setCloudMessage("Synchronising…", true);
     try {
       const bundle = await cloudTimeout(
@@ -2013,6 +2039,7 @@
           ? AwayCloud.spectateEvent(store.cloud.joinCode)
           : AwayCloud.loadEvent(store.cloud.eventId),
       );
+      if (store.cloud !== connection) return false;
       if (
         bundle?.event?.status === "archived" &&
         ["player", "spectator"].includes(store.cloud?.role)
@@ -2042,6 +2069,7 @@
       );
       return bundle;
     } catch (error) {
+      if (store.cloud !== connection) return false;
       if (isGuestOrganiser() && !(await verifyGuestOrganiserAccess())) return false;
       setCloudMessage(
         navigator.onLine
@@ -2052,57 +2080,44 @@
     }
   }
   function watchCloudEvent() {
-    if (!store.cloud?.eventId || cloudChannel || isSpectatorDevice()) return;
-    cloudChannel = AwayCloud.subscribe(store.cloud.eventId, () => {
+    if (!store.cloud?.eventId || cloudChannel || isSpectatorDevice() && !AwayCloud.pollsEvents) return;
+    const connection = store.cloud;
+    cloudChannel = AwayCloud.subscribe(connection.eventId, (bundle) => {
+      if (store.cloud !== connection) return false;
+      if (bundle) {
+        if (cloudBusy) return false;
+        applyRemoteCloud(bundle);
+        return true;
+      }
       clearTimeout(cloudReloadTimer);
       cloudReloadTimer = setTimeout(syncCloudNow, 450);
     });
   }
-  async function pollOrganiserConnections() {
-    if (
-      document.hidden ||
-      cloudBusy ||
-      store.cloud?.role !== "organiser" ||
-      !store.cloud?.eventId
-    )
-      return;
+  async function pollCloudConnection(roles) {
+    if (document.hidden || cloudBusy || cloudPollInFlight ||
+        !roles.includes(store.cloud?.role) || !store.cloud?.eventId ||
+        AwayCloud.pollsEvents && cloudChannel) return;
+    const connection = store.cloud;
+    cloudPollInFlight = true;
     try {
       const bundle = await cloudTimeout(
-        AwayCloud.loadEvent(store.cloud.eventId),
-        8000,
-      );
+        isSpectatorDevice() ? AwayCloud.spectateEvent(connection.joinCode) : AwayCloud.loadEvent(connection.eventId), 8000);
+      if (store.cloud !== connection) return;
       applyRemoteCloud(bundle);
-      setCloudMessage(
-        `Live · updated ${new Date().toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}`,
-      );
     } catch (_) {
-      if (isGuestOrganiser()) await verifyGuestOrganiserAccess();
-      // Background refresh must never interrupt the organiser.
-    }
+      if (store.cloud === connection && isGuestOrganiser()) await verifyGuestOrganiserAccess();
+      // A delayed background refresh must never interrupt the organiser or scorer.
+    } finally { cloudPollInFlight = false; }
+  }
+  async function pollOrganiserConnections() {
+    return pollCloudConnection(["organiser"]);
   }
   function startOrganiserPolling() {
     if (organiserPollTimer) return;
     organiserPollTimer = setInterval(pollOrganiserConnections, 8000);
   }
   async function pollPlayerEvent() {
-    if (
-      document.hidden ||
-      cloudBusy ||
-      !["player", "spectator"].includes(store.cloud?.role) ||
-      !store.cloud?.eventId
-    )
-      return;
-    try {
-      const bundle = await cloudTimeout(
-        isSpectatorDevice()
-          ? AwayCloud.spectateEvent(store.cloud.joinCode)
-          : AwayCloud.loadEvent(store.cloud.eventId),
-        8000,
-      );
-      applyRemoteCloud(bundle);
-    } catch (_) {
-      // Realtime remains primary; the next poll or focus will try again.
-    }
+    return pollCloudConnection(["player", "spectator"]);
   }
   function startPlayerPolling() {
     setInterval(pollPlayerEvent, 10000);
@@ -3217,7 +3232,7 @@
       String(store.cloud.playerId) !== String(playerId)
     )
       return;
-    const key = `${day}:${playerId}`;
+    const connection = store.cloud, eventId = connection.eventId, key = `${day}:${playerId}`;
     clearTimeout(cloudRoundTimers.get(key));
     setCloudMessage(
       navigator.onLine
@@ -3226,32 +3241,40 @@
     );
     cloudRoundTimers.set(
       key,
-      setTimeout(() => flushCloudRound(day, playerId), 500),
+      setTimeout(() => {
+        if (store.cloud === connection) void flushCloudRound(day, playerId);
+      }, 500),
     );
   }
   async function flushCloudRound(day, playerId) {
     if (!store.cloud?.eventId) return false;
-    const key = `${day}:${playerId}`,
-      eventId = store.cloud.eventId,
+    const connection = store.cloud, key = `${day}:${playerId}`,
+      eventId = connection.eventId,
       snapshot = JSON.parse(JSON.stringify(scorerStore(day, playerId)));
     clearTimeout(cloudRoundTimers.get(key));
     cloudRoundTimers.delete(key);
     const previous = cloudRoundChains.get(key) || Promise.resolve(),
       saving = previous
         .catch(() => {})
-        .then(() => AwayCloud.saveRound(eventId, +day, String(playerId), snapshot));
+        .then(() => store.cloud === connection
+          ? AwayCloud.saveRound(eventId, +day, String(playerId), snapshot)
+          : false);
     cloudRoundChains.set(key, saving);
     try {
-      await saving;
+      const result = await saving;
+      if (store.cloud !== connection || result === false) return false;
       if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
       setCloudMessage("Hole saved online ✓");
       return true;
     } catch (_) {
+      if (store.cloud !== connection) return false;
       if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
       setCloudMessage("Saved on phone · online sync will retry");
       cloudRoundTimers.set(
         key,
-        setTimeout(() => flushCloudRound(day, playerId), 5000),
+        setTimeout(() => {
+          if (store.cloud === connection) void flushCloudRound(day, playerId);
+        }, 5000),
       );
       return false;
     }
@@ -8523,6 +8546,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
 
   function closeCloudConnection() {
+    cloudBusy = false;
+    clearTimeout(cloudReloadTimer);
+    cloudReloadTimer = null;
+    for (const timer of cloudRoundTimers.values()) clearTimeout(timer);
+    cloudRoundTimers.clear();
+    cloudRoundChains.clear();
+    lastCloudBundleSignature = "";
     if (cloudChannel && AwayCloud?.client?.removeChannel)
       AwayCloud.client.removeChannel(cloudChannel);
     cloudChannel = null;
@@ -12649,7 +12679,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       id,
       name: id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown",
     })),
-      completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${team.map((id) => id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown").join(" · ")}</span></section>`).join("")}</div></details>`;
+      completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown").join(" · "))}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
       finalised = ambroseIsOn(store.event, day)

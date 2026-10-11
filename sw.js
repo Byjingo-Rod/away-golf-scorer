@@ -1,15 +1,15 @@
-const CACHE = "away-golf-v15-95-19";
+const CACHE = "away-golf-v15-95-20";
 const FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=15.95.19",
-  "./supabase.js?v=15.95.19",
-  "./cloud.js?v=15.95.19",
-  "./data.js?v=15.95.19",
-  "./course-library.js?v=15.95.19",
-  "./course-locations.js?v=15.95.19",
-  "./catalogue-review.js?v=15.95.19",
-  "./app.js?v=15.95.19",
+  "./styles.css?v=15.95.20",
+  "./supabase.js?v=15.95.20",
+  "./cloud.js?v=15.95.20",
+  "./data.js?v=15.95.20",
+  "./course-library.js?v=15.95.20",
+  "./course-locations.js?v=15.95.20",
+  "./catalogue-review.js?v=15.95.20",
+  "./app.js?v=15.95.20",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -28,21 +28,21 @@ self.addEventListener("activate", (e) => {
         .keys()
         .then((k) =>
           Promise.all(
-            k.filter((x) => x !== CACHE).map((x) => caches.delete(x)),
+            k.filter((x) => x.startsWith("away-golf-") && x !== CACHE).map((x) => caches.delete(x)),
           ),
         ),
     ]),
   );
 });
-self.addEventListener("fetch", (e) => {
-  e.respondWith(
-    fetch(e.request)
-      .then((r) => {
-        let copy = r.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return r;
-      })
-      .catch(() => caches.match(e.request)),
-  );
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== "GET" || url.origin !== self.location.origin) return;
+  event.respondWith(fetch(event.request).then(response => {
+    if (response.ok) {
+      const copy = response.clone();
+      event.waitUntil(caches.open(CACHE).then(cache => cache.put(event.request, copy)).catch(() => {}));
+    }
+    return response;
+  }).catch(async () => (await caches.match(event.request)) ||
+    new Response("This page is not available offline. Reconnect and try again.", {status:503,headers:{"Content-Type":"text/plain"}})));
 });
-
