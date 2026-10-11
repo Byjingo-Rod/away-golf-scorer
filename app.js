@@ -7115,6 +7115,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         });
     }
   }
+  function retainedLegacyScoringRules() {
+    return Boolean(store.event?.finalResults?.confirmedAt && store.event.finalResults.scoringRulesVersion !== 2);
+  }
   function stablefordStrokeCount(indexValue, handicap) {
     handicap = +handicap || 0;
     const txt = String(indexValue ?? "").trim();
@@ -7127,12 +7130,18 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return -base - (rem && idx > 18 - rem ? 1 : 0);
     }
     if (handicap === 0) return 0;
-    if (txt.includes("/"))
-      return txt
-        .split("/")
-        .map((x) => +String(x).trim())
-        .filter(Number.isFinite)
-        .filter((x) => x <= handicap).length;
+    if (txt.includes("/")) {
+      const indexes = txt.split("/").map((x) => +String(x).trim())
+        .filter((x) => Number.isFinite(x) && x > 0);
+      const listed = indexes.filter((x) => x <= handicap).length;
+      // Preserve confirmed historical results. Above 36, repeat the primary
+      // 1–18 index while retaining the course's separate second-stroke order.
+      if (retainedLegacyScoringRules() || handicap <= 36) return listed;
+      const primary = indexes[0];
+      if (!primary || primary > 18) return listed;
+      const extra = handicap - 36;
+      return listed + Math.floor(extra / 18) + (primary <= extra % 18 ? 1 : 0);
+    }
     const idx = +txt;
     if (!idx) return 0;
     const base = Math.floor(handicap / 18),
@@ -11801,7 +11810,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         row.insufficientRounds = completed < count;
         // Count back on the latest counting round, using scores relative to par
         // so different course pars do not change the tie-break comparison.
-        if (best) row.cbHoles = counted.at(-1)?.toParHoles || [];
+        if (best || !retainedLegacyScoringRules()) row.cbHoles = counted.at(-1)?.toParHoles || [];
         const potential = available.filter(round => round.complete || !eventDayComplete(round.day)).length,
           failed = best ? potential < count || (finished && completed < count) : available.length < count;
         if (failed) {
@@ -12299,6 +12308,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     )
       return;
     store.event.finalResults = {
+      scoringRulesVersion: 2,
       confirmedAt: new Date().toISOString(),
       outcomes: buildFinalPlayerMessages(defs),
     };
