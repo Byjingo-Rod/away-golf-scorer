@@ -3836,7 +3836,8 @@ Count-back if tied
   }
   function showMasterCourseComparison(id) {
     const library=getMasterCourseLibrary(),remote=library.state().conflicts[id];if(!remote)return;
-    $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div class="courseCompareColumns"><section><h3>On this device</h3>${masterCourseReview(course(id,true))}</section><section><h3>Cloud revision ${remote.revision}</h3>${masterCourseReview(remote.data)}</section></div><p>Choosing this device saves its details as a new cloud revision. Replaced device details remain in your organiser backup.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Save This Device’s Copy to Cloud</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
+    $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div id="courseCardComparison"></div><p>Choosing this device saves its details as a new cloud revision. Replaced device details remain in your organiser backup.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Save This Device’s Copy to Cloud</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
+    GolfCatalogueReview.renderComparison($("#courseCardComparison"),course(id,true),remote.data,"On this device",`Master revision ${remote.revision}`);
     $("#chooseCloudCourse").onclick=()=>{if(!retainCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#chooseDeviceCourse").onclick=()=>{if(!confirm('Save this device’s details as the next cloud revision?'))return;library.resolve(id,'local');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#backCourseConflicts").onclick=showMasterCourseConflicts;
