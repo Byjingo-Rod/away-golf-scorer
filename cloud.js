@@ -105,18 +105,12 @@
 
   async function updateEvent(eventId, eventData, status) {
     await ensureSignedIn();
-    const { data, error } = await client
-      .from("away_events")
-      .update({
-        name: eventData?.event?.name || "Away Golf Event",
-        event_data: eventData,
-        status,
-      })
-      .eq("id", eventId)
-      .select("id,join_code,revision,updated_at")
-      .single();
-    if (error) throw error;
-    return data;
+    const { data, error } = await client.rpc("golf_safe_away_save", {
+      p_kind: "event", p_event_id: eventId, p_day: null, p_player_id: null,
+      p_data: eventData, p_expected_revision: arguments[3] ?? null,
+      p_correction: false, p_reason: null, p_status: status,
+    });
+    if(error)throw error;return data;
   }
 
   async function syncEventPlayers(eventId, players) {
@@ -214,23 +208,13 @@
     };
   }
 
-  async function saveRound(eventId, day, playerId, scoreData) {
+  async function saveRound(eventId, day, playerId, scoreData, options={}) {
     await ensureSignedIn();
-    const { data, error } = await client
-      .from("away_round_scores")
-      .upsert(
-        {
-          event_id: eventId,
-          day: +day,
-          scorer_player_id: String(playerId),
-          score_data: scoreData,
-        },
-        { onConflict: "event_id,day,scorer_player_id" },
-      )
-      .select("revision,updated_at")
-      .single();
-    if (error) throw error;
-    return data;
+    const {data,error}=await client.rpc("golf_safe_away_save",{
+      p_kind:"score",p_event_id:eventId,p_day:+day,p_player_id:String(playerId),
+      p_data:scoreData,p_expected_revision:options.expectedRevision??null,
+      p_correction:!!options.correction,p_reason:options.reason||null,p_status:null,
+    });if(error)throw error;return data;
   }
 
   async function releasePlayer(eventId, playerId) {
@@ -394,27 +378,13 @@
   }
 
   async function archiveAllOwnedEvents() {
-    const session = await ensureSignedIn();
-    const { data, error } = await client
-      .from("away_events")
-      .update({ status: "archived" })
-      .eq("organiser_id", session.user.id)
-      .neq("status", "archived")
-      .select("id,name,join_code");
-    if (error) throw error;
-    return data || [];
+    const session=await ensureSignedIn();
+    const {data,error}=await client.from("away_events").select("id").eq("organiser_id",session.user.id).neq("status","archived");
+    if(error)throw error;const result=[];for(const row of data||[])result.push(await archiveEvent(row.id));return result;
   }
-
   async function archiveEvent(eventId) {
-    await ensureSignedIn();
-    const { data, error } = await client
-      .from("away_events")
-      .update({ status: "archived" })
-      .eq("id", String(eventId))
-      .select("id,name,join_code")
-      .single();
-    if (error) throw error;
-    return data;
+    const bundle=await loadEvent(eventId);
+    return updateEvent(eventId,bundle.event.event_data,"archived",bundle.event.revision);
   }
 
   function subscribe(eventId, onChange) {
@@ -456,6 +426,7 @@
   async function catalogueRpc(name,args={}) {await ensureSignedIn();const {data,error}=await client.rpc(name,args);if(error)throw error;return data;}
   async function loadCourseLocations(){return (await masterRequest('load')).locations;}
   window.AwayCloud = {
+    safeControl:async(action,args)=>{await ensureSignedIn();const {data,error}=await client.rpc("golf_safe_control",{p_action:action,p_args:args});if(error)throw error;return data;},
     loadCourseLocations,
     addCourseLocation:(country,region)=>masterRequest("location",{country,region}),
     courseReviews:()=>masterRequest("reviews"),

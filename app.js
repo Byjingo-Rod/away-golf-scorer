@@ -1611,12 +1611,15 @@
     delete event.leaderboardTab;
     delete event.leaderboardView;
     delete event.liveControlDay;
+    delete event.activeGroupDay;
+    delete event.leaderboardScrollLeft;
+    delete event.workspaceId;
     const players = cloudPlayerIds().map((id) => {
       const p = player(id);
       return {
         id: String(p.id),
         name: p.name,
-        ga: p.ga ?? "",
+        ga: sourceEvent?.gaHandicaps?.[String(id)] ?? p.ga ?? "",
         rosterActive: true,
         golfLink: "",
         homeClub: "",
@@ -1740,7 +1743,52 @@
     // panel once more on the next paint.
     requestAnimationFrame(restoreScrollPositions);
   }
+  function safeCloudBundle(bundle) {
+    if(!AwayCloud.reconcile || !store.cloud?.eventId || !store.event)return bundle;
+    const id=store.cloud.eventId,clone=JSON.parse(JSON.stringify(bundle));
+    if(store.cloud.role==="organiser" && !store.cloud.restorePublished) {
+      const merged=AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
+      const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;
+      const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>/^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
+      store.event={...merged.event,...ui,scoring,courseSnapshot};
+      clone.event.event_data=merged;
+    }
+    for(const row of clone.scores||[]) {
+      const local=store.event.scoring?.["day"+row.day]?.[String(row.scorer_player_id)];
+      if(local && Object.keys(local).length)row.score_data=AwayCloud.reconcile(id,"score",local,row.score_data,row.revision,+row.day,String(row.scorer_player_id));
+    }
+    return clone;
+  }
+  async function reviewSafeCloudConflicts() {
+    if(store.cloud?.role!=="organiser")return;
+    const connection=store.cloud;
+    try {
+      const rows=await AwayCloud.safeConflicts(connection.eventId);
+      if(store.cloud!==connection)return;
+      if(!rows.length)return alert("There are no conflicting saved copies to review.");
+      const row=rows[0],comparison=GolfSafeCloud.merge(row.base_data,row.local_data,row.remote_data);
+      const label=path=>path.map((key,i)=>i===0&&/^([1-9]|1[0-8])$/.test(key)?"Hole "+key:key).join(" · ");
+      const value=v=>v===undefined?"Removed":JSON.stringify(v);
+      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><div style="overflow:auto"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
+      $("#modalShade").classList.add("open");
+      $("#closeSafeReview").onclick=()=>$("#modalShade").classList.remove("open");
+      $("#saveSafeReview").onclick=async()=>{
+        const choices=comparison.conflicts.map((field,i)=>({path:field.path,choice:$(`[data-safechoice="${i}"]`).value}));
+        if(choices.some(c=>!c.choice))return $("#safeReviewStatus").textContent="Choose a value for each difference.";
+        $("#saveSafeReview").disabled=true;
+        try {
+          const result=await AwayCloud.resolveSafeConflict(row.id,choices);
+          if(store.cloud!==connection)return;
+          if(result.kind==="score")scoringDayStore(result.day)[result.player_id]=result.data;
+          else {const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;store.event={...store.event,...result.data.event,scoring,courseSnapshot};}
+          writeLocalStore();$("#modalShade").classList.remove("open");await syncCloudNow();
+          alert("Reviewed copy saved. Both original copies remain in the audit record.");
+        }catch(error){$("#safeReviewStatus").textContent=error.message||String(error);$("#saveSafeReview").disabled=false;}
+      };
+    }catch(error){alert("Saved-copy review could not open. "+(error.message||error));}
+  }
   function applyRemoteCloud(bundle) {
+    bundle=safeCloudBundle(bundle);
     const signature = JSON.stringify([store.cloud?.eventId, store.cloud?.role, bundle]);
     if (!store.cloud?.restorePublished && signature === lastCloudBundleSignature) return false;
     const payload = bundle?.event?.event_data || {};
@@ -1863,7 +1911,7 @@
         store.cloud?.role === "player" &&
         String(row.scorer_player_id) === String(store.cloud.playerId) &&
         ["scoring", "verify"].includes(store.event?.playerRoundMode);
-      if (!ownActiveRound)
+      if (!ownActiveRound || AwayCloud.reconcile)
         scoringDayStore(+row.day)[String(row.scorer_player_id)] =
           row.score_data || {};
     });
@@ -1877,7 +1925,11 @@
       bundle?.spectatorCount ?? bundle?.spectator_count ?? 0
     ) || 0;
     lastCloudBundleSignature = signature;
+    if(AwayCloud.pendingSafeSaves?.(store.cloud?.eventId)||bundle.pendingConflictCount)cloudMessage="Saved copies need organiser review";
     writeLocalStore();
+    for(const pending of AwayCloud.pendingRounds?.(store.cloud?.eventId)||[]) {
+      if(!cloudRoundTimers.has(`${pending.day}:${pending.playerId}`)&&!cloudRoundChains.has(`${pending.day}:${pending.playerId}`))queueCloudRound(pending.day,pending.playerId);
+    }
     renderHome();
     renderPlayerExperienceAfterCloudRefresh();
     if (document.querySelector("#leaderboardPage.active")) renderLeaderboard();
@@ -2222,19 +2274,13 @@
       );
       store.event.setupStage = store.event.locked ? "final" : "preview";
       if (store.event.locked) store.event.finalUpdateAt = new Date().toISOString();
-      // A delegated event may have been handed over before any players were
-      // selected. Synchronise the completed roster while the Guest Organiser
-      // still has write access; locking the event intentionally ends that
-      // delegated access.
-      await AwayCloud.syncEventPlayers(
+      const sentPlan=cloudPayload();
+      const savedPlan=await AwayCloud.updateEvent(
         store.cloud.eventId,
-        cloudPlayerRows(),
-      );
-      await AwayCloud.updateEvent(
-        store.cloud.eventId,
-        cloudPayload(),
+        sentPlan,
         store.event?.locked ? "locked" : "setup",
       );
+      if(savedPlan?.saved_data?.event)store.event=GolfSafeCloud.merge(sentPlan.event,store.event,savedPlan.saved_data.event).data;
       store.cloud.courseCards = JSON.parse(JSON.stringify(cloudPayload().courses));
       if (store.event.locked)
         store.event.finalUpdateCloudSentAt = new Date().toISOString();
@@ -3249,26 +3295,37 @@
   async function flushCloudRound(day, playerId) {
     if (!store.cloud?.eventId) return false;
     const connection = store.cloud, key = `${day}:${playerId}`,
-      eventId = connection.eventId,
-      snapshot = JSON.parse(JSON.stringify(scorerStore(day, playerId)));
+      eventId = connection.eventId;
+    let snapshot = JSON.parse(JSON.stringify(scorerStore(day, playerId)));
     clearTimeout(cloudRoundTimers.get(key));
     cloudRoundTimers.delete(key);
     const previous = cloudRoundChains.get(key) || Promise.resolve(),
       saving = previous
         .catch(() => {})
-        .then(() => store.cloud === connection
-          ? AwayCloud.saveRound(eventId, +day, String(playerId), snapshot)
-          : false);
+        .then(() => {
+          if(store.cloud!==connection)return false;
+          snapshot=JSON.parse(JSON.stringify(scorerStore(day,playerId)));
+          return AwayCloud.saveRound(eventId,+day,String(playerId),snapshot,{correction:connection.role==="organiser",reason:"Organiser score entry or Emergency Recovery"});
+        });
     cloudRoundChains.set(key, saving);
     try {
       const result = await saving;
       if (store.cloud !== connection || result === false) return false;
       if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
+      if(result?.saved_data) {
+        const latest=scorerStore(day,playerId);
+        scoringDayStore(day)[String(playerId)]=GolfSafeCloud.merge(snapshot,latest,result.saved_data).data;
+        writeLocalStore();
+      }
       setCloudMessage("Hole saved online ✓");
       return true;
-    } catch (_) {
+    } catch (error) {
       if (store.cloud !== connection) return false;
       if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
+      if(error.code==="GOLF_CONFLICT" || /GOLF_CLOSED/.test(error.message||"")) {
+        setCloudMessage(error.code==="GOLF_CONFLICT"?"Saved copies need organiser review":"Card accepted · local copy retained");
+        return false;
+      }
       setCloudMessage("Saved on phone · online sync will retry");
       cloudRoundTimers.set(
         key,
@@ -3317,12 +3374,13 @@
         finalUpdateSent = Boolean(
           store.event?.locked && store.event?.finalUpdateCloudSentAt,
         );
-      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="${finalUpdateSent ? "finalUpdateSent" : "primary"}" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${finalUpdateSent ? "Final Update Sent ✓" : store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="updateGaHandicaps" ${cloudBusy || scoringStarted ? "disabled" : ""}>${scoringStarted ? "GA Handicaps Locked — Scoring Started" : "Update GA Handicaps"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
+      host.innerHTML = `<div class="organiserModeBanner"><b>${guest ? "Guest Organiser — this event only" : "This device is in Organiser Mode"}</b><button class="soft" id="leaveOrganiserMode">${guest ? "Leave Guest Event" : "Leave Organiser Mode and Join as a Player"}</button></div><div class="cloudPanelHead"><div><small>${store.event?.locked ? "ALL SET — FINAL EVENT" : "EVENT PREVIEW"}</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="joinCodeDisplay"><span>PLAYER JOIN CODE</span><b>${esc(store.cloud.joinCode || "——")}</b></div><div class="cloudActions"><button class="${finalUpdateSent ? "finalUpdateSent" : "primary"}" id="updateCloudEvent" ${cloudBusy ? "disabled" : ""}>${finalUpdateSent ? "Final Update Sent ✓" : store.event?.locked ? "Send All Set — Final Update" : "Share Preview Changes"}</button><button class="soft" id="updateGaHandicaps" ${cloudBusy || scoringStarted ? "disabled" : ""}>${scoringStarted ? "GA Handicaps Locked — Scoring Started" : "Update GA Handicaps"}</button><button class="soft" id="retryCloud" ${cloudBusy ? "disabled" : ""}>${retryNeeded ? "Retry Sync" : "Refresh Scores"}</button>${guest ? "" : `<button class="soft" id="guestOrganiserInvite" ${cloudBusy ? "disabled" : ""}>Delegate This Event</button><button class="soft" id="organiserTabletCode" ${cloudBusy ? "disabled" : ""}>Connect Organiser Tablet</button>`}<button class="soft" id="reviewSafeCopies">Review Saved Copies</button><button class="soft" id="resetCloudPlayers" ${cloudBusy || !connections.length ? "disabled" : ""}>Release All Phones</button></div><div class="connectedPlayers"><div><b>Connected Players</b><span>${connections.length} of ${(store.cloudPlayers || []).length} joined</span></div>${connections.map((x) => `<div class="connectedPlayer"><span><i></i>${esc(x.name)}</span><button class="soft" data-releaseplayer="${esc(x.playerId)}" ${cloudBusy ? "disabled" : ""}>Release Phone</button></div>`).join("") || '<p class="hint">No players have joined yet.</p>'}</div><div class="connectedSpectators"><b>Spectators</b><span>${+(store.cloudSpectatorCount || 0)}</span></div>`;
       $("#updateCloudEvent").onclick = updateCloudEvent;
       $("#updateGaHandicaps").onclick = openPublishedGaHandicapUpdate;
       $("#retryCloud").onclick = syncCloudNow;
       if ($("#guestOrganiserInvite")) $("#guestOrganiserInvite").onclick = openGuestOrganiserAccess;
       if ($("#organiserTabletCode")) $("#organiserTabletCode").onclick = showOrganiserTabletCode;
+      $("#reviewSafeCopies").onclick = reviewSafeCloudConflicts;
       $("#resetCloudPlayers").onclick = resetCloudPlayers;
       $("#leaveOrganiserMode").onclick = leaveOrganiserMode;
       $$("[data-releaseplayer]").forEach(
@@ -10743,6 +10801,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       store.event.playerVerificationStage = "mine";
       store.event.returnToMarkedVerification = false;
       store.event.playerRoundMode = "completed";
+      const accepted=scorerStore(day,selected);
+      if(!accepted._meta?.finalisedAt) {
+        accepted._meta={...(accepted._meta||{}),finalisedAt:new Date().toISOString()};
+        writeLocalStore();queueCloudRound(day,selected);
+      }
       releaseRoundWakeLock();
       save();
       return renderCompletedScorecard(selected, day);
