@@ -6942,3 +6942,6 @@ body.playerDevice .cloudHeader {
     text-align: left;
   }
 }
+
+/* Centre and strengthen the under-par sign in Scratch results. */
+.scratchMinus { display: inline-block; font-weight: 900; font-family: Arial, sans-serif; line-height: 1; vertical-align: baseline; margin-right: 0.02em; }

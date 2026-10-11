@@ -7214,6 +7214,20 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return false;
     });
   }
+  function recoveredRoundAccepted(day, playerId) {
+    return explicitlyRecoveredPlayer(day, playerId) &&
+      roundFinalisedFor(day, playerId) && officialCardProgress(day, playerId).complete;
+  }
+  function syncRecoveredPlayerRound(day, playerId) {
+    if (!["scoring", "verify"].includes(store.event.playerRoundMode) ||
+        !recoveredRoundAccepted(day, playerId)) return false;
+    store.event.playerRoundMode = "completed";
+    store.event.playerVerificationStage = "mine";
+    store.event.returnToMarkedVerification = false;
+    releaseRoundWakeLock();
+    writeLocalStore();
+    return true;
+  }
   function officialCardProgress(day, playerId) {
     const puttsRequired = competitionIsOn("teamPutts", day),
       records = Array.from({ length: 18 }, (_, i) =>
@@ -10522,6 +10536,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       save();
       return renderPlayerExperience();
     }
+    const nextDay = eventDays().find(next => next > day && dayFieldIds(next).includes(String(selected)) && !eventDayComplete(next));
     const p = player(selected),
       c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
@@ -10559,10 +10574,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     host.innerHTML = `<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name || "Player")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div><img class="completedMascot" src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div>
  <div class="completedGreeting"><b>Well played, ${esc(playerFirstName(selected))}!</b><span>Your scorecard is complete. Final competition messages will appear when the event results are confirmed.</span></div>
  <div class="completedCardBanner"><div><small>DAILY HANDICAP</small><b>${esc(formatPlayingHandicap(hcp))}</b></div><div><small>STARTING TEE</small><b>Hole ${start}</b></div><div><small>STATUS</small><b>✓ Finalised</b></div></div>
- <p class="completedCardHelp">Read-only card. <b>Hcp +/-</b> shows the handicap adjustment used on each hole. A minus adjustment confirms that a plus-handicap player gives a stroke back on that hole.</p>
+ <p class="completedCardHelp">${recoveredRoundAccepted(day, selected) ? "Your organiser accepted this round after emergency recovery. Your scorecard is complete. " : ""}Read-only card. <b>Hcp +/-</b> shows the handicap adjustment used on each hole. A minus adjustment confirms that a plus-handicap player gives a stroke back on that hole.</p>
  <div class="completedScoreTable"><div class="completedScoreHead"><span>Hole</span><span>Par</span><span>Index</span><span>Score</span><span>Hcp +/-</span><span>Points</span><span>Putts</span></div>${rows.map((r) => `<div class="completedScoreRow ${r.adjustment < 0 ? "givesStroke" : ""}"><b>${r.h}</b><span>${r.par || "—"}</span><span>${esc(r.indexVal || "—")}</span><span>${r.gross === "" ? "—" : esc(r.gross)}</span><strong>${signed(r.adjustment)}</strong><span>${r.points == null ? "—" : r.points}</span><span>${r.putts === "" ? "—" : r.putts}</span></div>`).join("")}</div>
  <div class="completedTotals"><div><small>FRONT 9</small><b>${front.gross} strokes · ${front.points} pts · ${front.putts} putts</b></div><div><small>BACK 9</small><b>${back.gross} strokes · ${back.points} pts · ${back.putts} putts</b></div><div class="grand"><small>18-HOLE TOTAL</small><b>${all.gross} strokes · ${all.points} pts · ${all.putts} putts</b></div></div>
- <button class="startRoundBtn" id="backFromCompletedCardBottom">BACK TO PLAYER VIEW</button></div>`;
+ ${nextDay ? `<button class="startRoundBtn" id="nextFromCompletedCard">VIEW DAY ${nextDay}</button>` : ""}<button class="startRoundBtn" id="backFromCompletedCardBottom">BACK TO PLAYER VIEW</button></div>`;
     const goBack = () => {
       store.event.playerRoundMode = "preview";
       save();
@@ -10570,6 +10585,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     $("#backFromCompletedCard").onclick = goBack;
     $("#backFromCompletedCardBottom").onclick = goBack;
+    if (nextDay) $("#nextFromCompletedCard").onclick = () => {
+      store.event.playerPreviewDay = nextDay;
+      store.event.playerRoundMode = "preview";
+      store.event.playerHolePos = 0;
+      writeLocalStore();
+      renderPlayerExperience();
+    };
   }
   function scorecardVerificationRows(day, playerId) {
     const c = course(store.event["course" + day]),
@@ -10664,11 +10686,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : "mine",
       marked = markedScorecardVerification(day, selected),
       targetName = player(marked.targetId)?.name || "the player you marked";
-    if (
+    if (recoveredRoundAccepted(day, selected) || (
       ownMismatches.length === 0 &&
       marked.mismatches.length === 0 &&
       officialCardProgress(day, selected).complete
-    ) {
+    )) {
       store.event.playerVerificationStage = "mine";
       store.event.returnToMarkedVerification = false;
       store.event.playerRoundMode = "completed";
@@ -12036,7 +12058,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? "E"
         : top.scratchToPar > 0
           ? `+${top.scratchToPar}`
-          : `${top.scratchToPar}`;
+          : `−${Math.abs(top.scratchToPar)}`;
     const result =
       ["scratch", "scratchaggregate"].includes(def.type)
         ? complete
@@ -12266,7 +12288,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
               const r = summaryCompetitionResult(d),
                 p = summaryPrizeDetails(d),
                 awardable = r.awardable !== false;
-              return `<div class="summaryResult ${awardable && p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${esc(r.text)}</strong>${awardable ? `<small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small>` : ""}</span><span class="summaryActions">${awardable && p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && awardable && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
+              return `<div class="summaryResult ${awardable && p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${["scratch", "scratchaggregate"].includes(d.type) ? esc(r.text).replace(/−(?=\d)/g, '<span class="scratchMinus">−</span>') : esc(r.text)}</strong>${awardable ? `<small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small>` : ""}</span><span class="summaryActions">${awardable && p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && awardable && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
             })
             .join("")}</section>`,
       )
@@ -12401,7 +12423,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const rows = calculateLeaderboard(def),
         competitionComplete = leaderboardComplete(def, rows),
         unit = def.type === "putts" ? "putts" : def.type === "ambrose" ? "net" : "pts",
-        toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `${n}`);
+        toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `<span class="scratchMinus">−</span>${Math.abs(n)}`);
       body =
         def.type === "yellowBall" && !competitionComplete
           ? (() => {
@@ -12529,6 +12551,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!field.includes(selected)) selected = String(field[0] || "");
     store.event.playerPreviewDay = day;
     store.event.playerPreviewId = selected;
+    if (store.cloud?.role === "player") syncRecoveredPlayerRound(day, selected);
     scheduleScoringOpening(day);
     if (store.event.playerRoundMode === "scoring" && !scoringIsOpen(day)) {
       store.event.playerRoundMode = "preview";
