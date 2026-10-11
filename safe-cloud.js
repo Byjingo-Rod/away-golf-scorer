@@ -47,9 +47,40 @@
     }
     return {data:copy(local),conflicts:[{path,base:copy(base),local:copy(local),remote:copy(remote)}]};
   }
-  const key="golfSafeSaves.v1";
-  let state={};try{state=JSON.parse(localStorage.getItem(key)||"{}");}catch{}
-  const persist=()=>localStorage.setItem(key,JSON.stringify(state));
+  const key="golfSafeSaves.v1", retentionMs=30*24*60*60*1000;
+  let activeEvent="",cloudStatus="",state={},unreadable=false;
+  const storageFailures=new Map();
+  let measuredAt=0,measuredBytes=0;
+  function showHealth(){
+    if(typeof document==="undefined")return;
+    let node=document.getElementById("golfSaveHealth");
+    if(!node){node=document.createElement("div");node.id="golfSaveHealth";node.setAttribute("role","status");node.setAttribute("aria-live","polite");node.style.cssText="padding:8px 14px;background:#edf4fa;color:#17324d;font-size:14px;font-weight:600;overflow-wrap:anywhere";const header=document.querySelector("header");if(header)header.after(node);else document.body?.prepend(node);}
+    const counts=saveHealth(activeEvent),messages=[];
+    if(storageFailures.size)messages.push(...new Set(storageFailures.values()));
+    if(Date.now()-measuredAt>5000){measuredAt=Date.now();measuredBytes=0;try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);measuredBytes+=2*(k.length+(localStorage.getItem(k)||"").length);}}catch{}}
+    if(measuredBytes>=4*1024*1024)messages.push("Device storage is getting full. Export a backup before clearing any app data.");
+    if(counts.conflicts)messages.push(`${counts.conflicts} saved ${counts.conflicts===1?"copy needs":"copies need"} organiser review.`);
+    if(counts.blocked)messages.push("Accepted-card changes retained on this device for organiser review.");
+    if(counts.pending)messages.push(`${counts.pending} ${counts.pending===1?"card or plan is":"cards or plans are"} waiting to upload.`);
+    if(cloudStatus)messages.push(cloudStatus);
+    node.textContent=messages.join(" ");node.hidden=!messages.length;
+  }
+  function pruneRecords(records,active,now=Date.now()){
+    let removed=0;
+    for(const [k,s] of Object.entries(records))if(!active(k)&&Number.isFinite(s.savedAt)&&now-s.savedAt>retentionMs&&!s.pending&&!s.conflict&&!s.conflictId&&!s.blocked&&!s.virgin&&!s.reviewedFrom){delete records[k];removed++;}
+    return removed;
+  }
+  function prune(){return pruneRecords(state,k=>k.startsWith(activeEvent+":"));}
+  function storageWrite(k,value){
+    try{localStorage.setItem(k,value);storageFailures.delete(k);showHealth();}
+    catch(e){storageFailures.set(k,"Device save failed. Keep this app open and restore storage space or export a backup. Changes may be lost if you close it.");showHealth();throw e;}
+  }
+  try{state=JSON.parse(localStorage.getItem(key)||"{}");if(!object(state))throw Error("Invalid saved copies");}catch{unreadable=true;storageFailures.set(key,"Saved-copy recovery data could not be read. Keep the app open and export a backup before clearing app data.");state={};}
+  const persist=()=>{if(unreadable){showHealth();throw Error("Saved-copy recovery data is unreadable; the original has been preserved.");}prune();storageWrite(key,JSON.stringify(state));};
+  function saveHealth(id){
+    const rows=Object.entries(state).filter(([k])=>id&&k.startsWith(id+":"));
+    return {pending:rows.filter(([,s])=>s.pending&&!s.conflict&&!s.blocked).length,conflicts:rows.filter(([,s])=>s.conflict).length,blocked:rows.filter(([,s])=>s.blocked).length};
+  }
   const error=(message,code)=>Object.assign(new Error(message),{code});
   let api,raw;
   function entry(id,kind,day,player){return [id,kind,day||"",player||""].join(":");}
@@ -65,6 +96,7 @@
     throw error("Conflicting changes retained. The organiser must review the saved copies.","GOLF_CONFLICT");
   }
   async function save(id,kind,data,day,player,options={}) {
+    activeEvent=id;
     const k=entry(id,kind,day,player);
     // Save before any network operation. No acknowledged base moves on polling.
     const s=state[k] ||= {};s.pending=copy(data);persist();
@@ -82,7 +114,7 @@
         const response=kind==="event"?await raw.updateEvent(id,result.data,options.status,remote.revision):await raw.saveRound(id,day,player,result.data,{...options,expectedRevision:remote.revision});
         let acknowledged=result.data,ackRevision=response.revision;
         if(kind==="event"){const fresh=await raw.loadEvent(id);acknowledged=fresh.event.event_data;ackRevision=fresh.event.revision;}
-        s.base=copy(acknowledged);s.revision=ackRevision;delete s.virgin;delete s.pending;persist();
+        s.base=copy(acknowledged);s.revision=ackRevision;s.savedAt=Date.now();delete s.virgin;delete s.pending;persist();
         return {...response,revision:ackRevision,saved_data:copy(acknowledged)};
       }catch(e){if(e.code!=="40001"){if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}throw e;}}
     }
@@ -104,6 +136,7 @@
   function install(adapter){
     raw={...adapter};api=adapter;
     adapter.loadEvent=async id=>{
+      activeEvent=id;
       const bundle=await raw.loadEvent(id);
       for(const [k,s] of Object.entries(state))if(s.conflict?.event_id===id&&s.conflict.id){
         try{const reviewed=await raw.safeControl("status",{event_id:id,id:s.conflict.id});
@@ -123,12 +156,15 @@
     adapter.resolveSafeConflict=async(id,choices)=>{
       const response=await raw.safeControl("resolve",{id,choices});
       const k=entry(response.event_id,response.kind,response.day,response.player_id);
-      state[k]={base:copy(response.data),revision:response.revision,acknowledged:true};persist();return response;
+      state[k]={base:copy(response.data),revision:response.revision,acknowledged:true,savedAt:Date.now()};persist();return response;
     };
     adapter.pendingRounds=id=>Object.entries(state).filter(([k,s])=>k.startsWith(id+":score:")&&s.pending&&!s.conflict&&!s.blocked).map(([k])=>{const parts=k.split(":");return {day:+parts[2],playerId:parts[3]};});
+    adapter.stageRound=(id,day,player,data)=>{activeEvent=id;const s=state[entry(id,"score",day,player)]||={};s.pending=copy(data);persist();};
+    adapter.saveHealth=saveHealth;
     adapter.pendingSafeSaves=id=>Object.values(state).filter(s=>s.conflict?.event_id===id).length;
-    adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true};persist();};
+    adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={merge,equal,install};
+  window.GolfSafeCloud={merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();

@@ -754,7 +754,7 @@
   }
 
   function writeWorkspaceJournal() {
-    localStorage.setItem(
+    GolfSafeCloud.storageWrite(
       AWAY_GOLF_WORKSPACE_JOURNAL_KEY,
       JSON.stringify({
         savedAt: new Date().toISOString(),
@@ -788,8 +788,10 @@
       return false;
     }
     restoreWorkspaceFromJournalIfShrunk();
-    localStorage.setItem("awayGolf13", JSON.stringify(store));
-    writeWorkspaceJournal();
+    try {
+      GolfSafeCloud.storageWrite("awayGolf13", JSON.stringify(store));
+      writeWorkspaceJournal();
+    } catch (_) { return false; }
     return true;
   }
 
@@ -1646,6 +1648,7 @@
   }
   function setCloudMessage(message, busy = false) {
     cloudMessage = message;
+    window.GolfSafeCloud?.reportStatus(message,store.cloud?.eventId);
     cloudBusy = busy;
     renderCloudPanel();
   }
@@ -3279,6 +3282,7 @@
     )
       return;
     const connection = store.cloud, eventId = connection.eventId, key = `${day}:${playerId}`;
+    try { AwayCloud.stageRound?.(eventId,+day,String(playerId),scorerStore(day,playerId)); } catch (_) { /* The visible storage warning remains; keep scores in memory and retry online. */ }
     clearTimeout(cloudRoundTimers.get(key));
     setCloudMessage(
       navigator.onLine
