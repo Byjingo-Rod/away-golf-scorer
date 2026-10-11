@@ -12155,7 +12155,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function finalMessageForPlayer(id) {
     const first = playerFirstName(id);
     return {
-      heading: `Thanks for joining this Golf Event, ${first}, and hope you can join other events in the future.`,
+      heading: `Thanks for joining this Golf Event, ${first}. It is hoped you can join other events in the future.`,
       message: "",
       scoringCredit: "Scoring run on Away Golf Scorer",
     };
