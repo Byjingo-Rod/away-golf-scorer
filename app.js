@@ -1329,8 +1329,8 @@
       }),
       issues = [];
     pars.forEach((par, i) => {
-      if (!Number.isFinite(par) || par < 3 || par > 5)
-        issues.push(`Hole ${i + 1}: par must be 3, 4 or 5.`);
+      if (!Number.isFinite(par) || par < 3 || par > 6)
+        issues.push(`Hole ${i + 1}: par must be 3, 4, 5 or 6.`);
     });
     metres.forEach((distance, i) => {
       if (!Number.isFinite(distance) || distance <= 0)
@@ -1345,6 +1345,16 @@
     );
     if (validIndexes.length === 18 && new Set(validIndexes).size !== 18)
       issues.push("The primary handicap indexes contain a duplicate.");
+    const secondaryIndexes = [];
+    Array.from({ length: 18 }, (_, i) => {
+      const raw = String(v.index?.[i] ?? "").trim();
+      if (!raw.includes("/")) return;
+      if (!/^([1-9]|1[0-8])\/(19|2[0-9]|3[0-6])$/.test(raw))
+        issues.push(`Hole ${i + 1}: secondary handicap index must be 19–36 after the primary index.`);
+      else secondaryIndexes.push(Number(raw.split("/")[1]));
+    });
+    if (new Set(secondaryIndexes).size !== secondaryIndexes.length)
+      issues.push("The secondary handicap indexes contain a duplicate.");
     return {
       ok: issues.length === 0,
       issues,
@@ -10574,9 +10584,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
       all = totals(rows),
       signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "—");
     host.innerHTML = `<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">← Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name || "Player")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div><img class="completedMascot" src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div>
- <div class="completedGreeting"><b>Well played, ${esc(playerFirstName(selected))}!</b><span>Your scorecard is complete. Final competition messages will appear when the event results are confirmed.</span></div>
+
  <div class="completedCardBanner"><div><small>DAILY HANDICAP</small><b>${esc(formatPlayingHandicap(hcp))}</b></div><div><small>STARTING TEE</small><b>Hole ${start}</b></div><div><small>STATUS</small><b>✓ Finalised</b></div></div>
- <p class="completedCardHelp">${recoveredRoundAccepted(day, selected) ? "Your organiser accepted this round after emergency recovery. Your scorecard is complete. " : ""}Read-only card. <b>Hcp +/-</b> shows the handicap adjustment used on each hole. A minus adjustment confirms that a plus-handicap player gives a stroke back on that hole.</p>
+ ${recoveredRoundAccepted(day, selected) ? '<p class="completedCardHelp">Your organiser accepted this round after emergency recovery. Your scorecard is complete.</p>' : ""}<details class="completedCardHelp"><summary>About this scorecard</summary><p>Read-only card. <b>Hcp +/-</b> shows the handicap adjustment on each hole. A minus means a plus-handicap golfer gives a stroke back.</p></details>
  <div class="completedScoreTable"><div class="completedScoreHead"><span>Hole</span><span>Par</span><span>Index</span><span>Score</span><span>Hcp +/-</span><span>Points</span><span>Putts</span></div>${rows.map((r) => `<div class="completedScoreRow ${r.adjustment < 0 ? "givesStroke" : ""}"><b>${r.h}</b><span>${r.par || "—"}</span><span>${esc(r.indexVal || "—")}</span><span>${r.gross === "" ? "—" : esc(r.gross)}</span><strong>${signed(r.adjustment)}</strong><span>${r.points == null ? "—" : r.points}</span><span>${r.putts === "" ? "—" : r.putts}</span></div>`).join("")}</div>
  <div class="completedTotals"><div><small>FRONT 9</small><b>${front.gross} strokes · ${front.points} pts · ${front.putts} putts</b></div><div><small>BACK 9</small><b>${back.gross} strokes · ${back.points} pts · ${back.putts} putts</b></div><div class="grand"><small>18-HOLE TOTAL</small><b>${all.gross} strokes · ${all.points} pts · ${all.putts} putts</b></div></div>
  ${nextDay ? `<button class="startRoundBtn" id="nextFromCompletedCard">VIEW DAY ${nextDay}</button>` : ""}<button class="startRoundBtn" id="backFromCompletedCardBottom">BACK TO PLAYER VIEW</button></div>`;
