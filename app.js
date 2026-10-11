@@ -1626,7 +1626,7 @@
     const courseIds = eventDays(event).map(day => event["course" + day])
       .filter(Boolean)
       .map(String);
-    const courses = store.courses
+    const courses = (sourceEvent?.locked && sourceEvent.courseSnapshot ? sourceEvent.courseSnapshot : store.courses)
       .filter((c) => courseIds.includes(String(c.id)))
       .map((c) => JSON.parse(JSON.stringify(c)));
     return { event, players, courses };
@@ -3767,6 +3767,11 @@ Count-back if tied
   let masterCourseLibrary = null;
   function getMasterCourseLibrary() {
     if (!window.AwayCourseLibrary || !window.AwayCloud) return null;
+    if (!masterCourseLibrary && store.event?.locked && !store.event.courseSnapshot) {
+      const ids=eventDays().map(day=>String(store.event['course'+day]));
+      store.event.courseSnapshot=JSON.parse(JSON.stringify(store.cloud?.courseCards||store.courses.filter(c=>ids.includes(String(c.id)))));
+      if(writeLocalStore()===false){alert('Could not protect the existing event card. Export a backup before syncing courses.');return null;}
+    }
     if (!masterCourseLibrary) masterCourseLibrary = new AwayCourseLibrary.Library({
       store: () => store, api: AwayCloud, persist: writeLocalStore,
       changed: () => { renderMasterCoursePanel(); if (!$("#modalShade").classList.contains("open")) renderCoursesAdmin(); },
@@ -10298,6 +10303,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         )
       ) {
         ensureEventTeePlanning(store.event);
+        store.event.courseSnapshot = cloudPayload(store.event).courses;
         store.event.locked = true;
         store.event.status = "locked";
         store.event.setupStage = "final";

@@ -274,38 +274,29 @@
     return data?.workspace_data || null;
   }
 
+  const MASTER_URL = "https://rlkyibpyezzoadowcdre.supabase.co/functions/v1/master-courses";
+  const awayCourseId = id => id.startsWith("away-") ? id.slice(5) : "ges-"+id;
+  function masterRow(row) {
+    if (!row) return null;
+    const id=awayCourseId(row.id);
+    return {...row,id,data:{...row.details,id},revision:row.revision};
+  }
+  async function masterRequest(action,args={}) {
+    const session=await ensureSignedIn();
+    const response=await fetch(MASTER_URL,{method:"POST",headers:{Authorization:"Bearer "+session.access_token,"Content-Type":"application/json"},body:JSON.stringify({action,args}),signal:AbortSignal.timeout(30000)});
+    const result=await response.json();
+    if(!response.ok || result.error)throw Object.assign(new Error(result.error||"Master course request did not complete"),{code:result.code});
+    return result.data;
+  }
   async function loadCourseLibrary() {
-    await ensureSignedIn();
-    const access = await client.rpc("away_course_library_access");
-    if (access.error) throw access.error;
-    if (!access.data) throw Object.assign(new Error("Owner or approved organiser-tablet access required"), {code:"42501"});
-    const courses=[];
-    for(let offset=0;;offset+=500) {
-      const result=await client.from("away_master_courses").select("id,data,revision,updated_at").order("id").range(offset,offset+499);
-      if(result.error)throw result.error;
-      courses.push(...result.data);if(result.data.length<500)break;
-    }
-    const countries=await client.from("away_master_course_countries").select("name").order("name");
-    if(countries.error)throw countries.error;
-    return {courses,countries:countries.data.map(row=>row.name)};
+    const result=await masterRequest("load");
+    return {courses:result.courses.map(masterRow),countries:[...new Set(result.locations.map(r=>r.country))],authority:result.authority,proposals:(result.proposals||[]).map(p=>({...p,course_id:awayCourseId(p.course_id)}))};
   }
-  async function loadMasterCourse(id) {
-    await ensureSignedIn();
-    const {data,error}=await client.from("away_master_courses").select("id,data,revision,updated_at").eq("id",id).maybeSingle();
-    if(error)throw error;return data;
-  }
-  async function saveMasterCourse(id,payload,revision) {
-    await ensureSignedIn();
-    const {data,error}=await client.rpc("save_away_master_course",{p_id:id,p_data:payload,p_revision:revision});
-    if(error)throw error;return data;
-  }
-  async function saveMasterCountry(name) {
-    await ensureSignedIn();const {error}=await client.rpc("add_away_master_course_country",{p_name:name});if(error)throw error;
-  }
+  async function loadMasterCourse(id) {return masterRow(await masterRequest("get",{id}));}
+  async function saveMasterCourse(id,payload,revision) {return masterRow(await masterRequest("save",{id,data:payload,revision}));}
+  async function saveMasterCountry(name) {await masterRequest("location",{country:name,region:""});}
   async function masterCourseHistory(id) {
-    await ensureSignedIn();
-    const {data,error}=await client.from("away_master_course_history").select("revision,data,saved_at").eq("course_id",id).order("revision",{ascending:false}).limit(20);
-    if(error)throw error;return data;
+    return (await masterRequest("history",{id})).map(row=>({...row,data:{...row.data,id}}));
   }
   async function loadLatestOwnedEvent() {
     await ensureSignedIn();
@@ -463,12 +454,12 @@
   }
 
   async function catalogueRpc(name,args={}) {await ensureSignedIn();const {data,error}=await client.rpc(name,args);if(error)throw error;return data;}
-  async function loadCourseLocations(){await ensureSignedIn();const {data,error}=await client.from('golf_course_locations').select('country,region').order('country');if(error)throw error;return data;}
+  async function loadCourseLocations(){return (await masterRequest('load')).locations;}
   window.AwayCloud = {
     loadCourseLocations,
-    addCourseLocation:(country,region)=>catalogueRpc('golf_add_location',{p_country:country,p_region:region}),
-    courseReviews:()=>catalogueRpc('golf_catalogue_reviews'),
-    resolveCourse:(id,accept)=>catalogueRpc('golf_resolve_course',{p_id:id,p_accept:accept}),
+    addCourseLocation:(country,region)=>masterRequest("location",{country,region}),
+    courseReviews:()=>masterRequest("reviews"),
+    resolveCourse:(id,accept,revision)=>masterRequest("resolve",{review:id,accept,revision}),
     client,
     ensureSignedIn,
     ownerAccount,

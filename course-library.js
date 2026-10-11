@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const copy = value => JSON.parse(JSON.stringify(value));
-  const normal = value => Array.isArray(value) ? value.map(normal) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(k => k !== 'activeScorecardTee').map(k => [k, normal(value[k])])) : value;
+  const normal = value => Array.isArray(value) ? value.map(normal) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(k => !['activeScorecardTee','masterAcceptedAt'].includes(k)).map(k => [k, normal(value[k])])) : value;
   const same = (a,b) => JSON.stringify(normal(a)) === JSON.stringify(normal(b));
   class Library {
     constructor({store, api, persist, changed, online = () => navigator.onLine}) {
@@ -62,6 +62,24 @@
       try {
         this.durable();
         const library=await this.api.loadCourseLibrary();this.allowed=true;
+        if(library.authority && this.state().authority!==library.authority) {
+          const state=this.state();
+          state.previousAuthorityBases=copy(state.bases);
+          for(const row of library.courses) {
+            const id=String(row.id),base=state.bases[id],local=this.store().courses.find(c=>String(c.id)===id);
+            if(base && local && !state.pending[id] && same(local,base.data))this.accept(row);
+            else delete state.bases[id];
+          }
+          state.authority=library.authority;this.durable();
+        }
+        for(const proposal of library.proposals||[]) {
+          const local=this.state().proposals?.[proposal.course_id];
+          if(local?.id===proposal.id && proposal.status!=='pending') {
+            this.state().reviewedProposals ||= [];
+            this.state().reviewedProposals.push({...copy(local),status:proposal.status,course_id:proposal.course_id});
+            delete this.state().proposals[proposal.course_id];
+          }
+        }
         this.merge(library.courses,library.countries);
         for(const [id,payload] of Object.entries(this.state().pending)) {
           if(this.state().conflicts[id])continue;
@@ -69,8 +87,14 @@
             const base=this.state().bases[id];
             this.durable();
             const row=await this.api.saveMasterCourse(id,payload,base?.revision??null);
+            if(row.pending_approval) {
+              this.state().proposals ||= {};
+              this.state().proposals[id]={id:row.proposal_id,data:copy(payload),submittedAt:new Date().toISOString()};
+              if(same(this.state().pending[id],payload)){delete this.state().pending[id];this.accept(row);}else this.rerun=true;
+              this.durable();this.notify();continue;
+            }
             this.state().bases[id]={revision:row.revision,data:copy(row.data)};
-            if(same(this.state().pending[id],payload))delete this.state().pending[id];else this.rerun=true;
+            if(same(this.state().pending[id],payload)){delete this.state().pending[id];this.accept(row);}else this.rerun=true;
             this.durable();this.notify();
           } catch(error) {
             if(error.code==='40001' || error.code==='23505') {
@@ -110,7 +134,7 @@
       const s=this.state();if(s.conflicts[id])return 'Review two copies';if(s.pending[id])return 'Cloud save pending';
       const base=s.bases[id],local=this.store().courses.find(c=>String(c.id)===String(id));
       if(base && local && !same(local,base.data))return 'Device changes — save Course Details to share';
-      return base ? 'Cloud revision '+base.revision : 'On this device';
+      return s.proposals?.[id] ? 'Correction submitted for owner approval' : base ? 'Master revision '+base.revision : 'On this device';
     }
   }
   const exported={Library,same};
