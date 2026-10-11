@@ -9778,6 +9778,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const host = $("#teamsAdmin");
     if (!host) return;
     if (!store.event) {
+      if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = "Groups and Teams";
       host.innerHTML = `<div class="card"><h3>No event plan is ready yet.</h3><p>Create and save an event plan first.</p><button class="primary" id="teamsNewEvent">Create New Event</button></div>`;
       if ($("#teamsNewEvent")) $("#teamsNewEvent").onclick = openWizard;
       return;
@@ -9892,11 +9893,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
    ${extra ? `<p><b>NTP Extra Shot:</b> ${esc(extra.name)} has been randomly selected from the three golfers in the short team. On each NTP hole that day, ${esc(extra.name)} may play two tee shots; either shot may qualify for the NTP.</p>` : ""}
  </div>`
       : "";
+    if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = `Groups and Teams Day ${day} ${cname} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}`;
     host.innerHTML = `<div class="teamsTop">
-   <div><h2>Groups &amp; Teams</h2><h3>${esc(store.event.name)}</h3><p class="hint">${esc(cname)} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}</p></div>
-   ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
+   <div><h3>${esc(store.event.name)}</h3></div>
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
+   ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
  ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
  ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button> <button type="button" class="primary" id="lockAllEventTeams" ${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?"disabled":""}>Lock All Teams All Days</button>${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?'<p><b>All days’ teams are saved and locked.</b></p>':''}<p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
  ${mixingSummaryHtml()}
@@ -12255,7 +12257,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function renderLeaderboardSummary(host, defs, viewTabs) {
     const groups = [
-      ...eventDays().map(day => ({title: store.event.days===1?"Event Results":`Day ${day} Results`, defs:defs.filter(d=>d.scope===day)})),
+      ...eventDays().map(day => ({title: `${store.event.days===1?"Event Results":`Day ${day} Results`}${course(store.event["course"+day])?.name ? ` — ${course(store.event["course"+day]).name}` : ""}`, defs:defs.filter(d=>d.scope===day)})),
       {title:"Overall Event Results",defs:defs.filter(d=>d.scope==="overall")},
     ].filter(group=>group.defs.length);
     const organiser = !store.event.pastEventReadOnly && !["player","spectator"].includes(store.cloud?.role),
@@ -12493,7 +12495,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const pastEventNotice = store.event.pastEventReadOnly
       ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
       : "";
-    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
+    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}${def.day && course(store.event["course"+def.day])?.name ? ` — ${esc(course(store.event["course"+def.day]).name)}` : ""}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");
     if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
     $$("[data-leaderview]").forEach(
