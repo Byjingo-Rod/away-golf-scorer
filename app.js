@@ -506,7 +506,8 @@
     ensureEventGaHandicaps(event);
     const updatedAt = new Date().toISOString();
     ids.forEach((id) => {
-      const p = player(id),
+      const current = player(id),
+        p = store.players.find(p=>String(p.id)===String(current?.profileId || id)),
         ga = eventGaHandicap(id, event);
       if (!p || ga === "" || ga == null || !Number.isFinite(+ga)) return;
       if(p.noOfficialHandicap)return;
@@ -1243,7 +1244,82 @@
     player = (id) =>
       String(id) === NO_PARTNER_ID
         ? NO_PARTNER
-        : store.players.find((p) => String(p.id) === String(id));
+        : eventPlayer(id);
+  function eventPlayer(id, day = null) {
+    const base=store.players.find(p=>String(p.id)===String(id));
+    return GolfPlayerSubstitution.occupant(store.event,id,base,day);
+  }
+  function eventPlayerName(id, day = null) {
+    return day == null ? GolfPlayerSubstitution.aggregateName(store.event,id,player(id)?.name || "Player") : eventPlayer(id,day)?.name || "Player";
+  }
+  function substitutionOptions(day, slot) {
+    return {
+      base:{...store.players.find(p=>String(p.id)===String(slot)),ga:eventGaHandicap(slot)}, at:new Date().toISOString(),
+      scorecardsOpened:scoringIsOpen(1) || dayHasScoreEntries(1),
+      field:dayFieldIds, complete:eventDayComplete, started:d=>dayHasScoreEntries(d) || Boolean(Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length),
+      usedProfile:id=>cloudPlayerIds().map(String).includes(id) || Object.values(store.event.playerSubstitutions || {}).flat().some(r=>[r.previous.id,r.replacement.id].map(String).includes(id)),
+      tees:d=>enabledEventTees(store.event,d),
+      calculate:(d,tee,ga,category)=>calculateDailyHandicap(ga,teeRatingForDailyHandicap(d,tee),category),
+    };
+  }
+  async function sendPlayerSubstitution() {
+    const pending=store.event?.realPlayerSubstitutionPending;
+    if (!pending) return true;
+    if (store.cloud?.role !== "organiser" || !store.cloud.eventId || !navigator.onLine) throw Error("Connect the organiser to the published event online before sending the substitution.");
+    // Release first: the former golfer must not submit under the shared event position.
+    await AwayCloud.releasePlayer(store.cloud.eventId,pending.slot);
+    if (!await updateCloudEvent()) throw Error("The final update is still waiting to be saved. Use Retry Substitute Update.");
+    await AwayCloud.syncEventPlayers(store.cloud.eventId,cloudPlayerRows());
+    const bundle=await AwayCloud.loadEvent(store.cloud.eventId);
+    const sent=bundle?.event?.event_data?.event?.playerSubstitutions?.[pending.slot]?.some(r=>r.at===pending.at);
+    if (!sent) throw Error("The substitution has not been confirmed online. Use Retry Substitute Update.");
+    delete store.event.realPlayerSubstitutionPending;
+    persistStore();
+    // The pending marker is operational only. Persist its removal as well.
+    if (!await updateCloudEvent()) {
+      store.event.realPlayerSubstitutionPending=pending;persistStore();
+      throw Error("The substitution saved but its final confirmation is still pending. Keep the substitute off the app and retry.");
+    }
+    await syncCloudNow();
+    return true;
+  }
+  async function openPlayerSubstitution(day) {
+    if (isPlayerDevice() || isSpectatorDevice() || !store.event?.locked) return;
+    if (store.event.realPlayerSubstitutionPending) {
+      try { await sendPlayerSubstitution(); renderHome(); alert("Substitution confirmed online. The substitute can now join using the existing event code. Ask all players to receive the final update."); }
+      catch(error){alert(error.message || String(error));}
+      return;
+    }
+    if (store.cloud?.role!=="organiser" || !store.cloud.eventId || !navigator.onLine) return alert("Connect to the published event online before replacing a player.");
+    if (!await syncCloudNow()) return alert("Refresh did not complete. Retry when connected before making a substitution.");
+    const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID), eligible=activePlayers().filter(p=>!substitutionOptions(day,ids[0]).usedProfile(String(p.id)));
+    $("#modalContent").innerHTML=`<h2>Replace Player — Day ${day} onward</h2><p>The substitute takes the same groups, partnerships, tees and starting positions. Earlier cards stay unchanged. Both golfers’ scores count together for aggregate competitions.</p><label>Player being replaced<select id="subSlot">${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayerName(id,day))}</option>`).join("")}</select></label><label>Substitute<select id="subProfile"><option value="">Add a new player</option>${eligible.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label><label>Name<input id="subName" autocomplete="name"></label><label>Golf ID / GolfLink Number<select id="subRegistration"><option value="insert">Insert</option><option value="none">No Official Handicap</option></select><input id="subGolfId" aria-label="Golf ID or GolfLink number"></label><label>GA Handicap<input id="subGa" type="number" min="-10" max="54" step="0.1"><small>Use a negative value for a plus handicap, for example −2.</small></label><label>Handicap category<select id="subCategory"><option value="men">Men</option><option value="women">Women</option></select></label><p id="subPreview" role="status"></p><button class="primary" id="applyRealSubstitute">Review and Send Substitution</button> <button class="soft" id="cancelRealSubstitute">Close</button>`;
+    $("#modalShade").classList.add("open");
+    $("#subProfile").onchange=()=>{const p=store.players.find(p=>String(p.id)===$("#subProfile").value);$("#subName").value=p?.name || "";$("#subName").readOnly=Boolean(p);$("#subGa").value=p?.ga ?? "";$("#subCategory").value=p?.gaCategory || "men";$("#subGolfId").value=p?.golfLink || "";$("#subRegistration").value=p?.noOfficialHandicap ? "none" : "insert";$("#subGolfId").disabled=Boolean(p?.noOfficialHandicap);};
+    $("#subRegistration").onchange=()=>{$("#subGolfId").disabled=$("#subRegistration").value==="none";};
+    $("#cancelRealSubstitute").onclick=()=>$("#modalShade").classList.remove("open");
+    $("#applyRealSubstitute").onclick=async()=>{
+      const button=$("#applyRealSubstitute");button.disabled=true;
+      try {
+        const slot=$("#subSlot").value, selected=$("#subProfile").value, existing=store.players.find(p=>String(p.id)===selected),
+          replacement={...(existing || {}),id:selected || uid(),name:$("#subName").value.trim(),ga:$("#subGa").value==="" ? "" : +$("#subGa").value,gaCategory:$("#subCategory").value,golfLink:$("#subGolfId").value.trim(),noOfficialHandicap:$("#subRegistration").value==="none",rosterActive:true};
+        if (!replacement.noOfficialHandicap && !replacement.golfLink) throw Error("Enter a Golf ID / GolfLink Number or select No Official Handicap.");
+        const next=GolfPlayerSubstitution.prepare(store.event,slot,replacement,day,substitutionOptions(day,slot)),
+          preview=eventDays(next).filter(d=>d>=day).map(d=>`Day ${d}: ${Object.entries(next.teeHandicaps['day'+d]).filter(([tee])=>enabledEventTees(next,d).includes(tee)).map(([tee,map])=>tee+" "+map[slot]).join(" · ")}`).join("\n");
+        $("#subPreview").textContent=preview;
+        if (!confirm(`Replace ${eventPlayerName(slot,day)} with ${replacement.name} from Day ${day}?\nGA ${replacement.ga}\n${preview}\n\nEarlier scores are retained and count with the substitute’s scores for aggregates. The previous phone connection will be released.`)) return;
+        // Re-read online immediately before applying, then repeat every safety check.
+        if (!await syncCloudNow()) throw Error("The online refresh failed. Nothing has been changed.");
+        const checked=GolfPlayerSubstitution.prepare(store.event,slot,replacement,day,substitutionOptions(day,slot));
+        if (!existing) store.players.push(replacement);
+        store.event=checked;persistStore();
+        await sendPlayerSubstitution();
+        $("#modalShade").classList.remove("open");renderHome();
+        alert(`${replacement.name} can now join using the existing event code. Ask every player to receive the new final update before play.`);
+      } catch(error) { alert((error.message || String(error))+(store.event?.realPlayerSubstitutionPending ? "\nThe substitution is saved locally. Use Retry Substitute Update in Round Progress before the substitute joins." : ""));renderLiveEventControl(); }
+      finally { button.disabled=false; }
+    };
+  }
   const version = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
   function courseDistanceUnit(card = {}) {
@@ -1752,7 +1828,7 @@
     if(store.cloud.role==="organiser" && !store.cloud.restorePublished) {
       const merged=AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
       const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;
-      const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>/^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
+      const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>k!=="playerSubstitutions" && /^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
       store.event={...merged.event,...ui,scoring,courseSnapshot};
       clone.event.event_data=merged;
     }
@@ -1889,7 +1965,9 @@
       };
       if (restoreOrganiser && localWorkspaceId)
         store.event.workspaceId = localWorkspaceId;
-      (payload.players || []).forEach((remote) => {
+      (payload.players || []).forEach((incoming) => {
+        const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
+        const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
@@ -2441,7 +2519,9 @@
       store.event = JSON.parse(JSON.stringify(payload.event));
       store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       store.event.workspaceId = store.event.workspaceId || uid();
-      (payload.players || []).forEach((remote) => {
+      (payload.players || []).forEach((incoming) => {
+        const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
+        const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
@@ -2518,7 +2598,9 @@
         (item) => String(item.cloud?.eventId || "") === String(eventId),
       );
       store.event.workspaceId = existingRecord?.id || store.event.workspaceId || uid();
-      (payload.players || []).forEach((remote) => {
+      (payload.players || []).forEach((incoming) => {
+        const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
+        const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
@@ -2694,7 +2776,9 @@
       store.event.status = "completed";
       store.event.joinCode = "";
       store.event.leaderboardView = "summary";
-      (payload.players || []).forEach((remote) => {
+      (payload.players || []).forEach((incoming) => {
+        const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
+        const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex((p) => String(p.id) === String(remote.id));
         if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
         else store.players.push({ ...remote });
@@ -3738,7 +3822,7 @@ Count-back if tied
       : "—";
   }
   function playerInfo(id, status = "") {
-    let p = player(id);
+    let p = store.players.find(p=>String(p.id)===String(id));
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
@@ -3748,7 +3832,7 @@ Count-back if tied
   }
   function editPlayerProfile(id, status = "", onSaved = null) {
     $("#sidePanel").classList.add("open");
-    const p = typeof id === "object" ? id : player(id);
+    const p = typeof id === "object" ? id : store.players.find(p=>String(p.id)===String(id));
     if (!p) return;
     const eventRows = profileCourseHandicaps(p),
       plan =
@@ -7117,7 +7201,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         .filter((id) => id !== NO_PARTNER_ID)
         .forEach((id) => {
           const h = playerDailyHandicap(id, day),
-            p = player(id);
+            identity = eventPlayer(id,day),
+            p = store.players.find(p=>String(p.id)===String(identity?.profileId || id));
           if (h == null || !p || !c) return;
           p.courseHandicaps = p.courseHandicaps || {};
           p.courseHandicaps[String(c.id)] = {
@@ -8580,8 +8665,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         .sort(
           (a, b) =>
             a.group - b.group ||
-            (player(a.playerId)?.name || "").localeCompare(
-              player(b.playerId)?.name || "",
+            (eventPlayer(a.playerId, day)?.name || "").localeCompare(
+              eventPlayer(b.playerId, day)?.name || "",
             ),
         ),
       joined = rows.filter((x) => x.joined).length,
@@ -8593,7 +8678,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       allFinal = Boolean(rows.length && finalised === rows.length),
       scoringOpen = scoringIsOpen(day);
     scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(player(r.playerId)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="replaceRealPlayer">${store.event.realPlayerSubstitutionPending ? "Retry Substitute Update" : "Replace Player"}</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(eventPlayer(r.playerId, day)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     if (!scoringOpen) {
       const actions = host.querySelector(".liveControlActions");
       actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
@@ -8614,6 +8699,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $("#emergencyRecovery").onclick = openEmergencyRecovery;
     $("#recordAllScores").onclick = () => openManualScores(day);
     $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
+    $("#replaceRealPlayer").onclick = () => openPlayerSubstitution(day);
     $("#liveOrganiserInstructions").onclick = openOrganiserInstructions;
     if ($("#openScoringNow"))
       $("#openScoringNow").onclick = async () => {
@@ -9789,7 +9875,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? ` (${state.base} + ${state.carried} jackpot)`
         : "";
     if (holder)
-      return `Hole ${hole}: ${complete ? "Winner" : "Current holder"} — ${player(holder.id)?.name || "Player"}${prize ? ` — ${prize}${carryText}` : ""}`;
+      return `Hole ${hole}: ${complete ? "Winner" : "Current holder"} — ${eventPlayer(holder.id, day)?.name || "Player"}${prize ? ` — ${prize}${carryText}` : ""}`;
     if (!complete)
       return `Hole ${hole}: Pending${prize ? ` — ${prize}${carryText} available` : ""}`;
     const slots = ntpEventSlots(),
@@ -9933,7 +10019,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const vp = setup.virtualPlayer ? player(setup.virtualPlayer) : null;
     const extra = setup.ntpExtraPlayer ? player(setup.ntpExtraPlayer) : null;
     const ambroseExtraAttempts = Object.entries(setup.ntpExtraPlayers || {})
-      .map(([hole, id]) => ({ hole: +hole, name: player(id)?.name || "Player" }))
+      .map(([hole, id]) => ({ hole: +hole, name: eventPlayer(id, day)?.name || "Player" }))
       .sort((a, b) => a.hole - b.hole);
     const startControl = (gi) => {
       if (method === "shotgun")
@@ -9960,7 +10046,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const pairName = (id, gi) => {
       if (String(id) === NO_PARTNER_ID)
         return `<span class="vpName">${esc(player(setupForTeam(setup,gi).virtualPlayer)?.name || "Virtual Player")} (VP)</span>`;
-      return esc(player(id)?.name || "");
+      return esc(eventPlayer(id, day)?.name || "");
     };
     const pairBlock = (g, gi) => {
       if (!competitionIsOn("fourball", day)) return "";
@@ -9975,7 +10061,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         started = ambroseTeamHasEntries(day, gi),
         options = (selectedId, excludeId = "") => team
           .filter((id) => id !== excludeId)
-          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`)
+          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "Player")}</option>`)
           .join("");
       return `<div class="ambroseTeamRoles ${store.event.ambroseScoringMode === "scorerOnly" ? "scorerOnly" : ""}"><label>Scorer<select data-ambrosescorer="${gi}" ${started ? "disabled" : ""}>${options(roles.scorerId)}</select></label>${store.event.ambroseScoringMode === "scorerOnly" ? "" : `<label>Marker<select data-ambrosemarker="${gi}" ${started ? "disabled" : ""}>${options(roles.markerId, roles.scorerId)}</select></label>`}</div>`;
     };
@@ -10005,7 +10091,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       teePanel = `<div class="eventTeePanel ${ambroseIsOn(store.event, day) ? "ambroseTeePanel" : ""} ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${esc(eventTeeMarkerColour(day))} Tee</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee advised by the golf course, then finalise it before anyone starts scoring." : `Provisional selection. ${enabledEventTees(store.event, day).length === 3 ? "All three" : "Both"} handicap sets remain stored.`}</p></div><div class="eventTeeButtons">${enabledEventTees(store.event, day).map((tee) => `<button type="button" data-eventtee="${tee}" class="${selectedTee === tee ? "active" : ""}" ${teeFinal || teeScoringStarted ? "disabled" : ""}>${esc(teeMarkerColour(tee, eventCourse))}<small>${EVENT_TEE_LABELS[tee]} · ${teeHandicapsComplete(day, tee) ? "Ready" : "Incomplete"}</small></button>`).join("")}</div>${teeChangeControl}${markerChoice}${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
       startingHole = +(startHolesFor(store.event, day)[0] || 1),
       scoringBlocker = scoreEntry
-        ? `${player(scoreEntry.scorerId)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
+        ? `${eventPlayer(scoreEntry.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
         : "",
       startingHolePanel =
         locked && method === "single"
@@ -10042,7 +10128,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
    <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected · Cancel" : "Swap"}</button></div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ambroseRoleBlock(g, gi)}
-   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn(store.event, day)?'Three-player Ambrose team':'Virtual Player: '+esc(player(a.virtualPlayer)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(player(id)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(player(a.ntpExtraPlayer)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
+   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn(store.event, day)?'Three-player Ambrose team':'Virtual Player: '+esc(eventPlayer(a.virtualPlayer, day)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(eventPlayer(id, day)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(eventPlayer(a.ntpExtraPlayer, day)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
    ${
      !locked && !teamsSaved &&
      store.event.swapPlayer &&
@@ -10068,7 +10154,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
          .map((id) => {
            const h = playerDailyHandicap(id, day),
              plus = Number(h) < 0;
-           return `<div class="dailyHcpRow"><span>${esc(player(id)?.name || "")}</span><div class="teamHcpControls"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teamsigned="${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-dailyhcp="${id}" value="${esc(handicapMagnitude(h))}" placeholder="Hcp"></div><label class="teamPlusCheck"><input type="checkbox" data-dailyplus="${id}" ${plus ? "checked" : ""}> Plus</label></div></div>`;
+           return `<div class="dailyHcpRow"><span>${esc(eventPlayer(id, day)?.name || "")}</span><div class="teamHcpControls"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teamsigned="${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-dailyhcp="${id}" value="${esc(handicapMagnitude(h))}" placeholder="Hcp"></div><label class="teamPlusCheck"><input type="checkbox" data-dailyplus="${id}" ${plus ? "checked" : ""}> Plus</label></div></div>`;
          })
          .join("")}</div></div>`
      : ""
@@ -10076,7 +10162,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  ${shortTeamRuleLines(store.event,day).length?`<div class="virtualNotice"><h4>Short Team Arrangements</h4>${shortTeamRuleLines(store.event,day).map(line=>`<p>${esc(line)}</p>`).join('')}<p>Virtual scores do not create extra individual results or extra lottery contributions. Yellow Ball rotates through the real golfers only.</p></div>`:shortNotice}
  ${
    !locked && !teamsSaved && store.event.swapPlayer
-     ? `<div class="swapAdvice"><b>Manual placement history — ${esc(player(store.event.swapPlayer)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
+     ? `<div class="swapAdvice"><b>Manual placement history — ${esc(eventPlayer(store.event.swapPlayer, day)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
          .map((g, gi) => {
            let rows = playerHistoryAgainstGroup(
                store.event.swapPlayer,
@@ -10156,7 +10242,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         const blocker = firstDayScoreEntry(day);
         if (blocker)
           return alert(
-            `The starting hole cannot be changed. ${player(blocker.scorerId)?.name || "A player"} has an entry recorded on Hole ${blocker.hole}.`,
+            `The starting hole cannot be changed. ${eventPlayer(blocker.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${blocker.hole}.`,
           );
         const nextHole = +$("#lockedStartHole").value;
         if (nextHole === startingHole) return;
@@ -10669,7 +10755,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return renderPlayerExperience();
     }
     const nextDay = eventDays().find(next => next > day && dayFieldIds(next).includes(String(selected)) && !eventDayComplete(next));
-    const p = player(selected),
+    const p = eventPlayer(selected,day),
       c = course(store.event["course" + day]),
       v = eventCourseScorecard(day),
       hcp = playerDailyHandicap(selected, day),
@@ -10817,7 +10903,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           ? "marked"
           : "mine",
       marked = markedScorecardVerification(day, selected),
-      targetName = player(marked.targetId)?.name || "the player you marked";
+      targetName = eventPlayer(marked.targetId, day)?.name || "the player you marked";
     if (recoveredRoundAccepted(day, selected) || (
       ownMismatches.length === 0 &&
       marked.mismatches.length === 0 &&
@@ -10837,7 +10923,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     const ownCard = `<div class="verifyCard"><h3>${ownMismatches.length ? `${ownMismatches.length} hole${ownMismatches.length === 1 ? "" : "s"} need attention` : puttsRequired ? "✓ Your card: all 18 scores and putts agree" : "✓ Your card: all 18 scores agree"}</h3><p>Your ${puttsRequired ? "scores and putts are" : "scores are"} compared with the official entries made by your marker.</p><div class="verifyRows">${ownRows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}"><b>Hole ${r.h}</b><span>Marker: ${r.off === "" ? "—" : r.off}${r.offPts != null ? ` (${r.offPts} pt${r.offPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.offPutts === "" ? "—" : r.offPutts}</small>` : ""}</span><span>You: ${r.self === "" ? "—" : r.self}${r.selfPts != null ? ` (${r.selfPts} pt${r.selfPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.selfPutts === "" ? "—" : r.selfPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — Marker ${r.off === "" ? "—" : r.off}, You ${r.self === "" ? "—" : r.self}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — Marker ${r.offPutts === "" ? "—" : r.offPutts}, You ${r.selfPutts === "" ? "—" : r.selfPutts}</em>` : ""}</div>`).join("")}</div></div>`;
     const markedCard = `<div class="verifyCard markedVerifyCard"><h3>${marked.mismatches.length ? `Card marked for ${esc(targetName)} — ${marked.mismatches.length} hole${marked.mismatches.length === 1 ? "" : "s"} need attention` : `✓ Card marked for ${esc(targetName)}: all 18 agree`}</h3><p>Your marker entries are compared with ${esc(playerFirstName(marked.targetId))}’s checking entries.</p><div class="verifyRows">${marked.rows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}" ${r.match ? "" : `data-fixmarked="${r.h}" role="button" tabindex="0"`}><b>Hole ${r.h}</b><span>You: ${r.marked === "" ? "—" : r.marked}${puttsRequired ? `<small>Putts: ${r.markedPutts === "" ? "—" : r.markedPutts}</small>` : ""}</span><span>${esc(playerFirstName(marked.targetId))}: ${r.checked === "" ? "—" : r.checked}${puttsRequired ? `<small>Putts: ${r.checkedPutts === "" ? "—" : r.checkedPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — You ${r.marked === "" ? "—" : r.marked}, ${esc(playerFirstName(marked.targetId))} ${r.checked === "" ? "—" : r.checked}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — You ${r.markedPutts === "" ? "—" : r.markedPutts}, ${esc(playerFirstName(marked.targetId))} ${r.checkedPutts === "" ? "—" : r.checkedPutts}</em>` : ""}</div>`).join("")}</div></div>`;
-    host.innerHTML = `<div class="roundTop"><button class="soft" id="backToRound">← Back to Round</button><div><h2>Round Verification</h2><p>${esc(player(selected)?.name || "")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div></div>${stage === "mine" ? ownCard : markedCard}
+    host.innerHTML = `<div class="roundTop"><button class="soft" id="backToRound">← Back to Round</button><div><h2>Round Verification</h2><p>${esc(eventPlayer(selected, day)?.name || "")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div></div>${stage === "mine" ? ownCard : markedCard}
  ${stage === "mine" && ownMismatches.length ? `<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official entry. All 18 holes must agree before continuing.</div>` : stage === "mine" ? `<button class="startRoundBtn" id="continueToMarkedCard">CONTINUE — CHECK CARD I MARKED</button>` : `<div class="verificationAdvice"><b>Tap a red hole</b> to check the score you entered. If your entry is correct, wait for ${esc(playerFirstName(marked.targetId))} to correct their checking score, then press Refresh.</div><button class="soft verifyRefresh" id="refreshMarkedCard">Refresh</button>`}`;
     $("#backToRound").onclick = () => {
       store.event.playerVerificationStage = "mine";
@@ -10929,7 +11015,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       0,
     );
     const roleLabel = !editable
-      ? `Viewing ${esc(player(roles.scorerId)?.name || "the scorer")}'s team card`
+      ? `Viewing ${esc(eventPlayer(roles.scorerId, day)?.name || "the scorer")}'s team card`
       : isPrimary
         ? "TEAM SCORER"
         : "TEAM MARKER — CHECKING CARD";
@@ -10938,11 +11024,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       <div class="holeTracker" aria-label="Ambrose hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${sequence.map((h, i) => { const state = statusFor(h); return `<button type="button" class="holeTrack ${state}" data-ambrosehole="${i}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : state === "mismatch" ? "<small>!</small>" : ""}</button>`; }).join("")}</div></div>
       ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
       <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres}</b></div></div>
-      <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(player(selected)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span title="Final net appears after all 18 holes"><em>Final Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
+      <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(eventPlayer(selected, day)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span title="Final net appears after all 18 holes"><em>Final Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
         <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" class="stepValue" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
-        <div class="ambroseDrive"><div class="ambroseDriveHeading"><b>Drive taken?</b><small>Tap correct player to correct an error.</small></div><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(player(id)?.name || "Player")}</span><small><b>+</b><strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong></small></button>`).join("")}</div></div>
+        <div class="ambroseDrive"><div class="ambroseDriveHeading"><b>Drive taken?</b><small>Tap correct player to correct an error.</small></div><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(eventPlayer(id, day)?.name || "Player")}</span><small><b>+</b><strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong></small></button>`).join("")}</div></div>
       </div>
-      ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin — Hole ${hole}</b>${extraNtpPlayerId ? `<strong class="ambroseExtraShot">TWO SHOTS: ${esc(player(extraNtpPlayerId)?.name || "One player")}</strong>` : ""}<span>${holder ? `Current holder: ${esc(player(holder.id)?.name || "Player")}` : "No name recorded yet"}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(player(id)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
+      ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin — Hole ${hole}</b>${extraNtpPlayerId ? `<strong class="ambroseExtraShot">TWO SHOTS: ${esc(eventPlayer(extraNtpPlayerId, day)?.name || "One player")}</strong>` : ""}<span>${holder ? `Current holder: ${esc(eventPlayer(holder.id, day)?.name || "Player")}` : "No name recorded yet"}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(eventPlayer(id, day)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
       <div class="holeNav"><button class="soft" id="prevHole" ${position === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${position === 17 ? "FINISH TEAM CARD" : "Next Hole →"}</button></div>
     </div>`;
     const update = (nextGross = gross, nextDrive = driveId) => {
@@ -10995,7 +11081,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!editable) return alert("Only the team scorer or checking marker can complete the Ambrose team card.");
       if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
       const short = Object.entries(counts).filter(([, count]) => count < minimum);
-      if (short.length && !confirm(`REQUIRED DRIVES NOT RECORDED\n\n${short.map(([id, count]) => `${player(id)?.name || "Player"}: ${count} of ${minimum} drives`).join("\n")}\n\nSubmit this card as non-compliant and exclude the team from the Ambrose result?`)) return;
+      if (short.length && !confirm(`REQUIRED DRIVES NOT RECORDED\n\n${short.map(([id, count]) => `${eventPlayer(id, day)?.name || "Player"}: ${count} of ${minimum} drives`).join("\n")}\n\nSubmit this card as non-compliant and exclude the team from the Ambrose result?`)) return;
       const at = new Date().toISOString();
       store.event.roundFinalised = store.event.roundFinalised || {};
       store.event.roundFinalised["day" + day] ||= {};
@@ -11021,7 +11107,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId),
       minimum = +store.event.ambroseMinimumDrives || 0,
       compliant = roles.team.every((id) => (counts[id] || 0) >= minimum);
-    host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Ambrose Team Card Submitted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives — ${compliant ? "minimum satisfied ✓" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(player(id)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been submitted${roles.markerId ? " and the scorer and marker cards agree" : ""}. ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
+    host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Ambrose Team Card Submitted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives — ${compliant ? "minimum satisfied ✓" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(eventPlayer(id, day)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been submitted${roles.markerId ? " and the scorer and marker cards agree" : ""}. ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
     $("#backFromAmbroseComplete").onclick = () => { store.event.playerRoundMode = "preview"; save(); renderPlayerExperience(); };
   }
   function scoreEntryControls(puttingOn, section, entry, par, stepper, pickup) {
@@ -11039,7 +11125,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function renderHoleScoring(selected, day) {
     requestRoundWakeLock();
     const host = $("#playerExperience"),
-      p = player(selected),
+      p = eventPlayer(selected,day),
       ctx = playerGroupContext(selected, day);
     if (!p || !ctx) return renderPlayerExperience();
     const setup = ctx.setup,
@@ -11052,7 +11138,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       idx = hole - 1,
       rec = scoreRecord(day, selected, hole),
       targetId = markerTargetFor(selected, day),
-      target = player(targetId),
+      target = eventPlayer(targetId,day),
       hcpSelf = playerDailyHandicap(selected, day),
       hcpTarget = playerDailyHandicap(targetId, day);
     rec.official.playerId = targetId;
@@ -11062,7 +11148,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       metres = courseHoleDistance(v, idx) || "";
     const ntp = ntpHolesFor(day).includes(hole),
       holder = currentNtpHolder(day, hole),
-      holderName = holder ? player(holder.id)?.name : "",
+      holderName = holder ? eventPlayer(holder.id, day)?.name : "",
       ntpState = ntp ? ntpJackpotState(day, hole) : null,
       ntpPrize = ntp ? ntpPrizeText(day, hole) : "",
       ntpPrizeStatus = ntpPrize
@@ -11298,7 +11384,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? stablefordPoints(virtualEntry?.gross, par, indexVal, playerDailyHandicap(emergency.virtualPlayerId, day))
         : null,
       virtualGlance = showVirtualGlance
-        ? `<details class="virtualGlance"><summary>${esc(player(emergency.virtualPlayerId)?.name || "Virtual Player")} — Virtual Player for ${esc(player(emergency.missingPlayerId)?.name || "missing player")}</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>This borrowed score is now included automatically in the affected pair and team totals.</span>` : `<b>Waiting for ${esc(player(emergency.virtualPlayerId)?.name || "the virtual player")}'s verified score on Hole ${hole}</b><span>The affected pair and team totals will update when that score arrives.</span>`}</div></details>`
+        ? `<details class="virtualGlance"><summary>${esc(eventPlayer(emergency.virtualPlayerId, day)?.name || "Virtual Player")} — Virtual Player for ${esc(eventPlayer(emergency.missingPlayerId, day)?.name || "missing player")}</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "—"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` · ${virtualEntry.putts} putts`}</b><span>This borrowed score is now included automatically in the affected pair and team totals.</span>` : `<b>Waiting for ${esc(eventPlayer(emergency.virtualPlayerId, day)?.name || "the virtual player")}'s verified score on Hole ${hole}</b><span>The affected pair and team totals will update when that score arrives.</span>`}</div></details>`
         : "";
     const startingHoleNotice = store.event.playerStartingHoleNotice,
       showStartingHoleNotice =
@@ -11404,7 +11490,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         } else {
           if (
             !confirm(
-              `Confirm that ${player(yellowBallPlayerId)?.name || "the nominated player"} lost the Yellow Ball on Hole ${hole}? Yellow Ball scoring for this team will stop before this hole.`,
+              `Confirm that ${eventPlayer(yellowBallPlayerId, day)?.name || "the nominated player"} lost the Yellow Ball on Hole ${hole}? Yellow Ball scoring for this team will stop before this hole.`,
             )
           )
             return;
@@ -11489,7 +11575,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         : +g;
     });
   }
-  function leaderboardUnits(day, type) {
+  function leaderboardUnits(day, type, aggregate = false) {
     const setup = store.event.groupSetup?.["day" + day],
       out = [];
     if (!setup) return out;
@@ -11497,8 +11583,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const group = raw.map(String),
         replacementName = (id, originalId) =>
           originalId === NO_PARTNER_ID
-            ? `${player(id)?.name || "Virtual Player"} (VP for ${player(setup.missingPlayerId)?.name || "missing player"})`
-            : player(id)?.name || "Player",
+            ? `${eventPlayer(id, day)?.name || "Virtual Player"} (VP for ${eventPlayer(setup.missingPlayerId, day)?.name || "missing player"})`
+            : eventPlayerName(id, aggregate ? null : day),
         filled = ambroseIsOn(store.event, day)
           ? group.filter((id) => id !== NO_PARTNER_ID)
           : group
@@ -11734,8 +11820,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       rows = field(def.day).map((id) => {
         const manual = manualPlayerSummary(def.day, id, "single");
         return (
-          manualLeaderRow(id, player(id)?.name || "Player", "", manual) ||
-          leaderRow(id, player(id)?.name || "Player", "", points(def.day, id))
+          manualLeaderRow(id, eventPlayerName(id, def.day || null), "", manual) ||
+          leaderRow(id, eventPlayerName(id, def.day || null), "", points(def.day, id))
         );
       });
     if (def.type === "combined") {
@@ -11750,7 +11836,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         const ranked = [...rounds].sort((a,b) => Number(b.complete)-Number(a.complete) || b.total-a.total || b.day-a.day),
           counted = ranked.filter(round => round.complete || round.thru > 0).slice(0,count), completed = rounds.filter(round => round.complete).length,
           last = [...counted].sort((a,b) => b.day-a.day)[0],
-          row = leaderRow(id, player(id)?.name || "Player", `Best ${count} of ${selectedDays.length} · ${completed} complete · Counting days ${counted.map(r=>r.day).sort((a,b)=>a-b).join(", ") || "—"}`, [], count*18);
+          row = leaderRow(id, eventPlayerName(id, def.day || null), `Best ${count} of ${selectedDays.length} · ${completed} complete · Counting days ${counted.map(r=>r.day).sort((a,b)=>a-b).join(", ") || "—"}`, [], count*18);
         row.total = counted.reduce((total,round) => total+round.total,0);
         row.thru = counted.reduce((total,round) => total+round.thru,0);
         row.cbHoles = last?.holes || [];
@@ -11784,7 +11870,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         row.handicap = handicap;
         row.disqualified = row.thru === 18 && shortDrives.length > 0;
         row.disqualificationReason = shortDrives
-          .map((id) => `${player(id)?.name || "Player"} ${driveCounts[id] || 0}/${minimum}`)
+          .map((id) => `${eventPlayerName(id, def.day || null)} ${driveCounts[id] || 0}/${minimum}`)
           .join(" · ");
         row.total =
           row.thru === 18 && handicap != null
@@ -11817,7 +11903,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           completed = available.filter(round => round.complete).length,
           ranked = best ? [...available].sort((a,b) => Number(b.complete) - Number(a.complete) || a.total - b.total || b.day - a.day) : available,
           counted = ranked.filter(round => round.thru > 0).slice(0, count).sort((a,b) => a.day - b.day),
-          row = leaderRow(id, player(id)?.name || "Player", best
+          row = leaderRow(id, eventPlayerName(id, def.day || null), best
             ? `Best ${count} of ${days.length} · ${completed} complete · Counting days ${counted.map(round => round.day).join(", ") || "—"}`
             : "All days · every round required", counted.flatMap(round => round.holes), count * 18);
         row.grossTotal = leaderSum(counted.map(round => round.gross));
@@ -11850,7 +11936,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         })
         .map((id) => {
           const scores = scratchGrossScores(def.day, id, v),
-            r = leaderRow(id, player(id)?.name || "Player", "", scores),
+            r = leaderRow(id, eventPlayerName(id, def.day || null), "", scores),
             pickup =
               store.event?.scratchScoringMode === "maxDoubleBogey"
                 ? null
@@ -11957,7 +12043,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           row = leaderRow(
             u.id,
             `Team ${groupIndex + 1}`,
-            team.map((id) => player(id)?.name || "Player").join(", "),
+            team.map((id) => eventPlayerName(id, def.day)).join(", "),
             holes,
           );
         const manual = submittedManualCard(def.day, groupIndex)?.team?.yellowBall;
@@ -12028,7 +12114,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           (i) => +v.par?.[i] === 3,
         );
       };
-      const units = def.type === "par3aggregate" ? leaderboardUnits(store.event.days, "pair") : [...new Set(eventDays().flatMap(field))].map(id => ({id, name:player(id)?.name || "Player", ids:[id]}));
+      const units = def.type === "par3aggregate" ? leaderboardUnits(store.event.days, "pair", true) : [...new Set(eventDays().flatMap(field))].map(id => ({id, name:eventPlayerName(id, def.day || null), ids:[id]}));
       rows = units.map((u) => {
         const holes = [];
         for (const d of eventDays()) {
@@ -12065,7 +12151,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             d2 = points(2, id),
             r = leaderRow(
             id,
-            player(id)?.name || "Player",
+            eventPlayerName(id, def.day || null),
             "",
             Array.from({ length: 18 }, (_, i) => {
               const vals = [d1[i], d2[i]].filter(
@@ -12549,7 +12635,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
                           hour: "numeric",
                           minute: "2-digit",
                         });
-                      return `<div class="ntpHistoryEntry ${winner ? "winner" : ""}"><span>${winner ? "<b>Winner:</b> " : ""}${esc(player(entry.id)?.name || "Player")}</span><time>${esc(time)}</time></div>`;
+                      return `<div class="ntpHistoryEntry ${winner ? "winner" : ""}"><span>${winner ? "<b>Winner:</b> " : ""}${esc(eventPlayerName(entry.id,def.day))}</span><time>${esc(time)}</time></div>`;
                     })
                     .join("")
                 : manualDayStore(def.day, false)?.ntp?.[String(h)]
@@ -12711,7 +12797,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return ambroseIsOn(store.event, day)
         ? renderAmbroseCompleted(selected, day)
         : renderCompletedScorecard(selected, day);
-    const p = player(selected),
+    const p = eventPlayer(selected,day),
       ctx = playerGroupContext(selected, day);
     if (!p || !ctx) {
       host.innerHTML = `${dayTabs("previewday",day)}<div class="card"><h2>Day ${day}</h2><p>You are not playing on this day. Select another day to view your round.</p></div>`;
@@ -12743,8 +12829,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         .slice(pairStart, pairStart + 2)
         .find((id) => id !== selected);
       if (other === NO_PARTNER_ID && setup.virtualPlayer)
-        partner = player(setup.virtualPlayer);
-      else partner = player(other);
+        partner = eventPlayer(setup.virtualPlayer,day);
+      else partner = eventPlayer(other,day);
     }
     const isAffected = (() => {
       const np = noPartnerContext(setup.groups, day, ctx.groupIndex);
@@ -12773,9 +12859,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     displayIds = displayIds.slice(0, 4);
     const groupNames = displayIds.map((id) => ({
       id,
-      name: id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown",
+      name: id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown",
     })),
-      completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : player(id)?.name || "Unknown").join(" · "))}</span></section>`).join("")}</div></details>`;
+      completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown").join(" · "))}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
       finalised = ambroseIsOn(store.event, day)
@@ -12786,13 +12872,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
         store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null && scoringOpen,
       ),
       rulesOpen = Boolean(store.event.playerRulesOpen);
-    host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(player(id)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
+    host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
  <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day)) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day)) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}
- ${isAffected || isExtra || yellowBallOn || ambroseIsOn(store.event, day) ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn(store.event, day) ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = player(roles.scorerId)?.name || "the first listed player", markerName = player(roles.markerId)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(player(openingYellowBallPlayer)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn(store.event, day) ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
+ ${isAffected || isExtra || yellowBallOn || ambroseIsOn(store.event, day) ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn(store.event, day) ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = eventPlayer(roles.scorerId, day)?.name || "the first listed player", markerName = eventPlayer(roles.markerId, day)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(eventPlayer(openingYellowBallPlayer, day)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn(store.event, day) ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
      ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(

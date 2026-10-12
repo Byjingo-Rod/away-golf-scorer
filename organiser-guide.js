@@ -9,6 +9,14 @@
       'If the option to also accept the failed-phone player’s completed official card appears, check that card before accepting it. If that official card is incomplete, it still needs to be completed from the paper card.',
       'Check that the recovery has saved online and Round Progress shows the affected players complete. A charged phone can then reconnect and move on normally. Recovery does not invent missing scores.'
     ]],
+    ['substitute','A real player substitutes for another player',[
+      'On the organiser’s Home page, choose the substitute’s first day in Round Progress and tap Replace Player. Use this for a real substitute; Missing Player assigns virtual scores.',
+      'Choose the player being replaced and select an existing substitute or enter their name and Golf ID / GolfLink Number. No Official Handicap is also accepted. Enter the substitute’s GA and handicap category.',
+      'Review the calculated Daily Handicaps for every affected course and tee. Confirm Review and Send Substitution. The substitute takes the same groups, partnerships, tees, cap team and starting positions.',
+      'Earlier cards and handicaps remain unchanged. The outgoing player’s scores and the substitute’s scores count together as one entry for aggregate competitions. Daily results identify the golfer who played. If the substitution is made before Day 1 scorecards open, the event shows only the substitute’s name. Once Day 1 has opened, aggregate results retain both names.',
+      'Wait for online confirmation. The outgoing player’s phone connection is released. The substitute joins using the existing event code under their own name. Ask all players to receive the revised final update before play.',
+      'Earlier rounds must be complete and scoring must not have started in any affected round. A position involved in a virtual-player replacement is blocked. If sending fails, keep the substitute off the app and tap Retry Substitute Update after restoring the connection.'
+    ]],
     ['missing','A player does not turn up',[
       'Do this before the absent player’s group enters its first score. Select the correct day in Round Progress and tap Missing Player.',
       'Choose the absent player. Check the affected partner, the proposed virtual player and any NTP extra attempts shown.',
