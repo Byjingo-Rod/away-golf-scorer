@@ -174,7 +174,7 @@
     return +event?.days === 1 && ["overallPlayers", "overallPairs"].includes(mode) ? "dailyPairs" : mode;
   }
   function capRoster(event = store.event) {
-    return [...new Set(eventDays(event).flatMap(day => event.dayFields?.["day" + day] || event.confirmed || []))].map(String).filter(id => id !== NO_PARTNER_ID);
+    return [...new Set(eventDays(event).flatMap(day => event.dayFields?.["day" + day] || event.confirmed || []).map(id=>sharedPositionId(id,event)))].map(String).filter(id => id !== NO_PARTNER_ID);
   }
   function balanceCapTeams(ids, event = store.event) {
     ids = [...new Set(ids.map(String))].filter(id => id !== NO_PARTNER_ID);
@@ -266,8 +266,9 @@
     return ["black", "white"].map(side => {
       const members = [...teams[side], ...(virtual?.side === side ? [virtual.id] : [])], count = Math.max(0, members.length - 1);
       const daily = eventDays(event).map(day => {
-        const field = dayFieldIds(day).map(String), playing = members.filter(id => field.includes(String(id)));
-        const rounds = members.map(id => {
+        const field = dayFieldIds(day).map(String), playing = members.filter(id => field.includes(sharedActualId(id,day)));
+        const rounds = members.map(slot => {
+          const id=sharedActualId(slot,day);
           if (!field.includes(String(id))) return 0;
           const manual = manualPlayerSummary(day,id,"single");
           if (manual && manual.total !== "" && manual.total != null && Number.isFinite(+manual.total)) return +manual.total;
@@ -330,7 +331,7 @@
     return Math.max(1, Math.min(competitionDays(id, event).length || 1, Math.trunc(+event?.stablefordCountingRounds || competitionDays(id, event).length || 1)));
   }
   function dayTabs(attribute, selected, event = store.event, extraClass = "") {
-    return eventDays(event).length > 1 ? `<div class="dayTabs multiDayTabs ${extraClass}" aria-label="Select event day">${eventDays(event).map(day => `<button type="button" data-${attribute}="${day}" class="${+selected === day ? "active" : ""}">Day ${day}</button>`).join("")}</div>` : "";
+    return eventDays(event).length > 1 ? `<div class="dayTabs multiDayTabs ${extraClass}" aria-label="Select event day">${eventDays(event).filter(day=>attribute!=="previewday" || !isPlayerDevice() || !(event.sharedPositions && Object.keys(event.sharedPositions).length) || dayFieldIds(day).includes(String(store.cloud?.playerId))).map(day => `<button type="button" data-${attribute}="${day}" class="${+selected === day ? "active" : ""}">Day ${day}</button>`).join("")}</div>` : "";
   }
   function ntpCount(day, event = store.event) {
     // The former two-day default must not add a second NTP on Day 2
@@ -1249,8 +1250,11 @@
     const base=store.players.find(p=>String(p.id)===String(id));
     return GolfPlayerSubstitution.occupant(store.event,id,base,day);
   }
+  function sharedPositionId(id, event = store.event) { return GolfSharedPositions.position(event,id); }
+  function sharedActualId(id, day, event = store.event) { return GolfSharedPositions.actual(event,id,day); }
   function eventPlayerName(id, day = null) {
-    return day == null ? GolfPlayerSubstitution.aggregateName(store.event,id,player(id)?.name || "Player") : eventPlayer(id,day)?.name || "Player";
+    if(day!=null)return eventPlayer(sharedActualId(id,day),day)?.name || "Player";
+    return GolfSharedPositions.label(store.event,id,person=>GolfPlayerSubstitution.aggregateName(store.event,person,player(person)?.name || "Player"));
   }
   function substitutionOptions(day, slot) {
     return {
@@ -1292,6 +1296,7 @@
     }
     if (store.cloud?.role!=="organiser" || !store.cloud.eventId || !navigator.onLine) return alert("Connect to the published event online before replacing a player.");
     if (!await syncCloudNow()) return alert("Refresh did not complete. Retry when connected before making a substitution.");
+    if(Object.keys(store.event.sharedPositions || {}).length)return alert("This event has planned shared positions. Contact the event owner before changing those assignments after publication.");
     const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID), eligible=activePlayers().filter(p=>!substitutionOptions(day,ids[0]).usedProfile(String(p.id)));
     $("#modalContent").innerHTML=`<h2>Replace Player — Day ${day} onward</h2><p>The substitute takes the same groups, partnerships, tees and starting positions. Earlier cards stay unchanged. Both golfers’ scores count together for aggregate competitions.</p><label>Player being replaced<select id="subSlot">${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayerName(id,day))}</option>`).join("")}</select></label><label>Substitute<select id="subProfile"><option value="">Add a new player</option>${eligible.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label><label>Name<input id="subName" autocomplete="name"></label><label>Golf ID / GolfLink Number<select id="subRegistration"><option value="insert">Insert</option><option value="none">No Official Handicap</option></select><input id="subGolfId" aria-label="Golf ID or GolfLink number"></label><label>GA Handicap<input id="subGa" type="number" min="-10" max="54" step="0.1"><small>Use a negative value for a plus handicap, for example −2.</small></label><label>Handicap category<select id="subCategory"><option value="men">Men</option><option value="women">Women</option></select></label><p id="subPreview" role="status"></p><button class="primary" id="applyRealSubstitute">Review and Send Substitution</button> <button class="soft" id="cancelRealSubstitute">Close</button>`;
     $("#modalShade").classList.add("open");
@@ -1651,6 +1656,7 @@
         if (String(id) !== NO_PARTNER_ID) ids.add(String(id));
       }),
     );
+    Object.values(store.event?.sharedPositions || {}).forEach(days=>Object.values(days).forEach(id=>ids.add(String(id))));
     return [...ids].filter((id) => player(id));
   }
   function normaliseTwoDaySingleStableford(event) {
@@ -4599,11 +4605,11 @@ Count-back if tied
     };
     if (e.invitationStatus)
       Object.entries(e.invitationStatus).forEach(([id, status]) =>
-        W.invites.set(String(id), status),
+        sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), status),
       );
     else
       (e.confirmed || []).forEach((id) =>
-        W.invites.set(String(id), "accepted"),
+        sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), "accepted"),
       );
     W.event.dayAvailability = W.event.dayAvailability || {};
     $("#wizardShade").classList.add("open");
@@ -4661,6 +4667,7 @@ Count-back if tied
     const invitationStatus = Object.fromEntries(
       [...W.invites].map(([id, status]) => [String(id), status]),
     );
+    Object.entries(W.event.sharedPositions || {}).forEach(([slot,days])=>Object.values(days).forEach(id=>invitationStatus[String(id)]=invitationStatus[slot]));
     const confirmed = [...W.invites]
       .filter(([, status]) => status === "accepted")
       .map(([id]) => String(id));
@@ -4732,7 +4739,7 @@ Count-back if tied
       const a = W.event.dayAvailability?.[id];
       if (W.event.days === 1) return true;
       return a ? a[day] !== false : true;
-    });
+    }).map(id=>sharedActualId(id,day,W.event));
   }
   function wizardPlanningPlayers(day) {
     const selected = [...W.invites.entries()]
@@ -4742,7 +4749,7 @@ Count-back if tied
       const a = W.event.dayAvailability?.[id];
       if (W.event.days === 1) return true;
       return a ? a[day] !== false : true;
-    });
+    }).map(id=>sharedActualId(id,day,W.event));
   }
   function startMethodFor(e, day) {
     const m = e?.startMethods?.["day" + day] || e?.startMethod || "single";
@@ -5192,6 +5199,50 @@ Count-back if tied
     };
     showManager();
   }
+  function openSharedPositionPlanner(refresh) {
+    if(W.event.locked || W.event.previewPublishedAt || W.event.finalUpdateCloudSentAt)return alert("Arrange shared positions before publishing the event.");
+    const selected=[...W.invites].filter(([,status])=>["accepted","awaiting"].includes(status)).map(([id])=>String(id)).filter(id=>id!==NO_PARTNER_ID);
+    if(!selected.length)return alert("Select the primary golfer for the shared position first.");
+    const profiles=store.players.filter(p=>!p.system), name=id=>profiles.find(p=>String(p.id)===String(id))?.name || "Player";
+    $("#modalContent").innerHTML=`<h2>Shared Player Position</h2><p>Choose one position and assign its golfer for each day. Each golfer has a separate scorecard and handicap. Their aggregate scores and aggregate prize are shared.</p><label>Selected position<select id="sharedPrimary">${selected.map(id=>`<option value="${esc(id)}">${esc(name(id))}</option>`).join("")}</select></label><label>Primary golfer’s GA<input id="sharedPrimaryGa" type="number" min="-10" max="54" step="0.1"></label><label>Other golfer<select id="sharedOther"><option value="">Add a new golfer for this shared position</option>${profiles.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${p.rosterActive===false ? " (saved reserve player)" : ""}</option>`).join("")}</select></label><div id="sharedNewDetails"><label>First name<input id="sharedFirst" maxlength="80"></label><label>Last name<input id="sharedLast" maxlength="80"></label><label>Golf ID / GolfLink Number<select id="sharedIdChoice"><option value="insert">Insert</option><option value="none">No Official Handicap</option></select><input id="sharedRegistration" inputmode="numeric" maxlength="80"></label></div><label>Other golfer’s GA<input id="sharedOtherGa" type="number" min="-10" max="54" step="0.1"></label><label>Other golfer’s handicap category<select id="sharedCategory"><option value="men">Men</option><option value="women">Women</option></select></label><p>Use a negative GA for a plus handicap. Review GA & Tee Hcps after assigning the days.</p><div id="sharedDays"></div><button class="primary" id="saveSharedPosition">Save Shared Position</button> <button class="soft" id="removeSharedPosition">Remove Shared Arrangement</button> <button class="soft" id="closeSharedPosition">Close</button>`;
+    $("#modalShade").classList.add("open");
+    function drawDays(){
+      const slot=$("#sharedPrimary").value, other=$("#sharedOther").value,
+        second=other ? name(other) : [$("#sharedFirst").value,$("#sharedLast").value].filter(Boolean).join(" ") || "Other golfer",
+        prior=Object.fromEntries($$("[data-shareday]").map(el=>[el.dataset.shareday,el.value]));
+      $("#sharedDays").innerHTML=eventDays(W.event).map(day=>`<label>Day ${day}<select data-shareday="${day}"><option value="primary">${esc(name(slot))}</option><option value="other">${esc(second)}</option></select></label>`).join("");
+      $$("[data-shareday]").forEach(el=>el.value=prior[el.dataset.shareday] || (+el.dataset.shareday===1 ? "primary" : "other"));
+    }
+    function loadOther(){const p=profiles.find(p=>String(p.id)===$("#sharedOther").value);$("#sharedNewDetails").hidden=Boolean(p);$("#sharedOtherGa").value=p ? W.event.gaHandicaps?.[String(p.id)] ?? (p.gaUpdatedAt ? p.ga : "") : "";$("#sharedCategory").value=p?.gaCategory || "men";drawDays();}
+    function loadPrimary(){const slot=$("#sharedPrimary").value, p=profiles.find(p=>String(p.id)===slot),existing=W.event.sharedPositions?.[slot];$("#sharedPrimaryGa").value=W.event.gaHandicaps?.[slot] ?? (p?.gaUpdatedAt ? p.ga : "");$("#sharedOther").value=existing ? Object.values(existing).find(id=>String(id)!==slot) || "" : "";loadOther();if(existing)$$("[data-shareday]").forEach(el=>el.value=String(existing['day'+el.dataset.shareday])===slot ? "primary" : "other");$("#removeSharedPosition").disabled=!existing;}
+    $("#sharedPrimary").onchange=loadPrimary;$("#sharedOther").onchange=loadOther;$("#sharedFirst").oninput=drawDays;$("#sharedLast").oninput=drawDays;$("#sharedIdChoice").onchange=()=>$("#sharedRegistration").disabled=$("#sharedIdChoice").value==="none";
+    $("#closeSharedPosition").onclick=()=>$("#modalShade").classList.remove("open");
+    $("#removeSharedPosition").onclick=()=>{const slot=$("#sharedPrimary").value;if(!confirm("Remove this shared arrangement? The primary golfer will fill this position on every selected day. The other golfer stays in the player database."))return;delete W.event.sharedPositions[slot];invalidateSharedPlanning();$("#modalShade").classList.remove("open");refresh();};
+    $("#saveSharedPosition").onclick=async()=>{
+      const button=$("#saveSharedPosition");button.disabled=true;
+      try{
+        const slot=$("#sharedPrimary").value, existing=profiles.find(p=>String(p.id)===$("#sharedOther").value),
+          primaryGa=Number($("#sharedPrimaryGa").value), otherGa=Number($("#sharedOtherGa").value),
+          newPlayer=existing || {id:crypto.randomUUID(),firstName:$("#sharedFirst").value.trim(),lastName:$("#sharedLast").value.trim(),golfLink:$("#sharedRegistration").value.trim(),noOfficialHandicap:$("#sharedIdChoice").value==="none",rosterActive:!window.GES_PLANNER_CONTEXT};
+        if($("#sharedPrimaryGa").value==="" || $("#sharedOtherGa").value==="" || ![primaryGa,otherGa].every(ga=>Number.isFinite(ga)&&ga>=-10&&ga<=54))throw Error("Enter both golfers’ GA Handicaps from plus 10 to 54.");
+        if(!existing){if(!newPlayer.firstName || !newPlayer.lastName)throw Error("Enter the other golfer’s first and last names.");if(!newPlayer.noOfficialHandicap && !/^[0-9]+$/.test(newPlayer.golfLink))throw Error("Enter a Golf ID / GolfLink Number or choose No Official Handicap.");newPlayer.name=newPlayer.firstName+" "+newPlayer.lastName;newPlayer.ga=otherGa;newPlayer.gaCategory=$("#sharedCategory").value;newPlayer.gaUpdatedAt=new Date().toISOString();}
+        const map=Object.fromEntries($$("[data-shareday]").map(el=>['day'+el.dataset.shareday,el.value==="primary" ? slot : String(newPlayer.id)]));
+        const next=GolfSharedPositions.assign(W.event,slot,map,selected.filter(id=>id!==String(newPlayer.id)));
+        if(!confirm(`Share this position between ${name(slot)} and ${newPlayer.name}?\n${eventDays(W.event).map(day=>`Day ${day}: ${map['day'+day]===slot ? name(slot) : newPlayer.name}`).join("\n")}\n\nTheir scores and aggregate prizes are shared. Groups and handicaps will need review.`))return;
+        if(!existing && AwayCloud.saveSharedPlayer)await AwayCloud.saveSharedPlayer(newPlayer);
+        if(!existing)store.players.push(newPlayer);
+        W.event=next;W.event.gaHandicaps ||= {};W.event.gaCategories ||= {};W.event.gaHandicaps[slot]=primaryGa;W.event.gaHandicaps[String(newPlayer.id)]=otherGa;W.event.gaCategories[String(newPlayer.id)]=$("#sharedCategory").value;
+        W.invites.delete(String(newPlayer.id));W.invites.set(slot,"accepted");W.event.dayAvailability ||= {};W.event.dayAvailability[slot]=Object.fromEntries(eventDays(W.event).map(day=>[day,true]));
+        invalidateSharedPlanning();$("#modalShade").classList.remove("open");refresh();
+      }catch(error){alert(error.message || String(error));}finally{button.disabled=false;}
+    };
+    loadPrimary();
+  }
+  function invalidateSharedPlanning(){
+    delete W.event.groupSetup;delete W.event.capTeams;delete W.event.teeHandicaps;delete W.event.teeHandicapSources;delete W.event.dailyHandicaps;delete W.event.teeSelectionFinalised;W.event.scorecardsChecked=false;
+    if(!W.newEvent && store.event?.workspaceId===W.event.workspaceId){store.event.groupSetup={};delete store.event.capTeams;}
+    saveWizardDraft();
+  }
   function renderStep2() {
     let q = "";
     let keepSearchFocus = $("#wpSearch") === document.activeElement;
@@ -5230,7 +5281,7 @@ Count-back if tied
       let systemMatches =
         "no partner".includes(q) || q === "" ? [NO_PARTNER] : [];
       let ps = [...normal, ...systemMatches];
-      let available = ps.filter((p) => !W.invites.has(String(p.id)));
+      let available = ps.filter((p) => !W.invites.has(String(p.id)) && sharedPositionId(p.id,W.event)===String(p.id));
       let invitedIds = [...W.invites.keys()];
       let invited = invitedIds.map((id) => player(id)).filter(Boolean);
       let confirmed = invited.filter(
@@ -5255,7 +5306,7 @@ Count-back if tied
       const status = `${complete ? "✓ Trip field selected" : `${planning.length}/${need} trip players selected`} — ${eventDays(W.event).map(day => `Day ${day}: ${wizardPlanningPlayers(day).length} playing`).join(" · ")}. Untick a day when a golfer is resting.`;
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
-  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${eventDays(W.event).filter(day => day>1).map(day => `<button class="soft" data-setcoursehcp="${day}">Review Day ${day} Calculations</button>`).join("")}<button class="primary" id="wizardAddPlayer">+ Add Player</button></div></div>
+  <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps — ${esc(course(W.event.course1)?.name || (W.event.days === 1 ? "Course" : "Day 1 Course"))}</button>${eventDays(W.event).filter(day => day>1).map(day => `<button class="soft" data-setcoursehcp="${day}">Review Day ${day} Calculations</button>`).join("")}<button class="primary" id="wizardAddPlayer">+ Add Player</button>${W.event.days>1 ? `<button class="soft" id="planSharedPosition">Share this position across days</button>` : ""}</div></div>
   <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
   <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
@@ -5274,6 +5325,7 @@ Count-back if tied
       $("#wizardAddPlayer").onclick = () => {
         addPlayer(() => { q = ""; draw(); });
       };
+      if($("#planSharedPosition"))$("#planSharedPosition").onclick=()=>openSharedPositionPlanner(draw);
       $("#manageNamedPlayerLists").onclick = () => openPlayerListManager(draw);
       $("#loadPlayerList").onclick = () => {
         const list = store.playerLists.find(
@@ -5342,7 +5394,7 @@ Count-back if tied
         invited
           .map((p) => {
             let st = W.invites.get(String(p.id));
-            return `<div class="playerRow ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(p.name)}</b><small>${p.system ? "System position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div>${p.system ? '<span class="noPartnerConfirmed">✓ Confirmed position</span>' : `<div class="rowBtns traffic"><button class="dotBtn wait ${st === "awaiting" ? "active" : ""}" title="Awaiting reply" data-wstatus="${p.id}|awaiting"></button><button class="dotBtn accept ${st === "accepted" ? "active" : ""}" title="Accepted" data-wstatus="${p.id}|accepted"></button><button class="dotBtn decline ${st === "declined" ? "active" : ""}" title="Declined" data-wstatus="${p.id}|declined"></button><button class="info" data-wpinfo="${p.id}">i</button></div>`}</div>`;
+            return `<div class="playerRow ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(GolfSharedPositions.label(W.event,p.id,id=>store.players.find(p=>String(p.id)===String(id))?.name || "Player"))}</b><small>${p.system ? "System position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div>${p.system ? '<span class="noPartnerConfirmed">✓ Confirmed position</span>' : `<div class="rowBtns traffic"><button class="dotBtn wait ${st === "awaiting" ? "active" : ""}" title="Awaiting reply" data-wstatus="${p.id}|awaiting"></button><button class="dotBtn accept ${st === "accepted" ? "active" : ""}" title="Accepted" data-wstatus="${p.id}|accepted"></button><button class="dotBtn decline ${st === "declined" ? "active" : ""}" title="Declined" data-wstatus="${p.id}|declined"></button><button class="info" data-wpinfo="${p.id}">i</button></div>`}</div>`;
           })
           .join("") ||
         '<p class="hint" style="padding:10px">No invitations yet.</p>';
@@ -5351,7 +5403,7 @@ Count-back if tied
           .map((p) => {
             const id = String(p.id),
               a = W.event.dayAvailability[id] || { 1: true, 2: true };
-            return `<div class="playerRow confirmedAvailability ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(p.name)}</b><small>${p.system ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div>${W.event.days > 1 ? `<div class="dayAvailability">${eventDays(W.event).map(day => `<label><input type="checkbox" data-wday="${id}|${day}" ${a[day] !== false ? "checked" : ""}> D${day}</label>`).join("")}</div>` : "<span>✓</span>"}</div>`;
+            return `<div class="playerRow confirmedAvailability ${p.system ? "noPartnerRow" : ""}"><div><b>${esc(GolfSharedPositions.label(W.event,p.id,id=>store.players.find(p=>String(p.id)===String(id))?.name || "Player"))}</b><small>${p.system ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div>${W.event.days > 1 ? `<div class="dayAvailability">${eventDays(W.event).map(day => `<label><input type="checkbox" data-wday="${id}|${day}" ${a[day] !== false ? "checked" : ""}> D${day}${W.event.sharedPositions?.[id] ? " · "+esc(player(sharedActualId(id,day,W.event))?.name || "Player") : ""}</label>`).join("")}</div>` : "<span>✓</span>"}</div>`;
           })
           .join("") ||
         '<p class="hint" style="padding:10px">Accepted players appear here.</p>';
@@ -5724,11 +5776,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       benefitOpen: new Set(),
     };
     Object.entries(event.invitationStatus || {}).forEach(([id, status]) =>
-      W.invites.set(String(id), status),
+      sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), status),
     );
     if (!W.invites.size)
       (event.confirmed || []).forEach((id) =>
-        W.invites.set(String(id), "accepted"),
+        sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), "accepted"),
       );
     openWizardHandicapEntry(1);
   }
@@ -5741,6 +5793,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (t.dataset.wstatus) {
       let [id, s] = t.dataset.wstatus.split("|");
+      if(s==="declined" && W.event.sharedPositions)delete W.event.sharedPositions[String(id)];
       W.invites.set(String(id), s);
       if (s === "accepted") {
         W.event.dayAvailability = W.event.dayAvailability || {};
@@ -5761,6 +5814,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         )
       ) {
         p.rosterActive = false;
+        if(W.event.sharedPositions)delete W.event.sharedPositions[String(p.id)];
         W.invites.delete(p.id);
         save();
         renderStep2();
@@ -6318,6 +6372,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     let invitationStatus = Object.fromEntries(
       [...W.invites].map(([id, status]) => [String(id), status]),
     );
+    Object.entries(W.event.sharedPositions || {}).forEach(([slot,days])=>Object.values(days).forEach(id=>invitationStatus[String(id)]=invitationStatus[slot]));
     let dayAvailability = JSON.parse(
       JSON.stringify(W.event.dayAvailability || {}),
     );
@@ -6924,25 +6979,25 @@ function estimateEventGa(handicap, rating, category, calculate) {
       (id) => store.event.dayAvailability?.[id]?.[day] !== false,
     ).filter((id) => id !== missing);
   }
-  function aggregatePar3Partner(playerId) {
+  function aggregatePar3Partner(playerId, day = store.event.days) {
     if (
       par3Mode(store.event) !== "overallPairs" ||
       !(store.event?.competitions || []).includes("par3")
     )
       return "";
     const groups = store.event?.groupSetup?.["day" + store.event.days]?.groups || [],
-      id = String(playerId || ""),
+      id = sharedActualId(playerId,store.event.days),
       group = groups.find((team) => team.map(String).includes(id));
     if (!group) return "";
     const index = group.map(String).indexOf(id),
       pairStart = index < 2 ? 0 : 2;
-    return String(
+    return sharedActualId(String(
       group
         .slice(pairStart, pairStart + 2)
         .map(String)
         .find((candidate) => candidate !== id && candidate !== NO_PARTNER_ID) ||
         "",
-    );
+    ),day);
   }
   function noPartnerContext(groups, day, groupIndex = null) {
     const all = dayFieldIds(day),
@@ -8026,7 +8081,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $("#modalShade").classList.add("open");
     let proposal = null;
     const propose = (missingId) => {
-      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner && !Object.values(setup.shortTeams||{}).some(a=>String(a.virtualPlayer)===String(id))), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
+      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId,day), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner && !Object.values(setup.shortTeams||{}).some(a=>String(a.virtualPlayer)===String(id))), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
       if (groupIndex < 0 || groupHasScoreEntries(day, groupIndex) || !affectedId || !virtualId || realInGroup.length !== 3) return null;
       const shuffled = shuffleCopy(realInGroup);
       ntpHolesInPlayingOrder(day).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i % shuffled.length]);
@@ -11580,7 +11635,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       out = [];
     if (!setup) return out;
     (setup.groups || []).forEach((raw, gi) => {
-      const group = raw.map(String),
+      const group = raw.map(id=>aggregate ? sharedPositionId(id) : String(id)),
         replacementName = (id, originalId) =>
           originalId === NO_PARTNER_ID
             ? `${eventPlayer(id, day)?.name || "Virtual Player"} (VP for ${eventPlayer(setup.missingPlayerId, day)?.name || "missing player"})`
@@ -11812,9 +11867,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const field = (day) =>
         dayFieldIds(day)
           .filter((id) => String(id) !== NO_PARTNER_ID)
-          .map(String),
-      points = (day, id) => leaderboardPlayerPoints(day, id),
-      gross = (day, id) => leaderboardPlayerGross(day, id);
+          .map(id=>def.day ? String(id) : sharedPositionId(id)),
+      points = (day, id) => leaderboardPlayerPoints(day, sharedActualId(id,day)),
+      gross = (day, id) => leaderboardPlayerGross(day, sharedActualId(id,day));
     let rows = [];
     if (def.type === "single")
       rows = field(def.day).map((id) => {
@@ -11828,7 +11883,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const selectedDays = def.days || competitionDays("combined"), count = countingRounds();
       rows = [...new Set(selectedDays.flatMap(field))].map(id => {
         const rounds = selectedDays.filter(day => field(day).includes(id)).map(day => {
-          const manual = manualPlayerSummary(day, id, "single"), holes = points(day, id);
+          const manual = manualPlayerSummary(day, sharedActualId(id,day), "single"), holes = points(day, id);
           return {day, manual, holes, total: manual ? +manual.total : leaderSum(holes),
             complete: Boolean(manual) || holes.every(value => value != null),
             thru: manual ? 18 : holes.filter(value => value != null).length};
@@ -11885,14 +11940,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
         count = best ? Math.max(1, days.length - 1) : days.length,
         finished = days.every(eventDayComplete);
       rows = [...new Set(days.flatMap(field))].filter(id => days.some(day => {
-        const hcp = playerDailyHandicap(id, day);
+        const hcp = playerDailyHandicap(sharedActualId(id,day), day);
         return field(day).includes(id) && (max == null || (hcp != null && hcp <= max));
       })).map(id => {
         const rounds = days.map(day => {
-          const card = eventCourseScorecard(day), hcp = playerDailyHandicap(id, day),
+          const card = eventCourseScorecard(day), hcp = playerDailyHandicap(sharedActualId(id,day), day),
             eligible = field(day).includes(id) && (max == null || (hcp != null && hcp <= max)),
-            pickup = store.event.scratchScoringMode === "maxDoubleBogey" ? null : scratchPickupHole(day, id),
-            holes = eligible && !pickup ? scratchGrossScores(day, id, card) : Array(18).fill(null),
+            pickup = store.event.scratchScoringMode === "maxDoubleBogey" ? null : scratchPickupHole(day, sharedActualId(id,day)),
+            holes = eligible && !pickup ? scratchGrossScores(day, sharedActualId(id,day), card) : Array(18).fill(null),
             toParHoles = holes.map((gross, i) => gross == null ? null : gross - (+card.par?.[i] || 0));
           return { day, eligible, pickup, holes, toParHoles,
             complete: holes.every(gross => gross != null),
@@ -12103,6 +12158,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (["par3aggregate", "par3individualaggregate"].includes(def.type)) {
       const effectivePlayer = (day, id) => {
+        id=sharedActualId(id,day);
         const emergency = store.event.emergencyReplacements?.["day" + day];
         return emergency && String(emergency.missingPlayerId) === String(id)
           ? String(emergency.virtualPlayerId || id)
@@ -12127,7 +12183,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
               return;
             }
             const vals = effectiveIds.map((effectiveId) => {
-              if (!field(d).includes(effectiveId)) return 0; // A scheduled rest day has no score; pending playing-day scores remain null.
+              if (!field(d).includes(sharedPositionId(effectiveId))) return 0; // A scheduled rest day has no score; pending playing-day scores remain null.
               const manual = manualPar3Point(d, effectiveId, i + 1);
               return manual == null ? points(d, effectiveId)[i] : manual;
             });
@@ -12323,8 +12379,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!leaderboardComplete(def, rows) || !rows.length) return [];
     const winners = rows.filter((row) => row.rank === 1);
     if (["single", "combined", "scratch", "scratchaggregate", "par3individualaggregate", "eclectic"].includes(def.type))
-      return winners.map((row) => String(row.id));
-    if (def.type === "capTeams") return winners.flatMap(row => store.event.capTeams?.[row.id] || []).map(String);
+      return winners.flatMap(row=>!def.day && GolfSharedPositions.members(store.event,sharedPositionId(row.id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(row.id)) : [String(row.id)]);
+    if (def.type === "capTeams") return winners.flatMap(row => (store.event.capTeams?.[row.id] || []).flatMap(id=>GolfSharedPositions.members(store.event,sharedPositionId(id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(id)) : [id])).map(String);
     if (def.type === "yellowBall")
       return [
         ...new Set(
@@ -12342,14 +12398,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? "team"
         : "pair";
     const day = def.day || (def.type === "par3aggregate" ? store.event.days : 1);
-    const units = leaderboardUnits(day, kind);
+    const units = leaderboardUnits(day, kind, !def.day);
     return [
       ...new Set(
         winners.flatMap(
           (row) => units.find((unit) => unit.id === row.id)?.ids || [],
         ),
       ),
-    ].map(String);
+    ].flatMap(id=>!def.day && GolfSharedPositions.members(store.event,sharedPositionId(id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(id)) : [String(id)]);
   }
   function buildFinalPlayerMessages(defs) {
     const outcomes = {};
@@ -12762,6 +12818,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     initialiseGroups();
     const days = store.event.days || 1;
     let day = Math.min(store.event.playerPreviewDay || 1, days);
+    if(isPlayerDevice() && Object.keys(store.event.sharedPositions || {}).length && !dayFieldIds(day).includes(String(store.cloud?.playerId))) {
+      day=eventDays().find(d=>dayFieldIds(d).includes(String(store.cloud.playerId))) || day;
+      store.event.playerRoundMode="preview";store.event.playerHolePos=0;
+    }
     if (store.cloud?.role === "player" && manualDayFinalised(day)) {
       const next = eventDays().find(next => next > day && dayFieldIds(next).includes(String(store.cloud.playerId)) && !eventDayComplete(next));
       if (next) {

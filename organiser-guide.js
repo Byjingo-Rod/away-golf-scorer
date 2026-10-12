@@ -9,6 +9,14 @@
       'If the option to also accept the failed-phone player’s completed official card appears, check that card before accepting it. If that official card is incomplete, it still needs to be completed from the paper card.',
       'Check that the recovery has saved online and Round Progress shows the affected players complete. A charged phone can then reconnect and move on normally. Recovery does not invent missing scores.'
     ]],
+    ['shared','Two golfers share one position across different days',[
+      'Before publishing, select the seven full-event golfers and the primary golfer for the eighth position. In Choose players, tap Share this position across days.',
+      'Choose the primary position, then select the other golfer or enter a new golfer’s name and Golf ID / GolfLink Number. No Official Handicap is accepted. Enter each golfer’s own GA.',
+      'Assign exactly one golfer to each event day: for example Bill on Day 1 and Garry on Day 2. Save Shared Position. The confirmed field counts one shared position and shows both names and their assigned days.',
+      'Review GA & Tee Hcps for the actual golfer on every course and tee. Review and save the groups again, then lock and publish as usual. Shared assignments cannot change after final publication.',
+      'Each golfer joins under their own name using the event code. Their phone opens only their assigned scoring days. Daily cards and daily prizes identify the golfer who played.',
+      'Aggregate Stableford, aggregate Par 3, Scratch aggregates, Eclectic and cap-team scores use the shared position. Aggregate results show Bill / Garry and an aggregate prize is shared. No additional prize is created for the second golfer.'
+    ]],
     ['substitute','A real player substitutes for another player',[
       'On the organiser’s Home page, choose the substitute’s first day in Round Progress and tap Replace Player. Use this for a real substitute; Missing Player assigns virtual scores.',
       'Choose the player being replaced and select an existing substitute or enter their name and Golf ID / GolfLink Number. No Official Handicap is also accepted. Enter the substitute’s GA and handicap category.',
