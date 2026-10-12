@@ -1287,6 +1287,47 @@
     await syncCloudNow();
     return true;
   }
+  function readSubstitutePlayer() {
+    const selected=$("#subProfile").value, existing=store.players.find(p=>String(p.id)===selected),
+      raw=$("#subGa").value, magnitude=Number(raw), plus=$("#subGaPlus").checked;
+    if(raw.trim()==="" || !Number.isFinite(magnitude) || magnitude<0 || magnitude>(plus ? 10 : 54))throw Error("Enter a GA Handicap from 0 to 54, or 0 to 10 with Plus ticked.");
+    const replacement={...(existing || {}),id:selected || uid(),name:existing ? existing.name : $("#subName").value.trim(),ga:plus ? -magnitude : magnitude,gaCategory:$("#subCategory").value,golfLink:$("#subNoOfficial").checked ? "" : $("#subGolfId").value.trim(),noOfficialHandicap:$("#subNoOfficial").checked,rosterActive:true};
+    delete replacement.handicapEstimate;
+    if(!replacement.name)throw Error("Choose a substitute from the existing Player List or enter the Name of a New Player.");
+    if(!replacement.noOfficialHandicap && !replacement.golfLink)throw Error("Insert a GolfLink / ID No or tick No Golf ID / GolfLink Number.");
+    return {replacement,existing};
+  }
+  function bindSubstituteForm(day) {
+    let estimate=null, savedNumber="";
+    function clearEstimate(){estimate=null;$("#subEstimate").value="";$("#subEstimatePlus").checked=false;$("#subEstimateStatus").textContent="Enter an estimated playing handicap to calculate GA, or enter GA directly on the left.";}
+    function noNumber(){const absent=$("#subNoOfficial").checked, input=$("#subGolfId");if(absent){savedNumber=input.value;input.value="";}else if(!input.value){input.value=savedNumber;}input.disabled=absent;input.placeholder=absent ? "No number recorded" : "Insert GolfLink / ID No";}
+    function calculateEstimate(){
+      const hadEstimate=Boolean(estimate);estimate=null;const raw=$("#subEstimate").value,status=$("#subEstimateStatus");
+      if(raw.trim()===""){ if(hadEstimate){$("#subGa").value="";$("#subGaPlus").checked=false;}status.textContent="Enter an estimated playing handicap or enter GA directly on the left.";return; }
+      try {
+        const d=+$("#subEstimateDay").value,tee=$("#subEstimateTee").value,category=$("#subCategory").value,magnitude=Number(raw),plus=$("#subEstimatePlus").checked;
+        if(!Number.isInteger(magnitude) || magnitude<0 || magnitude>(plus ? 10 : 54))throw Error("Enter a whole-number playing handicap from 0 to 54, or 0 to 10 with Plus ticked.");
+        const handicap=plus ? -magnitude : magnitude,rating=teeRatingForDailyHandicap(d,tee),ga=estimateEventGa(handicap,rating,category,calculateDailyHandicap);
+        $("#subGa").value=Math.abs(ga).toFixed(1);$("#subGaPlus").checked=ga<0;
+        estimate={day:d,courseId:store.event['course'+d],tee,handicap,ga,category};
+        status.textContent=`Estimated GA ${ga<0 ? "+" : ""}${Math.abs(ga).toFixed(1)} calculated from Day ${d} · ${rating.courseName} · ${rating.teeColour} tee · playing handicap ${handicap<0 ? "+" : ""}${Math.abs(handicap)}. This is an event estimate, not an official GA.`;
+      }catch(error){$("#subGa").value="";$("#subGaPlus").checked=false;status.textContent=error.message || String(error);}
+    }
+    function updateTees(){const d=+$("#subEstimateDay").value;$("#subEstimateTee").innerHTML=enabledEventTees(store.event,d).map(tee=>`<option value="${tee}">${EVENT_TEE_LABELS[tee]} — ${esc(teeMarkerColour(tee,course(store.event['course'+d])))}</option>`).join("");$("#subEstimateTee").value=selectedEventTee(d);if($("#subEstimate").value!=="")calculateEstimate();}
+    $("#subProfile").onchange=()=>{
+      const p=store.players.find(p=>String(p.id)===$("#subProfile").value),input=$("#subName");
+      input.value="";input.disabled=Boolean(p);input.placeholder=p ? "Clear the saved-player selection above to enter a new player" : "Enter a new player’s name";
+      const known=p?.gaUpdatedAt || p?.ga ? p.ga : "";$("#subGa").value=known==="" || known==null ? "" : Math.abs(+known);$("#subGaPlus").checked=known!=="" && +known<0;
+      $("#subCategory").value=p?.gaCategory || "men";$("#subGolfId").value=p?.golfLink || "";savedNumber=p?.golfLink || "";$("#subNoOfficial").checked=Boolean(p?.noOfficialHandicap);noNumber();clearEstimate();
+    };
+    $("#subNoOfficial").onchange=noNumber;
+    $("#subGa").oninput=clearEstimate;$("#subGaPlus").onchange=clearEstimate;
+    $("#subEstimate").oninput=calculateEstimate;$("#subEstimatePlus").onchange=calculateEstimate;
+    $("#subEstimateDay").onchange=updateTees;$("#subEstimateTee").onchange=calculateEstimate;
+    $("#subCategory").onchange=()=>{if($("#subEstimate").value!=="")calculateEstimate();};
+    $("#subEstimateDay").value=String(day);updateTees();noNumber();clearEstimate();
+    return {read:()=>{const result=readSubstitutePlayer();if(estimate)result.replacement.handicapEstimate={...estimate};return result;}};
+  }
   async function openPlayerSubstitution(day) {
     if (isPlayerDevice() || isSpectatorDevice() || !store.event?.locked) return;
     if (store.event.realPlayerSubstitutionPending) {
@@ -1298,17 +1339,14 @@
     if (!await syncCloudNow()) return alert("Refresh did not complete. Retry when connected before making a substitution.");
     if(Object.keys(store.event.sharedPositions || {}).length)return alert("This event has planned shared positions. Contact the event owner before changing those assignments after publication.");
     const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID), eligible=activePlayers().filter(p=>!substitutionOptions(day,ids[0]).usedProfile(String(p.id)));
-    $("#modalContent").innerHTML=`<h2>Replace Player — Day ${day} onward</h2><p>The substitute takes the same groups, partnerships, tees and starting positions. Earlier cards stay unchanged. Both golfers’ scores count together for aggregate competitions.</p><label>Player being replaced<select id="subSlot">${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayerName(id,day))}</option>`).join("")}</select></label><label>Substitute<select id="subProfile"><option value="">Add a new player</option>${eligible.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label><label>Name<input id="subName" autocomplete="name"></label><label>Golf ID / GolfLink Number<select id="subRegistration"><option value="insert">Insert</option><option value="none">No Official Handicap</option></select><input id="subGolfId" aria-label="Golf ID or GolfLink number"></label><label>GA Handicap<input id="subGa" type="number" min="-10" max="54" step="0.1"><small>Use a negative value for a plus handicap, for example −2.</small></label><label>Handicap category<select id="subCategory"><option value="men">Men</option><option value="women">Women</option></select></label><p id="subPreview" role="status"></p><button class="primary" id="applyRealSubstitute">Review and Send Substitution</button> <button class="soft" id="cancelRealSubstitute">Close</button>`;
+    $("#modalContent").innerHTML=`<div class="substituteForm"><h2>Replace Player — Day ${day} onward</h2><p>The substitute takes the same groups, partnerships, tees and starting positions. Earlier cards stay unchanged. Both golfers’ scores count together for aggregate competitions.</p><label class="substituteField"><strong>Player being replaced</strong><select id="subSlot">${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayerName(id,day))}</option>`).join("")}</select></label><label class="substituteField"><strong>Substitute from the existing Player List</strong><small>Open this list to choose a saved player. Leave it blank to add a new player below.</small><select id="subProfile"><option value="">Choose a saved player — or leave blank for a new player</option>${eligible.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label><label class="substituteField"><strong>Name of a New Player</strong><input id="subName" autocomplete="name" placeholder="Enter a new player’s name"></label><fieldset class="substituteSection"><legend><strong>Golf ID / GolfLink Number</strong></legend><div class="substituteColumns"><label class="substituteField"><strong>Insert GolfLink / ID No</strong><input id="subGolfId" inputmode="numeric" aria-label="Golf ID or GolfLink number"></label><label class="substituteChoice"><input type="checkbox" id="subNoOfficial"><span><strong>Or click here if the replacement player doesn’t have a GolfLink / ID No</strong><small>No Golf ID / GolfLink Number — recorded as No Official Handicap.</small></span></label></div></fieldset><label class="substituteField"><strong>Handicap category</strong><select id="subCategory"><option value="men">Men</option><option value="women">Women</option></select></label><div class="substituteColumns substituteHandicaps"><section class="substituteSection"><div class="substituteField"><label for="subGa"><strong>GA Handicap</strong></label><div class="substituteSigned"><input id="subGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" placeholder="GA"><label class="substitutePlus"><input type="checkbox" id="subGaPlus"> Plus</label></div></div><small>Enter the number normally. Tick Plus for a plus handicap.</small></section><section class="substituteSection"><div class="substituteField"><label for="subEstimate"><strong>Insert Substitute Player’s Estimated Handicap</strong></label><div class="substituteSigned"><input id="subEstimate" type="number" inputmode="numeric" min="0" max="54" step="1" placeholder="Playing handicap"><label class="substitutePlus"><input type="checkbox" id="subEstimatePlus"> Plus</label></div></div><label class="substituteField"><strong>Estimate for this course</strong><select id="subEstimateDay">${eventDays().filter(d=>d>=day).map(d=>`<option value="${d}">Day ${d} — ${esc(course(store.event['course'+d])?.name || "Course")}</option>`).join("")}</select></label><label class="substituteField"><strong>Tee used for the estimate</strong><select id="subEstimateTee"></select></label></section></div><p id="subEstimateStatus" class="substituteEstimateStatus" role="status"></p><p id="subPreview" role="status"></p><div class="substituteActions"><button class="primary" id="applyRealSubstitute">Review and Send Substitution</button><button class="soft" id="cancelRealSubstitute">Close</button></div></div>`;
     $("#modalShade").classList.add("open");
-    $("#subProfile").onchange=()=>{const p=store.players.find(p=>String(p.id)===$("#subProfile").value);$("#subName").value=p?.name || "";$("#subName").readOnly=Boolean(p);$("#subGa").value=p?.ga ?? "";$("#subCategory").value=p?.gaCategory || "men";$("#subGolfId").value=p?.golfLink || "";$("#subRegistration").value=p?.noOfficialHandicap ? "none" : "insert";$("#subGolfId").disabled=Boolean(p?.noOfficialHandicap);};
-    $("#subRegistration").onchange=()=>{$("#subGolfId").disabled=$("#subRegistration").value==="none";};
+    const form=bindSubstituteForm(day);
     $("#cancelRealSubstitute").onclick=()=>$("#modalShade").classList.remove("open");
     $("#applyRealSubstitute").onclick=async()=>{
       const button=$("#applyRealSubstitute");button.disabled=true;
       try {
-        const slot=$("#subSlot").value, selected=$("#subProfile").value, existing=store.players.find(p=>String(p.id)===selected),
-          replacement={...(existing || {}),id:selected || uid(),name:$("#subName").value.trim(),ga:$("#subGa").value==="" ? "" : +$("#subGa").value,gaCategory:$("#subCategory").value,golfLink:$("#subGolfId").value.trim(),noOfficialHandicap:$("#subRegistration").value==="none",rosterActive:true};
-        if (!replacement.noOfficialHandicap && !replacement.golfLink) throw Error("Enter a Golf ID / GolfLink Number or select No Official Handicap.");
+        const slot=$("#subSlot").value, {replacement,existing}=form.read();
         const next=GolfPlayerSubstitution.prepare(store.event,slot,replacement,day,substitutionOptions(day,slot)),
           preview=eventDays(next).filter(d=>d>=day).map(d=>`Day ${d}: ${Object.entries(next.teeHandicaps['day'+d]).filter(([tee])=>enabledEventTees(next,d).includes(tee)).map(([tee,map])=>tee+" "+map[slot]).join(" · ")}`).join("\n");
         $("#subPreview").textContent=preview;

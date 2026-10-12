@@ -42,7 +42,7 @@
     // Store the profile identity, not the event-position alias.
     previous.id = previous.profileId || previous.id; delete previous.profileId;
     result.playerSubstitutions ||= {};
-    result.playerSubstitutions[slot] = [...copy(records), {fromDay:day, retainPreviousName:day>1 || Boolean(options.scorecardsOpened), previous:identity(previous), replacement:identity(replacement), at:options.at}];
+    result.playerSubstitutions[slot] = [...copy(records), {fromDay:day, retainPreviousName:day>1 || Boolean(options.scorecardsOpened), previous:identity(previous), replacement:identity(replacement), ...(replacement.handicapEstimate ? {handicapEstimate:copy(replacement.handicapEstimate)} : {}), at:options.at}];
     result.gaHandicaps ||= {}; result.gaHandicaps[slot]=+replacement.ga;
     result.gaCategories ||= {}; result.gaCategories[slot]=replacement.gaCategory || 'men';
     result.teeHandicaps ||= {}; result.teeHandicapSources ||= {}; result.dailyHandicaps ||= {};
