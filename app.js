@@ -3631,7 +3631,7 @@
     GolfOrganiserGuide.render(panel);
     const close=document.createElement("button");close.type="button";close.className="soft guideClose";close.textContent="Close Instructions";
     close.onclick=()=>$("#modalShade").classList.remove("open");panel.prepend(close);
-    $("#modalShade").classList.add("open");panel.querySelector("#guideTopic")?.focus();
+    $("#modalShade").classList.add("open");panel.querySelector("[data-guide-phase] summary")?.focus();
   }
   function renderHome() {
     const instructions=$("#organiserInstructions");
