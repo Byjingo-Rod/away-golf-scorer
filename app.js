@@ -5596,6 +5596,46 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return true;
   }
 
+  function bindEventGaControls(gaInputs, storeGaValue) {
+    const editable = gaInputs.filter(input => !input.readOnly && !input.disabled);
+    gaInputs.forEach(input => { if (input.readOnly || input.disabled) input.tabIndex = -1; });
+    editable.forEach((input, index) => {
+      // Native Android Next follows tab order even when no Enter event is emitted.
+      input.tabIndex = index + 1;
+      input.enterKeyHint = index + 1 < editable.length ? "next" : "done";
+      input.oninput = () => storeGaValue(input);
+      input.onkeydown = event => {
+        if (event.key !== "Enter" && event.key !== "Tab") return;
+        if (event.key === "Tab" && event.shiftKey && index === 0) return;
+        event.preventDefault();
+        storeGaValue(input);
+        const next = editable[index + (event.shiftKey ? -1 : 1)];
+        if (next) { next.focus(); next.select(); }
+        else $("#calculateEventHandicaps").focus();
+      };
+    });
+    const categories = $$('[data-eventgacategory]');
+    const button = $("#changeAllGaCategories");
+    const refreshLabel = () => {
+      button.textContent = categories.length && categories.every(control => control.value === "women")
+        ? "Change All Women to Men" : "Change All Men to Women";
+    };
+    categories.forEach(control => {
+      const existing = control.onchange;
+      control.onchange = () => { existing?.call(control); refreshLabel(); };
+    });
+    button.onclick = () => {
+      const target = categories.length && categories.every(control => control.value === "women") ? "men" : "women";
+      categories.forEach(control => {
+        if (control.value === target) return;
+        control.value = target;
+        control.onchange?.();
+      });
+      refreshLabel();
+    };
+    refreshLabel();
+  }
+
   function openWizardHandicapEntry(day) {
     const ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID),
       c = course(W.event["course" + day]),
@@ -5642,7 +5682,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on every playing day. You can then edit any Daily Handicap manually.</p></div><div class="thirdTeeControls"><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label>${+day === 1 && +W.event.days > 1 ? `<label class="thirdTeeScope">Apply Front tee choice to<select id="frontTeeScope"><option value="all" ${W.event.frontTeeScope === "all" ? "selected" : ""}>All Courses</option><option value="course" ${W.event.frontTeeScope !== "all" ? "selected" : ""}>This Course Only</option></select></label>` : ""}</div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap once for this event. Calculate fills every enabled tee on every playing day. You can then edit any Daily Handicap manually.</p></div><div class="thirdTeeControls"><label class="thirdTeeToggle"><input type="checkbox" id="enableFrontTee" ${tees.length === EVENT_TEES.length ? "checked" : ""}> Add a third tee position (Front)</label>${+day === 1 && +W.event.days > 1 ? `<label class="thirdTeeScope">Apply Front tee choice to<select id="frontTeeScope"><option value="all" ${W.event.frontTeeScope === "all" ? "selected" : ""}>All Courses</option><option value="course" ${W.event.frontTeeScope !== "all" ? "selected" : ""}>This Course Only</option></select></label>` : ""}</div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate Event Handicaps</button><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Daily Handicaps — ${esc(c?.name || "Course")}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || "<p>No selected players yet.</p>"}</div></div><div class="rowBtns handicapEntryActions"><button class="primary" id="saveQuickHandicaps">Save Event Handicaps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     $("#modalShade").classList.add("open");
     const inputs = tees.flatMap((tee) => ids.map((id) => $(`[data-teequickhcp="${tee}|${id}"]`))).filter(Boolean);
     const gaInputs = $$('[data-eventga]');
@@ -5690,18 +5730,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
         } else $("#saveQuickHandicaps").focus();
       };
     });
-    gaInputs.forEach((inp, i) => {
-      inp.oninput = () => storeGaValue(inp);
-      inp.onkeydown = (e) => {
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        storeGaValue(inp);
-        if (gaInputs[i + 1]) {
-          gaInputs[i + 1].focus();
-          gaInputs[i + 1].select();
-        } else $("#calculateEventHandicaps").focus();
-      };
-    });
     $$('[data-eventgaplus], [data-eventgacategory]').forEach(
       (control) =>
         (control.onchange = () => {
@@ -5711,6 +5739,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         }),
     );
     gesBindProposedHandicaps(day);
+    bindEventGaControls(gaInputs, storeGaValue);
     $("#calculateEventHandicaps").onclick = () => {
       if(!gesCheckEstimates(allIds))return;
       gaInputs.forEach(storeGaValue);

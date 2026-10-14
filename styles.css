@@ -6975,3 +6975,7 @@ body.playerDevice .cloudHeader {
 
 /* Instructions can open over an unfinished planning step. */
 #modalShade { z-index: 60; }
+
+.eventGaActions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0; }
+.eventGaActions button { min-height: 44px; }
+@media(max-width: 550px) { .eventGaActions { flex-wrap: wrap; } }
