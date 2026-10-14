@@ -4,7 +4,7 @@
  const discretion='If neither recorded copy settles a missing score, agree it with the player and marker. The organiser may use discretion under the group’s agreed rules and save the accepted score through organiser correction.';
  const phases=[
   {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','shared','copies','help']},
-  {id:'published',title:'After Publishing but before Play',topics:['substitute','missing','join','start','hole']},
+  {id:'published',title:'After Publishing but before Play',topics:['missing','join','start','hole']},
   {id:'playing',title:'During Play',topics:['phone','offline','wrong','ntp','ambrose']},
   {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next']}
  ];
@@ -21,7 +21,7 @@
    'Review GA & Tee Hcps and save the groups again before publishing. Each golfer joins under their own name for their assigned days.',
    'Their scores combine for aggregate competitions and they share an aggregate prize. Daily prizes belong to the golfer who played.'
   ]],
-  ['copies','Saved copies need organiser review',[
+  ['copies','Conflicting saved event information — what to do',[
    'Keep the app and its data. Open Review Saved Copies; for an Event Scorer draft, use Review Draft Saved Copies.',
    'Compare the highlighted differences with the agreed plan or recorded scores. Choose each correct value and save.',
    'Refresh affected devices. Course-card comparisons are a separate owner review.'
@@ -31,25 +31,8 @@
    'Include a screenshot, device type and whether scores are waiting to upload. Keep the event available for the owner to inspect.',
    'In Away Golf, contact the event owner with the same details. Cancel an Event Scorer help request when assistance is no longer needed.'
   ]],
-  ['substitute','A real player substitutes for another player',[
-   'Home → select the substitute’s first day in Round Progress → Replace Player.',
-   'Choose a saved substitute or enter a new name. Supply a Golf ID / GolfLink Number or tick the no-number choice.',
-   'Enter GA with the Plus checkbox if needed, or estimate a playing handicap against the selected course and tee.',
-   'Review the calculated handicaps → Review and Send Substitution. Wait for online confirmation; the substitute joins using the existing code.',
-   'Receive the revised final update on every phone. Earlier rounds must be complete and affected rounds must not have started scoring. Use Retry Substitute Update if sending fails.'
-  ]],
-  ['missing','A player does not turn up',[
-   'Before that group’s first score: Home → correct day in Round Progress → Missing Player.',
-   'Select the absent golfer. Check the partner, virtual player and any NTP extra attempts → Apply Emergency Replacement.',
-   'Confirm the phones receive the change. The remaining three golfers mark each other; virtual scores update automatically.',
-   'A four-player group needs an eligible donor outside that group. Replacement is blocked after that group starts scoring or if one is already assigned for the day. Contact the owner if blocked.'
-  ]],
-  ['join','A player cannot connect or needs another phone',[
-   'Give the player the six-character event code. They open the player joining page and select their own name.',
-   'Check Home → Connected Players. Before changing phones, check which scores have uploaded.',
-   'Tap Release Phone beside that golfer, then join on the replacement phone as the same golfer.',
-   'Use Release All Phones only for a whole-field reconnection. Scores that never uploaded still need recovery.'
-  ]],
+  ["missing", "A player pulls out", ["With no replacement available — On the Home page select the correct day in Round Progress → Missing Player. Select the withdrawn player → Apply Emergency Replacement. The app allocates a virtual player to the vacant position.", "With a replacement available — On the Home page select the replacement’s first day in Round Progress → Replace Player. Select the player being replaced and add the replacement player with the details requested → Review and Send Substitution."]],
+  ["join", "A player cannot connect or needs another phone", ["Cannot Connect: Check the player has the correct six-character event code.", "Check the player has selected their own name from the Player List.", "Has Connected but cannot open the Event: Home → Connected Players → Release Phone beside the player’s name. Ask the player to enter the code again and join the event.", "Needs to change phones: Home → Connected Players → Release Phone beside the player’s name. Ask the player to enter the code and join the event on the replacement phone under their own name."]],
   ['start','Players cannot open their scorecards',[
    'Check the event and day. Confirm the event is locked and its final update has been shared.',
    'Finalise the playing tee, complete Daily Handicaps and have each golfer read the rules → GOT IT.',
@@ -62,44 +45,22 @@
    'Confirm the phones show the new first hole. For other starts, check each group’s starting position.',
    'Starting-hole changes are blocked once scoring has begun.'
   ]],
-  ['phone','A phone dies during scoring',[
-   'Keep the working phones scoring normally. Tell the organiser whose phone failed.',
-   'Home → correct day in Round Progress → Emergency Score Recovery → Phone Failed During Play.',
-   'Select the player whose phone failed. Check FAILED PHONE and PLAYER TO RECOVER: they are different people.',
-   'For PLAYER TO RECOVER, use their self-recorded scores to replace the entries the failed phone was marking → Accept [number] Self-Scores as Correct.',
-   'For the failed-phone player, use the official scores recorded by their marker. Accept their completed official card when offered; use Correct a Player’s Card for remaining holes.',
-   'Check both cards are complete online. Resolve any remaining gap using the organiser-discretion guidance above.'
-  ]],
-  ['offline','No reception or scores waiting to upload',[
-   'Continue scoring in the app already open. Keep the app and its data; uploads retry when reception returns.',
-   '“Waiting to upload” means the online copy is behind. When connected, open the app and let it sync.',
-   'Home → Refresh Scores / Refresh. Check all required scores have arrived before finalising results.',
-   'If device saving fails, keep the app open and export a backup or restore storage space. Do not clear app data or reinstall while uploads are pending.'
-  ]],
+  ["phone", "A phone dies during scoring", ["Keep the working phones scoring normally.", "Home → correct day in Round Progress → Emergency Score Recovery → Phone Failed During Play.", "Select FAILED PHONE and the app will select PLAYER TO RECOVER: they are different people.", "Use the PLAYER self score and Putts listed to complete the missing scores for the PLAYER TO RECOVER. Press Accept [number] Self-Scores as Correct. Putts apply only on days with a putting competition.", "For the failed-phone player, use the official scores recorded by their marker. Accept their completed official card when offered; use Correct One Official Hole for remaining holes.", "Check both cards are complete online."]],
+  ["offline", "No reception or scores waiting to upload", ["Each player’s phone saves scores entered in the app even without an internet connection. The latest leaderboard information will be unavailable until the phone reconnects.", "If the phone loses its connection, continue scoring in the already open event scoring pages. Uploads restart automatically when reception returns, for example by connecting to Wi-Fi in the clubhouse.", "“Waiting to upload” means the online copy is behind. When reconnected, open the app and let it sync.", "Once the players’ phones have reconnected and synced, go to Home → Refresh Scores / Refresh. Check all required scores have arrived before finalising results.", "If device saving fails, keep the app open and export a backup or restore storage space. Do not clear app data or reinstall while uploads are pending."]],
   ['wrong','A score or putt count is wrong',[
    'Before acceptance, use Previous or the hole selector to correct the entry. Player and marker check and agree.',
-   'For organiser correction: Home → correct day → Emergency Score Recovery → Correct a Player’s Card.',
+   'For organiser correction: Home → correct day → Emergency Score Recovery → Correct One Official Hole.',
    'Choose the player and hole. Agree the entry with player and marker → Save Organiser Correction.',
    'Refresh and check completion and results. Review any prize already awarded; corrections do not redo awards automatically.'
   ]],
-  ['ntp','Record NTP or a lost Yellow Ball',[
-   'On each planned NTP hole, record and confirm every qualifying nearer attempt under the correct golfer’s name.',
-   'If nobody qualifies, leave it unwon. Check the configured jackpot in results.',
-   'For Yellow Ball, follow the highlighted golfer. If lost, use Lost Ball on that hole and confirm.',
-   'Later holes stop contributing to Yellow Ball; other competitions continue. Correct a mistaken loss before finalising.'
-  ]],
+  ["ntp", "Record NTP or a lost Yellow Ball", ["A player whose tee shot finishes on the green may claim NTP if no name is recorded or their ball is closer than the existing marker. Move the physical NTP marker to their ball’s position and record their name.", "To follow the NTP competition on the leaderboard, the marker must confirm in the app when the player they are marking records their name on the physical NTP marker.", "The app uses the latest confirmed entry for each NTP hole. Check the final holder against the physical NTP sheet before awarding the prize.", "If nobody qualifies, leave it unwon. Check the configured jackpot in results.", "For Yellow Ball, follow the highlighted golfer. If lost, press BALL LOST and confirm. If pressed by mistake, press UNDO BALL LOST before leaving that hole.", "The Yellow Ball will no longer be highlighted on subsequent holes. Previously earned Yellow Ball points remain and other competitions continue."]],
   ['ambrose','Running an Ambrose round',[
    'Check the nominated scorer, whether a marker is required and the minimum drives per golfer.',
    'Each hole: select the team gross score and whose drive was used. If a marker is required, both cards must agree.',
    'Track drive counts and correct mistaken selections. For a three-player team’s NTP extra attempt, follow the app’s named golfer.',
    'Before finalising, check all 18 scores, selected drives and required-drive compliance.'
   ]],
-  ['check','A finished card still says Attention or In Progress',[
-   'Have the player and marker complete the end-of-round checks. Review highlighted holes and correct the actual error.',
-   'Checks cover the golfer’s own card and the card they marked: up to 36 hole checks.',
-   'If a phone cannot finish, use Emergency Score Recovery. Use the marker’s official copy for that golfer and the other golfer’s self-copy for the card the failed phone marked.',
-   'Settle remaining gaps under the organiser-discretion guidance. Wait for Round Progress to show completion.'
-  ]],
+  ["check", "A “finished” card still says # Holes Need Attention", ["Any holes needing attention will be highlighted in red.", "On the Round Verification screen, both columns show the same golfer’s scores, recorded separately by that golfer and their marker. Check the golfer’s name above the table because verification also covers the card they marked.", "For each hole highlighted in red, check the scores recorded by the player and their marker. Correct the difference causing the red highlight.", "Have the player and marker complete the end-of-round checks.", "If a phone cannot finish, in this instruction menu follow ‘A phone dies during scoring’ under During Play to recover both affected cards.", "Settle remaining gaps under the organiser-discretion guidance. Wait for Round Progress to show completion."]],
   ['paper','Enter results manually / Record All Scores',[
    'Home → correct day in Round Progress → Record All Scores. Check and submit each team’s entries; drafts do not affect results.',
    'Complete all team entries and NTP results → Complete Day [number] Results when enabled.',
@@ -126,7 +87,10 @@
   if(!document.getElementById('organiserGuideStyle')){
    const style=document.createElement('style');style.id='organiserGuideStyle';style.textContent='.organiserGuide{color:#17324d;background:#fff;font:16px/1.5 system-ui,sans-serif}.organiserGuide h2{font-size:25px;margin:0 0 8px}.guideIntro{margin:10px 0}.guideDiscretion{padding:10px 12px;background:#f4f7fa;border-left:4px solid #7d9ebd}.guideTools{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}.guideTools label{flex:1 1 220px;font-weight:650}.guideTools select,.guideTools input{display:block;box-sizing:border-box;width:100%;min-height:44px;font:inherit;margin-top:4px;padding:8px}.guideActions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:12px 0}.organiserGuide button{min-height:44px;padding:8px 12px;font:650 15px system-ui;color:#17324d;border:1px solid #9fb7cd;border-radius:8px;background:#edf4fa;cursor:pointer}.organiserGuide details{margin:10px 0;border:1px solid #bdcede;border-radius:10px;overflow:hidden}.organiserGuide summary{cursor:pointer;padding:14px;min-height:26px;font-size:17px;font-weight:700}.guidePhase>summary{background:#dceaf7;font-size:19px}.guidePhaseBody{padding:4px 12px 12px}.guidePhaseBody details>summary{background:#f0f6fc}.organiserGuide ol{padding:0 20px 8px 38px}.organiserGuide li{margin:10px 0}.organiserGuide a{color:#174f84}.guideEmpty{font-weight:600}@media print{.guideTools,.guideActions,.guidePhaseHelp,.guideClose{display:none!important}.organiserGuide details[data-guide-topic]{break-inside:avoid}.guidePhase{break-inside:auto}.organiserGuide summary{background:#fff!important}}';document.head.append(style);
   }
-  const topicHtml=id=>{const t=topics.find(t=>t.id===id);return `<details data-guide-topic="${t.id}"><summary>${esc(t.title)}</summary><ol>${t.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol></details>`;};
+  const topicHtml=id=>{const t=topics.find(t=>t.id===id);
+   const section=(title,steps)=>`<h3 style="font-size:16px;padding:0 14px;margin:12px 0 0">${esc(title)}</h3><ol>${steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol>`;
+   if(id==='join')return `<details data-guide-topic="${t.id}"><summary>${esc(t.title)}</summary>${section('Cannot Connect',[t.steps[0].replace('Cannot Connect: ',''),t.steps[1]])}${section('Has Connected but cannot open the Event',[t.steps[2].replace('Has Connected but cannot open the Event: ','')])}${section('Needs to change phones',[t.steps[3].replace('Needs to change phones: ','')])}</details>`;
+   return `<details data-guide-topic="${t.id}"><summary>${esc(t.title)}</summary><ol>${t.steps.map(step=>`<li>${esc(step)}</li>`).join('')}</ol></details>`;};
   host.innerHTML=`<section class="organiserGuide"><h2>Organiser Instructions</h2><p class="guideIntro">${esc(intro)}</p><p class="guideDiscretion">${esc(discretion)}</p><div class="guideActions"><button type="button" id="guideReset">Show the four sections</button><button type="button" id="guideHelp">Ask for Help</button><a href="organiser-guide.html" target="_blank" rel="noopener">Open full guide / print a copy</a></div><div class="guideTools"><label for="guideTopic">Go straight to a topic<select id="guideTopic"><option value="">Choose a topic…</option>${phases.map(phase=>`<optgroup label="${esc(phase.title)}">${phase.topics.map(id=>{const t=topics.find(t=>t.id===id);return `<option value="${id}">${esc(t.title)}</option>`;}).join('')}</optgroup>`).join('')}</select></label><label for="guideSearch">Search these instructions<input id="guideSearch" type="search" placeholder="Phone, missing player, prizes…"></label></div><p class="guideEmpty" hidden>No matching topic. Try another word.</p>${phases.map(phase=>`<details class="guidePhase" data-guide-phase="${phase.id}"><summary tabindex="0">${esc(phase.title)}</summary><div class="guidePhaseBody">${phase.topics.map(topicHtml).join('')}<button class="guidePhaseHelp" type="button" data-guide-help>Ask for Help</button></div></details>`).join('')}</section>`;
   const rows=[...host.querySelectorAll('[data-guide-topic]')],sections=[...host.querySelectorAll('[data-guide-phase]')],search=host.querySelector('#guideSearch'),select=host.querySelector('#guideTopic'),empty=host.querySelector('.guideEmpty');
   function openTopic(id){search.value='';select.value=id;rows.forEach(row=>{row.hidden=false;row.open=row.dataset.guideTopic===id;});sections.forEach(section=>{section.hidden=false;section.open=phases.find(p=>p.id===section.dataset.guidePhase).topics.includes(id);});empty.hidden=true;rows.find(row=>row.open)?.scrollIntoView?.({block:'nearest'});}

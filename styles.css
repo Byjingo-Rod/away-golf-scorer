@@ -6972,3 +6972,6 @@ body.playerDevice .cloudHeader {
 .substituteActions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
 .substituteForm #subPreview{white-space:pre-line}
 @media(max-width:600px){.substituteColumns{grid-template-columns:1fr;gap:0}.substituteHandicaps .substituteSection{margin:8px 0}.substituteForm strong{font-size:15px}}
+
+/* Instructions can open over an unfinished planning step. */
+#modalShade { z-index: 60; }
