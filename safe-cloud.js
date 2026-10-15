@@ -58,12 +58,13 @@
     const counts=saveHealth(activeEvent),messages=[];
     if(storageFailures.size)messages.push(...new Set(storageFailures.values()));
     if(Date.now()-measuredAt>5000){measuredAt=Date.now();measuredBytes=0;try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);measuredBytes+=2*(k.length+(localStorage.getItem(k)||"").length);}}catch{}}
-    if(measuredBytes>=4*1024*1024)messages.push("Device storage is getting full. Export a backup before clearing any app data.");
+    if(measuredBytes>=4*1024*1024)messages.push("App’s local storage is getting full — Review unwanted data.");
     if(counts.conflicts)messages.push(`${counts.conflicts} saved ${counts.conflicts===1?"copy needs":"copies need"} organiser review.`);
     if(counts.blocked)messages.push("Accepted-card changes retained on this device for organiser review.");
     if(counts.pending)messages.push(`${counts.pending} ${counts.pending===1?"card or plan is":"cards or plans are"} waiting to upload.`);
     if(cloudStatus)messages.push(cloudStatus);
     node.textContent=messages.join(" ");node.hidden=!messages.length;
+    if(messages.length){const button=document.createElement("button");button.type="button";button.textContent="App Storage";button.style.marginLeft="12px";button.onclick=()=>window.dispatchEvent(new Event("golf-open-storage"));node.append(button);}
   }
   function pruneRecords(records,active,now=Date.now()){
     let removed=0;
@@ -71,6 +72,26 @@
     return removed;
   }
   function prune(){return pruneRecords(state,k=>k.startsWith(activeEvent+":"));}
+  function storageRecords(){
+    return Object.entries(state).map(([record,s])=>{const [eventId,kind,day,playerId]=record.split(":");
+      const reason=eventId===activeEvent?"Current event":s.pending?"Waiting to upload":s.conflict||s.conflictId?"Needs organiser review":s.blocked?"Correction needs review":!s.acknowledged||s.virgin||s.reviewedFrom?"Recovery copy protected":!s.savedAt?"Save not verified":"Saved online";
+      return {record,eventId,kind,day:+day||null,playerId,name:s.pending?.event?.name||s.base?.event?.name||eventId,bytes:2*(record.length+JSON.stringify(s).length),pending:!!s.pending,status:s.conflict||s.conflictId?"Needs organiser review":s.blocked?"Correction needs review":s.pending?"Waiting to upload":reason,removable:reason==="Saved online"};
+    });
+  }
+  function removeStorageRecord(record){
+    const row=storageRecords().find(r=>r.record===record);
+    if(!row?.removable)throw Error("This copy is protected. Upload or review it first.");
+    if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
+    const previous=state[record];delete state[record];
+    try{persist();}catch(error){state[record]=previous;throw error;}
+    measuredAt=0;showHealth();
+  }
+  async function retryStorageRecord(record){
+    const [id,kind,day,player]=record.split(":"),s=state[record];
+    if(id!==activeEvent)throw Error("Open this event before retrying its upload.");
+    if(!s?.pending||s.conflict||s.conflictId||s.blocked)throw Error("This copy needs organiser review rather than Retry Upload.");
+    return save(id,kind,copy(s.pending),+day||null,player||null,{status:s.pending?.event?.locked?"locked":"preview"});
+  }
   function storageWrite(k,value){
     try{localStorage.setItem(k,value);storageFailures.delete(k);showHealth();}
     catch(e){storageFailures.set(k,"Device save failed. Keep this app open and restore storage space or export a backup. Changes may be lost if you close it.");showHealth();throw e;}
@@ -165,6 +186,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,removeStorageRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();

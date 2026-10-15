@@ -3625,6 +3625,34 @@
   startOrganiserPolling();
   startPlayerPolling();
 
+  function openAppStorage() {
+    if(isPlayerDevice() || isSpectatorDevice())return;
+    const rows=GolfSafeCloud.storageRecords(),panel=$("#modalContent");
+    const inventory=[];let total=0,exported=false;
+    const hasProtectedWork=rows.some(row=>row.pending || row.status.includes("review"));
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i),value=localStorage.getItem(key)||"",bytes=2*(key.length+value.length);total+=bytes;
+      let label=key==="golfSafeSaves.v1"?"Saved online copies and pending uploads":/PreImportBackup|PreDeviceClearBackup|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key)?"Retained safety backup":/13$/.test(key)?"Players, courses and event workspace":/course/i.test(key)?"Course data":/auth|token|Connections/i.test(key)?"Sign-in and event connections":"App settings and saved information";
+      if(label==="Retained safety backup"){
+        const kind=/PreImport/.test(key)?"Before import":/PreDeviceClear/.test(key)?"Before device cleanup":/BeforeLeaving/.test(key)?"Before leaving event":/Ridge/.test(key)?"Ridge test":"Earlier test";
+        try{const snapshot=JSON.parse(value);label+=" — "+kind+(snapshot.event?.name?" · "+snapshot.event.name:"")+(snapshot.savedAt?" · "+new Date(snapshot.savedAt).toLocaleDateString("en-AU"):"");}catch{label+=" — "+kind+" (unreadable; protected)";}
+      }
+      const activeIds=[store.cloud?.eventId,store.event?.id].filter(Boolean);
+      const removable=label.startsWith("Retained safety backup") && !label.includes("unreadable") && !hasProtectedWork && !activeIds.some(id=>value.includes(id)) && !/"(?:pending|cloudDirty|conflict)"\s*:\s*(?:true|\{|\[)/.test(value);
+      inventory.push({key,label,bytes,value,removable});
+    }
+    const size=bytes=>bytes>=1024*1024?(bytes/1024/1024).toFixed(2)+" MB":(bytes/1024).toFixed(1)+" KB";
+    const label=row=>`${row.eventId===store.cloud?.eventId?store.event?.name||row.name:row.name}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
+    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>Cleanup removes local copies only. Your current event, unsent work, players, courses and cloud events are protected.</p><div class="rowBtns"><button class="primary" id="storageExport">Download App Storage Backup</button><button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${r.removable?`<button class="soft" data-storagebackup="${index}" disabled>Remove Backup Copy</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Retry its upload below; open the named event first if it is not the current event.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>`:""}${row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>Retained safety backups are included in the download above. They are kept while pending work exists; do not clear browser app data to remove them.</p></section>`;
+    $("#modalShade").classList.add("open");
+    $("#storageClose").onclick=()=>$("#modalShade").classList.remove("open");
+    $("#storageRefresh").onclick=openAppStorage;
+    $("#storageExport").onclick=()=>{const data={...organiserBackupPayload(),appStorage:{savedAt:new Date().toISOString(),localData:{}}};for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(/auth|token|Connections|Writer|Lease/i.test(key))continue;data.appStorage.localData[key]=localStorage.getItem(key);}downloadOrganiserBackup(data);exported=true;$("#storageMessage").textContent="Backup downloaded. Confirm it is saved before removing any backup copy.";$$('[data-storagebackup]').forEach(button=>button.disabled=false);};
+    $$('[data-storagebackup]').forEach(button=>button.onclick=()=>{const row=inventory[+button.dataset.storagebackup];if(!exported||!row.removable)return;if(GolfSafeCloud.storageRecords().some(r=>r.pending||r.status.includes("review"))||[store.cloud?.eventId,store.event?.id].filter(Boolean).some(id=>row.value.includes(id))){$("#storageMessage").textContent="New or active work is protected. Refresh Storage.";return;}if(localStorage.getItem(row.key)!==row.value){$("#storageMessage").textContent="This backup changed. Refresh Storage before removing it.";return;}if(!confirm("Confirm the downloaded App Storage backup is saved, then remove this older local backup copy?"))return;localStorage.removeItem(row.key);openAppStorage();});
+    $$('[data-storageremove]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storageremove];if(!confirm(`Remove the local saved copy of ${label(row)}? Its confirmed online copy remains.`))return;try{GolfSafeCloud.removeStorageRecord(row.record);openAppStorage();}catch(error){$("#storageMessage").textContent=error.message;}});
+    $$('[data-storageretry]').forEach(button=>button.onclick=async()=>{button.disabled=true;$("#storageMessage").textContent="Retrying upload…";try{await GolfSafeCloud.retryStorageRecord(rows[+button.dataset.storageretry].record);openAppStorage();$("#storageMessage").textContent="Upload confirmed online.";}catch(error){$("#storageMessage").textContent="Upload not completed: "+error.message;button.disabled=false;}});
+  }
+  window.addEventListener("golf-open-storage",openAppStorage);
   function openOrganiserInstructions() {
     if(isPlayerDevice() || isSpectatorDevice())return;
     const panel=$("#modalContent");
@@ -3635,6 +3663,7 @@
   }
   function renderHome() {
     const instructions=$("#organiserInstructions");
+    const storageButton=$("#appStorage");if(storageButton){storageButton.hidden=isPlayerDevice() || isSpectatorDevice();storageButton.onclick=openAppStorage;}
     if(instructions){instructions.hidden=isPlayerDevice() || isSpectatorDevice();instructions.onclick=openOrganiserInstructions;}
 
     updateOwnerAccountButton();

@@ -6979,3 +6979,5 @@ body.playerDevice .cloudHeader {
 .eventGaActions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 10px 0; }
 .eventGaActions button { min-height: 44px; }
 @media(max-width: 550px) { .eventGaActions { flex-wrap: wrap; } }
+
+.appStoragePage { color:#17324d; }.appStoragePage table { width:100%; border-collapse:collapse; }.appStoragePage th,.appStoragePage td { text-align:left;padding:10px;border-bottom:1px solid #ccd9e5; }.storageRecord { padding:12px;margin:10px 0;background:#edf4fa;border:1px solid #bdcede;border-radius:8px;overflow-wrap:anywhere; }.appStoragePage button { min-height:44px; }
