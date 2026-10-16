@@ -6981,3 +6981,5 @@ body.playerDevice .cloudHeader {
 @media(max-width: 550px) { .eventGaActions { flex-wrap: wrap; } }
 
 .appStoragePage { color:#17324d; }.appStoragePage table { width:100%; border-collapse:collapse; }.appStoragePage th,.appStoragePage td { text-align:left;padding:10px;border-bottom:1px solid #ccd9e5; }.storageRecord { padding:12px;margin:10px 0;background:#edf4fa;border:1px solid #bdcede;border-radius:8px;overflow-wrap:anywhere; }.appStoragePage button { min-height:44px; }
+
+.courseCategoryControls{display:flex;align-items:end;gap:16px;margin:12px 0;flex-wrap:wrap}.courseCategoryControls label{flex:0 1 230px;margin:0}.courseCategoryControls label:last-child{flex-basis:120px}.courseCategoryControls select{width:100%}
