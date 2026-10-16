@@ -390,7 +390,8 @@
     middle: "White",
     front: "Yellow",
   };
-  function teeMarkerColour(tee, courseRecord) {
+  function teeMarkerColour(tee, courseRecord, category = "men") {
+    courseRecord = GolfCourseCategories.data(courseRecord, category);
     const saved = String(courseRecord?.teeDetails?.[tee]?.colour || "").trim();
     return TEE_MARKER_COLOURS.includes(saved)
       ? saved
@@ -517,10 +518,10 @@
       p.gaUpdatedAt = updatedAt;
     });
   }
-  function teeRatingForDailyHandicap(day, tee, event = store.event) {
+  function teeRatingForDailyHandicap(day, tee, event = store.event, category = "men") {
     const c = course(event?.["course" + day]),
-      detail = c?.teeDetails?.[tee] || {},
-      cardPars = courseScorecard(c, tee)?.par || [],
+      detail = GolfCourseCategories.data(c, category)?.teeDetails?.[tee] || {},
+      cardPars = courseScorecard(c, tee, false, category)?.par || [],
       cardPar = cardPars.length === 18
         ? cardPars.reduce((total, value) => total + (+value || 0), 0)
         : 0,
@@ -529,7 +530,7 @@
       par = +detail.par || cardPar;
     return {
       courseName: c?.name || `Day ${day} course`,
-      teeColour: teeMarkerColour(tee, c),
+      teeColour: `${category === "women" ? "Women" : "Men"} · ${teeMarkerColour(tee, c, category)}`,
       slope,
       scratch,
       par,
@@ -558,28 +559,12 @@
       const key = "day" + day,
         ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID);
       for (const tee of enabledEventTees(event, day)) {
-        const rating = teeRatingForDailyHandicap(day, tee, event);
-        if (!rating.valid) {
-          issues.push(
-            `${rating.courseName} — ${rating.teeColour}: enter Slope, Scratch Rating and Par in Course Details.`,
-          );
-          continue;
-        }
-        const map = teeHandicapsFor(day, tee, event),
-          sources = event.teeHandicapSources[key][tee];
-        for (const id of ids) {
-          const ga = eventGaHandicap(id, event),
-            name = player(id)?.name || "Player";
-          if (ga === "" || ga == null || !Number.isFinite(+ga)) {
-            issues.push(`${name}: enter a GA Handicap.`);
-            continue;
-          }
-          map[String(id)] = calculateDailyHandicap(
-            ga,
-            rating,
-            eventGaCategory(id, event),
-          );
-          sources[String(id)] = "calculated";
+        const map=teeHandicapsFor(day,tee,event), sources=event.teeHandicapSources[key][tee];
+        for(const id of ids){
+          const category=eventGaCategory(id,event),rating=teeRatingForDailyHandicap(day,tee,event,category),ga=eventGaHandicap(id,event),name=player(id)?.name||"Player";
+          if(!rating.valid){issues.push(`${rating.courseName} — ${rating.teeColour}: enter Slope, Scratch Rating and Par in Course Details.`);continue;}
+          if(ga===""||ga==null||!Number.isFinite(+ga)){issues.push(`${name}: enter a GA Handicap.`);continue;}
+          map[String(id)]=calculateDailyHandicap(ga,rating,category);sources[String(id)]="calculated";
         }
       }
       selectEventTee(day, selectedEventTee(day, event), event);
@@ -1263,7 +1248,7 @@
       field:dayFieldIds, complete:eventDayComplete, started:d=>dayHasScoreEntries(d) || Boolean(Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length),
       usedProfile:id=>cloudPlayerIds().map(String).includes(id) || Object.values(store.event.playerSubstitutions || {}).flat().some(r=>[r.previous.id,r.replacement.id].map(String).includes(id)),
       tees:d=>enabledEventTees(store.event,d),
-      calculate:(d,tee,ga,category)=>calculateDailyHandicap(ga,teeRatingForDailyHandicap(d,tee),category),
+      calculate:(d,tee,ga,category)=>calculateDailyHandicap(ga,teeRatingForDailyHandicap(d,tee,store.event,category),category),
     };
   }
   async function sendPlayerSubstitution() {
@@ -1307,7 +1292,7 @@
       try {
         const d=+$("#subEstimateDay").value,tee=$("#subEstimateTee").value,category=$("#subCategory").value,magnitude=Number(raw),plus=$("#subEstimatePlus").checked;
         if(!Number.isInteger(magnitude) || magnitude<0 || magnitude>(plus ? 10 : 54))throw Error("Enter a whole-number playing handicap from 0 to 54, or 0 to 10 with Plus ticked.");
-        const handicap=plus ? -magnitude : magnitude,rating=teeRatingForDailyHandicap(d,tee),ga=estimateEventGa(handicap,rating,category,calculateDailyHandicap);
+        const handicap=plus ? -magnitude : magnitude,rating=teeRatingForDailyHandicap(d,tee,store.event,category),ga=estimateEventGa(handicap,rating,category,calculateDailyHandicap);
         $("#subGa").value=Math.abs(ga).toFixed(1);$("#subGaPlus").checked=ga<0;
         estimate={day:d,courseId:store.event['course'+d],tee,handicap,ga,category};
         status.textContent=`Estimated GA ${ga<0 ? "+" : ""}${Math.abs(ga).toFixed(1)} calculated from Day ${d} · ${rating.courseName} · ${rating.teeColour} tee · playing handicap ${handicap<0 ? "+" : ""}${Math.abs(handicap)}. This is an event estimate, not an official GA.`;
@@ -1404,8 +1389,10 @@
       metres: Array.from({ length: 18 }, (_, i) => card.metres?.[i] ?? ""),
     };
   }
-  function ensureTeeScorecards(c) {
+  function ensureTeeScorecards(c, category = "men") {
     if (!c) return {};
+    c=GolfCourseCategories.data(c,category,true);
+    if(category==="women"&&!c.versions?.length)return c.teeScorecards ||= {};
     const legacy = version(c) || {};
     c.teeScorecards = c.teeScorecards || {};
     if (!Object.keys(c.teeScorecards).length) {
@@ -1424,8 +1411,9 @@
     }
     return c.teeScorecards;
   }
-  function courseScorecard(c, tee = "middle", create = false) {
-    const cards = ensureTeeScorecards(c);
+  function courseScorecard(c, tee = "middle", create = false, category = "men") {
+    const cards = ensureTeeScorecards(c,category);
+    c=GolfCourseCategories.data(c,category,create);
     if (!cards[tee] && create) {
       const source = cards.middle || cards.back || cards.front || version(c) || {};
       cards[tee] = {
@@ -1440,14 +1428,23 @@
     }
     return cards[tee] || null;
   }
-  function eventCourseScorecard(day, event = store.event) {
-    if (!event) return {};
-    const c = course(event["course" + day]),
-      tee = selectedEventTee(day, event);
-    return courseScorecard(c, tee) || {};
+  function eventCourseCategory(day,event=store.event,id=null){
+    if(!event?.courseCategoryVersion)return "men";
+    if(id!=null)return GolfCourseCategories.category(event,id,day,eventPlayer);
+    const ids=(event.confirmed?.length?event.confirmed:Object.keys(event.gaCategories||{})).filter(id=>String(id)!==NO_PARTNER_ID);
+    return ids.length&&ids.every(id=>GolfCourseCategories.category(event,id,day,eventPlayer)==="women")?"women":"men";
   }
-  function validateCourseScorecard(c, tee = "middle") {
-    const v = courseScorecard(c, tee) || {},
+  function eventCourseScorecard(day, event = store.event, id = null) {
+    if (!event) return {};
+    return courseScorecard(course(event["course"+day]),selectedEventTee(day,event),false,eventCourseCategory(day,event,id))||{};
+  }
+  function eventCardChecks(day,event=store.event){
+    const c=course(event["course"+day]),tee=selectedEventTee(day,event),ids=(event.confirmed?.length?event.confirmed:Object.keys(event.gaCategories||{})).filter(id=>String(id)!==NO_PARTNER_ID),categories=[...new Set(ids.map(id=>eventCourseCategory(day,event,id)))];
+    if(!categories.length)categories.push(eventCourseCategory(day,event));
+    return categories.map(category=>({category,...validateCourseScorecard(c,tee,category)}));
+  }
+  function validateCourseScorecard(c, tee = "middle", category = "men") {
+    const v = courseScorecard(c, tee, false, category) || {},
       pars = Array.from({ length: 18 }, (_, i) => Number(v.par?.[i])),
       metres = Array.from({ length: 18 }, (_, i) => Number(v.metres?.[i])),
       indexes = Array.from({ length: 18 }, (_, i) => {
@@ -1455,6 +1452,7 @@
         return raw ? Number(raw.split("/")[0]) : NaN;
       }),
       issues = [];
+    if(GolfCourseCategories.data(c,category).needsReview)issues.push("Copied tee data must be checked against the official card before use.");
     pars.forEach((par, i) => {
       if (!Number.isInteger(par) || par < 3 || par > 6)
         issues.push(`Hole ${i + 1}: par must be 3, 4, 5 or 6.`);
@@ -3899,7 +3897,7 @@ Count-back if tied
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
-      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women/Girls" : "Men/Boys"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
+      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
     $("#editPlayerProfile").onclick = () => editPlayerProfile(id, status);
   }
@@ -3919,7 +3917,7 @@ Count-back if tied
     const stateChoices=[['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
     const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
     $("#sideContent").innerHTML =
-      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men/Boys</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women/Girls</option></select></label></div><div class="profileReadOnly"><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
+      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
     const toggleGolfId=()=>{const noOfficial=$('#epHandicapStatus').value==='none';$('#epGolfLink').hidden=$('#epHandicapStatus').value!=='insert';$('#epGa').disabled=noOfficial;$('#epGaPlus').disabled=noOfficial;};$('#epHandicapStatus').onchange=toggleGolfId;toggleGolfId();
     const toggleOtherStreet=()=>{$('#epOtherStreetLabel').hidden=$('#epStreetType').value!=='Other';};$('#epStreetType').onchange=toggleOtherStreet;toggleOtherStreet();
     $("#cancelPlayerProfile").onclick = () => p.pendingNewPlayer ? $("#sidePanel").classList.remove("open") : playerInfo(id, status);
@@ -4156,7 +4154,7 @@ Count-back if tied
     $("#clearCourseFilters").onclick = () => { courseLocationFilter = { country: "", state: "", region: "" }; $("#courseSearchMain").value = ""; renderCoursesAdmin(); };
     $("#adminAddCountry").onclick = () => { const name = addCourseCountry(prompt("Country name")); if (name) { save(); queueMasterCountry(name); renderCoursesAdmin(); } };
   }
-  function courseDetail(id, requestedCardTee = "") {
+  function courseDetail(id, requestedCardTee = "", requestedCategory = "") {
     const acceptedCourse = course(id, true);
     if (!acceptedCourse) return;
     const draftKey = "awayGolfCourseDraft:" + id;
@@ -4164,17 +4162,18 @@ Count-back if tied
     try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
     let c = JSON.parse(JSON.stringify(draft?.course?.id === id ? draft.course : acceptedCourse));
     ensureCourseData(c);
-    const availableCardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee));
+    const category=requestedCategory||draft?.category||"men", categoryData=GolfCourseCategories.data(c,category,true);
+    const availableCardTees = EVENT_TEES.filter((tee) => courseScorecard(c, tee, false, category));
     let activeCardTee = EVENT_TEES.includes(requestedCardTee)
         ? requestedCardTee
-        : EVENT_TEES.includes(c.activeScorecardTee)
-          ? c.activeScorecardTee
+        : EVENT_TEES.includes(categoryData.activeScorecardTee)
+          ? categoryData.activeScorecardTee
           : availableCardTees[0] || "middle",
-      v = courseScorecard(c, activeCardTee, true),
-      t = c.teeDetails,
+      v = courseScorecard(c, activeCardTee, true, category),
+      t = categoryData.teeDetails,
       distanceInputUnit = v.distanceInputUnit || courseDistanceUnit(v),
       distanceSavedUnit = courseDistanceUnit(v);
-    c.activeScorecardTee = activeCardTee;
+    categoryData.activeScorecardTee = activeCardTee;
     store.courseFavourites = store.courseFavourites || [];
     const isFavourite = store.courseFavourites
       .map(String)
@@ -4196,31 +4195,31 @@ Count-back if tied
       return `<div class="scorecardTotals"><div><b>OUT</b><span>${sum(metres.slice(0, 9))} ${unit}</span><span>Par ${sum(pars.slice(0, 9))}</span></div><div><b>IN</b><span>${sum(metres.slice(9))} ${unit}</span><span>Par ${sum(pars.slice(9))}</span></div><div><b>TOTAL</b><span>${sum(metres)} ${unit}</span><span>Par ${sum(pars)}</span></div></div>`;
     };
     const teeRow = (key, label) => {
-      const selectedColour = teeMarkerColour(key, c),
+      const selectedColour = teeMarkerColour(key, c, category),
         colourOptions = TEE_MARKER_COLOURS.map(
           (colour) =>
             `<option value="${colour}" ${colour === selectedColour ? "selected" : ""}>${colour}</option>`,
         ).join("");
-      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><span class="teeLengthValue"><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key) || {})}</small></span></td></tr>`;
+      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><span class="teeLengthValue"><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key, false, category) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key, false, category) || {})}</small></span></td></tr>`;
     };
     const cardOptions = EVENT_TEES.map((tee) => {
-      const exists = Boolean(courseScorecard(c, tee));
-      return `<option value="${tee}" ${tee === activeCardTee ? "selected" : ""}>${esc(teeMarkerColour(tee, c))}${exists ? "" : " — New card"}</option>`;
+      const exists = Boolean(courseScorecard(c, tee, false, category));
+      return `<option value="${tee}" ${tee === activeCardTee ? "selected" : ""}>${esc(teeMarkerColour(tee, c, category))}${exists ? "" : " — New card"}</option>`;
     }).join("");
     const copyCardOptions = EVENT_TEES.filter(
-      (tee) => tee !== activeCardTee && Boolean(courseScorecard(c, tee)),
+      (tee) => tee !== activeCardTee && Boolean(courseScorecard(c, tee, false, category)),
     )
       .map(
         (tee) =>
-          `<option value="${tee}">${esc(teeMarkerColour(tee, c))}</option>`,
+          `<option value="${tee}">${esc(teeMarkerColour(tee, c, category))}</option>`,
       )
       .join("");
     $("#modalContent").innerHTML =
-      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label>${courseLocationFields(c)}<label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><h3>Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="soft" id="saveCourseDraft">Save Draft</button><button class="primary" id="saveCourseModal">Save Completed Course</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
+      `<div class="courseDetailTop"><h2>Course Details — ${esc(c.name)}</h2><label class="favDetailToggle"><input type="checkbox" id="courseFavourite" ${isFavourite ? "checked" : ""}> Favourite course</label></div><div class="modalGrid courseContactGrid"><label>Name<input id="mcname" value="${esc(c.name)}"></label>${courseLocationFields(c)}<label>Club phone<input id="mcClubPhone" inputmode="tel" value="${esc(c.clubPhone || "")}"></label><label>Pro Shop phone<input id="mcProPhone" inputmode="tel" value="${esc(c.proPhone || "")}"></label><label>Club email<input id="mcClubEmail" inputmode="email" value="${esc(c.clubEmail || "")}"></label><label>Pro Shop email<input id="mcProEmail" inputmode="email" value="${esc(c.proEmail || "")}"></label><label>Golf professional’s name<input id="mcProName" value="${esc(c.proName || "")}"></label><label>Address / location<input id="mcaddress" value="${esc(c.address || "")}"></label><label>Google Maps link<input id="mcmap" value="${esc(c.mapLink || "")}"></label><label>Website<input id="mcweb" value="${esc(c.website || "")}"></label></div><label class="courseNotesLabel">Notes<textarea id="mcnotes" rows="4" placeholder="Course condition, greens cored, booking or clubhouse notes...">${esc(c.notes || "")}</textarea></label><label class="courseCategorySelect"><b>Select Tee Data — Men/Women</b><select id="courseDataCategory"><option value="men" ${category==="men"?"selected":""}>Men</option><option value="women" ${category==="women"?"selected":""}>Women</option></select></label>${category==="women"?`<button type="button" class="soft" id="copyMenToWomen">Copy Men’s Tee Data to Women’s</button><label class="cardCheckedConfirm"><input type="checkbox" id="womenDataChecked" ${categoryData.needsReview?"":"checked"}> Women’s ratings, pars, indexes and lengths checked against the official card</label>`:""}<h3>${category==="women"?"Women’s":"Men’s"} Tee Details</h3><p class="scorecardHelp">Choose the course marker colour, then enter each value. Press Enter to move to the next field.</p><table class="teeTable"><thead><tr><th>Tee</th><th>Colour</th><th>Slope</th><th>Scratch</th><th>Par</th><th>Length</th></tr></thead><tbody>${teeRow("back", "Back")}${teeRow("middle", "Middle")}${teeRow("front", "Front")}</tbody></table><div class="scorecardTeeHeading"><h3>Scorecard — Active Tee <span>${esc(teeMarkerColour(activeCardTee, c, category))}</span></h3><label>Scorecard tee<select id="scorecardTeeSelect">${cardOptions}</select></label></div><p class="scorecardHelp">Choose the tee card above. A new card copies the saved pars; enter its own indexes and lengths.</p><div class="courseDistanceControls"><label>Enter hole lengths in<select id="courseDistanceInput"><option value="metres" ${distanceInputUnit === "metres" ? "selected" : ""}>Metres</option><option value="yards" ${distanceInputUnit === "yards" ? "selected" : ""}>Yards</option></select></label><label>Save and display lengths as<select id="courseDistanceSave"><option value="metres" ${distanceSavedUnit === "metres" ? "selected" : ""}>${distanceInputUnit === "yards" ? "Convert to metres" : "Metres"}</option><option value="yards" ${distanceSavedUnit === "yards" ? "selected" : ""} ${distanceInputUnit === "yards" ? "" : "disabled"}>Keep yards as entered</option></select></label><small>1 yard = 0.9144 metres. Converted metres are rounded to whole metres for each hole. Totals add the saved hole lengths.</small></div><div class="scoreMini"><div class="scoreNineWrap">${scoreTable(1, 9, "Front Nine")}${scoreTable(10, 18, "Back Nine")}</div></div><div class="rowBtns" style="margin-top:12px"><button class="soft" id="saveCourseDraft">Save Draft</button><button class="primary" id="saveCourseModal">Save Completed Course</button>${c.mapLink ? `<button class="soft" id="openMapLink">Open Map</button>` : ""}<button class="soft" id="closeModal">Close</button></div>`;
     if (copyCardOptions)
       $(".scorecardTeeHeading").insertAdjacentHTML(
         "afterend",
-        `<div class="scorecardCopyRow"><label>Copy from tee<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><label>Copy<select id="copyScorecardMode"><option value="whole">Whole Card</option><option value="par">Par only</option><option value="index">Index only</option><option value="metres">Length only</option></select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c))}</button><small>Copy the whole card or only Par, Index or Length. A single-column copy keeps the other columns and tee ratings.</small></div>`,
+        `<div class="scorecardCopyRow"><label>Copy from tee<select id="copyScorecardFrom"><option value="">Choose tee</option>${copyCardOptions}</select></label><label>Copy<select id="copyScorecardMode"><option value="whole">Whole Card</option><option value="par">Par only</option><option value="index">Index only</option><option value="metres">Length only</option></select></label><button type="button" class="soft" id="copyScorecardButton">Copy into ${esc(teeMarkerColour(activeCardTee, c, category))}</button><small>Copy the whole card or only Par, Index or Length. A single-column copy keeps the other columns and tee ratings.</small></div>`,
       );
     $(".scoreMini")?.insertAdjacentHTML(
       "afterend",
@@ -4264,10 +4263,11 @@ Count-back if tied
         v.index[i] = $("#scIdx" + i).value.trim();
       }
       recordCourseDistances(v, Array.from({ length: 18 }, (_, i) => $("#scMet" + i).value), distanceInputUnit, distanceSavedUnit);
-      c.teeDetails[activeCardTee].length = v.metres.reduce((sum, value) => sum + (+value || 0), 0);
-      c.teeDetails[activeCardTee].par = v.par.reduce((sum, value) => sum + (+value || 0), 0);
+      categoryData.teeDetails[activeCardTee].length = v.metres.reduce((sum, value) => sum + (+value || 0), 0);
+      categoryData.teeDetails[activeCardTee].par = v.par.reduce((sum, value) => sum + (+value || 0), 0);
     };
     const captureCourseFields = () => {
+      if(category==="women")categoryData.needsReview=!$("#womenDataChecked").checked;
       c.name = gcCourseName($("#mcname").value.trim() || c.name);
       c.country = canonicalCourseCountry($("#mccountry").value);
       c.state = cleanCourseLocation($("#mcstate").value);
@@ -4284,23 +4284,23 @@ Count-back if tied
       c.website = $("#mcweb").value.trim();
       c.notes = $("#mcnotes").value.trim();
       for (const key of EVENT_TEES) {
-        c.teeDetails[key] = c.teeDetails[key] || {};
-        c.teeDetails[key].colour = $("#" + key + "Colour").value;
-        c.teeDetails[key].slope = $("#" + key + "Slope").value.trim();
-        c.teeDetails[key].scratch = $("#" + key + "Scratch").value.trim();
-        c.teeDetails[key].par = $("#" + key + "Par").value.trim();
-        const savedCard = c.teeScorecards?.[key];
-        if (savedCard) c.teeDetails[key].length = (savedCard.metres || []).reduce((sum, value) => sum + (+value || 0), 0);
+        categoryData.teeDetails[key] = categoryData.teeDetails[key] || {};
+        categoryData.teeDetails[key].colour = $("#" + key + "Colour").value;
+        categoryData.teeDetails[key].slope = $("#" + key + "Slope").value.trim();
+        categoryData.teeDetails[key].scratch = $("#" + key + "Scratch").value.trim();
+        categoryData.teeDetails[key].par = $("#" + key + "Par").value.trim();
+        const savedCard = categoryData.teeScorecards?.[key];
+        if (savedCard) categoryData.teeDetails[key].length = (savedCard.metres || []).reduce((sum, value) => sum + (+value || 0), 0);
       }
       captureVisibleCard();
     };
     const saveCourseDraft = (capture = true) => {
       if (!$("#saveCourseDraft")) return true;
       if (capture) captureCourseFields();
-      c.activeScorecardTee = activeCardTee;
+      categoryData.activeScorecardTee = activeCardTee;
       try {
         const savedAt = new Date().toISOString();
-        localStorage.setItem(draftKey, JSON.stringify({savedAt, course:c}));
+        localStorage.setItem(draftKey, JSON.stringify({savedAt, course:c,category}));
         $("#courseDraftStatus").textContent = "Draft saved on this device at " + new Date(savedAt).toLocaleTimeString() + ". You can close this editor and resume later. Completed cloud card unchanged.";
         return true;
       } catch (error) {
@@ -4308,6 +4308,8 @@ Count-back if tied
         return false;
       }
     };
+    $("#courseDataCategory").onchange=e=>{if(!saveCourseDraft())return;courseDetail(id,"",e.target.value);};
+    if($("#copyMenToWomen"))$("#copyMenToWomen").onclick=()=>{captureCourseFields();if(!confirm("Copy all saved Men’s tee ratings and hole cards into Women’s for this course? This replaces existing Women’s tee data in this draft. Check the women’s ratings, pars, indexes and lengths before saving."))return;const copied=GolfCourseCategories.copyMen(c);c.womenTeeData=copied.womenTeeData;if(!saveCourseDraft(false))return;courseDetail(id,"","women");};
     $("#saveCourseDraft").onclick = saveCourseDraft;
     $("#modalContent").oninput = saveCourseDraft;
     $("#modalContent").onchange = saveCourseDraft;
@@ -4335,10 +4337,10 @@ Count-back if tied
     $("#scorecardTeeSelect").onchange = (event) => {
       captureCourseFields();
       const nextTee = event.target.value;
-      courseScorecard(c, nextTee, true);
-      c.activeScorecardTee = nextTee;
+      courseScorecard(c, nextTee, true, category);
+      categoryData.activeScorecardTee = nextTee;
       if (!saveCourseDraft()) return;
-      courseDetail(id, nextTee);
+      courseDetail(id, nextTee, category);
     };
     if ($("#copyScorecardButton"))
       $("#copyScorecardButton").onclick = () => {
@@ -4347,13 +4349,13 @@ Count-back if tied
           alert("Choose the tee scorecard you want to copy from.");
           return;
         }
-        const source = courseScorecard(c, sourceTee);
+        const source = courseScorecard(c, sourceTee, false, category);
         if (!source) return;
         const selection = $("#copyScorecardMode").value;
         const labels = { whole: "the whole card", par: "only the Par column", index: "only the Index column", metres: "only the Length column" };
         if (!Object.hasOwn(labels, selection)) return;
-        const sourceColour = teeMarkerColour(sourceTee, c),
-          destinationColour = teeMarkerColour(activeCardTee, c);
+        const sourceColour = teeMarkerColour(sourceTee, c, category),
+          destinationColour = teeMarkerColour(activeCardTee, c, category);
         if (
           !confirm(
             `Copy ${labels[selection]} from ${sourceColour} into ${destinationColour}?\n\n${selection === "whole" ? "This replaces all 18 pars, indexes and hole lengths." : "This replaces only that column. Other columns and tee ratings stay unchanged."}`,
@@ -4362,7 +4364,7 @@ Count-back if tied
           return;
         captureCourseFields();
         if (selection === "whole") {
-          c.teeScorecards[activeCardTee] = cloneCourseCard(source, activeCardTee);
+          categoryData.teeScorecards[activeCardTee] = cloneCourseCard(source, activeCardTee);
         } else if (selection === "metres") {
           const distances = cloneCourseCard(source, activeCardTee);
           v.metres = distances.metres;
@@ -4373,12 +4375,12 @@ Count-back if tied
         } else {
           v[selection] = Array.from({ length: 18 }, (_, i) => source[selection]?.[i] ?? "");
         }
-        const result = c.teeScorecards[activeCardTee];
-        c.teeDetails[activeCardTee].par = result.par.reduce((sum, value) => sum + (+value || 0), 0);
-        c.teeDetails[activeCardTee].length = result.metres.reduce((sum, value) => sum + (+value || 0), 0);
-        c.activeScorecardTee = activeCardTee;
+        const result = categoryData.teeScorecards[activeCardTee];
+        categoryData.teeDetails[activeCardTee].par = result.par.reduce((sum, value) => sum + (+value || 0), 0);
+        categoryData.teeDetails[activeCardTee].length = result.metres.reduce((sum, value) => sum + (+value || 0), 0);
+        categoryData.activeScorecardTee = activeCardTee;
         if (!saveCourseDraft(false)) return;
-        courseDetail(id, activeCardTee);
+        courseDetail(id, activeCardTee, category);
       };
     const entryOrder = [];
     for (let i = 0; i < 18; i++)
@@ -4413,8 +4415,8 @@ Count-back if tied
         return;
       }
       captureCourseFields();
-      const cardChecks = Object.keys(c.teeScorecards || {}).map(tee => ({tee, ...validateCourseScorecard(c, tee)}));
-      const cardCheck = {ok:cardChecks.every(check => check.ok), issues:cardChecks.flatMap(check => check.issues.map(issue => teeMarkerColour(check.tee,c) + ": " + issue))};
+      const cardChecks = ["men","women"].flatMap(cat=>Object.keys(GolfCourseCategories.data(c,cat).teeScorecards||{}).map(tee=>({tee,category:cat,...validateCourseScorecard(c,tee,cat)})));
+      const cardCheck = {ok:cardChecks.every(check => check.ok), issues:cardChecks.flatMap(check => check.issues.map(issue => check.category + " · " + teeMarkerColour(check.tee,c,check.category) + ": " + issue))};
       if (!cardCheck.ok) {
         alert(
           "The scorecard cannot be saved yet:\n\n" +
@@ -4425,7 +4427,7 @@ Count-back if tied
         );
         return;
       }
-      c.activeScorecardTee = activeCardTee;
+      categoryData.activeScorecardTee = activeCardTee;
       addCourseCountry(c.country);
       if (!locationIssues.length) { delete c.locationRequired; c.locationIdentified = true; }
       const previous = JSON.parse(JSON.stringify(acceptedCourse));
@@ -4618,6 +4620,7 @@ Count-back if tied
       newEvent: true,
       event: {
         name: "",
+        courseCategoryVersion: 1,
         date: new Date().toISOString().slice(0, 10),
         days: 1,
         startMethod: "single",
@@ -4659,6 +4662,7 @@ Count-back if tied
   function reopenEventPlan() {
     if (!store.event) return openWizard();
     const e = JSON.parse(JSON.stringify(store.event));
+    if(!e.locked&&!eventDays(e).some(day=>dayHasScoreEntries(day)))e.courseCategoryVersion=1;
     e.singleStablefordFormat =
       e.singleStablefordFormat || (e.days > 1 ? "aggregate" : "daily");
     W = {
@@ -5130,7 +5134,7 @@ Count-back if tied
       W.event["course" + day] ??= W.event.course1 || activeCourses()[0]?.id || "";
     }
     $("#wizardBody").innerHTML = `<h3>Event details</h3>
-      <label>Event name<input id="weName" value="${esc(W.event.name)}" placeholder="e.g. Vietnam Golf Trip"></label>
+      <label>Event name<input id="weName" value="${esc(W.event.name)}" placeholder="Give Your Trip a Name to Remember"></label>
       <div class="grid3"><label>Start date<input id="weDate" type="date" value="${esc(W.event.date)}"></label>
       <label>Event length<select id="weDays">${Array.from({length:7}, (_, i) => `<option value="${i+1}" ${W.event.days===i+1?"selected":""}>${i+1} playing day${i?"s":""}</option>`).join("")}</select></label>
       <label>Size of Field<div class="fieldSizeStepper"><button type="button" id="weFieldMinus">−</button><input id="weField" type="number" min="3" max="60" value="${W.event.fieldSize}"><button type="button" id="weFieldPlus">+</button></div></label></div>
@@ -5603,7 +5607,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       try {
         const tee=$(`[data-proposedtee="${id}"]`).value,raw=$(`[data-proposedhcp="${id}"]`).value;
         if(raw.trim()==='')throw Error('Enter the proposed handicap.');
-        const category=$(`[data-eventgacategory="${id}"]`).value,handicap=Number(raw),rating=teeRatingForDailyHandicap(day,tee,W.event);
+        const category=$(`[data-eventgacategory="${id}"]`).value,handicap=Number(raw),rating=teeRatingForDailyHandicap(day,tee,W.event,category);
         const ga=estimateEventGa(handicap,rating,category,calculateDailyHandicap);
         W.event.gaHandicaps[id]=ga;W.event.gaCategories[id]=category;
         W.event.proposedHandicaps=W.event.proposedHandicaps||{};W.event.proposedHandicaps[id]={day,courseId:W.event['course'+day],tee,handicap,category,ga};
@@ -5618,7 +5622,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     for(const id of ids){
       if(!player(id)?.noOfficialHandicap)continue;
       const a=W.event.proposedHandicaps?.[id];
-      if(!a||String(a.courseId)!==String(W.event['course'+a.day])||!enabledEventTees(W.event,a.day).includes(a.tee)||a.category!==eventGaCategory(id,W.event)||calculateDailyHandicap(eventGaHandicap(id,W.event),teeRatingForDailyHandicap(a.day,a.tee,W.event),a.category)!==a.handicap){
+      if(!a||String(a.courseId)!==String(W.event['course'+a.day])||!enabledEventTees(W.event,a.day).includes(a.tee)||a.category!==eventGaCategory(id,W.event)||calculateDailyHandicap(eventGaHandicap(id,W.event),teeRatingForDailyHandicap(a.day,a.tee,W.event,a.category),a.category)!==a.handicap){
         alert(`Set the proposed tee handicap for ${player(id)?.name || 'this player'} first. Recheck it if the course, tee ratings or category has changed.`);return false;
       }
     }
@@ -5696,7 +5700,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const value = eventGaHandicap(id, W.event),
         plus = Number(value) < 0,
         category = eventGaCategory(id, W.event);
-      return `<div class="eventGaRow"><span><b>${esc(player(id)?.name || "")}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men/Boys</option><option value="women" ${category === "women" ? "selected" : ""}>Women/Girls</option></select></div>${gesProposedHandicapRow(id,day)}`;
+      return `<div class="eventGaRow"><span><b>${esc(player(id)?.name || "")}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
     }).join("");
     const rows = ids
       .map((id) => {
@@ -5776,12 +5780,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (missingGa.length)
         return alert(`Enter a GA Handicap for: ${missingGa.map((id) => player(id)?.name || "Player").join(", ")}.`);
       const ratingIssues = [];
-      for (let d = 1; d <= (W.event.days || 1); d++)
-        for (const tee of enabledEventTees(W.event, d)) {
-          const rating = teeRatingForDailyHandicap(d, tee, W.event);
-          if (!rating.valid)
-            ratingIssues.push(`${rating.courseName} — ${rating.teeColour}`);
-        }
+      for(let d=1;d<=(W.event.days||1);d++)for(const tee of enabledEventTees(W.event,d))for(const category of new Set(allIds.map(id=>eventGaCategory(id,W.event)))){
+        const rating=teeRatingForDailyHandicap(d,tee,W.event,category);if(!rating.valid)ratingIssues.push(`${rating.courseName} — ${rating.teeColour}`);
+      }
       if (ratingIssues.length)
         return alert(`Daily Handicaps cannot be calculated yet. Enter Slope, Scratch Rating and Par in Course Details for:\n\n${ratingIssues.join("\n")}`);
       if (!confirm("Calculate every player's Daily Handicap for all enabled tees on all event days? Existing tee handicaps will be replaced, but you can still edit any result manually afterwards.")) return;
@@ -6436,7 +6437,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function renderStep6() {
     ensureEventTeePlanning(W.event);
     const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
-      cardResults = days.map(day=>{ const c=course(W.event["course"+day]); return c && validateCourseScorecard(c,selectedEventTee(day,W.event)); }),
+      cardResults = days.flatMap(day=>eventCardChecks(day,W.event)),
       cardsValid = cardResults.every(result=>result?.ok),
       checks = [
         {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
@@ -8062,7 +8063,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       scorer = String(scorerId || ids[0] || ""),
       targetId = markerTargetFor(scorer, day),
       c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day),
+      v = eventCourseScorecard(day,store.event,scorer),
       existing = Object.keys(scoringDayStore(day)?.[scorer] || {}).filter(
         (x) => /^\d+$/.test(x),
       ).length;
@@ -8283,12 +8284,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function manualSelectedCompetitions(day = store.event?.liveControlDay || 1) {
     return new Set((store.event?.competitions || []).filter(id=>competitionIsOn(id,day)));
   }
-  function manualPar3Holes(day) {
-    const v = eventCourseScorecard(day);
-    return Array.from({ length: 18 }, (_, i) => i + 1).filter(
-      (hole) => +v.par?.[hole - 1] === 3,
-    );
+  function manualPar3Holes(day, id = null) {
+    const ids=id==null?dayFieldIds(day).filter(x=>String(x)!==NO_PARTNER_ID):[id];
+    const cards=ids.length?ids.map(pid=>eventCourseScorecard(day,store.event,pid)):[eventCourseScorecard(day)];
+    return Array.from({length:18},(_,i)=>i+1).filter(hole=>cards.some(v=>+v.par?.[hole-1]===3));
   }
+
   function manualPlayerSummary(day, playerId, type) {
     const card = manualCardForPlayer(day, playerId);
     return card?.players?.[String(playerId)]?.[type] || null;
@@ -8298,7 +8299,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         String(playerId)
       ]?.par3?.[String(hole)];
     if (gross === "" || gross == null) return null;
-    const v = eventCourseScorecard(day);
+    const v = eventCourseScorecard(day,store.event,playerId);
+    if(+v.par?.[hole-1]!==3)return 0;
     return stablefordPoints(
       gross,
       +(v.par?.[hole - 1] || 0),
@@ -8373,10 +8375,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function deriveManualFullCards(day, groupIndex, card, req) {
     if (!card.fullCardsOpen) return;
-    const v = eventCourseScorecard(day),
-      points = {};
+    const points = {};
     req.ids.forEach((id) => {
-      const gross = card.players?.[id]?.fullGross || {};
+      const gross = card.players?.[id]?.fullGross || {},v=eventCourseScorecard(day,store.event,id);
       points[id] = Array.from({ length: 18 }, (_, index) => {
         const value = gross[String(index + 1)];
         return value === "" || value == null
@@ -10074,7 +10075,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       cardsChecked =
         Boolean(event.scorecardsChecked) &&
         cards.length > 0 &&
-        cards.every(({ item, tee }) => validateCourseScorecard(item, tee).ok),
+        eventDays(event).every(day=>eventCardChecks(day,event).every(check=>check.ok)),
       firstTeeText = Array.from({ length: event.days || 1 }, (_, index) => {
         const day = index + 1,
           hole = +(startHolesFor(event, day)[0] || 1),
@@ -10909,7 +10910,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const nextDay = eventDays().find(next => next > day && dayFieldIds(next).includes(String(selected)) && !eventDayComplete(next));
     const p = eventPlayer(selected,day),
       c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day),
+      v = eventCourseScorecard(day,store.event,selected),
       hcp = playerDailyHandicap(selected, day),
       ctx = playerGroupContext(selected, day),
       start = ctx?.setup?.starts?.[ctx.groupIndex] || 1,
@@ -10965,7 +10966,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function scorecardVerificationRows(day, playerId) {
     const c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day),
+      v = eventCourseScorecard(day,store.event,playerId),
       mine = scorerStore(day, playerId),
       puttsRequired = competitionIsOn("teamPutts", day),
       hcp = playerDailyHandicap(playerId, day);
@@ -11282,7 +11283,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!p || !ctx) return renderPlayerExperience();
     const setup = ctx.setup,
       c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day),
+      v = eventCourseScorecard(day,store.event,selected),
       start = groupStartingHole(store.event, day, ctx.groupIndex),
       seq = scoreSequence(start);
     let pos = Math.max(0, Math.min(17, store.event.playerHolePos || 0)),
@@ -11290,6 +11291,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       idx = hole - 1,
       rec = scoreRecord(day, selected, hole),
       targetId = markerTargetFor(selected, day),
+      targetCard = eventCourseScorecard(day,store.event,targetId),
       target = eventPlayer(targetId,day),
       hcpSelf = playerDailyHandicap(selected, day),
       hcpTarget = playerDailyHandicap(targetId, day);
@@ -11306,10 +11308,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ntpPrizeStatus = ntpPrize
         ? `${ntpPrize}${ntpState?.carried ? ` (${ntpState.base} + ${ntpState.carried} jackpot)` : ""}`
         : "";
+    const targetHoleInfo=eventCourseCategory(day,store.event,selected)!==eventCourseCategory(day,store.event,targetId)?`<p class="scoringCategoryInfo">${esc(target?.name||"Marked player")} · ${eventCourseCategory(day,store.event,targetId)==="women"?"Women":"Men"} · Par ${targetCard.par?.[idx]||"—"} · Index ${esc(targetCard.index?.[idx]||"—")} · ${courseHoleDistance(targetCard,idx)||"—"} ${courseDistanceAbbrev(targetCard)}</p>`:"";
     const sfOff = stablefordPoints(
         rec.official.gross,
-        par,
-        indexVal,
+        +targetCard.par?.[idx]||0,
+        targetCard.index?.[idx]??"",
         hcpTarget,
       ),
       sfSelf = stablefordPoints(rec.self.gross, par, indexVal, hcpSelf);
@@ -11324,11 +11327,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
             String(item.playerId || "") !== String(playerId || "")
           )
             return total;
-          const i = h - 1,
+          const i = h - 1,card=eventCourseScorecard(day,store.event,playerId),
             pts = stablefordPoints(
               item.gross,
-              +(v.par?.[i] || 0),
-              v.index?.[i] ?? "",
+              +(card.par?.[i] || 0),
+              card.index?.[i] ?? "",
               hcp,
             ),
             putts =
@@ -11345,7 +11348,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       day === 2 && (store.event.competitions || []).includes("eclectic");
     const eclecticData = (playerId) => {
       if (!eclecticOn) return null;
-      const day1Version = eventCourseScorecard(1),
+      const day1Version = eventCourseScorecard(1,store.event,playerId),
         day1Hcp = playerDailyHandicap(playerId, 1);
       const points = (h) => {
         const e = playerHoleEntry(1, playerId, h),
@@ -11361,11 +11364,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
         values = playedHoles.map((h) => {
           const d1 = points(h),
             d2Entry = playerHoleEntry(2, playerId, h),
+            d2Card=eventCourseScorecard(2,store.event,playerId),
             i = h - 1,
             d2 = stablefordPoints(
               d2Entry?.gross,
-              +(v.par?.[i] || 0),
-              v.index?.[i] ?? "",
+              +(d2Card.par?.[i] || 0),
+              d2Card.index?.[i] ?? "",
               playerDailyHandicap(playerId, 2),
             );
           return d1 == null && d2 == null ? null : Math.max(d1 ?? 0, d2 ?? 0);
@@ -11406,7 +11410,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const puttsThrough = (pid) => {
       let sum = 0;
       for (const h of playedHoles) {
-        const e = playerHoleEntry(day, pid, h);
+        const e = playerHoleEntry(day, pid, h),card=eventCourseScorecard(day,store.event,pid);
         if (e?.putts === "" || e?.putts == null) return null;
         sum += +e.putts || 0;
       }
@@ -11431,11 +11435,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const i = h - 1,
         values = teamIds
           .map((pid) => {
-            const e = playerHoleEntry(day, pid, h);
+            const e = playerHoleEntry(day, pid, h),card=eventCourseScorecard(day,store.event,pid);
             return stablefordPoints(
               e?.gross,
-              +(v.par?.[i] || 0),
-              v.index?.[i] ?? "",
+              +(card.par?.[i] || 0),
+              card.index?.[i] ?? "",
               playerDailyHandicap(pid, day),
             );
           })
@@ -11546,8 +11550,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
       : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
- <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, par, stepper, pickup)}</div>
+ ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
  ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
@@ -11707,7 +11711,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
   }
   function leaderboardPlayerPoints(day, pid) {
-    const v = eventCourseScorecard(day),
+    const v = eventCourseScorecard(day,store.event,pid),
       hcp = playerDailyHandicap(pid, day);
     return Array.from({ length: 18 }, (_, i) => {
       const e = findOfficialForPlayer(day, pid, i + 1);
@@ -12041,7 +12045,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         return field(day).includes(id) && (max == null || (hcp != null && hcp <= max));
       })).map(id => {
         const rounds = days.map(day => {
-          const card = eventCourseScorecard(day), hcp = playerDailyHandicap(sharedActualId(id,day), day),
+          const card = eventCourseScorecard(day,store.event,id), hcp = playerDailyHandicap(sharedActualId(id,day), day),
             eligible = field(day).includes(id) && (max == null || (hcp != null && hcp <= max)),
             pickup = store.event.scratchScoringMode === "maxDoubleBogey" ? null : scratchPickupHole(day, sharedActualId(id,day)),
             holes = eligible && !pickup ? scratchGrossScores(day, sharedActualId(id,day), card) : Array(18).fill(null),
@@ -12087,7 +12091,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           return max == null || (hcp != null && hcp <= max);
         })
         .map((id) => {
-          const scores = scratchGrossScores(def.day, id, v),
+          const card=eventCourseScorecard(def.day,store.event,id),scores = scratchGrossScores(def.day, id, card),
             r = leaderRow(id, eventPlayerName(id, def.day || null), "", scores),
             pickup =
               store.event?.scratchScoringMode === "maxDoubleBogey"
@@ -12095,7 +12099,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
                 : scratchPickupHole(def.day, id);
           r.grossTotal = r.total;
           r.total = scores.reduce(
-            (n, g, i) => n + (g == null ? 0 : g - (+v.par?.[i] || 0)),
+            (n, g, i) => n + (g == null ? 0 : g - (+card.par?.[i] || 0)),
             0,
           );
           r.scratchToPar = r.total;
@@ -12233,10 +12237,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return rows;
     }
     if (["par3", "par3team"].includes(def.type)) {
-      const v = eventCourseScorecard(def.day),
-        ix = Array.from({ length: 18 }, (_, i) => i).filter(
-          (i) => +v.par?.[i] === 3,
-        );
+      const ix=manualPar3Holes(def.day).map(h=>h-1);
       rows = leaderboardUnits(def.day, def.type === "par3team" ? "team" : "pair").map((u) =>
         leaderRow(
           u.id,
@@ -12244,6 +12245,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           u.detail,
           ix.map((i) => {
             const vals = u.ids.map((id) => {
+              if(+eventCourseScorecard(def.day,store.event,id).par?.[i]!==3)return 0;
               const manual = manualPar3Point(def.day, id, i + 1);
               return manual == null ? points(def.day, id)[i] : manual;
             });
@@ -12262,10 +12264,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : String(id);
       };
       const ix = (d) => {
-        const v = eventCourseScorecard(d);
-        return Array.from({ length: 18 }, (_, i) => i).filter(
-          (i) => +v.par?.[i] === 3,
-        );
+        return manualPar3Holes(d).map(h=>h-1);
       };
       const units = def.type === "par3aggregate" ? leaderboardUnits(store.event.days, "pair", true) : [...new Set(eventDays().flatMap(field))].map(id => ({id, name:eventPlayerName(id, def.day || null), ids:[id]}));
       rows = units.map((u) => {
@@ -12280,6 +12279,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
               return;
             }
             const vals = effectiveIds.map((effectiveId) => {
+              if(+eventCourseScorecard(d,store.event,effectiveId).par?.[i]!==3)return 0;
               if (!field(d).includes(sharedPositionId(effectiveId))) return 0; // A scheduled rest day has no score; pending playing-day scores remain null.
               const manual = manualPar3Point(d, effectiveId, i + 1);
               return manual == null ? points(d, effectiveId)[i] : manual;

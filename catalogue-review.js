@@ -3,7 +3,7 @@
   const text=value=>value==null?'':String(value).trim();
   const pair=(label,left,right)=>({label,left:text(left),right:text(right),different:text(left)!==text(right)});
   const card=(doc,tee)=>doc.teeScorecards?.[tee] || (tee==='middle'?(doc.versions||[]).find(v=>String(v.id)===String(doc.activeVersionId))||doc.versions?.[0]:null);
-  function comparison(left={},right={}) {
+  function comparison(left={},right={},nested=false) {
     const fields=[['name','Course name'],['country','Country'],['state','State / Province'],['region','Region / Area'],['address','Address'],['website','Website'],['clubPhone','Club phone'],['clubEmail','Club email'],['phone','Phone'],['email','Email'],['proName','Professional'],['proPhone','Pro shop phone'],['proEmail','Pro shop email'],['mapLink','Map link'],['notes','Notes'],['available','Available']];
     const metadata=fields.map(([key,label])=>pair(label,key==='country'?left[key]||'Australia':left[key],key==='country'?right[key]||'Australia':right[key])).filter(r=>r.left||r.right);
     const keys=[...new Set(['back','middle','front',...Object.keys(left.teeScorecards||{}),...Object.keys(right.teeScorecards||{}),...Object.keys(left.teeDetails||{}),...Object.keys(right.teeDetails||{})])];
@@ -15,6 +15,9 @@
       const holes=a||b?Array.from({length:18},(_,i)=>({hole:i+1,values:columns.map(([key,label])=>pair(label,a?.[key]?.[i],b?.[key]?.[i]))})):[];
       return {tee,info,columns,holes};
     }).filter(Boolean);
+    if(!nested&&(left.womenTeeData||right.womenTeeData)){
+      const women=comparison(left.womenTeeData||{},right.womenTeeData||{},true);tees.push(...women.tees.map(t=>({...t,tee:'Women — '+t.tee})));metadata.push(pair('Women’s copied data awaiting review',left.womenTeeData?.needsReview?'Yes':'No',right.womenTeeData?.needsReview?'Yes':'No'));
+    }
     return {metadata,tees,differences:metadata.filter(r=>r.different).length+tees.reduce((n,t)=>n+t.info.filter(r=>r.different).length+t.holes.reduce((s,h)=>s+h.values.filter(v=>v.different).length,0),0)};
   }
   if(typeof module!=='undefined')module.exports={comparison};
