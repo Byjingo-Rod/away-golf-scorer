@@ -4426,7 +4426,10 @@ Count-back if tied
         return;
       }
       captureCourseFields();
-      const cardChecks = ["men","women"].flatMap(cat=>Object.keys(GolfCourseCategories.data(c,cat).teeScorecards||{}).map(tee=>({tee,category:cat,...validateCourseScorecard(c,tee,cat)})));
+      const cardChecks = ["men","women"].flatMap(cat=>{
+        const categoryCourse=GolfCourseCategories.data(c,cat), activeTees=new Set(GolfCourseCategories.positions(categoryCourse));
+        return Object.keys(categoryCourse.teeScorecards||{}).filter(tee=>activeTees.has(tee)).map(tee=>({tee,category:cat,...validateCourseScorecard(c,tee,cat)}));
+      });
       const cardCheck = {ok:cardChecks.every(check => check.ok), issues:cardChecks.flatMap(check => check.issues.map(issue => check.category + " · " + teeMarkerColour(check.tee,c,check.category) + ": " + issue))};
       if (!cardCheck.ok) {
         alert(
