@@ -4,14 +4,20 @@
   const pair=(label,left,right)=>({label,left:text(left),right:text(right),different:text(left)!==text(right)});
   const card=(doc,tee)=>doc.teeScorecards?.[tee] || (tee==='middle'?(doc.versions||[]).find(v=>String(v.id)===String(doc.activeVersionId))||doc.versions?.[0]:null);
   const teeLabel=(doc,tee,fallback='')=>globalThis.GolfCourseCategories?.positionLabel?.(doc,tee)||text(fallback)||tee;
+  const activeTeeKeys=(left,right)=>{
+    const api=globalThis.GolfCourseCategories;
+    if(!api?.positionCount||!api?.positions)return [...new Set(['back','middle','front',...Object.keys(left.teeScorecards||{}),...Object.keys(right.teeScorecards||{})])];
+    const count=Math.max(api.positionCount(left),api.positionCount(right));
+    return api.positions({teePositionCount:count});
+  };
   function comparison(left={},right={},nested=false) {
     const fields=[['name','Course name'],['country','Country'],['state','State / Province'],['region','Region / Area'],['address','Address'],['website','Website'],['clubPhone','Club phone'],['clubEmail','Club email'],['phone','Phone'],['email','Email'],['proName','Professional'],['proPhone','Pro shop phone'],['proEmail','Pro shop email'],['mapLink','Map link'],['notes','Notes'],['available','Available']];
     const metadata=fields.map(([key,label])=>pair(label,key==='country'?left[key]||'Australia':left[key],key==='country'?right[key]||'Australia':right[key])).filter(r=>r.left||r.right);
-    const keys=[...new Set(['back','middle','front',...Object.keys(left.teeScorecards||{}),...Object.keys(right.teeScorecards||{}),...Object.keys(left.teeDetails||{}),...Object.keys(right.teeDetails||{})])];
+    const keys=activeTeeKeys(left,right),sharedPositions={teePositionCount:keys.length};
     const tees=keys.map(tee=>{
       const a=card(left,tee),b=card(right,tee),ai=left.teeDetails?.[tee]||{},bi=right.teeDetails?.[tee]||{};
       if(!a&&!b&&!Object.values(ai).some(v=>text(v))&&!Object.values(bi).some(v=>text(v)))return null;
-      const leftName=teeLabel(left,tee,ai.name??a?.name),rightName=teeLabel(right,tee,bi.name??b?.name);
+      const positionName=teeLabel(sharedPositions,tee,ai.name??bi.name??a?.name??b?.name),leftName=positionName,rightName=positionName;
       const info=[pair('Card stored',a?'Yes':'No',b?'Yes':'No'),pair('Tee name',leftName,rightName),...['colour','slope','scratch','par','length'].map(key=>pair({colour:'Tee colour',slope:'Slope',scratch:'Scratch rating',par:'Total par',length:'Tee length'}[key],ai[key]??a?.[key],bi[key]??b?.[key])),pair('Display unit',a?.distanceUnit|| (a?'metres':''),b?.distanceUnit||(b?'metres':'')),pair('Input unit',a?.distanceInputUnit||(a?'metres':''),b?.distanceInputUnit||(b?'metres':''))];
       const columns=[['par','Par'],['index','Index'],['metres','Metres']];if(a?.yards||b?.yards)columns.push(['yards','Yards']);
       const holes=a||b?Array.from({length:18},(_,i)=>({hole:i+1,values:columns.map(([key,label])=>pair(label,a?.[key]?.[i],b?.[key]?.[i]))})):[];
