@@ -1686,8 +1686,9 @@
   }
   function installOfficialLongReefDraft() {
     const longReef = (store.courses || []).find(c => /^long reef(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
-    if (!longReef || store.courseLibrary?.bases?.[String(longReef.id)]) return false;
-    let changed = applyOfficialLongReefCard(longReef);
+    if (!longReef) return false;
+    const cloudBase = Boolean(store.courseLibrary?.bases?.[String(longReef.id)]);
+    let changed = cloudBase ? false : applyOfficialLongReefCard(longReef);
     const draftKey = "awayGolfCourseDraft:" + longReef.id;
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -1753,8 +1754,9 @@
   }
   function installOfficialAsquithDraft() {
     const asquith = (store.courses || []).find(c => /^asquith(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
-    if (!asquith || store.courseLibrary?.bases?.[String(asquith.id)]) return false;
-    let changed = applyOfficialAsquithCard(asquith);
+    if (!asquith) return false;
+    const cloudBase = Boolean(store.courseLibrary?.bases?.[String(asquith.id)]);
+    let changed = cloudBase ? false : applyOfficialAsquithCard(asquith);
     const draftKey = "awayGolfCourseDraft:" + asquith.id;
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -1825,8 +1827,9 @@
   }
   function installOfficialBayviewDraft() {
     const bayview = (store.courses || []).find(c => /^bayview(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
-    if (!bayview || store.courseLibrary?.bases?.[String(bayview.id)]) return false;
-    let changed = applyOfficialBayviewCard(bayview);
+    if (!bayview) return false;
+    const cloudBase = Boolean(store.courseLibrary?.bases?.[String(bayview.id)]);
+    let changed = cloudBase ? false : applyOfficialBayviewCard(bayview);
     const draftKey = "awayGolfCourseDraft:" + bayview.id;
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
@@ -1888,8 +1891,9 @@
   }
   function installOfficialBathurstDraft() {
     const bathurst = (store.courses || []).find(c => /^bathurst(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
-    if (!bathurst || store.courseLibrary?.bases?.[String(bathurst.id)]) return false;
-    let changed = applyOfficialBathurstCard(bathurst);
+    if (!bathurst) return false;
+    const cloudBase = Boolean(store.courseLibrary?.bases?.[String(bathurst.id)]);
+    let changed = cloudBase ? false : applyOfficialBathurstCard(bathurst);
     const draftKey = "awayGolfCourseDraft:" + bathurst.id;
     try {
       const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
