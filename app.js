@@ -1630,6 +1630,76 @@
     return false;
   }
   enforceAuthoritativeOatlandsCard();
+
+  // Official Long Reef card supplied by the organiser. Apply it to the named
+  // on-device draft once, including the separately stored course-editor draft,
+  // so the organiser can review and publish it through the normal signed-in
+  // Save Completed Course action.
+  const LONG_REEF_CARD_2026 = {
+    men: {
+      par: [5,3,4,4,4,4,3,4,5,3,4,4,3,4,5,4,4,4],
+      index: ["6/22","11/34","15/30","8/24","7/21","17/32","3/31","16/33","18/36","1/27","14/29","12/25","10/35","9/26","13/28","4/20","2/19","5/23"],
+      tees: {
+        back: {colour:"Black",slope:"133",scratch:"73",metres:[450,152,315,393,352,271,178,298,444,217,374,347,138,390,462,415,400,359]},
+        middle: {colour:"Blue",slope:"130",scratch:"72",metres:[441,139,303,382,341,263,173,292,438,208,367,330,129,385,454,399,391,347]},
+        front: {colour:"White",slope:"129",scratch:"71",metres:[430,125,285,377,325,247,160,282,429,167,345,321,112,385,427,387,369,325]},
+        tee4: {colour:"Gold",slope:"120",scratch:"68",metres:[422,111,255,323,287,233,112,273,384,152,336,278,93,377,360,367,314,266]},
+      },
+    },
+    women: {
+      par: [5,3,4,5,4,4,3,4,5,3,4,4,3,4,5,5,4,4],
+      index: ["2","15","16","13","4","12","18","9","6","11","8","10","17","1","7","14","3","5"],
+      tees: {
+        back: {colour:"Red",slope:"134",scratch:"76",metres:[433,134,261,366,292,257,120,286,426,169,358,302,99,372,372,404,340,312]},
+        middle: {colour:"Gold",slope:"129",scratch:"73",metres:[422,111,255,323,287,233,112,273,384,152,336,278,93,377,360,367,314,266]},
+      },
+    },
+  };
+  function applyOfficialLongReefCard(courseRecord) {
+    if (!courseRecord || courseRecord.scorecardAuthorityVersion === "15.95.40-long-reef-v1") return false;
+    ensureCourseData(courseRecord);
+    const installCategory = (category, definition) => {
+      const target = GolfCourseCategories.data(courseRecord, category, true);
+      target.teePositionCount = Object.keys(definition.tees).length;
+      target.teeDetails ||= {};
+      target.teeScorecards ||= {};
+      for (const [tee, details] of Object.entries(definition.tees)) {
+        const total = details.metres.reduce((sum, value) => sum + value, 0);
+        target.teeDetails[tee] = {...(target.teeDetails[tee] || {}),name:GolfCourseCategories.labels[tee],colour:details.colour,slope:details.slope,scratch:details.scratch,par:String(definition.par.reduce((sum,value)=>sum+value,0)),length:total};
+        target.teeScorecards[tee] = {tee,par:[...definition.par],index:[...definition.index],metres:[...details.metres],distanceUnit:"metres",distanceInputUnit:"metres"};
+      }
+      target.activeScorecardTee = "back";
+      if (category === "women") target.needsReview = false;
+    };
+    installCategory("men", LONG_REEF_CARD_2026.men);
+    installCategory("women", LONG_REEF_CARD_2026.women);
+    const black = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `long-reef-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Official Long Reef scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
+    courseRecord.country = courseRecord.country || "Australia";
+    courseRecord.state = courseRecord.state || "NSW";
+    courseRecord.region = courseRecord.region || "Sydney";
+    courseRecord.website = courseRecord.website || "https://longreefgolfclub.com.au/";
+    courseRecord.scorecardAuthorityVersion = "15.95.40-long-reef-v1";
+    return true;
+  }
+  function installOfficialLongReefDraft() {
+    const longReef = (store.courses || []).find(c => /^long reef(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
+    if (!longReef || store.courseLibrary?.bases?.[String(longReef.id)]) return false;
+    let changed = applyOfficialLongReefCard(longReef);
+    const draftKey = "awayGolfCourseDraft:" + longReef.id;
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
+      if (draft?.course?.id === longReef.id && applyOfficialLongReefCard(draft.course)) {
+        draft.savedAt = new Date().toISOString();
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+  installOfficialLongReefDraft();
   writeLocalStore();
 
   let cloudReady = false,
