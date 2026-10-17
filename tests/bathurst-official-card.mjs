@@ -15,4 +15,5 @@ for(const [colour,total] of cards){
 assert(block.includes('scratch:"71"'),'Men’s ACR is wrong');
 assert(block.includes('scratch:"73"'),'Women’s AWCR is wrong');
 assert(source.includes('scorecardAuthorityVersion = "15.95.43-bathurst-v1"'),'Bathurst installation must be one-time');
+assert(source.includes('let changed = cloudBase ? false : applyOfficialBathurstCard(bathurst)'),'Cloud master must be protected while its editor draft remains updateable');
 console.log('Bathurst official card test passed');
