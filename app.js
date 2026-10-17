@@ -1767,6 +1767,78 @@
     return changed;
   }
   installOfficialAsquithDraft();
+
+  // Official Bayview card supplied by the organiser. The source display
+  // repeats women's index 8 at holes 7 and 15 and omits 10; hole 15 uses the
+  // missing index 10 so the women's card remains a valid 1–18 sequence.
+  const BAYVIEW_CARD_2026 = {
+    men: {
+      par: [4,5,4,3,4,4,4,3,4,3,4,3,4,5,5,4,4,4],
+      index: ["1","12","4","7","15","3","8","14","9","6","18","5","13","17","11","16","2","10"],
+      tees: {
+        back: {colour:"Black",slope:"133",scratch:"73",metres:[397,470,343,170,305,325,375,137,377,210,211,192,329,430,493,300,413,326]},
+        middle: {colour:"Blue",slope:"128",scratch:"71",metres:[375,442,335,165,285,317,346,135,364,191,198,186,329,419,479,286,404,326]},
+        front: {colour:"Red",slope:"126",scratch:"70",metres:[378,432,323,162,280,309,331,107,356,210,207,172,320,404,424,247,412,294]},
+        tee4: {colour:"White",slope:"128",scratch:"68",metres:[350,415,318,162,275,317,315,110,354,171,138,186,317,407,425,270,413,269]},
+        tee5: {colour:"Gold",slope:"121",scratch:"67",metres:[350,405,313,150,273,291,315,86,326,183,175,166,290,392,365,237,381,278]},
+      },
+    },
+    women: {
+      par: [5,5,4,3,4,4,4,3,4,4,4,3,4,4,5,4,5,4],
+      index: ["6","14","1","9","11","3","8","17","2","18","12","13","7","15","10","16","4","5"],
+      tees: {
+        back: {colour:"Black",slope:"139",scratch:"76",metres:[397,470,343,170,305,325,375,137,377,210,211,192,329,430,493,300,413,326]},
+        middle: {colour:"Blue",slope:"136",scratch:"75",metres:[375,442,335,165,285,317,346,135,364,191,198,186,329,419,479,286,404,326]},
+        front: {colour:"Red",slope:"134",scratch:"74",metres:[378,432,323,162,280,309,331,107,356,210,207,172,320,404,424,247,412,294]},
+        tee4: {colour:"Gold",slope:"132",scratch:"72",metres:[350,405,313,150,273,291,315,86,326,183,175,166,290,392,365,237,381,278]},
+      },
+    },
+  };
+  function applyOfficialBayviewCard(courseRecord) {
+    if (!courseRecord || courseRecord.scorecardAuthorityVersion === "15.95.42-bayview-v1") return false;
+    ensureCourseData(courseRecord);
+    const installCategory = (category, definition) => {
+      const target = GolfCourseCategories.data(courseRecord, category, true);
+      target.teePositionCount = Object.keys(definition.tees).length;
+      target.teeDetails ||= {};
+      target.teeScorecards ||= {};
+      for (const [tee, details] of Object.entries(definition.tees)) {
+        const total = details.metres.reduce((sum, value) => sum + value, 0);
+        target.teeDetails[tee] = {...(target.teeDetails[tee] || {}),name:GolfCourseCategories.labels[tee],colour:details.colour,slope:details.slope,scratch:details.scratch,par:String(definition.par.reduce((sum,value)=>sum+value,0)),length:total};
+        target.teeScorecards[tee] = {tee,par:[...definition.par],index:[...definition.index],metres:[...details.metres],distanceUnit:"metres",distanceInputUnit:"metres"};
+      }
+      target.activeScorecardTee = "back";
+      if (category === "women") target.needsReview = false;
+    };
+    installCategory("men", BAYVIEW_CARD_2026.men);
+    installCategory("women", BAYVIEW_CARD_2026.women);
+    const black = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `bayview-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Bayview scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
+    courseRecord.country = courseRecord.country || "Australia";
+    courseRecord.state = courseRecord.state || "NSW";
+    courseRecord.region = courseRecord.region || "Sydney";
+    courseRecord.website = courseRecord.website || "https://bayviewgolfclub.com.au/";
+    courseRecord.scorecardAuthorityVersion = "15.95.42-bayview-v1";
+    return true;
+  }
+  function installOfficialBayviewDraft() {
+    const bayview = (store.courses || []).find(c => /^bayview(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
+    if (!bayview || store.courseLibrary?.bases?.[String(bayview.id)]) return false;
+    let changed = applyOfficialBayviewCard(bayview);
+    const draftKey = "awayGolfCourseDraft:" + bayview.id;
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
+      if (draft?.course?.id === bayview.id && applyOfficialBayviewCard(draft.course)) {
+        draft.savedAt = new Date().toISOString();
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+  installOfficialBayviewDraft();
   writeLocalStore();
 
   let cloudReady = false,
