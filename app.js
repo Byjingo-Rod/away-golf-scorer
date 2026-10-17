@@ -1700,6 +1700,73 @@
     return changed;
   }
   installOfficialLongReefDraft();
+
+  // Official Asquith card supplied by the organiser. As with Long Reef, fill
+  // the organiser's existing on-device course and editor draft once so it can
+  // be reviewed before the normal Save Completed Course cloud publication.
+  const ASQUITH_CARD_2026 = {
+    men: {
+      par: [5,4,3,4,4,3,4,5,3,4,4,3,5,3,5,4,3,4],
+      index: ["14","15","7","3","5","12","2","11","17","8","4","16","9","18","10","6","13","1"],
+      tees: {
+        back: {colour:"Blue",slope:"134",scratch:"70",metres:[424,270,188,379,339,144,376,434,159,364,313,134,478,126,463,347,163,393]},
+        middle: {colour:"White",slope:"131",scratch:"68",metres:[409,263,188,355,330,127,367,389,129,355,297,126,464,126,437,329,151,368]},
+      },
+    },
+    women: {
+      par: [5,4,3,4,4,3,4,5,3,4,4,3,5,3,5,4,3,5],
+      index: ["2","11","13","6","10","15","4","8","17","7","3","16","1","18","9","5","14","12"],
+      tees: {
+        back: {colour:"Red",slope:"137",scratch:"73",metres:[389,262,179,341,325,136,367,382,122,347,294,117,437,120,389,311,132,387]},
+        middle: {colour:"Yellow",slope:"131",scratch:"70",metres:[352,255,173,330,272,120,356,356,116,329,246,105,413,110,325,292,132,289]},
+      },
+    },
+  };
+  function applyOfficialAsquithCard(courseRecord) {
+    if (!courseRecord || courseRecord.scorecardAuthorityVersion === "15.95.41-asquith-v1") return false;
+    ensureCourseData(courseRecord);
+    const installCategory = (category, definition) => {
+      const target = GolfCourseCategories.data(courseRecord, category, true);
+      target.teePositionCount = Object.keys(definition.tees).length;
+      target.teeDetails ||= {};
+      target.teeScorecards ||= {};
+      for (const [tee, details] of Object.entries(definition.tees)) {
+        const total = details.metres.reduce((sum, value) => sum + value, 0);
+        target.teeDetails[tee] = {...(target.teeDetails[tee] || {}),name:GolfCourseCategories.labels[tee],colour:details.colour,slope:details.slope,scratch:details.scratch,par:String(definition.par.reduce((sum,value)=>sum+value,0)),length:total};
+        target.teeScorecards[tee] = {tee,par:[...definition.par],index:[...definition.index],metres:[...details.metres],distanceUnit:"metres",distanceInputUnit:"metres"};
+      }
+      target.activeScorecardTee = "back";
+      if (category === "women") target.needsReview = false;
+    };
+    installCategory("men", ASQUITH_CARD_2026.men);
+    installCategory("women", ASQUITH_CARD_2026.women);
+    const blue = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `asquith-card-${Date.now()}`,teeName:"Blue",slope:"134",scratch:"70",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Official Asquith scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
+    courseRecord.country = courseRecord.country || "Australia";
+    courseRecord.state = courseRecord.state || "NSW";
+    courseRecord.region = courseRecord.region || "Sydney";
+    courseRecord.website = courseRecord.website || "https://www.asquithgolfclub.com.au/";
+    courseRecord.scorecardAuthorityVersion = "15.95.41-asquith-v1";
+    return true;
+  }
+  function installOfficialAsquithDraft() {
+    const asquith = (store.courses || []).find(c => /^asquith(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
+    if (!asquith || store.courseLibrary?.bases?.[String(asquith.id)]) return false;
+    let changed = applyOfficialAsquithCard(asquith);
+    const draftKey = "awayGolfCourseDraft:" + asquith.id;
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
+      if (draft?.course?.id === asquith.id && applyOfficialAsquithCard(draft.course)) {
+        draft.savedAt = new Date().toISOString();
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+  installOfficialAsquithDraft();
   writeLocalStore();
 
   let cloudReady = false,
