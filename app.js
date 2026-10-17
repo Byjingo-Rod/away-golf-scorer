@@ -1839,6 +1839,69 @@
     return changed;
   }
   installOfficialBayviewDraft();
+
+  // Bathurst card supplied by the organiser. The printed card provides one
+  // men's and one women's set of distances plus ACR/AWCR, but no slope values.
+  const BATHURST_CARD_2026 = {
+    men: {
+      par: [4,5,4,4,3,4,4,3,5,4,4,4,3,4,5,3,4,4],
+      index: ["6/22","12/30","9/25","16/34","2/27","4/20","7/23","18/36","13/31","1/19","17/35","15/33","10/28","8/24","11/29","3/26","14/32","5/21"],
+      tees: {
+        back: {colour:"Blue",slope:"",scratch:"71",metres:[368,462,392,299,190,386,377,125,504,407,306,316,158,326,525,191,342,391]},
+      },
+    },
+    women: {
+      par: [4,5,4,4,3,4,4,3,5,5,4,4,3,4,5,3,4,4],
+      index: ["10","8","6","18","12","2","16","14","4","17","5","9","13","1","7","15","11","3"],
+      tees: {
+        back: {colour:"Red",slope:"",scratch:"73",metres:[294,389,372,202,140,356,269,109,460,384,267,296,121,295,435,159,335,356]},
+      },
+    },
+  };
+  function applyOfficialBathurstCard(courseRecord) {
+    if (!courseRecord || courseRecord.scorecardAuthorityVersion === "15.95.43-bathurst-v1") return false;
+    ensureCourseData(courseRecord);
+    const installCategory = (category, definition) => {
+      const target = GolfCourseCategories.data(courseRecord, category, true);
+      target.teePositionCount = 1;
+      target.teeDetails ||= {};
+      target.teeScorecards ||= {};
+      for (const [tee, details] of Object.entries(definition.tees)) {
+        const total = details.metres.reduce((sum, value) => sum + value, 0);
+        target.teeDetails[tee] = {...(target.teeDetails[tee] || {}),name:GolfCourseCategories.labels[tee],colour:details.colour,slope:details.slope,scratch:details.scratch,par:String(definition.par.reduce((sum,value)=>sum+value,0)),length:total};
+        target.teeScorecards[tee] = {tee,par:[...definition.par],index:[...definition.index],metres:[...details.metres],distanceUnit:"metres",distanceInputUnit:"metres"};
+      }
+      target.activeScorecardTee = "back";
+      if (category === "women") target.needsReview = false;
+    };
+    installCategory("men", BATHURST_CARD_2026.men);
+    installCategory("women", BATHURST_CARD_2026.women);
+    const blue = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `bathurst-card-${Date.now()}`,teeName:"Blue",slope:"",scratch:"71",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Bathurst printed scorecard checked 18 October 2026",createdAt:"2026-10-18",confirmedDate:"2026-10-18"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
+    courseRecord.country = courseRecord.country || "Australia";
+    courseRecord.state = courseRecord.state || "NSW";
+    courseRecord.region = courseRecord.region || "Bathurst/Orange";
+    courseRecord.scorecardAuthorityVersion = "15.95.43-bathurst-v1";
+    return true;
+  }
+  function installOfficialBathurstDraft() {
+    const bathurst = (store.courses || []).find(c => /^bathurst(?: gc| golf club)?$/i.test(String(c.name || "").trim()));
+    if (!bathurst || store.courseLibrary?.bases?.[String(bathurst.id)]) return false;
+    let changed = applyOfficialBathurstCard(bathurst);
+    const draftKey = "awayGolfCourseDraft:" + bathurst.id;
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) || "null");
+      if (draft?.course?.id === bathurst.id && applyOfficialBathurstCard(draft.course)) {
+        draft.savedAt = new Date().toISOString();
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+  installOfficialBathurstDraft();
   writeLocalStore();
 
   let cloudReady = false,
