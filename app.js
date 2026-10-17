@@ -381,6 +381,7 @@
     "Yellow",
     "Green",
     "Red",
+    "Pink",
     "Silver",
     "Brown",
     "Gold",
@@ -393,9 +394,7 @@
   function teeMarkerColour(tee, courseRecord, category = "men") {
     courseRecord = GolfCourseCategories.data(courseRecord, category);
     const saved = String(courseRecord?.teeDetails?.[tee]?.colour || "").trim();
-    return TEE_MARKER_COLOURS.includes(saved)
-      ? saved
-      : DEFAULT_TEE_MARKER_COLOURS[tee] || EVENT_TEE_LABELS[tee] || "Tee";
+    return saved || DEFAULT_TEE_MARKER_COLOURS[tee] || EVENT_TEE_LABELS[tee] || "Tee";
   }
   function eventTeeMarkerColour(day, event = store.event) {
     const tee = selectedEventTee(day, event),
@@ -4477,8 +4476,10 @@ Count-back if tied
         colourOptions = TEE_MARKER_COLOURS.map(
           (colour) =>
             `<option value="${colour}" ${colour === selectedColour ? "selected" : ""}>${colour}</option>`,
-        ).join("");
-      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry" id="${key}Colour">${colourOptions}</select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><span class="teeLengthValue"><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key, false, category) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key, false, category) || {})}</small></span></td></tr>`;
+        ).join(""),
+        customOption = selectedColour && !TEE_MARKER_COLOURS.includes(selectedColour)
+          ? `<option value="${esc(selectedColour)}" selected>${esc(selectedColour)}</option>` : "";
+      return `<tr><td><b>${label}</b></td><td><select class="teeDetailEntry teeColourSelect" id="${key}Colour" data-saved-colour="${esc(selectedColour)}">${colourOptions}${customOption}<option value="__other__">Other — specify</option></select></td><td><input class="teeDetailEntry" id="${key}Slope" value="${esc(t[key]?.slope || "")}"></td><td><input class="teeDetailEntry" id="${key}Scratch" value="${esc(t[key]?.scratch || "")}"></td><td><input class="teeDetailEntry" id="${key}Par" value="${esc(t[key]?.par || "")}"></td><td><span class="teeLengthValue"><input class="teeDetailEntry" id="${key}Length" value="${esc(courseDistanceTotal(courseScorecard(c, key, false, category) || {}) || t[key]?.length || "")}" readonly><small>${courseDistanceAbbrev(courseScorecard(c, key, false, category) || {})}</small></span></td></tr>`;
     };
     const cardOptions = cardTees.map((tee) => {
       const exists = Boolean(courseScorecard(c, tee, false, category));
@@ -4598,6 +4599,13 @@ Count-back if tied
       if(!saveCourseDraft(false))return;courseDetail(id,destination,"women");
     };
     $("#saveCourseDraft").onclick = saveCourseDraft;
+    $$(".teeColourSelect").forEach(select=>select.addEventListener("change",()=>{
+      if(select.value!=="__other__"){select.dataset.savedColour=select.value;return;}
+      const custom=String(prompt("Enter the tee colour or tee denotation",select.dataset.savedColour||"")||"").trim();
+      if(!custom){select.value=select.dataset.savedColour||TEE_MARKER_COLOURS[0];return;}
+      const option=document.createElement("option");option.value=custom;option.textContent=custom;
+      select.insertBefore(option,select.options[select.options.length-1]);select.value=custom;select.dataset.savedColour=custom;
+    }));
     $("#modalContent").oninput = saveCourseDraft;
     $("#modalContent").onchange = saveCourseDraft;
     $("#closeModal").onclick = () => { if(saveCourseDraft()) { $("#modalContent").oninput = $("#modalContent").onchange = null; $("#modalShade").classList.remove("open"); } };
