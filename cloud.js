@@ -258,12 +258,11 @@
     return data?.workspace_data || null;
   }
 
-  const MASTER_URL = "https://rlkyibpyezzoadowcdre.supabase.co/functions/v1/master-courses";
-  const awayCourseId = id => id.startsWith("away-") ? id.slice(5) : "ges-"+id;
+  const MASTER_URL = "https://qlxcpsbyfhgatujrqxkd.supabase.co/functions/v1/course-master";
   function masterRow(row) {
     if (!row) return null;
-    const id=awayCourseId(row.id);
-    return {...row,id,data:{...row.details,id},revision:row.revision};
+    const id=String(row.id);
+    return {...row,id,data:{...row.data,id},revision:row.revision};
   }
   async function masterRequest(action,args={}) {
     const session=await ensureSignedIn();
@@ -274,7 +273,7 @@
   }
   async function loadCourseLibrary() {
     const result=await masterRequest("load");
-    return {courses:result.courses.map(masterRow),countries:[...new Set(result.locations.map(r=>r.country))],authority:result.authority,proposals:(result.proposals||[]).map(p=>({...p,course_id:awayCourseId(p.course_id)}))};
+    return {courses:result.courses.map(masterRow),countries:[...new Set(result.locations.map(r=>r.country))],authority:result.authority,proposals:result.proposals||[]};
   }
   async function loadMasterCourse(id) {return masterRow(await masterRequest("get",{id}));}
   async function saveMasterCourse(id,payload,revision) {return masterRow(await masterRequest("save",{id,data:payload,revision}));}

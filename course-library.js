@@ -4,6 +4,7 @@
   const copy = value => JSON.parse(JSON.stringify(value));
   const normal = value => Array.isArray(value) ? value.map(normal) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(k => !['activeScorecardTee','masterAcceptedAt'].includes(k)).map(k => [k, normal(value[k])])) : value;
   const same = (a,b) => JSON.stringify(normal(a)) === JSON.stringify(normal(b));
+  const courseNameKey = value => String(value || '').trim().toLowerCase().replace(/\bgolf club\b/g,'gc').replace(/[^a-z0-9]+/g,'');
   class Library {
     constructor({store, api, persist, changed, online = () => navigator.onLine}) {
       Object.assign(this, {store,api,persist,changed,online});
@@ -30,10 +31,29 @@
       if(i<0)store.courses.push(copy(row.data));else store.courses[i]=copy(row.data);
       s.bases[id]={revision:row.revision,data:copy(row.data)};delete s.conflicts[id];
     }
+    replaceDeviceDuplicate(row) {
+      const store=this.store(),s=this.state(),id=String(row.id),key=courseNameKey(row.data?.name);
+      if(!key)return;
+      const duplicates=store.courses.filter(c=>String(c.id)!==id && courseNameKey(c.name)===key && !s.bases[String(c.id)]);
+      for(const local of duplicates) {
+        const oldId=String(local.id);
+        s.retainedLocal ||= [];
+        if(!s.retainedLocal.some(r=>String(r.id)===oldId && same(r.data,local)))s.retainedLocal.push({id:oldId,replacedBy:id,savedAt:new Date().toISOString(),data:copy(local)});
+        delete s.pending[oldId];delete s.conflicts[oldId];
+        const remapEvent=event=>{if(!event)return;for(const k of Object.keys(event))if(/^course\d+$/.test(k)&&String(event[k])===oldId)event[k]=id;};
+        remapEvent(store.event);remapEvent(store.template);for(const record of store.eventWorkspace||[])remapEvent(record?.event);
+        store.courseFavourites=(store.courseFavourites||[]).map(v=>String(v)===oldId?id:v);
+        for(const player of store.players||[])if(player.courseHandicaps?.[oldId]){
+          player.courseHandicaps[id] ||= {...player.courseHandicaps[oldId],courseId:id,courseName:row.data.name};
+          delete player.courseHandicaps[oldId];
+        }
+        store.courses=store.courses.filter(c=>String(c.id)!==oldId);
+      }
+    }
     merge(rows,countries) {
       const store=this.store(),s=this.state(),remoteIds=new Set();
       for(const row of rows) {
-        const id=String(row.id);remoteIds.add(id);
+        const id=String(row.id);remoteIds.add(id);this.replaceDeviceDuplicate(row);
         const local=store.courses.find(c=>String(c.id)===id),base=s.bases[id],pending=s.pending[id];
         if(!local){this.accept(row);continue;}
         if(same(local,row.data) && (!pending || same(pending,row.data))) {
