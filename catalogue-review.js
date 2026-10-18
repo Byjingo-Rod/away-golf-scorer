@@ -8,6 +8,7 @@
     const api=globalThis.GolfCourseCategories;
     if(!api?.positionCount||!api?.positions)return [...new Set(['back','middle','front',...Object.keys(left.teeScorecards||{}),...Object.keys(right.teeScorecards||{})])];
     const count=Math.max(api.positionCount(left),api.positionCount(right));
+    if(count===1)return [...new Set([...api.positions(left),...api.positions(right)])];
     return api.positions({teePositionCount:count});
   };
   function comparison(left={},right={},nested=false) {
