@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const app=fs.readFileSync('app.js','utf8'),library=fs.readFileSync('course-library.js','utf8'),cloud=fs.readFileSync('cloud.js','utf8');
+assert(!app.includes('data-coursehistory='),'course history must not be user-selectable');
+assert(!app.includes('showMasterCourseHistory('),'course restore UI must not be exposed');
+assert(!app.includes('store.replacedCourseDrafts'),'rejected drafts must not be archived');
+assert(!library.includes('retainedLocal.push'),'conflicting local cards must not be retained');
+assert(!cloud.includes('masterCourseHistory'),'technical backup must not be exposed by the browser API');
+assert.match(app,/store\.event\.courseSnapshot\s*=\s*JSON\.parse\(JSON\.stringify\(payload\.courses/,'locked events must snapshot course cards');
+assert.match(app,/store\.event\?\.locked[\s\S]{0,160}store\.event\.courseSnapshot/,'play must prefer the locked event snapshot');
+console.log('Passed: one current card is user-visible, rejected copies are removed, backup is technical-only, and locked events keep fixed snapshots.');
