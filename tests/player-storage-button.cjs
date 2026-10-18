@@ -4,9 +4,11 @@ const start=source.indexOf('  function openAppStorage()'),end=source.indexOf('\n
 assert(start>=0&&end>start);
 assert.match(body,/const limited=isPlayerDevice\(\) \|\| isSpectatorDevice\(\)/);
 assert.doesNotMatch(body,/if\(isPlayerDevice\(\) \|\| isSpectatorDevice\(\)\)return/);
-assert.match(body,/Only identified TEST-event data can be deleted from this player-phone view/);
+assert.match(body,/Discard is offered only for an event this phone has already left/);
 assert.match(body,/data-storageretry/);
 assert.match(body,/deleteRetainedTestData/);
+assert.match(body,/data-storagediscard/);
+assert.match(body,/GolfSafeCloud\.discardAbandonedRecord\(row\.record\)/);
 assert.match(source,/TEST_STORAGE_RETENTION_MS = 24 \* 60 \* 60 \* 1000/);
 assert.match(source,/GolfSafeCloud\.discardTestEvent\(test\.eventId\)/);
 console.log('Passed: player App Storage protects genuine work and can discard expired or confirmed abandoned TEST data.');

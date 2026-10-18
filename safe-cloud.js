@@ -97,6 +97,14 @@
     try{persist();}catch(error){state=previous;throw error;}
     measuredAt=0;showHealth();return removed.length;
   }
+  function discardAbandonedRecord(record){
+    const row=storageRecords().find(item=>item.record===record);
+    if(!row?.pending||row.eventId===activeEvent)throw Error("Only an unsent copy from an event that is no longer open can be discarded here.");
+    if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
+    const previous=state[record];delete state[record];
+    try{persist();}catch(error){state[record]=previous;throw error;}
+    measuredAt=0;showHealth();return true;
+  }
   async function retryStorageRecord(record){
     const [id,kind,day,player]=record.split(":"),s=state[record];
     if(id!==activeEvent)throw Error("Open this event before retrying its upload.");
@@ -197,6 +205,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();
