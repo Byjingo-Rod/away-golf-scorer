@@ -37,8 +37,6 @@
       const duplicates=store.courses.filter(c=>String(c.id)!==id && courseNameKey(c.name)===key && !s.bases[String(c.id)]);
       for(const local of duplicates) {
         const oldId=String(local.id);
-        s.retainedLocal ||= [];
-        if(!s.retainedLocal.some(r=>String(r.id)===oldId && same(r.data,local)))s.retainedLocal.push({id:oldId,replacedBy:id,savedAt:new Date().toISOString(),data:copy(local)});
         delete s.pending[oldId];delete s.conflicts[oldId];
         const remapEvent=event=>{if(!event)return;for(const k of Object.keys(event))if(/^course\d+$/.test(k)&&String(event[k])===oldId)event[k]=id;};
         remapEvent(store.event);remapEvent(store.template);for(const record of store.eventWorkspace||[])remapEvent(record?.event);
@@ -130,20 +128,16 @@
         }
         this.state().lastSync=new Date().toISOString();this.durable();
         const conflicts=Object.keys(this.state().conflicts).length,pending=Object.keys(this.state().pending).length;
-        this.message=conflicts ? `${conflicts} course${conflicts===1?'':'s'} need review — both copies retained` : pending ? `${pending} course save${pending===1?'':'s'} pending` : 'Cloud master course list is up to date';
+        this.message=conflicts ? `${conflicts} course${conflicts===1?'':'s'} need review` : pending ? `${pending} course save${pending===1?'':'s'} pending` : 'Cloud master course list is up to date';
       } catch(error) {
         if(error.code==='42501'){this.allowed=false;this.message='Owner Sign-In or approved Organiser Tablet access is required for the cloud master list';}
         else this.message='Cloud sync pending — '+(error.message||'connection unavailable');
       }
       this.notify();
     }
-    retainLocal(id) {
-      const data=this.store().courses.find(c=>String(c.id)===String(id));if(!data)return;
-      this.state().retainedLocal ||= [];this.state().retainedLocal.push({id,savedAt:new Date().toISOString(),data:copy(data)});this.durable();
-    }
     resolve(id,choice) {
       const s=this.state(),row=s.conflicts[id];if(!row)return;
-      if(choice==='cloud') {this.retainLocal(id);delete s.pending[id];this.accept(row);}
+      if(choice==='cloud') {delete s.pending[id];this.accept(row);}
       else {
         s.bases[id]={revision:row.revision,data:copy(row.data)};
         s.pending[id]=copy(this.store().courses.find(c=>String(c.id)===String(id)));delete s.conflicts[id];
