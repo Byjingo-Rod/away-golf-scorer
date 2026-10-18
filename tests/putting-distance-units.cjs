@@ -7,7 +7,7 @@ function node(key){if(!nodes.has(key))nodes.set(key,{value:'',parentElement:{set
 function parse(html){for(const match of html.matchAll(/<input\b([^>]+)>/g)){const id=match[1].match(/\bid="([^"]+)"/),val=match[1].match(/\bvalue="([^"]*)"/);if(id)node('#'+id[1]).value=val?.[1]||'';}for(const match of html.matchAll(/<select\b([^>]+)>([\s\S]*?)<\/select>/g)){const id=match[1].match(/\bid="([^"]+)"/);if(!id)continue;const n=node('#'+id[1]);n.options=[...match[2].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/g)].map(m=>({value:m[1].match(/value="([^"]*)"/)?.[1]??m[2],textContent:m[2],selected:/\bselected\b/.test(m[1]),disabled:/\bdisabled\b/.test(m[1])}));n.value=(n.options.find(o=>o.selected)||n.options[0])?.value||'';}for(const match of html.matchAll(/<textarea\b[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/textarea>/g))node('#'+match[1]).value=match[2];}
 const draftStorage=new Map();
 const localStorage={getItem:k=>draftStorage.get(k)||null,setItem:(k,v)=>draftStorage.set(k,v),removeItem:k=>draftStorage.delete(k)};
-const ctx={localStorage,window:{},console,JSON,Math,Number,Array,Map,Set,Date,store:{courses:[],event:{days:3,competitions:['teamPutts'],competitionDays:{teamPutts:[2]}}},EVENT_TEES:['back','middle','front'],TEE_MARKER_COLOURS:['Blue','White','Yellow'],$:node,$$:selector=>selector==='.teeDetailEntry'?['back','middle','front'].flatMap(tee=>['Colour','Slope','Scratch','Par','Length'].map(field=>node('#'+tee+field))):[],esc:String,gcCourseName:String,teeMarkerColour:tee=>({back:'Blue',middle:'White',front:'Yellow'}[tee]),ensureCourseData(){},renderCoursesAdmin(){},writeLocalStore(){},confirm:()=>true,alert:m=>{ctx.lastAlert=m},save:()=>{ctx.saved=plain(ctx.store);return true},course:id=>ctx.store.courses.find(c=>c.id===id),version:c=>c?.versions?.[0]};
+const ctx={structuredClone,GolfCourseCategories:require("../course-categories.js"),localStorage,window:{},console,JSON,Math,Number,Array,Map,Set,Date,store:{courses:[],event:{days:3,competitions:['teamPutts'],competitionDays:{teamPutts:[2]}}},EVENT_TEES:['back','middle','front'],EVENT_TEE_LABELS:{back:'Back',middle:'Middle',front:'Front'},TEE_MARKER_COLOURS:['Blue','White','Yellow'],$:node,$$:selector=>selector==='.teeDetailEntry'?['back','middle','front'].flatMap(tee=>['Colour','Slope','Scratch','Par','Length'].map(field=>node('#'+tee+field))):[],esc:String,gcCourseName:String,teeMarkerColour:tee=>({back:'Blue',middle:'White',front:'Yellow'}[tee]),ensureCourseData(){},renderCoursesAdmin(){},writeLocalStore(){},confirm:()=>true,alert:m=>{ctx.lastAlert=m},save:()=>{ctx.saved=plain(ctx.store);return true},course:id=>ctx.store.courses.find(c=>c.id===id),version:c=>c?.versions?.[0]};
 ctx.queueMasterCourse=()=>{};ctx.queueMasterCountry=()=>{};vm.createContext(ctx);vm.runInContext(fs.readFileSync('course-locations.js','utf8'),ctx);ctx.GolfCourseLocations=ctx.window.GolfCourseLocations;vm.runInContext('const COURSE_AU_STATES = ["ACT","NSW","NT","QLD","SA","TAS","VIC","WA"];',ctx);
 for(const name of ['cleanCourseLocation','courseCountryList','canonicalCourseCountry','addCourseCountry','courseLocationMatches','courseLocationIssues','courseRegionList','courseRegionField','bindCourseRegion','bindCourseProvince','courseLocationFields','courseStateField','eventDays','competitionDays','competitionIsOn','courseDistanceUnit','courseDistanceAbbrev','courseHoleDistance','courseInputDistance','recordCourseDistances','courseDistanceTotal','cloneCourseCard','ensureTeeScorecards','courseScorecard','validateCourseScorecard','courseDetail','scoreEntryControls','scoreEntriesMismatch'])vm.runInContext(extract(name),ctx);
 ctx.scoreEntered=value=>value!==''&&value!=null;
@@ -117,12 +117,10 @@ assert.match(ctx.lastAlert,/Yellow.*distance/);assert.deepEqual(plain(ctx.store.
 assert.equal(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+draftId)).course.teeScorecards.front.metres[0],'');
 console.log('Passed: completion checks every entered tee and retains unfinished tee drafts.');
 
-vm.runInContext(extract('retainCourseDraftBeforeCloud'),ctx);
-ctx.writeLocalStore=()=>true;
-const rawDraft=localStorage.getItem('awayGolfCourseDraft:'+draftId);
-assert(ctx.retainCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
-assert.deepEqual(plain(ctx.store.replacedCourseDrafts[draftId].draft),JSON.parse(rawDraft));
+vm.runInContext(extract('discardCourseDraftBeforeCloud'),ctx);
+assert(ctx.discardCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
+assert.equal(ctx.store.replacedCourseDrafts,undefined);
 ctx.courseDetail(draftId,'front');assert.equal(node('#scMet0').value,String(ctx.courseInputDistance(ctx.store.courses[0].teeScorecards.front,0)));
-node('#scMet0').value='';node('#saveCourseDraft').onclick();ctx.writeLocalStore=()=>false;
-assert.equal(ctx.retainCourseDraftBeforeCloud(draftId),false);assert(localStorage.getItem('awayGolfCourseDraft:'+draftId),'failed retention must keep original draft');
-console.log('Passed: selecting a cloud copy retains the old draft in organiser backup, clears stale editor recovery, and refuses unsafe retention.');
+node('#scMet0').value='';node('#saveCourseDraft').onclick();
+assert(ctx.discardCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
+console.log('Passed: selecting a cloud copy removes the rejected device draft without retaining another selectable card.');
