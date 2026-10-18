@@ -97,9 +97,9 @@
     try{persist();}catch(error){state=previous;throw error;}
     measuredAt=0;showHealth();return removed.length;
   }
-  function discardAbandonedRecord(record){
+  function discardAbandonedRecord(record,allowActiveTest=false){
     const row=storageRecords().find(item=>item.record===record);
-    if(!row?.pending||row.eventId===activeEvent)throw Error("Only an unsent copy from an event that is no longer open can be discarded here.");
+    if(!row?.pending||(row.eventId===activeEvent&&!allowActiveTest))throw Error("Only an unsent copy from an event that is no longer open, or an explicitly confirmed TEST event, can be discarded here.");
     if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
     const previous=state[record];delete state[record];
     try{persist();}catch(error){state[record]=previous;throw error;}
