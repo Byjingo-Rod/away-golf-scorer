@@ -4,11 +4,21 @@
  const positionKeys=['back','middle','front','tee4','tee5'];
  const labels={back:'Back',middle:'Middle',front:'Front',tee4:'Tee 4',tee5:'Tee 5'};
  function positionCount(categoryData){const n=Number(categoryData?.teePositionCount);return Number.isInteger(n)&&n>=1&&n<=5?n:Math.max(3,...positionKeys.map((tee,i)=>categoryData?.teeScorecards?.[tee]?i+1:0));}
- function positions(categoryData){return positionKeys.slice(0,positionCount(categoryData));}
+ function cardHasValues(card){return card&&['par','index','metres'].some(key=>Array.isArray(card[key])&&card[key].some(value=>String(value??'').trim()));}
+ function positions(categoryData){
+  const count=positionCount(categoryData);
+  if(count===1){
+   const stored=positionKeys.filter(tee=>cardHasValues(categoryData?.teeScorecards?.[tee])||Object.values(categoryData?.teeDetails?.[tee]||{}).some(value=>String(value??'').trim()));
+   const active=categoryData?.activeScorecardTee;
+   if(stored.includes(active))return [active];
+   if(stored.length===1)return stored;
+  }
+  return positionKeys.slice(0,count);
+ }
  function positionLabel(categoryData,tee){
   const count=positionCount(categoryData),ordered=positions(categoryData),index=ordered.indexOf(tee);
   if(index<0)return labels[tee]||tee;
-  if(count===1)return 'Back';
+  if(count===1)return labels[tee]||tee;
   if(index===0)return 'Back';
   if(index===count-1)return 'Front';
   if(count===3)return 'Middle';
