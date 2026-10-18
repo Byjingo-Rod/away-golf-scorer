@@ -21,4 +21,9 @@ const reduced=comparison(retained,partial);
 assert.deepEqual(reduced.tees.map(t=>t.label),['Back','Middle 1','Middle 2','Front']);
 assert.equal(reduced.tees.some(t=>t.tee==='tee5'),false,'inactive retained fifth tee must not appear');
 assert.equal(reduced.tees.filter(t=>t.label==='Front').length,1,'front position must appear once');
+
+const womenFront={teePositionCount:1,activeScorecardTee:'front',teeDetails:{front:{name:'Front',colour:'Red'}},teeScorecards:{front:card()}};
+const withWomen={...structuredClone(course),womenTeeData:womenFront};
+const womenModel=comparison(withWomen,structuredClone(withWomen));
+assert.equal(womenModel.tees.some(t=>t.label==='Women — Front'),true,'single Women’s Front tee must appear in comparisons');
 console.log('catalogue comparison uses dynamic tee position names');
