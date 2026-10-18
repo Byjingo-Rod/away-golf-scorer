@@ -4435,9 +4435,25 @@ Count-back if tied
     const draftKey = "awayGolfCourseDraft:" + id;
     let draft;
     try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
+    const courseDataCompleteness = record => {
+      if (!record) return 0;
+      let total = 0;
+      for (const cardCategory of ["men", "women"]) {
+        const data = GolfCourseCategories.data(record, cardCategory);
+        for (const tee of GolfCourseCategories.positions(data)) {
+          const card = courseScorecard(record, tee, false, cardCategory);
+          if (!card) continue;
+          for (const field of ["par", "index", "metres"])
+            total += (card[field] || []).filter(value => String(value ?? "").trim() !== "").length;
+        }
+      }
+      return total;
+    };
     const acceptedAt = Date.parse(acceptedCourse.masterAcceptedAt || ""),
-      draftSavedAt = Date.parse(draft?.savedAt || "");
-    if (draft?.course?.id === id && Number.isFinite(acceptedAt) && Number.isFinite(draftSavedAt) && acceptedAt > draftSavedAt) {
+      draftSavedAt = Date.parse(draft?.savedAt || ""),
+      acceptedIsNewer = Number.isFinite(acceptedAt) && Number.isFinite(draftSavedAt) && acceptedAt > draftSavedAt,
+      acceptedIsMoreComplete = courseDataCompleteness(acceptedCourse) > courseDataCompleteness(draft?.course);
+    if (draft?.course?.id === id && (acceptedIsNewer || acceptedIsMoreComplete)) {
       store.replacedCourseDrafts ||= {};
       store.replacedCourseDrafts[id] = {
         replacedAt: new Date().toISOString(),
