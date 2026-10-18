@@ -12931,8 +12931,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if(button){button.disabled=true;button.textContent="ARCHIVING…";}
     try {
       if(cloudEventId){
-        const saved=await updateCloudEvent();
-        if(!saved)throw new Error("The final results could not be confirmed online. Use Retry Sync and try again.");
+        const latest=await cloudTimeout(AwayCloud.loadEvent(cloudEventId));
+        const cloudResultsConfirmed=Boolean(latest?.event?.event_data?.event?.finalResults?.confirmedAt);
+        if(!cloudResultsConfirmed){
+          const saved=await updateCloudEvent();
+          if(!saved)throw new Error("The final results could not be confirmed online. Use Retry Sync and try again.");
+        }
         await AwayCloud.archiveEvent(cloudEventId);
         await AwayCloud.saveWorkspace({activePublishedEvent:null});
         forgetPublishedEvent(cloudEventId);

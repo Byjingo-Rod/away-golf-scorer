@@ -4,6 +4,8 @@ const start=app.indexOf('  async function archiveCompletedEvent()'),end=app.inde
 assert(start>=0&&end>start,'completed-event archive action exists');
 assert.match(body,/finalResults\?\.confirmedAt/);
 assert.match(body,/AwayCloud\.archiveEvent\(cloudEventId\)/);
+assert.match(body,/cloudResultsConfirmed/);
+assert.match(body,/finalResults\?\.confirmedAt/);
 assert.match(body,/AwayCloud\.saveWorkspace\(\{activePublishedEvent:null\}\)/);
 assert.match(body,/record\.archived=true/);
 assert.match(body,/store\.event=null/);
