@@ -4314,49 +4314,31 @@ Count-back if tied
       return `<details><summary>${esc(teeMarkerColour(tee,data))} tee — Slope ${esc(data.teeDetails?.[tee]?.slope||card.slope||"—")} · Scratch ${esc(data.teeDetails?.[tee]?.scratch||card.scratch||"—")}</summary><table><thead><tr><th>Hole</th><th>Par</th><th>Index</th><th>${courseDistanceUnit(card)==='yards'?'Yards':'Metres'}</th></tr></thead><tbody>${Array.from({length:18},(_,i)=>`<tr><td>${i+1}</td><td>${esc(card.par?.[i]??"")}</td><td>${esc(card.index?.[i]??"")}</td><td>${esc(courseHoleDistance(card,i))}</td></tr>`).join("")}</tbody></table></details>`;
     }).join("")}`;
   }
-  function retainCourseDraftBeforeCloud(id) {
+  function discardCourseDraftBeforeCloud(id) {
     const key = "awayGolfCourseDraft:" + id;
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return true;
-      store.replacedCourseDrafts ||= {};
-      store.replacedCourseDrafts[id] = {replacedAt:new Date().toISOString(), draft:JSON.parse(raw)};
-      if (!writeLocalStore()) return false;
       localStorage.removeItem(key);
       return true;
     } catch (error) {
-      alert("The draft could not be retained safely. Keep the device copy for now. " + error.message);
+      alert("The obsolete device draft could not be removed. Keep the device copy for now. " + error.message);
       return false;
     }
   }
   function showMasterCourseConflicts() {
     const library=getMasterCourseLibrary(),ids=Object.keys(library.state().conflicts);
-    $("#modalContent").innerHTML=`<h2>Review Different Course Copies</h2><p>Your device and the cloud have different details. Both copies are retained until you choose.</p>${ids.map(id=>`<div class="courseConflict"><h3>${esc(course(id,true)?.name||id)}</h3><div class="rowBtns"><button class="soft" data-coursecompare="${esc(id)}">Compare / Choose</button></div></div>`).join("")}<div class="rowBtns"><button class="soft" id="useAllCloudCourses">Use Cloud Copies for All</button><button class="soft" id="closeCourseReview">Close</button></div>`;
+    $("#modalContent").innerHTML=`<h2>Review Different Course Copies</h2><p>Your device and the cloud have different details. Choose the correct copy; the other copy will be removed.</p>${ids.map(id=>`<div class="courseConflict"><h3>${esc(course(id,true)?.name||id)}</h3><div class="rowBtns"><button class="soft" data-coursecompare="${esc(id)}">Compare / Choose</button></div></div>`).join("")}<div class="rowBtns"><button class="soft" id="useAllCloudCourses">Use Cloud Copies for All</button><button class="soft" id="closeCourseReview">Close</button></div>`;
     $("#modalShade").classList.add("open");
     $("#closeCourseReview").onclick=()=>$("#modalShade").classList.remove("open");
-    $("#useAllCloudCourses").onclick=()=>{if(!confirm(`Use the cloud copy for all ${ids.length} courses? Your replaced device copies will be retained in your organiser backup.`))return;for(const id of ids){if(!retainCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');}$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#useAllCloudCourses").onclick=()=>{if(!confirm(`Use the cloud copy for all ${ids.length} courses and remove the conflicting device copies?`))return;for(const id of ids){if(!discardCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');}$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $$('[data-coursecompare]').forEach(b=>b.onclick=()=>showMasterCourseComparison(b.dataset.coursecompare));
   }
   function showMasterCourseComparison(id) {
     const library=getMasterCourseLibrary(),remote=library.state().conflicts[id];if(!remote)return;
-    $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div id="courseCardComparison"></div><p>Choosing this device saves its details as a new cloud revision. Replaced device details remain in your organiser backup.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Save This Device’s Copy to Cloud</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
+    $("#modalContent").innerHTML=`<h2>Choose Course Details</h2><div id="courseCardComparison"></div><p>Choosing this device submits its details as the proposed replacement. The copy not chosen is removed.</p><div class="rowBtns"><button class="primary" id="chooseCloudCourse">Use Cloud Copy</button><button class="soft" id="chooseDeviceCourse">Submit This Device’s Copy</button><button class="soft" id="backCourseConflicts">Back</button></div>`;
     GolfCatalogueReview.renderComparison($("#courseCardComparison"),course(id,true),remote.data,"On this device",`Master revision ${remote.revision}`);
-    $("#chooseCloudCourse").onclick=()=>{if(!retainCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
+    $("#chooseCloudCourse").onclick=()=>{if(!discardCourseDraftBeforeCloud(id))return;library.resolve(id,'cloud');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#chooseDeviceCourse").onclick=()=>{if(!confirm('Save this device’s details as the next cloud revision?'))return;library.resolve(id,'local');$("#modalShade").classList.remove("open");void syncMasterCourses();};
     $("#backCourseConflicts").onclick=showMasterCourseConflicts;
-  }
-  async function showMasterCourseHistory(id) {
-    try {
-      const rows=await AwayCloud.masterCourseHistory(id);
-      $("#modalContent").innerHTML=`<h2>Previous Course Versions</h2><p>${esc(course(id,true)?.name||"")} — restoring creates a new revision.</p>${rows.map(r=>`<details><summary>Revision ${r.revision} · ${esc(new Date(r.saved_at).toLocaleString())}</summary>${masterCourseReview(r.data)}<button class="soft" data-restorecourse="${r.revision}">Restore as New Revision</button></details>`).join("")||'<p>No cloud versions yet. Synchronise this course first.</p>'}<button class="soft" id="closeCourseHistory">Close</button>`;
-      $("#modalShade").classList.add("open");$("#closeCourseHistory").onclick=()=>$("#modalShade").classList.remove("open");
-      $$('[data-restorecourse]').forEach(b=>b.onclick=()=>{
-        if(!confirm('Restore this course version? The current cloud version remains in history.'))return;
-        const row=rows.find(r=>String(r.revision)===b.dataset.restorecourse),library=getMasterCourseLibrary();
-        library.retainLocal(id);const i=store.courses.findIndex(c=>String(c.id)===String(id));store.courses[i]=JSON.parse(JSON.stringify(row.data));
-        queueMasterCourse(store.courses[i]);$("#modalShade").classList.remove("open");void syncMasterCourses();
-      });
-    }catch(error){alert('Course history could not be loaded: '+error.message);}
   }
   const COURSE_AU_STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
   let courseLocationFilter = { country: "", state: "", region: "" };
@@ -4454,16 +4436,8 @@ Count-back if tied
       acceptedIsNewer = Number.isFinite(acceptedAt) && Number.isFinite(draftSavedAt) && acceptedAt > draftSavedAt,
       acceptedIsMoreComplete = courseDataCompleteness(acceptedCourse) > courseDataCompleteness(draft?.course);
     if (draft?.course?.id === id && (acceptedIsNewer || acceptedIsMoreComplete)) {
-      store.replacedCourseDrafts ||= {};
-      store.replacedCourseDrafts[id] = {
-        replacedAt: new Date().toISOString(),
-        reason: "A newer accepted cloud course replaced this unfinished device draft.",
-        draft: JSON.parse(JSON.stringify(draft)),
-      };
-      if (writeLocalStore() !== false) {
-        localStorage.removeItem(draftKey);
-        draft = null;
-      }
+      localStorage.removeItem(draftKey);
+      draft = null;
     }
     let c = JSON.parse(JSON.stringify(draft?.course?.id === id ? draft.course : acceptedCourse));
     ensureCourseData(c);
@@ -4800,7 +4774,7 @@ Count-back if tied
         star = favIds.has(String(c.id))
           ? '<span class="courseFavouriteStar" title="Favourite course">★</span>'
           : "";
-      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>Cards Stored Men ${GolfCourseCategories.storedCount(c,"men")} Women ${GolfCourseCategories.storedCount(c,"women")}</small><small>${esc([c.country || "Australia", c.state, c.region].filter(Boolean).join(" · "))} • ${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span><small>${esc(getMasterCourseLibrary()?.status(String(c.id)) || "On this device")}</small>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button><button class="soft" data-coursehistory="${c.id}">History</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
+      return `<div class="courseRow ${c.available === false ? "inactive" : ""}"><div><b>${star}${esc(c.name)}</b><small>Middle / ${esc(teeMarkerColour("middle", c))} — Slope ${esc(t.slope || v.slope || "—")} • Par ${esc(t.par || "—")} • Length ${courseDistanceTotal(courseScorecard(c, "middle") || {}) ? courseDistanceTotal(courseScorecard(c, "middle")) + " " + courseDistanceAbbrev(courseScorecard(c, "middle")) : t.length ? esc(t.length) + " m" : "—"}</small><small>Cards Stored Men ${GolfCourseCategories.storedCount(c,"men")} Women ${GolfCourseCategories.storedCount(c,"women")}</small><small>${esc([c.country || "Australia", c.state, c.region].filter(Boolean).join(" · "))} • ${c.address ? esc(c.address) : "Location not yet entered"}${c.proPhone ? " • Pro Shop " + esc(c.proPhone) : ""}</small><span class="courseStatus">${status}</span><small>${esc(getMasterCourseLibrary()?.status(String(c.id)) || "On this device")}</small>${c.notes ? `<small>${esc(c.notes)}</small>` : ""}</div><div class="rowBtns"><button class="soft" data-cinfo="${c.id}">Course Details</button>${c.available === false ? `<button class="soft" data-creactivate="${c.id}">Reactivate</button>` : `<button class="danger" data-cinactive="${c.id}">−</button>`}</div></div>`;
     };
     let ret = wizardReturnStep
       ? `<div class="returnSetupBar"><button class="soft" id="returnToWizardCourses">← Return to Setup</button></div>`
@@ -4907,7 +4881,6 @@ Count-back if tied
       save();
     }
     if (t.dataset.cinfo) courseDetail(t.dataset.cinfo);
-    if (t.dataset.coursehistory) void showMasterCourseHistory(t.dataset.coursehistory);
     if (t.dataset.cinactive) {
       let c = course(t.dataset.cinactive,true);
       if (confirm(`Make ${c.name} inactive?`)) {
