@@ -86,6 +86,17 @@
     try{persist();}catch(error){state[record]=previous;throw error;}
     measuredAt=0;showHealth();
   }
+  function discardTestEvent(eventId){
+    if(!eventId)throw Error("The test event could not be identified.");
+    if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
+    const prefix=String(eventId)+":";
+    const removed=Object.keys(state).filter(record=>record.startsWith(prefix));
+    if(!removed.length)return 0;
+    const previous=copy(state);
+    for(const record of removed)delete state[record];
+    try{persist();}catch(error){state=previous;throw error;}
+    measuredAt=0;showHealth();return removed.length;
+  }
   async function retryStorageRecord(record){
     const [id,kind,day,player]=record.split(":"),s=state[record];
     if(id!==activeEvent)throw Error("Open this event before retrying its upload.");
@@ -186,6 +197,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={storageRecords,removeStorageRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();
