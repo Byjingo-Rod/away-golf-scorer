@@ -12,6 +12,9 @@ assert.match(body,/GolfSafeCloud\.discardAbandonedRecord\(row\.record,currentIsT
 assert.match(body,/const currentIsTest=/);
 assert.match(body,/Remove Test Backup/);
 assert.match(body,/!exported&&!row\.testBackup/);
+assert.match(body,/Remove Retired Test Data/);
+assert.match(body,/retiredTestEventIds/);
+assert.match(body,/GolfSafeCloud\.discardTestEvent\(id\)/);
 assert.match(source,/TEST_STORAGE_RETENTION_MS = 24 \* 60 \* 60 \* 1000/);
 assert.match(source,/GolfSafeCloud\.discardTestEvent\(test\.eventId\)/);
 console.log('Passed: player App Storage protects genuine work and can discard expired or confirmed abandoned TEST data.');

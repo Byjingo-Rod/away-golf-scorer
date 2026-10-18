@@ -64,7 +64,8 @@
     if(counts.pending)messages.push(`${counts.pending} ${counts.pending===1?"card or plan is":"cards or plans are"} waiting to upload.`);
     if(cloudStatus)messages.push(cloudStatus);
     node.textContent=messages.join(" ");node.hidden=!messages.length;
-    if(messages.length){const button=document.createElement("button");button.type="button";button.textContent="App Storage";button.style.marginLeft="12px";button.onclick=()=>window.dispatchEvent(new Event("golf-open-storage"));node.append(button);}
+    // App Storage already has a permanent button on the home page. Keep this
+    // strip as a concise warning instead of presenting the same action twice.
   }
   function pruneRecords(records,active,now=Date.now()){
     let removed=0;

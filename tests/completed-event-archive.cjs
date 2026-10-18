@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const app=fs.readFileSync('app.js','utf8'),safe=fs.readFileSync('safe-cloud.js','utf8');
+const start=app.indexOf('  async function archiveCompletedEvent()'),end=app.indexOf('\n  function leaderboardBenefitId',start),body=app.slice(start,end);
+assert(start>=0&&end>start,'completed-event archive action exists');
+assert.match(body,/finalResults\?\.confirmedAt/);
+assert.match(body,/AwayCloud\.archiveEvent\(cloudEventId\)/);
+assert.match(body,/AwayCloud\.saveWorkspace\(\{activePublishedEvent:null\}\)/);
+assert.match(body,/record\.archived=true/);
+assert.match(body,/store\.event=null/);
+assert.match(app,/CLOSE AND ARCHIVE COMPLETED EVENT/);
+assert.match(app,/retirePhoneFromArchivedEvent\(bundle\)/);
+assert.match(app,/Completed event archived · ready for the next event/);
+assert.doesNotMatch(safe,/button\.textContent="App Storage"/,'the duplicate warning-strip button is removed');
+console.log('Passed: completed events archive to Past Events and release connected phones without a duplicate App Storage button.');
