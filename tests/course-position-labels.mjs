@@ -12,4 +12,7 @@ for(const [count,labels] of Object.entries(expected)){
   const data={teePositionCount:Number(count)};
   assert.deepEqual(categories.positions(data).map(tee=>categories.positionLabel(data,tee)),labels,`${count}-tee labels are wrong`);
 }
+const singleFront={teePositionCount:1,activeScorecardTee:'front',teeDetails:{front:{name:'Front',colour:'Red'}},teeScorecards:{front:{par:Array(18).fill(4),index:Array.from({length:18},(_,i)=>i+1),metres:Array(18).fill(300)}}};
+assert.deepEqual(categories.positions(singleFront),['front'],'a stored single Front tee must not be hidden behind a blank Back tee');
+assert.equal(categories.positionLabel(singleFront,'front'),'Front');
 console.log('course position label test passed');
