@@ -278,9 +278,6 @@
   async function loadMasterCourse(id) {return masterRow(await masterRequest("get",{id}));}
   async function saveMasterCourse(id,payload,revision) {return masterRow(await masterRequest("save",{id,data:payload,revision}));}
   async function saveMasterCountry(name) {await masterRequest("location",{country:name,region:""});}
-  async function masterCourseHistory(id) {
-    return (await masterRequest("history",{id})).map(row=>({...row,data:{...row.data,id}}));
-  }
   async function loadLatestOwnedEvent() {
     await ensureSignedIn();
     const { data, error } = await client
@@ -451,7 +448,6 @@
     loadMasterCourse,
     saveMasterCourse,
     saveMasterCountry,
-    masterCourseHistory,
     loadLatestOwnedEvent,
     loadRecentOwnedEvents,
     loadPastOwnedEvents,
