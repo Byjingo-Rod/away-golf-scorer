@@ -4435,6 +4435,20 @@ Count-back if tied
     const draftKey = "awayGolfCourseDraft:" + id;
     let draft;
     try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
+    const acceptedAt = Date.parse(acceptedCourse.masterAcceptedAt || ""),
+      draftSavedAt = Date.parse(draft?.savedAt || "");
+    if (draft?.course?.id === id && Number.isFinite(acceptedAt) && Number.isFinite(draftSavedAt) && acceptedAt > draftSavedAt) {
+      store.replacedCourseDrafts ||= {};
+      store.replacedCourseDrafts[id] = {
+        replacedAt: new Date().toISOString(),
+        reason: "A newer accepted cloud course replaced this unfinished device draft.",
+        draft: JSON.parse(JSON.stringify(draft)),
+      };
+      if (writeLocalStore() !== false) {
+        localStorage.removeItem(draftKey);
+        draft = null;
+      }
+    }
     let c = JSON.parse(JSON.stringify(draft?.course?.id === id ? draft.course : acceptedCourse));
     ensureCourseData(c);
     const category=requestedCategory||draft?.category||"men", categoryData=GolfCourseCategories.data(c,category,true);
