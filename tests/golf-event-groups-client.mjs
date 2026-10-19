@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {createGroupApi,validateAccountConfig} from '../products/golf-event-scorer-assets/group-api.mjs';
+for (const c of [null,{url:'http://new.supabase.co',publishableKey:'sb_publishable_abc'},{url:'https://qlxcpsbyfhgatujrqxkd.supabase.co',publishableKey:'sb_publishable_abc'},{url:'https://new.supabase.co',publishableKey:'sb_secret_abc'}]) assert.throws(()=>validateAccountConfig(c));
+assert.deepEqual(validateAccountConfig({url:'https://new.supabase.co',publishableKey:'sb_publishable_abc'}),{url:'https://new.supabase.co',key:'sb_publishable_abc'});
+let call;
+const api=createGroupApi({rpc:async(name,args)=>{call={name,args};return {data:2,error:null};}});
+await api.saveEvent({id:'event',revision:7,name:'Round',event_date:'2026-10-20',field_size:20,planning_data:{notes:'Saved'}});
+assert.equal(call.name,'ges_save_event');assert.equal(call.args.p_expected_revision,7);
+await api.savePlayer('group','Sam',-4,{id:'player',revision:3,active:true});
+assert.equal(call.args.p_group_id,'group');assert.equal(call.args.p_expected_revision,3);
+const failed=createGroupApi({rpc:async()=>({data:null,error:new Error('denied')})});
+await assert.rejects(failed.createGroup('group'),/denied/);
+console.log('Group client checks passed: separate project guard, publishable keys and revision-aware writes.');
