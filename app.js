@@ -6606,7 +6606,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
       renderStep3();
     });
-    $('[data-scoreentryplan]').onchange = (e) => {
+    $('[data-scoreentryplan]').oninput = (e) => {
       W.event.scoreEntryPlan = e.target.value;
       if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
       else eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "fullCardPlayer");
