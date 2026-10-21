@@ -15,6 +15,15 @@
   let client = makeClient();
   let initPromise = null;
 
+  function within(promise, milliseconds, message) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(message)), milliseconds),
+      ),
+    ]);
+  }
+
   function storedAccessToken() {
     try {
       const raw = window.localStorage?.getItem(AUTH_STORAGE_PREFIX);
@@ -46,10 +55,13 @@
     const token = storedAccessToken();
     if (!token) return false;
     try {
-      const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(8000),
-      });
+      const response = await within(
+        fetch(`${SUPABASE_URL}/auth/v1/user`, {
+          headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` },
+        }),
+        8000,
+        "Stored sign-in validation timed out.",
+      );
       if (response.status !== 401 && response.status !== 403) return false;
       clearStoredAuth();
       return true;
@@ -59,12 +71,28 @@
     }
   }
 
+  function reloadWithoutStaleAuth() {
+    clearStoredAuth();
+    try { window.sessionStorage?.setItem("away-auth-recovery", "1"); } catch (_) {}
+    window.location?.reload();
+    throw new Error("Refreshing the secure Away Golf connection.");
+  }
+
   async function ensureSignedIn() {
     if (initPromise) return initPromise;
     initPromise = (async () => {
       await discardRejectedStoredSession();
-      const current = await client.auth.getSession();
-      if (current.error) throw current.error;
+      let current;
+      try {
+        current = await within(
+          client.auth.getSession(),
+          8000,
+          "Stored sign-in did not respond.",
+        );
+      } catch (_) {
+        return reloadWithoutStaleAuth();
+      }
+      if (current.error) return reloadWithoutStaleAuth();
       if (current.data.session) return current.data.session;
       const signed = await client.auth.signInAnonymously();
       if (signed.error) throw signed.error;

@@ -37,6 +37,7 @@ const context = {
   },
   AbortSignal,
   atob,
+  setTimeout,
   console,
 };
 vm.createContext(context);
@@ -48,4 +49,4 @@ assert.equal(clientsCreated, 2, "auth client should be recreated after stale-tok
 assert.equal(anonymousSignIns, 1, "a replacement anonymous session should be established");
 assert.equal(session.access_token, "new-token");
 assert.equal(context.window.AwayCloud.client, clients[1], "public API should expose the replacement client");
-console.log("Version 15.96.3 stale Supabase auth recovery checks passed");
+console.log("Version 15.96.4 stale Supabase auth recovery checks passed");
