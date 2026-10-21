@@ -4,18 +4,65 @@
   const SUPABASE_URL = "https://qlxcpsbyfhgatujrqxkd.supabase.co";
   const SUPABASE_KEY = "sb_publishable_fzOrPzsGh48ABTEoob5O0Q_gpdZTEmI";
   const OWNER_REDIRECT_URL = "https://byjingo-rod.github.io/away-golf-scorer/";
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  const AUTH_STORAGE_PREFIX = "sb-qlxcpsbyfhgatujrqxkd-auth-token";
+  const makeClient = () => window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
     },
   });
+  let client = makeClient();
   let initPromise = null;
+
+  function storedAccessToken() {
+    try {
+      const raw = window.localStorage?.getItem(AUTH_STORAGE_PREFIX);
+      if (!raw) return "";
+      const parsed = JSON.parse(raw.startsWith("base64-") ? atob(raw.slice(7)) : raw);
+      return String(parsed?.access_token || parsed?.currentSession?.access_token || "");
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function clearStoredAuth() {
+    try {
+      const storage = window.localStorage;
+      if (!storage) return;
+      for (let i = storage.length - 1; i >= 0; i -= 1) {
+        const key = storage.key(i);
+        if (key && key.startsWith(AUTH_STORAGE_PREFIX)) storage.removeItem(key);
+      }
+    } catch (_) {
+      // Private browsing can deny storage access. The new client can still
+      // establish an in-memory anonymous session.
+    }
+    client = makeClient();
+    if (window.AwayCloud) window.AwayCloud.client = client;
+  }
+
+  async function discardRejectedStoredSession() {
+    const token = storedAccessToken();
+    if (!token) return false;
+    try {
+      const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (response.status !== 401 && response.status !== 403) return false;
+      clearStoredAuth();
+      return true;
+    } catch (_) {
+      // A temporary network failure must not erase a valid organiser sign-in.
+      return false;
+    }
+  }
 
   async function ensureSignedIn() {
     if (initPromise) return initPromise;
     initPromise = (async () => {
+      await discardRejectedStoredSession();
       const current = await client.auth.getSession();
       if (current.error) throw current.error;
       if (current.data.session) return current.data.session;
