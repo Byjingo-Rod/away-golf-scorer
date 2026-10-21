@@ -169,7 +169,7 @@
   };
   const SCORING_METHODS = {
     holeByHole: "On course by players and confirmed by Markers hole-by-hole",
-    fullCardPlayer: "Full Card entered by Player",
+    fullCardPlayer: "Strokes/hole entered by Player",
     finalStableford: "Insert Final Score — Stableford",
     finalGross: "Insert Final Score — Gross Strokes",
   };
@@ -5404,13 +5404,6 @@ Count-back if tied
     return true;
   }
   function renderWizard() {
-    if (W.step === 3 && W.lastRenderedStep !== 3) {
-      W.event.scoreEntryPlan = "players";
-      W.event.scoringMethods = W.event.scoringMethods || {};
-      eventDays(W.event).forEach(
-        (day) => (W.event.scoringMethods["day" + day] = "holeByHole"),
-      );
-    }
     W.lastRenderedStep = W.step;
     let spans = $$(".steps span");
     spans.forEach((s, i) => s.classList.toggle("on", i === W.step - 1));
@@ -6530,7 +6523,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function renderStep3() {
     normaliseStablefordBenefits(W.benefits);
-    const setupMethods={fullCardPlayer:"Strokes/hole entered by Player",finalGross:"Final-score only entered: Gross Strokes",finalStableford:"Final-score only entered: Stableford points"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
+    const setupMethods={holeByHole:"On course by players and confirmed by Markers hole-by-hole",fullCardPlayer:"After round — strokes entered hole-by-hole by a Player",finalGross:"After round — final Gross Strokes only",finalStableford:"After round — final Stableford points only"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
     const stablefordId = W.event.days === 1 ? "single" : "combined",
       previousId = W.event.days === 1 ? "combined" : "single";
     if (W.competitions.has(previousId)) {
@@ -6561,8 +6554,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
         : "stroke";
     W.event.scoringMethods ||= {};
     eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] ||= "holeByHole");
-    if (!["players","separateCard"].includes(W.event.scoreEntryPlan)) W.event.scoreEntryPlan = eventDays(W.event).some(day => setupMethodFor(day) !== "holeByHole") ? "separateCard" : "players";
-    if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
     W.event.strokeResult ||= "net";
     W.event.strokeScoringMode ||= "allStrokes";
     W.event.strokeCountingMode ||= "daily";
@@ -6570,7 +6561,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
     W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
     if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered — Choose direct App scoring or after-round recording of a Score Card</h4><label class="directScoringChoice ${W.event.scoreEntryPlan==="players"?"selected":""}"><span>On course by players and confirmed by Markers hole-by-hole</span><input type="checkbox" data-directscoreentry ${W.event.scoreEntryPlan==="players"?"checked":""}></label><div class="afterRoundMethodSetup"><b>After round from a Score Card separate to the App</b><p class="hint">Choose one method for every playing day. “Strokes/hole entered by Player” retains all 18 hole scores and can calculate hole-by-hole events and countbacks. A final score records only the supplied Gross Strokes or Stableford points and cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${W.event.scoreEntryPlan==="separateCard"&&setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${W.event.scoreEntryPlan==="separateCard"&&setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${W.event.scoreEntryPlan==="separateCard"&&setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}</div></div>`;
+    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered</h4><p class="hint">Choose one method for each playing day. New events begin with standard on-course App scoring. A saved choice remains in place when you return to the event.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">This method cannot calculate every competition selected for this day. Change the method or the affected competition days.</small>` : ""}</div>`).join("")}</div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
@@ -6603,16 +6594,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     );
     $$('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
       if (!choice.checked) return renderStep3();
-      W.event.scoreEntryPlan = "separateCard";
       W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
       renderStep3();
     });
-    $('[data-directscoreentry]').onchange = (e) => {
-      if (!e.target.checked) return renderStep3();
-      W.event.scoreEntryPlan = "players";
-      eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
-      renderStep3();
-    };
     $$("[data-benefit]").forEach(
       (x) =>
         (x.onclick = () => {
