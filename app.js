@@ -168,7 +168,8 @@
     capTeams: "Black Cap – White Cap",
   };
   const SCORING_METHODS = {
-    holeByHole: "Hole-by-hole App scoring",
+    holeByHole: "On course by players and confirmed by Markers hole-by-hole",
+    fullCardPlayer: "Full Card entered by Player",
     finalStableford: "Insert Final Score — Stableford",
     finalGross: "Insert Final Score — Gross Strokes",
   };
@@ -183,7 +184,7 @@
     return Boolean(entry && Number.isFinite(+entry.total) && entry.confirmedAt);
   }
   function finalScoreCompetitionAllowed(id, method) {
-    if (method === "holeByHole") return true;
+    if (["holeByHole", "fullCardPlayer"].includes(method)) return true;
     if (method === "finalStableford") return ["single", "combined", "capTeams", "teamPutts"].includes(id);
     if (method === "finalGross") return ["stroke", "teamPutts"].includes(id);
     return false;
@@ -5403,6 +5404,14 @@ Count-back if tied
     return true;
   }
   function renderWizard() {
+    if (W.step === 3 && W.lastRenderedStep !== 3) {
+      W.event.scoreEntryPlan = "players";
+      W.event.scoringMethods = W.event.scoringMethods || {};
+      eventDays(W.event).forEach(
+        (day) => (W.event.scoringMethods["day" + day] = "holeByHole"),
+      );
+    }
+    W.lastRenderedStep = W.step;
     let spans = $$(".steps span");
     spans.forEach((s, i) => s.classList.toggle("on", i === W.step - 1));
     $("#stepText").textContent =
@@ -6521,7 +6530,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function renderStep3() {
     normaliseStablefordBenefits(W.benefits);
-    const setupMethods={holeByHole:"Players enter hole-by-hole",finalStableford:"Final-score entry — Stableford",finalGross:"Final-score entry — Gross Strokes"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!(setupMethodFor(day)==="holeByHole"||(setupMethodFor(day)==="finalStableford"&&["single","combined","capTeams","teamPutts"].includes(id))||(setupMethodFor(day)==="finalGross"&&["stroke","teamPutts"].includes(id))));
+    const setupMethods={fullCardPlayer:"Full Card entered by Player",finalStableford:"Final-score entry — Stableford",finalGross:"Final-score entry — Gross Strokes"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
     const stablefordId = W.event.days === 1 ? "single" : "combined",
       previousId = W.event.days === 1 ? "combined" : "single";
     if (W.competitions.has(previousId)) {
@@ -6561,7 +6570,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
     W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
     if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered</h4><label class="scoreEntryPlan"><span>Score entry method</span><select data-scoreentryplan><option value="players" ${W.event.scoreEntryPlan==="players"?"selected":""}>By players hole-by-hole</option><option value="separateCard" ${W.event.scoreEntryPlan==="separateCard"?"selected":""}>From a score card separate to the App</option></select></label>${W.event.scoreEntryPlan === "separateCard" ? `<p class="hint">Choose separately for every playing day. Selecting "Final-score entry" from the menu assumes you will enter scores from a caddie or paper-card. These scores cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><select data-scoringmethod="${day}">${Object.entries(setupMethods).map(([value,label]) => `<option value="${value}" ${setupMethodFor(day)===value?"selected":""}>${label}</option>`).join("")}</select>${setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}` : ""}</div>`;
+    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered — Choose direct App scoring or after-round recording of a Score Card</h4><label class="scoreEntryPlan"><span>Score entry method</span><select data-scoreentryplan><option value="players" ${W.event.scoreEntryPlan==="players"?"selected":""}>On course by players and confirmed by Markers hole-by-hole</option><option value="separateCard" ${W.event.scoreEntryPlan==="separateCard"?"selected":""}>After round from a Score Card separate to the App</option></select></label>${W.event.scoreEntryPlan === "separateCard" ? `<p class="hint">Choose separately for every playing day. “Full Card entered by Player” retains all 18 hole scores and can calculate hole-by-hole events and countbacks. Selecting “Final-score entry” assumes you will enter only the result supplied by a caddie or paper card; it cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><select data-scoringmethod="${day}">${Object.entries(setupMethods).map(([value,label]) => `<option value="${value}" ${setupMethodFor(day)===value?"selected":""}>${label}</option>`).join("")}</select>${setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}` : ""}</div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
@@ -6599,6 +6608,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $('[data-scoreentryplan]').onchange = (e) => {
       W.event.scoreEntryPlan = e.target.value;
       if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
+      else eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "fullCardPlayer");
       renderStep3();
     };
     $$("[data-benefit]").forEach(
@@ -13001,6 +13011,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const field = dayFieldIds(day).filter(
       (id) => String(id) !== NO_PARTNER_ID,
     );
+    if (dayScoringMethod(day) === "fullCardPlayer")
+      return Boolean(
+        field.length && field.every((id) => roundFinalisedFor(day, id)),
+      );
     if (dayScoringMethod(day) !== "holeByHole")
       return Boolean(field.length && field.every(id=>finalScoreComplete(day,id)));
     return Boolean(
@@ -13598,6 +13612,110 @@ function estimateEventGa(handicap, rating, category, calculate) {
         renderLeaderboard();
       };
   }
+  function renderFullCardPlayerEntry(selected, day) {
+    const host = $("#playerExperience"),
+      person = eventPlayer(selected, day),
+      c = course(store.event["course" + day]),
+      card = eventCourseScorecard(day, store.event, selected),
+      puttsRequired = competitionIsOn("teamPutts", day),
+      dayKey = "day" + day,
+      playerKey = String(selected);
+    store.event.fullCardDrafts = store.event.fullCardDrafts || {};
+    store.event.fullCardDrafts[dayKey] =
+      store.event.fullCardDrafts[dayKey] || {};
+    const draft = (store.event.fullCardDrafts[dayKey][playerKey] =
+      store.event.fullCardDrafts[dayKey][playerKey] || { holes: {} });
+    const rows = Array.from({ length: 18 }, (_, index) => {
+      const hole = index + 1,
+        saved = draft.holes[hole] || {};
+      return `<div class="fullCardEntryRow"><b>${hole}</b><span>${esc(card.par?.[index] || "—")}</span><span>${esc(card.index?.[index] || "—")}</span><input data-fullgross="${hole}" inputmode="text" maxlength="2" value="${esc(saved.gross ?? "")}" placeholder="–" aria-label="Hole ${hole} gross strokes">${puttsRequired ? `<input data-fullputts="${hole}" inputmode="numeric" maxlength="1" value="${esc(saved.putts ?? "")}" placeholder="–" aria-label="Hole ${hole} putts">` : ""}</div>`;
+    }).join("");
+    host.innerHTML = `<div class="fullCardPlayerEntry"><div class="playerEventHero"><span>AFTER-ROUND SCORECARD</span><h1>${esc(store.event.name)}</h1>${store.event.days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p></div><div class="playerCard"><div class="playerCardTitle">FULL CARD ENTRY</div><h2>${esc(person?.name || "Player")}</h2><p>After completing the round, copy the gross score from your separate score card for every hole. Enter <b>P</b> or <b>–</b> for a pickup.${puttsRequired ? " Putts are required for today’s Putting Competition." : ""}</p><div class="fullCardEntryGrid ${puttsRequired ? "withPutts" : ""}"><div class="fullCardEntryHead"><span>Hole</span><span>Par</span><span>Index</span><span>Gross</span>${puttsRequired ? "<span>Putts</span>" : ""}</div>${rows}</div><p class="fullCardDraftNote">Entries are saved on this device while you work. Results appear after you confirm the completed card.</p><button class="startRoundBtn" id="confirmFullPlayerCard">CONFIRM COMPLETED SCORECARD</button><button class="soft" id="backFromFullPlayerCard">Back to Round</button></div></div>`;
+    const normaliseGross = (value) => {
+      const text = String(value ?? "").trim().toUpperCase();
+      return text === "-" || text === "–" ? "P" : text;
+    };
+    const fields = $$('[data-fullgross], [data-fullputts]');
+    fields.forEach((input, index) => {
+      input.oninput = () => {
+        const hole = +(input.dataset.fullgross || input.dataset.fullputts),
+          row = (draft.holes[hole] = draft.holes[hole] || {});
+        if (input.dataset.fullgross)
+          row.gross = normaliseGross(input.value);
+        else row.putts = input.value.trim();
+        persistStore();
+      };
+      input.onkeydown = (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        fields[index + 1]?.focus();
+        fields[index + 1]?.select();
+      };
+    });
+    $("#backFromFullPlayerCard").onclick = () => {
+      store.event.playerRoundMode = "preview";
+      save();
+      renderPlayerExperience();
+    };
+    $("#confirmFullPlayerCard").onclick = () => {
+      const invalid = [];
+      for (let hole = 1; hole <= 18; hole++) {
+        const row = draft.holes[hole] || {},
+          gross = normaliseGross(row.gross),
+          putts = String(row.putts ?? "").trim(),
+          validGross =
+            gross === "P" ||
+            (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20),
+          validPutts =
+            !puttsRequired ||
+            (putts !== "" &&
+              Number.isInteger(+putts) &&
+              +putts >= 0 &&
+              +putts <= 9 &&
+              (gross === "P" || +putts <= +gross));
+        if (!validGross || !validPutts) invalid.push(hole);
+      }
+      if (invalid.length)
+        return alert(
+          `Complete and check Hole${invalid.length === 1 ? "" : "s"} ${invalid.join(", ")} before confirming the card.`,
+        );
+      const grossTotal = Array.from({ length: 18 }, (_, index) => {
+        const gross = normaliseGross(draft.holes[index + 1].gross);
+        return gross === "P" ? +(card.par?.[index] || 0) + 2 : +gross;
+      }).reduce((total, value) => total + value, 0);
+      if (
+        !confirm(
+          `Confirm the complete 18-hole card for ${person?.name || "this player"}?\n\nGross total: ${grossTotal}\n\nThe card will be sent to the leaderboard and cannot be edited by the player after confirmation.`,
+        )
+      )
+        return;
+      const confirmedAt = new Date().toISOString();
+      for (let hole = 1; hole <= 18; hole++) {
+        const saved = draft.holes[hole],
+          gross = normaliseGross(saved.gross),
+          putts = puttsRequired ? +saved.putts : "",
+          record = scoreRecord(day, selected, hole);
+        record.self = { playerId: playerKey, gross, putts };
+        record.official = { playerId: playerKey, gross, putts };
+      }
+      const round = scorerStore(day, selected);
+      round._meta = {
+        ...(round._meta || {}),
+        finalisedAt: confirmedAt,
+        fullCardEnteredByPlayer: true,
+      };
+      store.event.roundFinalised = store.event.roundFinalised || {};
+      store.event.roundFinalised[dayKey] =
+        store.event.roundFinalised[dayKey] || {};
+      store.event.roundFinalised[dayKey][playerKey] = confirmedAt;
+      delete store.event.fullCardDrafts[dayKey][playerKey];
+      store.event.playerRoundMode = "completed";
+      queueCloudRound(day, selected);
+      persistStore();
+      if (store.cloud?.role === "organiser") void updateCloudEvent();
+      renderPlayerExperience();
+    };
+  }
   function renderFinalScoreEntry(selected, day) {
     const host=$("#playerExperience"), method=dayScoringMethod(day), kind=method==="finalStableford"?"stableford":"gross",
       entry=finalScoreEntry(day,selected)||{}, c=course(store.event["course"+day]), complete=finalScoreComplete(day,selected),
@@ -13661,6 +13779,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (store.event.playerRoundMode === "finalEntry")
       return renderFinalScoreEntry(selected, day);
+    if (store.event.playerRoundMode === "fullCardEntry")
+      return renderFullCardPlayerEntry(selected, day);
     if (store.event.playerRoundMode === "scoring")
       return ambroseIsOn(store.event, day)
         ? renderAmbroseScoring(selected, day)
@@ -13738,9 +13858,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown").join(" · "))}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
-      finalised = dayScoringMethod(day) !== "holeByHole"
-        ? finalScoreComplete(day,selected)
-        : ambroseIsOn(store.event, day)
+      finalised = dayScoringMethod(day) === "fullCardPlayer"
+        ? roundFinalisedFor(day, selected)
+        : dayScoringMethod(day) !== "holeByHole"
+          ? finalScoreComplete(day,selected)
+          : ambroseIsOn(store.event, day)
         ? ambroseTeamComplete(day, ctx.groupIndex)
         : roundFinalisedFor(day, selected),
       scoringOpen = scoringIsOpen(day),
@@ -13779,7 +13901,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
          )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b>${eventRuleBodyHtml(section)}</div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
- <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? (dayScoringMethod(day)==="holeByHole"?"VIEW COMPLETED SCORECARD":"VIEW FINAL SCORE") : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : dayScoringMethod(day)==="holeByHole" ? "OPEN SCORECARD" : "ENTER FINAL SCORE"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} — 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
+ <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? (["holeByHole","fullCardPlayer"].includes(dayScoringMethod(day))?"VIEW COMPLETED SCORECARD":"VIEW FINAL SCORE") : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : dayScoringMethod(day)==="holeByHole" ? "OPEN SCORECARD" : dayScoringMethod(day)==="fullCardPlayer" ? "ENTER FULL SCORECARD" : "ENTER FINAL SCORE"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} — 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
     $("#previewPlayer").onchange = (e) => {
       store.event.playerPreviewId = e.target.value;
       store.event.playerRoundMode = "preview";
@@ -13815,12 +13937,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     $("#startRoundPreview").onclick = () => {
       if (finalised) {
-        store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "completed" : "finalEntry";
+        store.event.playerRoundMode = ["holeByHole", "fullCardPlayer"].includes(dayScoringMethod(day)) ? "completed" : "finalEntry";
         save();
         return renderPlayerExperience();
       }
       if (!canStart) return;
-      store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : "finalEntry";
+      store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : dayScoringMethod(day) === "fullCardPlayer" ? "fullCardEntry" : "finalEntry";
       store.event.playerHolePos = 0;
       requestRoundWakeLock();
       save();
