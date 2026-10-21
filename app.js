@@ -6570,7 +6570,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
     W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
     if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered — Choose direct App scoring or after-round recording of a Score Card</h4><label class="scoreEntryPlan"><span>Score entry method</span><select data-scoreentryplan><option value="players" ${W.event.scoreEntryPlan==="players"?"selected":""}>On course by players and confirmed by Markers hole-by-hole</option><option value="separateCard" ${W.event.scoreEntryPlan==="separateCard"?"selected":""}>After round from a Score Card separate to the App</option></select></label>${W.event.scoreEntryPlan === "separateCard" ? `<p class="hint">Choose one method for every playing day. “Strokes/hole entered by Player” retains all 18 hole scores and can calculate hole-by-hole events and countbacks. A final score records only the supplied Gross Strokes or Stableford points and cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}` : ""}</div>`;
+    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered — Choose direct App scoring or after-round recording of a Score Card</h4><label class="directScoringChoice ${W.event.scoreEntryPlan==="players"?"selected":""}"><span>On course by players and confirmed by Markers hole-by-hole</span><input type="checkbox" data-directscoreentry ${W.event.scoreEntryPlan==="players"?"checked":""}></label><div class="afterRoundMethodSetup"><b>After round from a Score Card separate to the App</b><p class="hint">Choose one method for every playing day. “Strokes/hole entered by Player” retains all 18 hole scores and can calculate hole-by-hole events and countbacks. A final score records only the supplied Gross Strokes or Stableford points and cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${W.event.scoreEntryPlan==="separateCard"&&setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${W.event.scoreEntryPlan==="separateCard"&&setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${W.event.scoreEntryPlan==="separateCard"&&setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}</div></div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
@@ -6601,15 +6601,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
           renderStep3();
         }),
     );
-    $('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
+    $$('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
       if (!choice.checked) return renderStep3();
+      W.event.scoreEntryPlan = "separateCard";
       W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
       renderStep3();
     });
-    $('[data-scoreentryplan]').oninput = (e) => {
-      W.event.scoreEntryPlan = e.target.value;
-      if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
-      else eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "fullCardPlayer");
+    $('[data-directscoreentry]').onchange = (e) => {
+      if (!e.target.checked) return renderStep3();
+      W.event.scoreEntryPlan = "players";
+      eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
       renderStep3();
     };
     $$("[data-benefit]").forEach(
