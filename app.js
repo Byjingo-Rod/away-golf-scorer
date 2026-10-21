@@ -6300,17 +6300,45 @@ function estimateEventGa(handicap, rating, category, calculate) {
       }
     }
   });
+  function eclecticCourseGroups(event = W.event) {
+    const groups = new Map();
+    eventDays(event).forEach((day) => {
+      const courseId = event["course" + day],
+        courseName = (course(courseId)?.name || "").trim(),
+        key = courseId ? `id:${courseId}` : `name:${courseName.toLowerCase()}`;
+      if (!courseId && !courseName) return;
+      if (!groups.has(key))
+        groups.set(key, { key, courseId: String(courseId || ""), courseName: courseName || `Day ${day} course`, days: [] });
+      groups.get(key).days.push(day);
+    });
+    return [...groups.values()].filter((group) => group.days.length >= 2);
+  }
+  function selectedEclecticGroups(event = W.event) {
+    const eligible = eclecticCourseGroups(event), selected = event.eclecticCourseIds;
+    if (!Array.isArray(selected) || !selected.length) return eligible;
+    return eligible.filter((group) => selected.includes(group.key));
+  }
+  function syncEclecticCompetitionDays(event = W.event) {
+    event.competitionDays ||= {};
+    event.competitionDays.eclectic = [...new Set(selectedEclecticGroups(event).flatMap((group) => group.days))].sort((a, b) => a - b);
+  }
+  function eclecticCourseChoiceHtml(event = W.event) {
+    const groups = eclecticCourseGroups(event), selected = new Set(selectedEclecticGroups(event).map((group) => group.key));
+    return `<div class="ntpBox eclecticCourseChoices"><b>Select the repeated course Eclectic competition(s)</b>${groups.map((group) => `<label><input style="width:auto" type="checkbox" data-eclecticcourse="${esc(group.key)}" ${selected.has(group.key) ? "checked" : ""}> ${esc(group.courseName)} — Days ${group.days.join(" and ")}</label>`).join("")}<small>Each selected course has its own Eclectic leaderboard using only the rounds played on that course.</small></div>`;
+  }
   function compDefinitions() {
     let d = W.event.days,
-      c1 = W.event.course1 || "",
-      c2 = W.event.course2 || "",
-      n1 = (course(c1)?.name || "").trim().toLowerCase(),
-      n2 = (course(c2)?.name || "").trim().toLowerCase(),
-      same =
-        d == 2 &&
-        Boolean(c1) &&
-        Boolean(c2) &&
-        (String(c1) === String(c2) || (n1 && n1 === n2)),
+      eclecticGroups = (() => {
+        const groups = new Map();
+        eventDays(W.event).forEach((day) => {
+          const courseId = W.event["course" + day], courseName = (course(courseId)?.name || "").trim(),
+            key = courseId ? `id:${courseId}` : `name:${courseName.toLowerCase()}`;
+          if (!courseId && !courseName) return;
+          if (!groups.has(key)) groups.set(key, { key, days: [] });
+          groups.get(key).days.push(day);
+        });
+        return [...groups.values()].filter((group) => group.days.length >= 2);
+      })(),
       defs = [
         {
           id: d == 1 ? "single" : "combined",
@@ -6394,17 +6422,17 @@ function estimateEventGa(handicap, rating, category, calculate) {
           tag: "OPTIONAL",
         },
       ];
-    if (d == 2)
+    if (d > 1)
       defs.push({
         id: "eclectic",
         name: "Eclectic",
-        desc: same
-          ? "Best Stableford score on each hole over the two rounds."
-          : "Available only when the same course is played on every playing day.",
-        tag: same
-          ? "AVAILABLE — SAME COURSE"
-          : "NOT AVAILABLE — DIFFERENT COURSES",
-        unavailable: !same,
+        desc: eclecticGroups.length
+          ? "Best Stableford score on each hole over repeated rounds at the same course."
+          : "Available when the same course is played on two or more playing days.",
+        tag: eclecticGroups.length
+          ? `${eclecticGroups.length} REPEATED COURSE${eclecticGroups.length === 1 ? "" : "S"}`
+          : "NO REPEATED COURSE",
+        unavailable: !eclecticGroups.length,
       });
     return defs;
   }
@@ -6510,13 +6538,15 @@ function estimateEventGa(handicap, rating, category, calculate) {
     eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] ||= "holeByHole");
     W.event.strokeResult ||= "net";
     W.event.strokeScoringMode ||= "allStrokes";
+    W.event.strokeCountingMode ||= "daily";
+    if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
     const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered</h4><p class="hint">Choose separately for every playing day. Final-score entry is designed for caddie or paper-card rounds and cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><select data-scoringmethod="${day}">${Object.entries(setupMethods).map(([value,label]) => `<option value="${value}" ${setupMethodFor(day)===value?"selected":""}>${label}</option>`).join("")}</select>${setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}</div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
           let on = W.competitions.has(c.id),
             disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !c.unavailable ? competitionScheduleHtml(c.id) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !c.unavailable ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -6527,6 +6557,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
             : W.competitions.delete(x.dataset.comp);
           if (x.checked && x.dataset.comp === "yellowBall")
             W.event.yellowBallDays = eventDays(W.event);
+          if (x.checked && x.dataset.comp === "eclectic") {
+            W.event.eclecticCourseIds = eclecticCourseGroups(W.event).map((group) => group.key);
+            syncEclecticCompetitionDays(W.event);
+          }
           if (x.checked && x.dataset.comp === "ambrose") {
             if (W.event.days === 1) W.competitions = new Set(["ambrose"]);
             W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerOnly";
@@ -6558,8 +6592,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
       );
     const scratchComp = $('[data-comp="scratch"]')?.closest(".comp");
     const strokeComp = $('[data-comp="stroke"]')?.closest(".comp");
-    if (strokeComp && W.competitions.has("stroke"))
-      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><b>Stroke Result</b><label><input style="width:auto" type="radio" name="strokeResult" value="net" ${W.event.strokeResult==="net"?"checked":""}> Net</label><label><input style="width:auto" type="radio" name="strokeResult" value="gross" ${W.event.strokeResult==="gross"?"checked":""}> Gross</label><label><input style="width:auto" type="radio" name="strokeResult" value="both" ${W.event.strokeResult==="both"?"checked":""}> Both</label><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label><small>With Insert Final Score, the caddie or official card must supply the already-capped competition total.</small></div>`);
+    if (strokeComp && W.competitions.has("stroke")) {
+      const strokeDays = competitionDays("stroke", W.event), total = strokeDays.length, best = Math.max(1, total - 1);
+      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><label><input style="width:auto" type="radio" name="strokeResult" value="net" ${W.event.strokeResult==="net"?"checked":""}> Net</label><label><input style="width:auto" type="radio" name="strokeResult" value="gross" ${W.event.strokeResult==="gross"?"checked":""}> Gross</label><label><input style="width:auto" type="radio" name="strokeResult" value="both" ${W.event.strokeResult==="both"?"checked":""}> Both</label></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="radio" name="strokeCountingMode" value="daily" ${W.event.strokeCountingMode==="daily"?"checked":""}> Each selected day separately</label>${total > 1 ? `<label><input style="width:auto" type="radio" name="strokeCountingMode" value="aggregate" ${W.event.strokeCountingMode==="aggregate"?"checked":""}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeCountingMode" value="bestAggregate" ${W.event.strokeCountingMode==="bestAggregate"?"checked":""}> Best ${best} of ${total} rounds</label>` : ""}</section><small>With Insert Final Score, the caddie or official card must supply the already-capped competition total.</small></div>`);
+    }
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
         "beforeend",
@@ -6610,6 +6646,20 @@ function estimateEventGa(handicap, rating, category, calculate) {
         W.event.scratchScoringMode = t.value;
       if (t.name === "strokeResult") { W.event.strokeResult = t.value; renderStep3(); return; }
       if (t.name === "strokeScoringMode") { W.event.strokeScoringMode = t.value; renderStep3(); return; }
+      if (t.name === "strokeCountingMode") { W.event.strokeCountingMode = t.value; renderStep3(); return; }
+      if (t.dataset.eclecticcourse) {
+        const selected = new Set(selectedEclecticGroups(W.event).map((group) => group.key));
+        t.checked ? selected.add(t.dataset.eclecticcourse) : selected.delete(t.dataset.eclecticcourse);
+        if (!selected.size) {
+          selected.add(t.dataset.eclecticcourse);
+          t.checked = true;
+          return alert("Select at least one repeated course for Eclectic, or untick Eclectic above.");
+        }
+        W.event.eclecticCourseIds = [...selected];
+        syncEclecticCompetitionDays(W.event);
+        renderStep3();
+        return;
+      }
       if (t.name === "ambroseScoringMode") W.event.ambroseScoringMode = t.value;
       if (t.id === "ambroseMinimumDrives")
         W.event.ambroseMinimumDrives = +t.value;
@@ -9321,7 +9371,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function openFutureRoundEditor() {
     const editable=eventDays().filter(day=>!eventDayStarted(day));
     if(!editable.length)return alert("Every playing day has started or finished. Completed scoring cannot be changed.");
-    const ids=Object.keys(competitionNames).filter(id=>id!=="eclectic"||+store.event.days===2);
+    const ids=Object.keys(competitionNames).filter(id=>id!=="eclectic"||eclecticCourseGroups(store.event).length>0);
     $("#modalContent").innerHTML=`<h2>Modify Future Rounds</h2><p>Only unstarted days can change. Completed and started rounds remain locked.</p><div class="futureRoundEditor">${eventDays().map(day=>{const locked=!editable.includes(day);return `<section class="${locked?"locked":""}"><h3>Day ${day} ${locked?"— Locked":""}</h3><label>Score entry method<select data-futuremethod="${day}" ${locked?"disabled":""}>${Object.entries(SCORING_METHODS).map(([value,label])=>`<option value="${value}" ${dayScoringMethod(day)===value?"selected":""}>${label}</option>`).join("")}</select></label><div class="futureCompetitions">${ids.map(id=>`<label><input type="checkbox" data-futurecomp="${day}|${id}" ${competitionIsOn(id,day)?"checked":""} ${locked?"disabled":""}> ${esc(competitionNames[id]||id)}</label>`).join("")}</div></section>`}).join("")}</div><button class="primary" id="saveFutureRounds">Publish Future-Round Update</button><button class="soft" id="cancelFutureRounds">Cancel</button>`;
     $("#cancelFutureRounds").onclick=()=>openEventOptions();
     $("#saveFutureRounds").onclick=async()=>{
@@ -11761,38 +11811,35 @@ function estimateEventGa(handicap, rating, category, calculate) {
       );
     const totalOff = running("official", hcpTarget, targetId),
       totalSelf = running("self", hcpSelf, selected);
-    const eclecticOn =
-      day === 2 && (store.event.competitions || []).includes("eclectic");
+    const eclecticGroup = (store.event.competitions || []).includes("eclectic")
+      ? selectedEclecticGroups(store.event).find((group) => group.days.includes(day) && day !== group.days[0])
+      : null,
+      eclecticOn = Boolean(eclecticGroup);
     const eclecticData = (playerId) => {
       if (!eclecticOn) return null;
-      const day1Version = eventCourseScorecard(1,store.event,playerId),
-        day1Hcp = playerDailyHandicap(playerId, 1);
-      const points = (h) => {
-        const e = playerHoleEntry(1, playerId, h),
+      const baseDay = eclecticGroup.days[0], completedDays = eclecticGroup.days.filter((roundDay) => roundDay <= day),
+        baseVersion = eventCourseScorecard(baseDay,store.event,playerId), baseHcp = playerDailyHandicap(playerId, baseDay);
+      const basePoints = (h) => {
+        const e = playerHoleEntry(baseDay, playerId, h),
           i = h - 1;
         return stablefordPoints(
           e?.gross,
-          +(day1Version.par?.[i] || 0),
-          day1Version.index?.[i] ?? "",
-          day1Hcp,
+          +(baseVersion.par?.[i] || 0),
+          baseVersion.index?.[i] ?? "",
+          baseHcp,
         );
       };
-      const day1Hole = points(hole),
+      const baseHole = basePoints(hole),
         values = playedHoles.map((h) => {
-          const d1 = points(h),
-            d2Entry = playerHoleEntry(2, playerId, h),
-            d2Card=eventCourseScorecard(2,store.event,playerId),
-            i = h - 1,
-            d2 = stablefordPoints(
-              d2Entry?.gross,
-              +(d2Card.par?.[i] || 0),
-              d2Card.index?.[i] ?? "",
-              playerDailyHandicap(playerId, 2),
-            );
-          return d1 == null && d2 == null ? null : Math.max(d1 ?? 0, d2 ?? 0);
+          const roundValues = completedDays.map((roundDay) => {
+            const entry = playerHoleEntry(roundDay, playerId, h), card = eventCourseScorecard(roundDay,store.event,playerId), i = h - 1;
+            return stablefordPoints(entry?.gross, +(card.par?.[i] || 0), card.index?.[i] ?? "", playerDailyHandicap(playerId, roundDay));
+          }).filter((value) => value != null);
+          return roundValues.length ? Math.max(...roundValues) : null;
         });
       return {
-        day1Hole,
+        baseDay,
+        baseHole,
         total: values.every((x) => x != null)
           ? values.reduce((a, b) => a + b, 0)
           : null,
@@ -11804,7 +11851,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           indexVal,
           playerDailyHandicap(playerId, day),
         );
-      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "—" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day 1</em><b>${ec.day1Hole == null ? "—" : ec.day1Hole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
+      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "—" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day ${ec.baseDay}</em><b>${ec.baseHole == null ? "—" : ec.baseHole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
     };
     const pairStart = ctx.playerIndex < 2 ? 0 : 2,
       pairIds = ctx.group
@@ -12352,7 +12399,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     for (let day = 1; day <= days; day++) {
       const suffix = days === 1 ? "" : ` — Day ${day}`;
-      if (competitionIsOn("stroke", day)) {
+      if (competitionIsOn("stroke", day) && (store.event.strokeCountingMode || "daily") === "daily") {
         const result = store.event.strokeResult || "net", finalOnly = dayScoringMethod(day) === "finalGross";
         if (["gross","both"].includes(result)) add(`stroke-gross-d${day}`, `Stroke Gross${suffix}`, "strokeGross", day, {lower:true,countback:!finalOnly});
         if (["net","both"].includes(result)) add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
@@ -12386,6 +12433,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (competitionIsOn("ntp", day))
         add(`ntp-d${day}`, `Nearest the Pin${suffix}`, "ntp", day);
     }
+    if (selected.has("stroke") && (store.event.strokeCountingMode || "daily") !== "daily") {
+      const strokeDays = competitionDays("stroke"), best = store.event.strokeCountingMode === "bestAggregate",
+        count = best ? Math.max(1, strokeDays.length - 1) : strokeDays.length,
+        result = store.event.strokeResult || "net", label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
+      if (["gross", "both"].includes(result)) add("stroke-gross-agg", `Stroke Gross — ${label}`, "strokeAggregateGross", 0, { lower: true, countback: true, days: strokeDays, count });
+      if (["net", "both"].includes(result)) add("stroke-net-agg", `Stroke Net — ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
+    }
     if (selected.has("scratch") && ["aggregate", "bestAggregate"].includes(store.event.scratchFormat)) add("scratch-agg", store.event.scratchFormat === "bestAggregate" ? `Scratch — Best ${Math.max(1, days - 1)} of ${days} rounds` : "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
     if (selected.has("capTeams")) add("cap-teams", "Black Cap – White Cap", "capTeams", 0, {days:eventDays()});
     if (selected.has("par3")) {
@@ -12393,8 +12447,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (["overallPlayers", "overallPairs"].includes(mode)) add("par3-agg", mode === "overallPairs" ? `Par 3 Pairs — ${days} Days (Day ${days} partners)` : `Par 3 Individual — ${days} Days`, mode === "overallPairs" ? "par3aggregate" : "par3individualaggregate", 0, {countback:true, days:eventDays()});
       else for (const day of competitionDays("par3")) add(`par3-d${day}`, `Par 3 ${mode === "dailyTeams" ? "Teams" : "Pairs"}${days === 1 ? "" : ` — Day ${day}`}`, mode === "dailyTeams" ? "par3team" : "par3", day, {countback:true});
     }
-    if (selected.has("eclectic") && days === 2 && competitionDays("eclectic").length === 2)
-      add("eclectic", "Eclectic — 2 Days", "eclectic", 0, { countback: true });
+    if (selected.has("eclectic"))
+      selectedEclecticGroups(store.event).forEach((group) =>
+        add(`eclectic-${group.key.replace(/[^a-z0-9]+/gi, "-")}`, `Eclectic — ${group.courseName} · Days ${group.days.join(" and ")}`, "eclectic", 0, { countback: true, days: group.days, courseKey: group.key }),
+      );
     return defs;
   }
   function calculateLeaderboard(def) {
@@ -12425,6 +12481,34 @@ function estimateEventGa(handicap, rating, category, calculate) {
         row.detail = `${def.type === "strokeNet" ? `Gross ${row.grossTotal} · Hcp ${formatPlayingHandicap(row.handicap)}` : "Gross strokes"}${row.finalEntry ? " · final score entry" : ""}`;
         return row;
       });
+    if (["strokeAggregateGross", "strokeAggregateNet"].includes(def.type)) {
+      const selectedDays = def.days || competitionDays("stroke"), count = def.count || selectedDays.length,
+        net = def.type === "strokeAggregateNet", finished = selectedDays.every(eventDayComplete);
+      rows = [...new Set(selectedDays.flatMap(field))].map((id) => {
+        const rounds = selectedDays.filter((day) => field(day).includes(id)).map((day) => {
+          const actual = sharedActualId(id, day), saved = finalEntry(day, actual), finalGross = saved?.kind === "gross" && saved.confirmedAt && Number.isFinite(+saved.total),
+            holes = finalGross ? [] : strokeHoleScores(day, actual), grossTotal = finalGross ? +saved.total : leaderSum(holes),
+            handicap = playerDailyHandicap(actual, day) || 0, complete = finalGross || holes.every((value) => value != null),
+            total = grossTotal - (net ? handicap : 0);
+          return { day, holes, grossTotal, handicap, total, complete, thru: finalGross ? 18 : holes.filter((value) => value != null).length, finalGross };
+        }), ranked = [...rounds].sort((a, b) => Number(b.complete) - Number(a.complete) || a.total - b.total || b.day - a.day),
+          counted = ranked.filter((round) => round.complete || round.thru > 0).slice(0, count), completed = rounds.filter((round) => round.complete).length,
+          latest = [...counted].sort((a, b) => b.day - a.day)[0],
+          row = leaderRow(id, eventPlayerName(id), `${count === selectedDays.length ? "All rounds" : `Best ${count} of ${selectedDays.length}`} · ${completed} complete · Counting days ${counted.map((round) => round.day).sort((a, b) => a - b).join(", ") || "—"}`, [], count * 18);
+        row.total = leaderSum(counted.map((round) => round.total));
+        row.grossTotal = leaderSum(counted.map((round) => round.grossTotal));
+        row.handicap = leaderSum(counted.map((round) => round.handicap));
+        row.thru = leaderSum(counted.map((round) => round.thru));
+        row.cbHoles = latest?.holes || [];
+        row.manual = counted.some((round) => round.finalGross);
+        row.insufficientRounds = completed < count;
+        if (finished && completed < count) {
+          row.disqualified = true;
+          row.disqualificationReason = `${completed} completed rounds; ${count} required`;
+        }
+        return row;
+      });
+    }
     if (def.type === "combined") {
       const selectedDays = def.days || competitionDays("combined"), count = countingRounds();
       rows = [...new Set(selectedDays.flatMap(field))].map(id => {
@@ -12743,35 +12827,35 @@ function estimateEventGa(handicap, rating, category, calculate) {
         );
       });
     }
-    if (def.type === "eclectic")
-      rows = field(1)
-        .filter((id) => field(2).includes(id))
+    if (def.type === "eclectic") {
+      const eclecticDays = def.days || [1, 2], firstDay = eclecticDays[0], lastDay = eclecticDays.at(-1);
+      rows = field(firstDay)
+        .filter((id) => eclecticDays.every((day) => field(day).includes(id)))
         .map((id) => {
-          const d1 = points(1, id),
-            d2 = points(2, id),
+          const rounds = eclecticDays.map((day) => points(day, id)), baseline = rounds[0], latest = rounds.at(-1),
             r = leaderRow(
             id,
             eventPlayerName(id, def.day || null),
-            "",
+            `${def.days?.length || 2} rounds · Days ${eclecticDays.join(" and ")}`,
             Array.from({ length: 18 }, (_, i) => {
-              const vals = [d1[i], d2[i]].filter(
-                (x) => x != null,
-              );
+              const vals = rounds.map((round) => round[i]).filter((x) => x != null);
               return vals.length ? Math.max(...vals) : null;
             }),
           );
-          r.pointsGained = d2.reduce(
+          r.pointsGained = r.holes.reduce(
             (total, value, i) =>
               total +
-              (value == null || d1[i] == null
+              (value == null || baseline[i] == null
                 ? 0
-                : Math.max(0, value - d1[i])),
+                : Math.max(0, value - baseline[i])),
             0,
           );
-          r.thru = d2.filter((value) => value != null).length;
+          r.thru = latest.filter((value) => value != null).length;
+          r.lastDay = lastDay;
           return r;
         });
-    if (["scratch", "scratchaggregate", "ambrose", "combined"].includes(def.type)) {
+    }
+    if (["scratch", "scratchaggregate", "ambrose", "combined", "strokeAggregateGross", "strokeAggregateNet"].includes(def.type)) {
       const active = rankLeaderRows(
         rows.filter((r) => !r.disqualified),
         !def.lower,
