@@ -185,9 +185,20 @@
   }
   function finalScoreCompetitionAllowed(id, method) {
     if (["holeByHole", "fullCardPlayer"].includes(method)) return true;
-    if (method === "finalStableford") return ["single", "combined", "capTeams", "teamPutts"].includes(id);
-    if (method === "finalGross") return ["stroke", "teamPutts"].includes(id);
+    // A final total has no hole-by-hole detail. Stableford totals can support
+    // individual/event totals and the Black Cap – White Cap team aggregate.
+    // Gross totals can support Stroke and Scratch, but not countbacks.
+    if (method === "finalStableford") return ["single", "combined", "capTeams"].includes(id);
+    if (method === "finalGross") return ["stroke", "scratch"].includes(id);
     return false;
+  }
+  function competitionNeedsEverySelectedDay(id, event = store.event) {
+    return id === "capTeams" || id === "eclectic" ||
+      (id === "scratch" && ["aggregate", "bestAggregate"].includes(event?.scratchFormat)) ||
+      (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)));
+  }
+  function competitionCompatibleDays(id, event = store.event) {
+    return eventDays(event).filter(day => finalScoreCompetitionAllowed(id, dayScoringMethod(day, event)));
   }
   function incompatibleDayCompetitions(day, event = store.event, competitions = event?.competitions || []) {
     const method = dayScoringMethod(day, event);
@@ -6509,9 +6520,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return balls + (id === "dailyStableford" || ballsOnly ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
   }
   function competitionScheduleHtml(id) {
-    const days = competitionDays(id, W.event), all = eventDays(W.event);
+    const days = competitionDays(id, W.event), all = eventDays(W.event),
+      compatible = competitionCompatibleDays(id, W.event), compatibleSet = new Set(compatible),
+      hasRestrictedDays = compatible.length !== all.length;
     if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(W.event.scratchFormat)) || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
-    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
+    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label class="${hasRestrictedDays ? "scoreMethodUnavailable" : ""}"><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""} ${hasRestrictedDays?"disabled":""}> All Days</label>${all.map(day=>`<label class="${compatibleSet.has(day)?"":"scoreMethodUnavailable"}"><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""} ${compatibleSet.has(day)?"":"disabled"}> Day ${day}</label>`).join("")}${hasRestrictedDays ? `<small class="competitionMethodNote">Grey days use a final-score method that cannot calculate this competition.</small>` : ""}</div>` : ""}${id==="combined" && days.length ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
   }
   function par3FormatHtml(event) {
     const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
@@ -6554,6 +6567,19 @@ function estimateEventGa(handicap, rating, category, calculate) {
         : "stroke";
     W.event.scoringMethods ||= {};
     eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] ||= "holeByHole");
+    if (eventDays(W.event).some(day => setupMethodFor(day) !== "holeByHole"))
+      W.event.planAlternativeScoring = true;
+    [...W.competitions].forEach(id => {
+      const selectedDays = competitionDays(id,W.event),
+        validDays = selectedDays.filter(day => finalScoreCompetitionAllowed(id,setupMethodFor(day)));
+      if (validDays.length === selectedDays.length) return;
+      if (competitionNeedsEverySelectedDay(id,W.event) || !validDays.length) {
+        W.competitions.delete(id);
+        return;
+      }
+      W.event.competitionDays ||= {};
+      W.event.competitionDays[id] = validDays;
+    });
     W.event.strokeResult ||= "net";
     W.event.strokeScoringMode ||= "allStrokes";
     W.event.strokeCountingMode ||= "daily";
@@ -6561,13 +6587,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
     W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
     if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered - Choose direct App scoring or after round recording of a Score Card.</h4><p class="hint">Choose one method for each playing day. New events begin with standard on-course App scoring. A saved choice remains in place when you return to the event.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">This method cannot calculate every competition selected for this day. Change the method or the affected competition days.</small>` : ""}</div>`).join("")}</div>`;
+    const scoringMethodSetup = `<div class="scoringUseSetup"><div class="scoringUseQuestion"><b>Scoring to be completed using the App while playing</b><div class="scoringUseChoices"><label><input type="radio" name="planAlternativeScoring" value="no" ${W.event.planAlternativeScoring?"":"checked"}> Yes</label><label><input type="radio" name="planAlternativeScoring" value="yes" ${W.event.planAlternativeScoring?"checked":""}> No</label></div></div>${W.event.planAlternativeScoring ? `<div class="scoringMethodSetup"><h4>If the App is not being used for any round in the event, use this section to plan the scoring process.</h4><p class="hint">Choose one method for each playing day. Any competition that cannot be calculated from the selected score information will be greyed out.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">Incompatible competitions have been removed from this day.</small>` : ""}</div>`).join("")}</div>` : ""}</div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
           let on = W.competitions.has(c.id),
-            disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !c.unavailable ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+            compatibleDays = competitionCompatibleDays(c.id, W.event),
+            methodUnavailable = !compatibleDays.length || (competitionNeedsEverySelectedDay(c.id,W.event) && compatibleDays.length !== eventDays(W.event).length),
+            disabled = c.unavailable || methodUnavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id)),
+            methodReason = methodUnavailable ? `<div class="methodUnavailableReason">Unavailable with the selected final-score method${W.event.days > 1 ? "s" : ""}.</div>` : "";
+          return `<div class="comp ${disabled ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${methodReason}${c.id === "combined" && on && !disabled ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !disabled ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on && !disabled ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && !disabled ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && !disabled && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -6576,6 +6605,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
           x.checked
             ? W.competitions.add(x.dataset.comp)
             : W.competitions.delete(x.dataset.comp);
+          if (x.checked && !competitionNeedsEverySelectedDay(x.dataset.comp,W.event)) {
+            W.event.competitionDays ||= {};
+            W.event.competitionDays[x.dataset.comp] = competitionCompatibleDays(x.dataset.comp,W.event);
+          }
           if (x.checked && x.dataset.comp === "yellowBall")
             W.event.yellowBallDays = eventDays(W.event);
           if (x.checked && x.dataset.comp === "eclectic") {
@@ -6595,6 +6628,23 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $$('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
       if (!choice.checked) return renderStep3();
       W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
+      const day = +choice.dataset.scoringmethod;
+      [...W.competitions].forEach(id => {
+        if (!competitionDays(id,W.event).includes(day) || finalScoreCompetitionAllowed(id,choice.value)) return;
+        if (competitionNeedsEverySelectedDay(id,W.event)) {
+          W.competitions.delete(id);
+          return;
+        }
+        W.event.competitionDays ||= {};
+        W.event.competitionDays[id] = competitionDays(id,W.event).filter(selectedDay => selectedDay !== day);
+        if (!W.event.competitionDays[id].length) W.competitions.delete(id);
+      });
+      renderStep3();
+    });
+    $$('[name="planAlternativeScoring"]').forEach(choice => choice.onchange = () => {
+      W.event.planAlternativeScoring = choice.value === "yes";
+      if (!W.event.planAlternativeScoring)
+        eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
       renderStep3();
     });
     $$("[data-benefit]").forEach(
