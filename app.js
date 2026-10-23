@@ -6580,7 +6580,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
       W.event.competitionDays ||= {};
       W.event.competitionDays[id] = validDays;
     });
-    W.event.strokeResult ||= "net";
+    // Stroke is a net competition. Gross scoring belongs under Scratch,
+    // where the organiser can apply the event's handicap eligibility limit.
+    W.event.strokeResult = "net";
     W.event.strokeScoringMode ||= "allStrokes";
     W.event.strokeCountingMode ||= "daily";
     if (typeof W.event.strokeDailyResults !== "boolean") W.event.strokeDailyResults = W.event.strokeCountingMode === "daily";
@@ -6666,7 +6668,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const strokeComp = $('[data-comp="stroke"]')?.closest(".comp");
     if (strokeComp && W.competitions.has("stroke")) {
       const strokeDays = competitionDays("stroke", W.event), total = strokeDays.length, best = Math.max(1, total - 1);
-      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><label><input style="width:auto" type="radio" name="strokeResult" value="net" ${W.event.strokeResult==="net"?"checked":""}> Net</label><label><input style="width:auto" type="radio" name="strokeResult" value="gross" ${W.event.strokeResult==="gross"?"checked":""}> Gross</label><label><input style="width:auto" type="radio" name="strokeResult" value="both" ${W.event.strokeResult==="both"?"checked":""}> Both</label></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="checkbox" name="strokeDailyResults" ${W.event.strokeDailyResults?"checked":""}> Daily prize — each selected day</label>${total > 1 ? `<label><input style="width:auto" type="checkbox" name="strokeAggregateEnabled" ${W.event.strokeAggregateEnabled?"checked":""}> Overall event prize</label><div class="strokeAggregateChoices ${W.event.strokeAggregateEnabled?"":"inactive"}"><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="aggregate" ${W.event.strokeAggregateMode!=="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="bestAggregate" ${W.event.strokeAggregateMode==="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> Best ${best} of ${total} rounds</label></div>` : ""}</section><small>Daily and overall Stroke prizes can run together. With Final-score entry, the caddie or official card must supply the already-capped competition total.</small></div>`);
+      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><strong>Net only</strong><small>Gross scoring is available as a separate Scratch competition.</small></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="checkbox" name="strokeDailyResults" ${W.event.strokeDailyResults?"checked":""}> Daily prize — each selected day</label>${total > 1 ? `<label><input style="width:auto" type="checkbox" name="strokeAggregateEnabled" ${W.event.strokeAggregateEnabled?"checked":""}> Overall event prize</label><div class="strokeAggregateChoices ${W.event.strokeAggregateEnabled?"":"inactive"}"><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="aggregate" ${W.event.strokeAggregateMode!=="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="bestAggregate" ${W.event.strokeAggregateMode==="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> Best ${best} of ${total} rounds</label></div>` : ""}</section><small>Daily and overall Stroke prizes can run together. With Final-score entry, the caddie or official card must supply the already-capped competition total.</small></div>`);
     }
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
@@ -6716,7 +6718,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
       if (t.name === "scratchScoringMode")
         W.event.scratchScoringMode = t.value;
-      if (t.name === "strokeResult") { W.event.strokeResult = t.value; renderStep3(); return; }
       if (t.name === "strokeScoringMode") { W.event.strokeScoringMode = t.value; renderStep3(); return; }
       if (t.name === "strokeDailyResults") {
         if (!t.checked && !W.event.strokeAggregateEnabled) { t.checked = true; return alert("Keep at least one Stroke prize selected."); }
@@ -12566,9 +12567,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     for (let day = 1; day <= days; day++) {
       const suffix = days === 1 ? "" : ` — Day ${day}`;
       if (competitionIsOn("stroke", day) && (typeof store.event.strokeDailyResults === "boolean" ? store.event.strokeDailyResults : (store.event.strokeCountingMode || "daily") === "daily")) {
-        const result = store.event.strokeResult || "net", finalOnly = dayScoringMethod(day) === "finalGross";
-        if (["gross","both"].includes(result)) add(`stroke-gross-d${day}`, `Stroke Gross${suffix}`, "strokeGross", day, {lower:true,countback:!finalOnly});
-        if (["net","both"].includes(result)) add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
+        const finalOnly = dayScoringMethod(day) === "finalGross";
+        add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
       }
       if (competitionIsOn("ambrose", day))
         add(`ambrose-d${day}`, `Ambrose${suffix}`, "ambrose", day, {
@@ -12602,9 +12602,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (selected.has("stroke") && (typeof store.event.strokeAggregateEnabled === "boolean" ? store.event.strokeAggregateEnabled : (store.event.strokeCountingMode || "daily") !== "daily")) {
       const strokeDays = competitionDays("stroke"), best = (store.event.strokeAggregateMode || store.event.strokeCountingMode) === "bestAggregate",
         count = best ? Math.max(1, strokeDays.length - 1) : strokeDays.length,
-        result = store.event.strokeResult || "net", label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
-      if (["gross", "both"].includes(result)) add("stroke-gross-agg", `Stroke Gross — ${label}`, "strokeAggregateGross", 0, { lower: true, countback: true, days: strokeDays, count });
-      if (["net", "both"].includes(result)) add("stroke-net-agg", `Stroke Net — ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
+        label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
+      add("stroke-net-agg", `Stroke Net — ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
     }
     if (selected.has("scratch") && ["aggregate", "bestAggregate"].includes(store.event.scratchFormat)) add("scratch-agg", store.event.scratchFormat === "bestAggregate" ? `Scratch — Best ${Math.max(1, days - 1)} of ${days} rounds` : "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
     if (selected.has("capTeams")) add("cap-teams", "Black Cap – White Cap", "capTeams", 0, {days:eventDays()});
