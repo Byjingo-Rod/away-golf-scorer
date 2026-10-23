@@ -1532,8 +1532,10 @@ nav button.active {
   color: #263e32;
 }
 .groupPlayerName small {
-  color: #7a877f;
-  font-size: 10px;
+  color: #40574a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .swapBtn {
   padding: 6px 9px !important;
