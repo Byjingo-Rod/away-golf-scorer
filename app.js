@@ -6921,11 +6921,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     const dayHead = (day, key) =>
       `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>` : ""}</div>`;
+    const printableNtpCards = competitionDays("ntp", W.event).flatMap((day) => {
+      const cid = W.event["course" + day];
+      return (W.event.ntpSelections?.["day" + day] || []).map((hole) => ({
+        courseName: course(cid)?.name || "Course",
+        hole: +hole,
+      }));
+    });
+    const ntpPrintHtml = printableNtpCards.length
+      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "—"}</h6><div class="ntpPrintLines"><span></span><span></span><span></span><span></span></div></article>`).join("")}</div></section>`
+      : "";
     $("#wizardBody").innerHTML =
       `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
         const key="day"+day, cid=W.event["course"+day], count=ntpCount(day,W.event), choices=ensure(key,cid,count);
         return `<div class="ntpDayGroup">${dayHead(day,key)}<label>Number of NTP holes<select data-ntpcount="${day}"><option value="1" ${count===1?"selected":""}>One</option><option value="2" ${count===2?"selected":""}>Two</option></select></label>${Array.from({length:count},(_,i)=>row(`Day ${day}`,key,i,choices,cid)).join("")}</div>`;
-      }).join("")}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+      }).join("")}${ntpPrintHtml}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP marker. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+    if ($("#printNtpCards")) $("#printNtpCards").onclick = () => window.print();
     $$("[data-ntpcount]").forEach(input=>input.onchange=()=>{
       W.event.ntpCounts ||= {}; W.event.ntpCounts["day"+input.dataset.ntpcount]=+input.value; renderStep5();
     });
@@ -12184,7 +12195,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
- ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
+ ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} record their name on the NTP marker?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {
