@@ -168,7 +168,8 @@
     capTeams: "Black Cap – White Cap",
   };
   const SCORING_METHODS = {
-    holeByHole: "Hole-by-hole App scoring",
+    holeByHole: "On course by players and confirmed by Markers hole-by-hole",
+    fullCardPlayer: "Strokes/hole entered by Player",
     finalStableford: "Insert Final Score — Stableford",
     finalGross: "Insert Final Score — Gross Strokes",
   };
@@ -183,10 +184,21 @@
     return Boolean(entry && Number.isFinite(+entry.total) && entry.confirmedAt);
   }
   function finalScoreCompetitionAllowed(id, method) {
-    if (method === "holeByHole") return true;
-    if (method === "finalStableford") return ["single", "combined", "capTeams", "teamPutts"].includes(id);
-    if (method === "finalGross") return ["stroke", "teamPutts"].includes(id);
+    if (["holeByHole", "fullCardPlayer"].includes(method)) return true;
+    // A final total has no hole-by-hole detail. Stableford totals can support
+    // individual/event totals and the Black Cap – White Cap team aggregate.
+    // Gross totals can support Stroke and Scratch, but not countbacks.
+    if (method === "finalStableford") return ["single", "combined", "capTeams"].includes(id);
+    if (method === "finalGross") return ["stroke", "scratch"].includes(id);
     return false;
+  }
+  function competitionNeedsEverySelectedDay(id, event = store.event) {
+    return id === "capTeams" || id === "eclectic" ||
+      (id === "scratch" && ["aggregate", "bestAggregate"].includes(event?.scratchFormat)) ||
+      (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)));
+  }
+  function competitionCompatibleDays(id, event = store.event) {
+    return eventDays(event).filter(day => finalScoreCompetitionAllowed(id, dayScoringMethod(day, event)));
   }
   function incompatibleDayCompetitions(day, event = store.event, competitions = event?.competitions || []) {
     const method = dayScoringMethod(day, event);
@@ -706,6 +718,7 @@
         notes: "",
         eventsPlayed: 0,
         lastEvent: "",
+        awayGolfEventsPlayed: [],
       })),
       courses: AWAY_SEED.courses.map((c) => ({
         ...c,
@@ -1032,10 +1045,7 @@
     );
   }
   function courseQuality(courseRecord) {
-    const bestCard = [
-      ...Object.values(courseRecord.teeScorecards || {}),
-      ...(courseRecord.versions || []),
-    ].sort(
+    const bestCard = [...(courseRecord.versions || [])].sort(
       (a, b) => cardQuality(b) - cardQuality(a),
     )[0];
     const detailFields = [
@@ -1068,10 +1078,7 @@
           (a, b) => courseQuality(b) - courseQuality(a),
         ),
         keeper = ranked[0],
-        allCards = ranked.flatMap((item) => [
-          ...Object.values(item.teeScorecards || {}),
-          ...(item.versions || []),
-        ]),
+        allCards = ranked.flatMap((item) => item.versions || []),
         bestCard = [...allCards].sort((a, b) => cardQuality(b) - cardQuality(a))[0];
       for (const record of records) idMap.set(String(record.id), String(keeper.id));
       for (const source of ranked.slice(1)) {
@@ -1082,10 +1089,6 @@
           if (!String(keeper[key] || "").trim() && String(source[key] || "").trim())
             keeper[key] = source[key];
         keeper.teeDetails = keeper.teeDetails || {};
-        keeper.teeScorecards = keeper.teeScorecards || {};
-        for (const [tee, card] of Object.entries(source.teeScorecards || {}))
-          if (!keeper.teeScorecards[tee] || cardQuality(card) > cardQuality(keeper.teeScorecards[tee]))
-            keeper.teeScorecards[tee] = card;
         for (const tee of ["back", "middle", "front"]) {
           keeper.teeDetails[tee] = keeper.teeDetails[tee] || {};
           for (const key of ["colour", "slope", "scratch", "par", "length"])
@@ -1097,15 +1100,9 @@
         }
       }
       if (bestCard) {
-        keeper.teeScorecards = keeper.teeScorecards || {};
-        if (!Object.keys(keeper.teeScorecards).length)
-          keeper.teeScorecards.middle = { ...bestCard, tee: "middle" };
-        keeper.activeScorecardTee = keeper.teeScorecards[keeper.activeScorecardTee]
-          ? keeper.activeScorecardTee
-          : Object.keys(keeper.teeScorecards)[0];
+        keeper.versions = [bestCard];
+        keeper.activeVersionId = bestCard.id;
       }
-      delete keeper.versions;
-      delete keeper.activeVersionId;
       consolidated.push(keeper);
     }
     store.courses = consolidated;
@@ -1141,8 +1138,7 @@
       /^oatlands gc$/i.test(String(c.name || "").trim()),
     );
     if (!oatlands || store.courseLibrary?.bases?.[String(oatlands.id)]) return false;
-    const card = oatlands.teeScorecards?.[oatlands.activeScorecardTee] ||
-      oatlands.teeScorecards?.middle ||
+    const card =
       (oatlands.versions || []).find(
         (item) => String(item.id) === String(oatlands.activeVersionId || ""),
       ) || oatlands.versions?.[0];
@@ -1392,26 +1388,8 @@
       finally { button.disabled=false; }
     };
   }
-  const legacyVersion = (c) =>
+  const version = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
-  const version = (c) => {
-    const cards = c?.teeScorecards || {};
-    const tee =
-      (c?.activeScorecardTee && cards[c.activeScorecardTee]
-        ? c.activeScorecardTee
-        : EVENT_TEES.find((key) => cards[key])) || "";
-    if (tee) {
-      const info = c?.teeDetails?.[tee] || {};
-      return {
-        ...cards[tee],
-        tee,
-        teeName: info.name || tee,
-        slope: info.slope || "",
-        scratch: info.scratch || "",
-      };
-    }
-    return legacyVersion(c);
-  };
   function courseDistanceUnit(card = {}) {
     return card.distanceUnit === "yards" ? "yards" : "metres";
   }
@@ -1454,14 +1432,10 @@
   function ensureTeeScorecards(c, category = "men") {
     if (!c) return {};
     c=GolfCourseCategories.data(c,category,true);
-    const legacy =
-      c?.versions?.find((item) => item.id === c.activeVersionId) ||
-      c?.versions?.[0] || {};
+    if(category==="women"&&!c.versions?.length)return c.teeScorecards ||= {};
+    const legacy = version(c) || {};
     c.teeScorecards = c.teeScorecards || {};
-    if (
-      !Object.keys(c.teeScorecards).length &&
-      [legacy.par, legacy.index, legacy.metres].some((values) => Array.isArray(values) && values.length)
-    ) {
+    if (!Object.keys(c.teeScorecards).length) {
       const legacyLength = (legacy.metres || []).reduce(
         (total, value) => total + (+value || 0),
         0,
@@ -1475,8 +1449,6 @@
       const legacyTee = lengthMatches.length === 1 ? lengthMatches[0] : "middle";
       c.teeScorecards[legacyTee] = cloneCourseCard(legacy, legacyTee);
     }
-    delete c.versions;
-    delete c.activeVersionId;
     return c.teeScorecards;
   }
   function courseScorecard(c, tee = "middle", create = false, category = "men") {
@@ -1651,7 +1623,9 @@
     );
     if (!oatlandsCourse || store.courseLibrary?.bases?.[String(oatlandsCourse.id)]) return false;
     ensureCourseData(oatlandsCourse);
-    const ov = version(oatlandsCourse) || {},
+    const ov = version(oatlandsCourse) || {
+      id: oatlandsCourse.activeVersionId || `oatlands-card-${Date.now()}`,
+    },
       cardMatches =
         JSON.stringify(ov.metres || []) === JSON.stringify(OATLANDS_CARD_2026.metres) &&
         JSON.stringify(ov.par || []) === JSON.stringify(OATLANDS_CARD_2026.par) &&
@@ -1659,7 +1633,7 @@
     if (
       oatlandsCourse.scorecardAuthorityVersion !== "15.79-oatlands-v1" ||
       !cardMatches ||
-      Boolean(oatlandsCourse.versions?.length)
+      (oatlandsCourse.versions || []).length !== 1
     ) {
       ov.metres = [...OATLANDS_CARD_2026.metres];
       ov.par = [...OATLANDS_CARD_2026.par];
@@ -1688,10 +1662,8 @@
         par: "70",
         length: "5502",
       };
-      oatlandsCourse.teeScorecards.middle = cloneCourseCard(ov, "middle");
-      oatlandsCourse.activeScorecardTee = "middle";
-      delete oatlandsCourse.versions;
-      delete oatlandsCourse.activeVersionId;
+      oatlandsCourse.versions = [ov];
+      oatlandsCourse.activeVersionId = ov.id;
       oatlandsCourse.scorecardAuthorityVersion = "15.79-oatlands-v1";
       return true;
     }
@@ -1741,8 +1713,10 @@
     };
     installCategory("men", LONG_REEF_CARD_2026.men);
     installCategory("women", LONG_REEF_CARD_2026.women);
-    delete courseRecord.versions;
-    delete courseRecord.activeVersionId;
+    const black = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `long-reef-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Official Long Reef scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1807,8 +1781,10 @@
     };
     installCategory("men", ASQUITH_CARD_2026.men);
     installCategory("women", ASQUITH_CARD_2026.women);
-    delete courseRecord.versions;
-    delete courseRecord.activeVersionId;
+    const blue = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `asquith-card-${Date.now()}`,teeName:"Blue",slope:"134",scratch:"70",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Official Asquith scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1878,8 +1854,10 @@
     };
     installCategory("men", BAYVIEW_CARD_2026.men);
     installCategory("women", BAYVIEW_CARD_2026.women);
-    delete courseRecord.versions;
-    delete courseRecord.activeVersionId;
+    const black = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `bayview-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Bayview scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1941,8 +1919,10 @@
     };
     installCategory("men", BATHURST_CARD_2026.men);
     installCategory("women", BATHURST_CARD_2026.women);
-    delete courseRecord.versions;
-    delete courseRecord.activeVersionId;
+    const blue = courseRecord.teeScorecards.back;
+    const legacy = {id:courseRecord.activeVersionId || `bathurst-card-${Date.now()}`,teeName:"Blue",slope:"",scratch:"71",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Bathurst printed scorecard checked 18 October 2026",createdAt:"2026-10-18",confirmedDate:"2026-10-18"};
+    courseRecord.versions = [legacy];
+    courseRecord.activeVersionId = legacy.id;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Bathurst/Orange";
@@ -4268,12 +4248,27 @@ Count-back if tied
           .join("<br>")
       : "—";
   }
+  function awayGolfEventsPlayedText(p) {
+    const rows = Array.isArray(p?.awayGolfEventsPlayed)
+      ? [...p.awayGolfEventsPlayed].sort((a, b) =>
+          String(b.date || "").localeCompare(String(a.date || "")),
+        )
+      : [];
+    return rows.length
+      ? rows
+          .map(
+            (entry) =>
+              `${esc(entry.dateLabel || entry.date || "Date not set")} — ${esc(entry.courses || "Course not set")}`,
+          )
+          .join("<br>")
+      : "—";
+  }
   function playerInfo(id, status = "") {
     let p = store.players.find(p=>String(p.id)===String(id));
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
-      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
+      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
     $("#editPlayerProfile").onclick = () => editPlayerProfile(id, status);
   }
@@ -4293,7 +4288,7 @@ Count-back if tied
     const stateChoices=[['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
     const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
     $("#sideContent").innerHTML =
-      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>LAST PLAYED AWAY GOLF EVENT</small><br><b>${esc(p.lastEvent || "—")}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
+      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
     const toggleGolfId=()=>{const noOfficial=$('#epHandicapStatus').value==='none';$('#epGolfLink').hidden=$('#epHandicapStatus').value!=='insert';$('#epGa').disabled=noOfficial;$('#epGaPlus').disabled=noOfficial;};$('#epHandicapStatus').onchange=toggleGolfId;toggleGolfId();
     const toggleOtherStreet=()=>{$('#epOtherStreetLabel').hidden=$('#epStreetType').value!=='Other';};$('#epStreetType').onchange=toggleOtherStreet;toggleOtherStreet();
     $("#cancelPlayerProfile").onclick = () => p.pendingNewPlayer ? $("#sidePanel").classList.remove("open") : playerInfo(id, status);
@@ -4899,10 +4894,11 @@ Count-back if tied
     let name = gcCourseName(prompt("Club / Course name"));
     if (!name) return null;
     let id = "c" + uid(),
-      middleCard = {
-        tee: "middle",
-        distanceUnit: "metres",
-        distanceInputUnit: "metres",
+      v = {
+        id: "v" + uid(),
+        teeName: "Middle",
+        slope: "",
+        scratch: "",
         par: [4, 4, 3, 5, 4, 3, 4, 4, 5, 4, 3, 4, 5, 4, 4, 3, 5, 4],
         index: [9, 3, 15, 1, 7, 17, 11, 5, 13, 8, 16, 10, 2, 12, 6, 18, 4, 14],
         metres: Array(18).fill(""),
@@ -4921,8 +4917,8 @@ Count-back if tied
       email: "",
       mapLink: "",
       notes: "",
-      teeScorecards: { middle: middleCard },
-      activeScorecardTee: "middle",
+      versions: [v],
+      activeVersionId: v.id,
       teeDetails: {
         back: {
           name: "Back",
@@ -5419,6 +5415,7 @@ Count-back if tied
     return true;
   }
   function renderWizard() {
+    W.lastRenderedStep = W.step;
     let spans = $$(".steps span");
     spans.forEach((s, i) => s.classList.toggle("on", i === W.step - 1));
     $("#stepText").textContent =
@@ -6523,9 +6520,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return balls + (id === "dailyStableford" || ballsOnly ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
   }
   function competitionScheduleHtml(id) {
-    const days = competitionDays(id, W.event), all = eventDays(W.event);
+    const days = competitionDays(id, W.event), all = eventDays(W.event),
+      compatible = competitionCompatibleDays(id, W.event), compatibleSet = new Set(compatible),
+      hasRestrictedDays = compatible.length !== all.length;
     if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(W.event.scratchFormat)) || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
-    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""}> All Days</label>${all.map(day=>`<label><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""}> Day ${day}</label>`).join("")}</div>` : ""}${id==="combined" ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
+    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label class="${hasRestrictedDays ? "scoreMethodUnavailable" : ""}"><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""} ${hasRestrictedDays?"disabled":""}> All Days</label>${all.map(day=>`<label class="${compatibleSet.has(day)?"":"scoreMethodUnavailable"}"><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""} ${compatibleSet.has(day)?"":"disabled"}> Day ${day}</label>`).join("")}${hasRestrictedDays ? `<small class="competitionMethodNote">Grey days use a final-score method that cannot calculate this competition.</small>` : ""}</div>` : ""}${id==="combined" && days.length ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
   }
   function par3FormatHtml(event) {
     const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
@@ -6537,7 +6536,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function renderStep3() {
     normaliseStablefordBenefits(W.benefits);
-    const setupMethods={holeByHole:"Players enter hole-by-hole",finalStableford:"Final-score entry — Stableford",finalGross:"Final-score entry — Gross Strokes"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!(setupMethodFor(day)==="holeByHole"||(setupMethodFor(day)==="finalStableford"&&["single","combined","capTeams","teamPutts"].includes(id))||(setupMethodFor(day)==="finalGross"&&["stroke","teamPutts"].includes(id))));
+    const setupMethods={holeByHole:"On course by players and confirmed by Markers hole-by-hole",fullCardPlayer:"After round — strokes entered hole-by-hole by a Player",finalGross:"After round — final Gross Strokes only",finalStableford:"After round — final Stableford points only"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
     const stablefordId = W.event.days === 1 ? "single" : "combined",
       previousId = W.event.days === 1 ? "combined" : "single";
     if (W.competitions.has(previousId)) {
@@ -6568,22 +6567,38 @@ function estimateEventGa(handicap, rating, category, calculate) {
         : "stroke";
     W.event.scoringMethods ||= {};
     eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] ||= "holeByHole");
-    if (!["players","separateCard"].includes(W.event.scoreEntryPlan)) W.event.scoreEntryPlan = eventDays(W.event).some(day => setupMethodFor(day) !== "holeByHole") ? "separateCard" : "players";
-    if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
-    W.event.strokeResult ||= "net";
+    if (eventDays(W.event).some(day => setupMethodFor(day) !== "holeByHole"))
+      W.event.planAlternativeScoring = true;
+    [...W.competitions].forEach(id => {
+      const selectedDays = competitionDays(id,W.event),
+        validDays = selectedDays.filter(day => finalScoreCompetitionAllowed(id,setupMethodFor(day)));
+      if (validDays.length === selectedDays.length) return;
+      if (competitionNeedsEverySelectedDay(id,W.event) || !validDays.length) {
+        W.competitions.delete(id);
+        return;
+      }
+      W.event.competitionDays ||= {};
+      W.event.competitionDays[id] = validDays;
+    });
+    // Stroke is a net competition. Gross scoring belongs under Scratch,
+    // where the organiser can apply the event's handicap eligibility limit.
+    W.event.strokeResult = "net";
     W.event.strokeScoringMode ||= "allStrokes";
     W.event.strokeCountingMode ||= "daily";
     if (typeof W.event.strokeDailyResults !== "boolean") W.event.strokeDailyResults = W.event.strokeCountingMode === "daily";
     if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
     W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
     if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringMethodSetup"><h4>How scores will be entered</h4><label class="scoreEntryPlan"><span>Score entry method</span><select data-scoreentryplan><option value="players" ${W.event.scoreEntryPlan==="players"?"selected":""}>By players hole-by-hole</option><option value="separateCard" ${W.event.scoreEntryPlan==="separateCard"?"selected":""}>From a score card separate to the App</option></select></label>${W.event.scoreEntryPlan === "separateCard" ? `<p class="hint">Choose separately for every playing day. Selecting "Final-score entry" from the menu assumes you will enter scores from a caddie or paper-card. These scores cannot calculate hole-by-hole events or countbacks.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><select data-scoringmethod="${day}">${Object.entries(setupMethods).map(([value,label]) => `<option value="${value}" ${setupMethodFor(day)===value?"selected":""}>${label}</option>`).join("")}</select>${setupConflicts(day).length ? `<small class="methodConflict">Change or remove incompatible competitions</small>` : ""}</div>`).join("")}` : ""}</div>`;
+    const scoringMethodSetup = `<div class="scoringUseSetup"><div class="scoringUseQuestion"><b>Scoring to be completed using the App while playing</b><div class="scoringUseChoices"><label><input type="radio" name="planAlternativeScoring" value="no" ${W.event.planAlternativeScoring?"":"checked"}> Yes</label><label><input type="radio" name="planAlternativeScoring" value="yes" ${W.event.planAlternativeScoring?"checked":""}> No</label></div></div>${W.event.planAlternativeScoring ? `<div class="scoringMethodSetup"><h4>If the App is not being used for any round in the event, use this section to plan the scoring process.</h4><p class="hint">Choose one method for each playing day. Any competition that cannot be calculated from the selected score information will be greyed out.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">Incompatible competitions have been removed from this day.</small>` : ""}</div>`).join("")}</div>` : ""}</div>`;
     $("#wizardBody").innerHTML =
       `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
         .map((c) => {
           let on = W.competitions.has(c.id),
-            disabled = c.unavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id));
-          return `<div class="comp ${c.unavailable ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${c.id === "combined" && on ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !c.unavailable ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
+            compatibleDays = competitionCompatibleDays(c.id, W.event),
+            methodUnavailable = !compatibleDays.length || (competitionNeedsEverySelectedDay(c.id,W.event) && compatibleDays.length !== eventDays(W.event).length),
+            disabled = c.unavailable || methodUnavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id)),
+            methodReason = methodUnavailable ? `<div class="methodUnavailableReason">Unavailable with the selected final-score method${W.event.days > 1 ? "s" : ""}.</div>` : "";
+          return `<div class="comp ${disabled ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${methodReason}${c.id === "combined" && on && !disabled ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day — a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total — one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both — daily winners plus the overall Event winner</label></div>` : ""}${on && !disabled ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on && !disabled ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs — the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team — all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && !disabled ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && !disabled && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP — all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling — carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
         })
         .join("")}`;
     $$("[data-comp]").forEach(
@@ -6592,6 +6607,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
           x.checked
             ? W.competitions.add(x.dataset.comp)
             : W.competitions.delete(x.dataset.comp);
+          if (x.checked && !competitionNeedsEverySelectedDay(x.dataset.comp,W.event)) {
+            W.event.competitionDays ||= {};
+            W.event.competitionDays[x.dataset.comp] = competitionCompatibleDays(x.dataset.comp,W.event);
+          }
           if (x.checked && x.dataset.comp === "yellowBall")
             W.event.yellowBallDays = eventDays(W.event);
           if (x.checked && x.dataset.comp === "eclectic") {
@@ -6608,15 +6627,28 @@ function estimateEventGa(handicap, rating, category, calculate) {
           renderStep3();
         }),
     );
-    $$('[data-scoringmethod]').forEach(select => select.onchange = () => {
-      W.event.scoringMethods["day" + select.dataset.scoringmethod] = select.value;
+    $$('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
+      if (!choice.checked) return renderStep3();
+      W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
+      const day = +choice.dataset.scoringmethod;
+      [...W.competitions].forEach(id => {
+        if (!competitionDays(id,W.event).includes(day) || finalScoreCompetitionAllowed(id,choice.value)) return;
+        if (competitionNeedsEverySelectedDay(id,W.event)) {
+          W.competitions.delete(id);
+          return;
+        }
+        W.event.competitionDays ||= {};
+        W.event.competitionDays[id] = competitionDays(id,W.event).filter(selectedDay => selectedDay !== day);
+        if (!W.event.competitionDays[id].length) W.competitions.delete(id);
+      });
       renderStep3();
     });
-    $('[data-scoreentryplan]').onchange = (e) => {
-      W.event.scoreEntryPlan = e.target.value;
-      if (W.event.scoreEntryPlan === "players") eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
+    $$('[name="planAlternativeScoring"]').forEach(choice => choice.onchange = () => {
+      W.event.planAlternativeScoring = choice.value === "yes";
+      if (!W.event.planAlternativeScoring)
+        eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
       renderStep3();
-    };
+    });
     $$("[data-benefit]").forEach(
       (x) =>
         (x.onclick = () => {
@@ -6636,7 +6668,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const strokeComp = $('[data-comp="stroke"]')?.closest(".comp");
     if (strokeComp && W.competitions.has("stroke")) {
       const strokeDays = competitionDays("stroke", W.event), total = strokeDays.length, best = Math.max(1, total - 1);
-      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><label><input style="width:auto" type="radio" name="strokeResult" value="net" ${W.event.strokeResult==="net"?"checked":""}> Net</label><label><input style="width:auto" type="radio" name="strokeResult" value="gross" ${W.event.strokeResult==="gross"?"checked":""}> Gross</label><label><input style="width:auto" type="radio" name="strokeResult" value="both" ${W.event.strokeResult==="both"?"checked":""}> Both</label></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="checkbox" name="strokeDailyResults" ${W.event.strokeDailyResults?"checked":""}> Daily prize — each selected day</label>${total > 1 ? `<label><input style="width:auto" type="checkbox" name="strokeAggregateEnabled" ${W.event.strokeAggregateEnabled?"checked":""}> Overall event prize</label><div class="strokeAggregateChoices ${W.event.strokeAggregateEnabled?"":"inactive"}"><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="aggregate" ${W.event.strokeAggregateMode!=="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="bestAggregate" ${W.event.strokeAggregateMode==="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> Best ${best} of ${total} rounds</label></div>` : ""}</section><small>Daily and overall Stroke prizes can run together. With Final-score entry, the caddie or official card must supply the already-capped competition total.</small></div>`);
+      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><strong>Net only</strong><small>Gross scoring is available as a separate Scratch competition.</small></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="checkbox" name="strokeDailyResults" ${W.event.strokeDailyResults?"checked":""}> Daily prize — each selected day</label>${total > 1 ? `<label><input style="width:auto" type="checkbox" name="strokeAggregateEnabled" ${W.event.strokeAggregateEnabled?"checked":""}> Overall event prize</label><div class="strokeAggregateChoices ${W.event.strokeAggregateEnabled?"":"inactive"}"><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="aggregate" ${W.event.strokeAggregateMode!=="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="bestAggregate" ${W.event.strokeAggregateMode==="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> Best ${best} of ${total} rounds</label></div>` : ""}</section><small>Daily and overall Stroke prizes can run together. With Final-score entry, the caddie or official card must supply the already-capped competition total.</small></div>`);
     }
     if (scratchComp && W.competitions.has("scratch"))
       scratchComp.insertAdjacentHTML(
@@ -6686,7 +6718,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
       if (t.name === "scratchScoringMode")
         W.event.scratchScoringMode = t.value;
-      if (t.name === "strokeResult") { W.event.strokeResult = t.value; renderStep3(); return; }
       if (t.name === "strokeScoringMode") { W.event.strokeScoringMode = t.value; renderStep3(); return; }
       if (t.name === "strokeDailyResults") {
         if (!t.checked && !W.event.strokeAggregateEnabled) { t.checked = true; return alert("Keep at least one Stroke prize selected."); }
@@ -6890,11 +6921,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     const dayHead = (day, key) =>
       `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>` : ""}</div>`;
+    const printableNtpCards = competitionDays("ntp", W.event).flatMap((day) => {
+      const cid = W.event["course" + day];
+      return (W.event.ntpSelections?.["day" + day] || []).map((hole) => ({
+        courseName: course(cid)?.name || "Course",
+        hole: +hole,
+      }));
+    });
+    const ntpPrintHtml = printableNtpCards.length
+      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "—"}</h6><div class="ntpPrintLines"><span></span><span></span><span></span><span></span></div></article>`).join("")}</div></section>`
+      : "";
     $("#wizardBody").innerHTML =
       `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
         const key="day"+day, cid=W.event["course"+day], count=ntpCount(day,W.event), choices=ensure(key,cid,count);
         return `<div class="ntpDayGroup">${dayHead(day,key)}<label>Number of NTP holes<select data-ntpcount="${day}"><option value="1" ${count===1?"selected":""}>One</option><option value="2" ${count===2?"selected":""}>Two</option></select></label>${Array.from({length:count},(_,i)=>row(`Day ${day}`,key,i,choices,cid)).join("")}</div>`;
-      }).join("")}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP sheet. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+      }).join("")}${ntpPrintHtml}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP marker. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
+    if ($("#printNtpCards")) $("#printNtpCards").onclick = () => window.print();
     $$("[data-ntpcount]").forEach(input=>input.onchange=()=>{
       W.event.ntpCounts ||= {}; W.event.ntpCounts["day"+input.dataset.ntpcount]=+input.value; renderStep5();
     });
@@ -7308,13 +7350,90 @@ function estimateEventGa(handicap, rating, category, calculate) {
       }))
       .sort((a, b) => b.partners - a.partners || b.played - a.played);
   }
+  function awayGolfEventCourseNames(event) {
+    const snapshots = [
+      ...(event?.courseSnapshot || []),
+      ...(store.cloud?.courseCards || []),
+      ...(store.courses || []),
+    ];
+    const names = [];
+    for (let day = 1; day <= Math.max(1, +event?.days || 1); day++) {
+      const selected = event?.["course" + day];
+      const match = snapshots.find(
+        (candidate) => String(candidate?.id) === String(selected),
+      );
+      const name = match?.name || "";
+      if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
+  }
+  function awayGolfEventPlayerIds(event) {
+    const ids = new Set();
+    for (let day = 1; day <= Math.max(1, +event?.days || 1); day++) {
+      const key = "day" + day;
+      let slots = (event?.groupSetup?.[key]?.groups || []).flat();
+      if (!slots.length) slots = event?.dayFields?.[key] || event?.confirmed || [];
+      for (const slot of slots) {
+        if (slot == null || String(slot) === NO_PARTNER_ID) continue;
+        const base = store.players.find(
+          (person) => String(person.id) === String(slot),
+        );
+        const occupant = window.GolfPlayerSubstitution?.occupant(
+          event,
+          slot,
+          base,
+          day,
+        );
+        ids.add(String(occupant?.profileId || occupant?.id || slot));
+      }
+    }
+    return [...ids];
+  }
+  function recordAwayGolfEventPlayed(event) {
+    const eventName = String(event?.name || "").trim();
+    if (!/^Away Golf\b/i.test(eventName) || isTestEvent(event)) return false;
+    const courses = awayGolfEventCourseNames(event),
+      date = String(event?.date || ""),
+      dateLabel = date
+        ? new Date(date + "T12:00:00").toLocaleDateString("en-AU")
+        : "",
+      key = String(
+        event?.workspaceId ||
+          event?.cloudEventId ||
+          event?.id ||
+          `${eventName}|${date}|${courses.join("|")}`,
+      ),
+      entry = {
+        key,
+        eventName,
+        date,
+        dateLabel,
+        courses: courses.join(" · "),
+        recordedAt: new Date().toISOString(),
+      };
+    let changed = false;
+    for (const id of awayGolfEventPlayerIds(event)) {
+      const person = store.players.find(
+        (candidate) => String(candidate.id) === String(id),
+      );
+      if (!person) continue;
+      person.awayGolfEventsPlayed = Array.isArray(person.awayGolfEventsPlayed)
+        ? person.awayGolfEventsPlayed
+        : [];
+      if (person.awayGolfEventsPlayed.some((item) => item.key === key)) continue;
+      person.awayGolfEventsPlayed.push({ ...entry });
+      changed = true;
+    }
+    return changed;
+  }
   function recordCompletedEventHistory(event = store.event) {
+    const awayGolfHistoryChanged = recordAwayGolfEventPlayed(event);
     if (
       !event?.groupSetup ||
       event.historyRecordedAt ||
       isTestEvent(event)
     )
-      return false;
+      return awayGolfHistoryChanged;
     for (let day = 1; day <= (event.days || 1); day++) {
       const gs = event.groupSetup["day" + day]?.groups || [];
       for (const g of gs) {
@@ -7383,6 +7502,15 @@ function estimateEventGa(handicap, rating, category, calculate) {
       changed = true;
     }
     for (const person of store.players || []) {
+      if (Array.isArray(person.awayGolfEventsPlayed)) {
+        const kept = person.awayGolfEventsPlayed.filter(
+          (entry) => !isTestEvent({ name: entry?.eventName }),
+        );
+        if (kept.length !== person.awayGolfEventsPlayed.length) {
+          person.awayGolfEventsPlayed = kept;
+          changed = true;
+        }
+      }
       for (const [courseId, entry] of Object.entries(
         person.courseHandicaps || {},
       )) {
@@ -12067,7 +12195,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
- ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} mark down as Nearest the Pin?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
+ ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin — Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} record their name on the NTP marker?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {
@@ -12450,9 +12578,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     for (let day = 1; day <= days; day++) {
       const suffix = days === 1 ? "" : ` — Day ${day}`;
       if (competitionIsOn("stroke", day) && (typeof store.event.strokeDailyResults === "boolean" ? store.event.strokeDailyResults : (store.event.strokeCountingMode || "daily") === "daily")) {
-        const result = store.event.strokeResult || "net", finalOnly = dayScoringMethod(day) === "finalGross";
-        if (["gross","both"].includes(result)) add(`stroke-gross-d${day}`, `Stroke Gross${suffix}`, "strokeGross", day, {lower:true,countback:!finalOnly});
-        if (["net","both"].includes(result)) add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
+        const finalOnly = dayScoringMethod(day) === "finalGross";
+        add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
       }
       if (competitionIsOn("ambrose", day))
         add(`ambrose-d${day}`, `Ambrose${suffix}`, "ambrose", day, {
@@ -12486,9 +12613,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (selected.has("stroke") && (typeof store.event.strokeAggregateEnabled === "boolean" ? store.event.strokeAggregateEnabled : (store.event.strokeCountingMode || "daily") !== "daily")) {
       const strokeDays = competitionDays("stroke"), best = (store.event.strokeAggregateMode || store.event.strokeCountingMode) === "bestAggregate",
         count = best ? Math.max(1, strokeDays.length - 1) : strokeDays.length,
-        result = store.event.strokeResult || "net", label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
-      if (["gross", "both"].includes(result)) add("stroke-gross-agg", `Stroke Gross — ${label}`, "strokeAggregateGross", 0, { lower: true, countback: true, days: strokeDays, count });
-      if (["net", "both"].includes(result)) add("stroke-net-agg", `Stroke Net — ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
+        label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
+      add("stroke-net-agg", `Stroke Net — ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
     }
     if (selected.has("scratch") && ["aggregate", "bestAggregate"].includes(store.event.scratchFormat)) add("scratch-agg", store.event.scratchFormat === "bestAggregate" ? `Scratch — Best ${Math.max(1, days - 1)} of ${days} rounds` : "Scratch — Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
     if (selected.has("capTeams")) add("cap-teams", "Black Cap – White Cap", "capTeams", 0, {days:eventDays()});
@@ -12931,6 +13057,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const field = dayFieldIds(day).filter(
       (id) => String(id) !== NO_PARTNER_ID,
     );
+    if (dayScoringMethod(day) === "fullCardPlayer")
+      return Boolean(
+        field.length && field.every((id) => roundFinalisedFor(day, id)),
+      );
     if (dayScoringMethod(day) !== "holeByHole")
       return Boolean(field.length && field.every(id=>finalScoreComplete(day,id)));
     return Boolean(
@@ -13528,6 +13658,110 @@ function estimateEventGa(handicap, rating, category, calculate) {
         renderLeaderboard();
       };
   }
+  function renderFullCardPlayerEntry(selected, day) {
+    const host = $("#playerExperience"),
+      person = eventPlayer(selected, day),
+      c = course(store.event["course" + day]),
+      card = eventCourseScorecard(day, store.event, selected),
+      puttsRequired = competitionIsOn("teamPutts", day),
+      dayKey = "day" + day,
+      playerKey = String(selected);
+    store.event.fullCardDrafts = store.event.fullCardDrafts || {};
+    store.event.fullCardDrafts[dayKey] =
+      store.event.fullCardDrafts[dayKey] || {};
+    const draft = (store.event.fullCardDrafts[dayKey][playerKey] =
+      store.event.fullCardDrafts[dayKey][playerKey] || { holes: {} });
+    const rows = Array.from({ length: 18 }, (_, index) => {
+      const hole = index + 1,
+        saved = draft.holes[hole] || {};
+      return `<div class="fullCardEntryRow"><b>${hole}</b><span>${esc(card.par?.[index] || "—")}</span><span>${esc(card.index?.[index] || "—")}</span><input data-fullgross="${hole}" inputmode="text" maxlength="2" value="${esc(saved.gross ?? "")}" placeholder="–" aria-label="Hole ${hole} gross strokes">${puttsRequired ? `<input data-fullputts="${hole}" inputmode="numeric" maxlength="1" value="${esc(saved.putts ?? "")}" placeholder="–" aria-label="Hole ${hole} putts">` : ""}</div>`;
+    }).join("");
+    host.innerHTML = `<div class="fullCardPlayerEntry"><div class="playerEventHero"><span>AFTER-ROUND SCORECARD</span><h1>${esc(store.event.name)}</h1>${store.event.days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p></div><div class="playerCard"><div class="playerCardTitle">FULL CARD ENTRY</div><h2>${esc(person?.name || "Player")}</h2><p>After completing the round, copy the gross score from your separate score card for every hole. Enter <b>P</b> or <b>–</b> for a pickup.${puttsRequired ? " Putts are required for today’s Putting Competition." : ""}</p><div class="fullCardEntryGrid ${puttsRequired ? "withPutts" : ""}"><div class="fullCardEntryHead"><span>Hole</span><span>Par</span><span>Index</span><span>Gross</span>${puttsRequired ? "<span>Putts</span>" : ""}</div>${rows}</div><p class="fullCardDraftNote">Entries are saved on this device while you work. Results appear after you confirm the completed card.</p><button class="startRoundBtn" id="confirmFullPlayerCard">CONFIRM COMPLETED SCORECARD</button><button class="soft" id="backFromFullPlayerCard">Back to Round</button></div></div>`;
+    const normaliseGross = (value) => {
+      const text = String(value ?? "").trim().toUpperCase();
+      return text === "-" || text === "–" ? "P" : text;
+    };
+    const fields = $$('[data-fullgross], [data-fullputts]');
+    fields.forEach((input, index) => {
+      input.oninput = () => {
+        const hole = +(input.dataset.fullgross || input.dataset.fullputts),
+          row = (draft.holes[hole] = draft.holes[hole] || {});
+        if (input.dataset.fullgross)
+          row.gross = normaliseGross(input.value);
+        else row.putts = input.value.trim();
+        persistStore();
+      };
+      input.onkeydown = (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        fields[index + 1]?.focus();
+        fields[index + 1]?.select();
+      };
+    });
+    $("#backFromFullPlayerCard").onclick = () => {
+      store.event.playerRoundMode = "preview";
+      save();
+      renderPlayerExperience();
+    };
+    $("#confirmFullPlayerCard").onclick = () => {
+      const invalid = [];
+      for (let hole = 1; hole <= 18; hole++) {
+        const row = draft.holes[hole] || {},
+          gross = normaliseGross(row.gross),
+          putts = String(row.putts ?? "").trim(),
+          validGross =
+            gross === "P" ||
+            (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20),
+          validPutts =
+            !puttsRequired ||
+            (putts !== "" &&
+              Number.isInteger(+putts) &&
+              +putts >= 0 &&
+              +putts <= 9 &&
+              (gross === "P" || +putts <= +gross));
+        if (!validGross || !validPutts) invalid.push(hole);
+      }
+      if (invalid.length)
+        return alert(
+          `Complete and check Hole${invalid.length === 1 ? "" : "s"} ${invalid.join(", ")} before confirming the card.`,
+        );
+      const grossTotal = Array.from({ length: 18 }, (_, index) => {
+        const gross = normaliseGross(draft.holes[index + 1].gross);
+        return gross === "P" ? +(card.par?.[index] || 0) + 2 : +gross;
+      }).reduce((total, value) => total + value, 0);
+      if (
+        !confirm(
+          `Confirm the complete 18-hole card for ${person?.name || "this player"}?\n\nGross total: ${grossTotal}\n\nThe card will be sent to the leaderboard and cannot be edited by the player after confirmation.`,
+        )
+      )
+        return;
+      const confirmedAt = new Date().toISOString();
+      for (let hole = 1; hole <= 18; hole++) {
+        const saved = draft.holes[hole],
+          gross = normaliseGross(saved.gross),
+          putts = puttsRequired ? +saved.putts : "",
+          record = scoreRecord(day, selected, hole);
+        record.self = { playerId: playerKey, gross, putts };
+        record.official = { playerId: playerKey, gross, putts };
+      }
+      const round = scorerStore(day, selected);
+      round._meta = {
+        ...(round._meta || {}),
+        finalisedAt: confirmedAt,
+        fullCardEnteredByPlayer: true,
+      };
+      store.event.roundFinalised = store.event.roundFinalised || {};
+      store.event.roundFinalised[dayKey] =
+        store.event.roundFinalised[dayKey] || {};
+      store.event.roundFinalised[dayKey][playerKey] = confirmedAt;
+      delete store.event.fullCardDrafts[dayKey][playerKey];
+      store.event.playerRoundMode = "completed";
+      queueCloudRound(day, selected);
+      persistStore();
+      if (store.cloud?.role === "organiser") void updateCloudEvent();
+      renderPlayerExperience();
+    };
+  }
   function renderFinalScoreEntry(selected, day) {
     const host=$("#playerExperience"), method=dayScoringMethod(day), kind=method==="finalStableford"?"stableford":"gross",
       entry=finalScoreEntry(day,selected)||{}, c=course(store.event["course"+day]), complete=finalScoreComplete(day,selected),
@@ -13591,6 +13825,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (store.event.playerRoundMode === "finalEntry")
       return renderFinalScoreEntry(selected, day);
+    if (store.event.playerRoundMode === "fullCardEntry")
+      return renderFullCardPlayerEntry(selected, day);
     if (store.event.playerRoundMode === "scoring")
       return ambroseIsOn(store.event, day)
         ? renderAmbroseScoring(selected, day)
@@ -13668,9 +13904,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown").join(" · "))}</span></section>`).join("")}</div></details>`;
     const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
       hcp = playerDailyHandicap(selected, day),
-      finalised = dayScoringMethod(day) !== "holeByHole"
-        ? finalScoreComplete(day,selected)
-        : ambroseIsOn(store.event, day)
+      finalised = dayScoringMethod(day) === "fullCardPlayer"
+        ? roundFinalisedFor(day, selected)
+        : dayScoringMethod(day) !== "holeByHole"
+          ? finalScoreComplete(day,selected)
+          : ambroseIsOn(store.event, day)
         ? ambroseTeamComplete(day, ctx.groupIndex)
         : roundFinalisedFor(day, selected),
       scoringOpen = scoringIsOpen(day),
@@ -13709,7 +13947,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
          )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b>${eventRuleBodyHtml(section)}</div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
      : ""
  }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "✓ Rules acknowledged" : "GOT IT"}</button></div>
- <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? (dayScoringMethod(day)==="holeByHole"?"VIEW COMPLETED SCORECARD":"VIEW FINAL SCORE") : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : dayScoringMethod(day)==="holeByHole" ? "OPEN SCORECARD" : "ENTER FINAL SCORE"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} — 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
+ <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? (["holeByHole","fullCardPlayer"].includes(dayScoringMethod(day))?"VIEW COMPLETED SCORECARD":"VIEW FINAL SCORE") : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : dayScoringMethod(day)==="holeByHole" ? "OPEN SCORECARD" : dayScoringMethod(day)==="fullCardPlayer" ? "ENTER FULL SCORECARD" : "ENTER FINAL SCORE"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} — 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
     $("#previewPlayer").onchange = (e) => {
       store.event.playerPreviewId = e.target.value;
       store.event.playerRoundMode = "preview";
@@ -13745,12 +13983,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     $("#startRoundPreview").onclick = () => {
       if (finalised) {
-        store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "completed" : "finalEntry";
+        store.event.playerRoundMode = ["holeByHole", "fullCardPlayer"].includes(dayScoringMethod(day)) ? "completed" : "finalEntry";
         save();
         return renderPlayerExperience();
       }
       if (!canStart) return;
-      store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : "finalEntry";
+      store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : dayScoringMethod(day) === "fullCardPlayer" ? "fullCardEntry" : "finalEntry";
       store.event.playerHolePos = 0;
       requestRoundWakeLock();
       save();

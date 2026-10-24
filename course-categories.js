@@ -1,6 +1,6 @@
 /* Separate rating and scorecard sets; legacy course fields remain the men's set. */
 (function(root){
- const keys=['teeDetails','teeScorecards','activeScorecardTee','needsReview','teePositionCount'];
+ const keys=['teeDetails','teeScorecards','versions','activeVersionId','activeScorecardTee','needsReview','teePositionCount'];
  const positionKeys=['back','middle','front','tee4','tee5'];
  const labels={back:'Back',middle:'Middle',front:'Front',tee4:'Tee 4',tee5:'Tee 5'};
  function positionCount(categoryData){const n=Number(categoryData?.teePositionCount);return Number.isInteger(n)&&n>=1&&n<=5?n:Math.max(3,...positionKeys.map((tee,i)=>categoryData?.teeScorecards?.[tee]?i+1:0));}
@@ -25,7 +25,7 @@
   return `Middle ${index}`;
  }
  function storedCount(course,category){const d=data(course,category);return positions(d).filter(tee=>d.teeScorecards?.[tee]?.par?.some(v=>String(v??'').trim())).length;}
- const blank=()=>({teeDetails:Object.fromEntries(['back','middle','front'].map(tee=>[tee,{name:tee[0].toUpperCase()+tee.slice(1),colour:'',slope:'',scratch:'',par:'',length:''}])),teeScorecards:{}});
+ const blank=()=>({teeDetails:Object.fromEntries(['back','middle','front'].map(tee=>[tee,{name:tee[0].toUpperCase()+tee.slice(1),colour:'',slope:'',scratch:'',par:'',length:''}])),teeScorecards:{},versions:[]});
  function data(course,category='men',create=false){if(!course)return blank();if(category!=='women')return course;if(!course.womenTeeData&&create)course.womenTeeData=blank();return course.womenTeeData||blank();}
  function copyMen(course){const result=structuredClone(course);const target=blank();for(const key of keys)if(course[key]!==undefined)target[key]=structuredClone(course[key]);target.needsReview=true;result.womenTeeData=target;return result;}
  function copyMenTee(course,sourceTee,destinationTee){

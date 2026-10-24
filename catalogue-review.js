@@ -2,7 +2,7 @@
 (() => {
   const text=value=>value==null?'':String(value).trim();
   const pair=(label,left,right)=>({label,left:text(left),right:text(right),different:text(left)!==text(right)});
-  const card=(doc,tee)=>doc.teeScorecards?.[tee] || null;
+  const card=(doc,tee)=>doc.teeScorecards?.[tee] || (tee==='middle'?(doc.versions||[]).find(v=>String(v.id)===String(doc.activeVersionId))||doc.versions?.[0]:null);
   const teeLabel=(doc,tee,fallback='')=>globalThis.GolfCourseCategories?.positionLabel?.(doc,tee)||text(fallback)||tee;
   const activeTeeKeys=(left,right)=>{
     const api=globalThis.GolfCourseCategories;
