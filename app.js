@@ -1045,7 +1045,10 @@
     );
   }
   function courseQuality(courseRecord) {
-    const bestCard = [...(courseRecord.versions || [])].sort(
+    const bestCard = [
+      ...Object.values(courseRecord.teeScorecards || {}),
+      ...(courseRecord.versions || []),
+    ].sort(
       (a, b) => cardQuality(b) - cardQuality(a),
     )[0];
     const detailFields = [
@@ -1078,7 +1081,10 @@
           (a, b) => courseQuality(b) - courseQuality(a),
         ),
         keeper = ranked[0],
-        allCards = ranked.flatMap((item) => item.versions || []),
+        allCards = ranked.flatMap((item) => [
+          ...Object.values(item.teeScorecards || {}),
+          ...(item.versions || []),
+        ]),
         bestCard = [...allCards].sort((a, b) => cardQuality(b) - cardQuality(a))[0];
       for (const record of records) idMap.set(String(record.id), String(keeper.id));
       for (const source of ranked.slice(1)) {
@@ -1089,6 +1095,10 @@
           if (!String(keeper[key] || "").trim() && String(source[key] || "").trim())
             keeper[key] = source[key];
         keeper.teeDetails = keeper.teeDetails || {};
+        keeper.teeScorecards = keeper.teeScorecards || {};
+        for (const [tee, card] of Object.entries(source.teeScorecards || {}))
+          if (!keeper.teeScorecards[tee] || cardQuality(card) > cardQuality(keeper.teeScorecards[tee]))
+            keeper.teeScorecards[tee] = card;
         for (const tee of ["back", "middle", "front"]) {
           keeper.teeDetails[tee] = keeper.teeDetails[tee] || {};
           for (const key of ["colour", "slope", "scratch", "par", "length"])
@@ -1100,9 +1110,15 @@
         }
       }
       if (bestCard) {
-        keeper.versions = [bestCard];
-        keeper.activeVersionId = bestCard.id;
+        keeper.teeScorecards = keeper.teeScorecards || {};
+        if (!Object.keys(keeper.teeScorecards).length)
+          keeper.teeScorecards.middle = { ...bestCard, tee: "middle" };
+        keeper.activeScorecardTee = keeper.teeScorecards[keeper.activeScorecardTee]
+          ? keeper.activeScorecardTee
+          : Object.keys(keeper.teeScorecards)[0];
       }
+      delete keeper.versions;
+      delete keeper.activeVersionId;
       consolidated.push(keeper);
     }
     store.courses = consolidated;
@@ -1138,7 +1154,8 @@
       /^oatlands gc$/i.test(String(c.name || "").trim()),
     );
     if (!oatlands || store.courseLibrary?.bases?.[String(oatlands.id)]) return false;
-    const card =
+    const card = oatlands.teeScorecards?.[oatlands.activeScorecardTee] ||
+      oatlands.teeScorecards?.middle ||
       (oatlands.versions || []).find(
         (item) => String(item.id) === String(oatlands.activeVersionId || ""),
       ) || oatlands.versions?.[0];
@@ -1388,8 +1405,26 @@
       finally { button.disabled=false; }
     };
   }
-  const version = (c) =>
+  const legacyVersion = (c) =>
     c?.versions?.find((v) => v.id === c.activeVersionId) || c?.versions?.[0];
+  const version = (c) => {
+    const cards = c?.teeScorecards || {};
+    const tee =
+      (c?.activeScorecardTee && cards[c.activeScorecardTee]
+        ? c.activeScorecardTee
+        : EVENT_TEES.find((key) => cards[key])) || "";
+    if (tee) {
+      const info = c?.teeDetails?.[tee] || {};
+      return {
+        ...cards[tee],
+        tee,
+        teeName: info.name || tee,
+        slope: info.slope || "",
+        scratch: info.scratch || "",
+      };
+    }
+    return legacyVersion(c);
+  };
   function courseDistanceUnit(card = {}) {
     return card.distanceUnit === "yards" ? "yards" : "metres";
   }
@@ -1432,10 +1467,14 @@
   function ensureTeeScorecards(c, category = "men") {
     if (!c) return {};
     c=GolfCourseCategories.data(c,category,true);
-    if(category==="women"&&!c.versions?.length)return c.teeScorecards ||= {};
-    const legacy = version(c) || {};
+    const legacy =
+      c?.versions?.find((item) => item.id === c.activeVersionId) ||
+      c?.versions?.[0] || {};
     c.teeScorecards = c.teeScorecards || {};
-    if (!Object.keys(c.teeScorecards).length) {
+    if (
+      !Object.keys(c.teeScorecards).length &&
+      [legacy.par, legacy.index, legacy.metres].some((values) => Array.isArray(values) && values.length)
+    ) {
       const legacyLength = (legacy.metres || []).reduce(
         (total, value) => total + (+value || 0),
         0,
@@ -1449,6 +1488,8 @@
       const legacyTee = lengthMatches.length === 1 ? lengthMatches[0] : "middle";
       c.teeScorecards[legacyTee] = cloneCourseCard(legacy, legacyTee);
     }
+    delete c.versions;
+    delete c.activeVersionId;
     return c.teeScorecards;
   }
   function courseScorecard(c, tee = "middle", create = false, category = "men") {
@@ -1623,9 +1664,7 @@
     );
     if (!oatlandsCourse || store.courseLibrary?.bases?.[String(oatlandsCourse.id)]) return false;
     ensureCourseData(oatlandsCourse);
-    const ov = version(oatlandsCourse) || {
-      id: oatlandsCourse.activeVersionId || `oatlands-card-${Date.now()}`,
-    },
+    const ov = version(oatlandsCourse) || {},
       cardMatches =
         JSON.stringify(ov.metres || []) === JSON.stringify(OATLANDS_CARD_2026.metres) &&
         JSON.stringify(ov.par || []) === JSON.stringify(OATLANDS_CARD_2026.par) &&
@@ -1633,7 +1672,7 @@
     if (
       oatlandsCourse.scorecardAuthorityVersion !== "15.79-oatlands-v1" ||
       !cardMatches ||
-      (oatlandsCourse.versions || []).length !== 1
+      Boolean(oatlandsCourse.versions?.length)
     ) {
       ov.metres = [...OATLANDS_CARD_2026.metres];
       ov.par = [...OATLANDS_CARD_2026.par];
@@ -1662,8 +1701,10 @@
         par: "70",
         length: "5502",
       };
-      oatlandsCourse.versions = [ov];
-      oatlandsCourse.activeVersionId = ov.id;
+      oatlandsCourse.teeScorecards.middle = cloneCourseCard(ov, "middle");
+      oatlandsCourse.activeScorecardTee = "middle";
+      delete oatlandsCourse.versions;
+      delete oatlandsCourse.activeVersionId;
       oatlandsCourse.scorecardAuthorityVersion = "15.79-oatlands-v1";
       return true;
     }
@@ -1713,10 +1754,8 @@
     };
     installCategory("men", LONG_REEF_CARD_2026.men);
     installCategory("women", LONG_REEF_CARD_2026.women);
-    const black = courseRecord.teeScorecards.back;
-    const legacy = {id:courseRecord.activeVersionId || `long-reef-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Official Long Reef scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
-    courseRecord.versions = [legacy];
-    courseRecord.activeVersionId = legacy.id;
+    delete courseRecord.versions;
+    delete courseRecord.activeVersionId;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1781,10 +1820,8 @@
     };
     installCategory("men", ASQUITH_CARD_2026.men);
     installCategory("women", ASQUITH_CARD_2026.women);
-    const blue = courseRecord.teeScorecards.back;
-    const legacy = {id:courseRecord.activeVersionId || `asquith-card-${Date.now()}`,teeName:"Blue",slope:"134",scratch:"70",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Official Asquith scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
-    courseRecord.versions = [legacy];
-    courseRecord.activeVersionId = legacy.id;
+    delete courseRecord.versions;
+    delete courseRecord.activeVersionId;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1854,10 +1891,8 @@
     };
     installCategory("men", BAYVIEW_CARD_2026.men);
     installCategory("women", BAYVIEW_CARD_2026.women);
-    const black = courseRecord.teeScorecards.back;
-    const legacy = {id:courseRecord.activeVersionId || `bayview-card-${Date.now()}`,teeName:"Black",slope:"133",scratch:"73",par:[...black.par],index:[...black.index],metres:[...black.metres],note:"Bayview scorecard checked 17 October 2026",createdAt:"2026-10-17",confirmedDate:"2026-10-17"};
-    courseRecord.versions = [legacy];
-    courseRecord.activeVersionId = legacy.id;
+    delete courseRecord.versions;
+    delete courseRecord.activeVersionId;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Sydney";
@@ -1919,10 +1954,8 @@
     };
     installCategory("men", BATHURST_CARD_2026.men);
     installCategory("women", BATHURST_CARD_2026.women);
-    const blue = courseRecord.teeScorecards.back;
-    const legacy = {id:courseRecord.activeVersionId || `bathurst-card-${Date.now()}`,teeName:"Blue",slope:"",scratch:"71",par:[...blue.par],index:[...blue.index],metres:[...blue.metres],note:"Bathurst printed scorecard checked 18 October 2026",createdAt:"2026-10-18",confirmedDate:"2026-10-18"};
-    courseRecord.versions = [legacy];
-    courseRecord.activeVersionId = legacy.id;
+    delete courseRecord.versions;
+    delete courseRecord.activeVersionId;
     courseRecord.country = courseRecord.country || "Australia";
     courseRecord.state = courseRecord.state || "NSW";
     courseRecord.region = courseRecord.region || "Bathurst/Orange";
@@ -4894,11 +4927,10 @@ Count-back if tied
     let name = gcCourseName(prompt("Club / Course name"));
     if (!name) return null;
     let id = "c" + uid(),
-      v = {
-        id: "v" + uid(),
-        teeName: "Middle",
-        slope: "",
-        scratch: "",
+      middleCard = {
+        tee: "middle",
+        distanceUnit: "metres",
+        distanceInputUnit: "metres",
         par: [4, 4, 3, 5, 4, 3, 4, 4, 5, 4, 3, 4, 5, 4, 4, 3, 5, 4],
         index: [9, 3, 15, 1, 7, 17, 11, 5, 13, 8, 16, 10, 2, 12, 6, 18, 4, 14],
         metres: Array(18).fill(""),
@@ -4917,8 +4949,8 @@ Count-back if tied
       email: "",
       mapLink: "",
       notes: "",
-      versions: [v],
-      activeVersionId: v.id,
+      teeScorecards: { middle: middleCard },
+      activeScorecardTee: "middle",
       teeDetails: {
         back: {
           name: "Back",
