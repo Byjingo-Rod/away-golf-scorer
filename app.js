@@ -11327,7 +11327,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       }
       if (
         confirm(
-          "Lock and send the final event setup?\n\nAfter this, normal planning details cannot be changed. Emergency score recovery remains available.",
+          "Lock and send the final event setup?\n\nNormal planning details cannot be changed after this.\n\nBefore scoring starts, you can still modify handicaps, change the selected tees and add an emergency replacement if someone does not turn up.\n\nAfter scoring starts, Emergency Score Recovery remains available if a player's phone fails during play.",
         )
       ) {
         ensureEventTeePlanning(store.event);
