@@ -652,7 +652,7 @@
           map[String(id)]=calculateDailyHandicap(ga,rating,category);sources[String(id)]="calculated";
         }
       }
-      selectEventTee(day, selectedEventTee(day, event), event);
+      eventPlayerCategories(day,event).forEach(category=>selectEventTee(day,selectedEventTee(day,event,category),event,category));
     }
     return [...new Set(issues)];
   }
@@ -6321,7 +6321,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
                 d2[id] = d1[id];
             });
         });
-      selectEventTee(day, selectedEventTee(day, W.event), W.event);
+      eventPlayerCategories(day,W.event).forEach(category=>selectEventTee(day,selectedEventTee(day,W.event,category),W.event,category));
       if (W.gaUpdateOnly) {
         store.event = JSON.parse(JSON.stringify(W.event));
         store.event.handicapUpdatePendingAt = new Date().toISOString();
