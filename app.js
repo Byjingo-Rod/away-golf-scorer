@@ -331,6 +331,10 @@
     date.setDate(date.getDate() + day - 1);
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
+  function australianDate(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value || "");
+  }
   function competitionDays(id, event = store.event) {
     const all = eventDays(event);
     if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(event?.scratchFormat)) || (id === "par3" && ["overallPlayers", "overallPairs"].includes(par3Mode(event)))) return all;
@@ -359,11 +363,32 @@
     }
     return items;
   }
+  function multiDayCompetitionSummary(event = store.event) {
+    const items = [], seen = new Set();
+    for (const day of eventDays(event)) {
+      for (const item of dailyCompetitionSummary(day, event).filter(entry => entry.aggregate)) {
+        if (seen.has(item.id)) continue;
+        seen.add(item.id);
+        items.push({
+          ...item,
+          name: item.id === "stableford-aggregate"
+            ? "Single Stableford"
+            : item.id === "par3"
+              ? "Par 3 Event"
+              : item.name.replace(" — aggregate round", ""),
+          detail: item.id === "stableford-aggregate"
+            ? `Best ${countingRounds(event)} of ${competitionDays("combined", event).length} rounds count.`
+            : "",
+        });
+      }
+    }
+    return items;
+  }
   function dailyCompetitionChecks(event = store.event) {
     return eventDays(event).map(day => {
-      const items = dailyCompetitionSummary(day, event), aggregates = items.filter(item => item.aggregate).length;
+      const items = dailyCompetitionSummary(day, event).filter(item => !item.aggregate);
       return {ok:(event.competitions || []).length > 0,
-        label:`Day ${day} Competitions: ${items.length}${aggregates ? ` (including ${aggregates} aggregate round${aggregates === 1 ? "" : "s"})` : ""}`};
+        label:`Day ${day} Daily Competitions: ${items.length}`};
     });
   }
   function countingRounds(event = store.event) {
@@ -7005,22 +7030,25 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function renderStep6() {
     ensureEventTeePlanning(W.event);
     const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
+      summaryEvent = {...W.event, competitions:selected.map(comp=>comp.id)},
+      multiDayCompetitions = multiDayCompetitionSummary(summaryEvent),
       cardResults = days.flatMap(day=>eventCardChecks(day,W.event)),
       cardsValid = cardResults.every(result=>result?.ok),
       checks = [
         {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
-        {ok:Boolean(W.event.date),label:`Start Date: ${W.event.date||"Not entered"}`},
-        ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} · ${eventDate(day,W.event)} · First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
+        {ok:Boolean(W.event.date),label:`Start Date: ${W.event.date?australianDate(W.event.date):"Not entered"}`},
+        ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} · ${australianDate(eventDate(day,W.event))} · First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
         {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
         ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
         ...days.map(day=>({ok:enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event)),label:`Day ${day} Tee Handicaps: ${enabledEventTees(W.event,day).every(tee=>teeHandicapsComplete(day,tee,W.event))?"Complete":"Incomplete"}`})),
-        ...dailyCompetitionChecks({...W.event, competitions:selected.map(comp=>comp.id)}),
+        ...dailyCompetitionChecks(summaryEvent),
+        ...(multiDayCompetitions.length?[{ok:true,label:`Multi-day Competitions: ${multiDayCompetitions.length}`}]:[]),
         ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
       ], allReady=checks.every(check=>check.ok);
     $("#wizardBody").innerHTML = `<div class="startHead"><div><h3>Event Plan Ready</h3><p>Review all ${days.length} playing day${days.length>1?"s":""} before proceeding to scoring setup.</p></div><span class="startBadge ${allReady?"ready":"check"}">${allReady?"READY":"CHECK"}</span></div>
-      <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p></div>
-      ${days.map(day=>`<div class="startCard"><h4>Day ${day}</h4><p>${esc(eventDate(day,W.event))} · ${esc(course(W.event["course"+day])?.name||"No course")}</p><p>${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)} · ${esc(startMethodFor(W.event,day))} start</p><p>${dailyCompetitionSummary(day,{...W.event,competitions:selected.map(comp=>comp.id)}).map(comp=>esc(comp.name)).join(" · ")}</p></div>`).join("")}
-      ${W.competitions.has("combined")&&W.event.singleStablefordFormat!=="daily"?`<div class="startCard"><h4>Overall Stableford</h4><p>Best ${countingRounds({...W.event,competitions:[...W.competitions]})} of ${competitionDays("combined",W.event).length} rounds count.</p></div>`:""}</div>
+      <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p><p>Start: ${esc(australianDate(eventDate(days[0],W.event)))} · Finish: ${esc(australianDate(eventDate(days[days.length-1],W.event)))}</p></div>
+      ${days.map(day=>{const daily=dailyCompetitionSummary(day,summaryEvent).filter(comp=>!comp.aggregate);return `<div class="startCard"><h4>Day ${day}</h4><p>${esc(course(W.event["course"+day])?.name||"No course")} · ${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)}</p><p><b>Daily Competitions</b><br>${daily.length?daily.map(comp=>esc(comp.name)).join(" · "):"None"}</p></div>`;}).join("")}
+      ${days.length>1?`<div class="startCard"><h4>Multi-day Competitions</h4>${multiDayCompetitions.length?multiDayCompetitions.map(comp=>`<p><b>${esc(comp.name)}</b>${comp.detail?`<br>${esc(comp.detail)}`:""}</p>`).join(""):"<p>None</p>"}</div>`:""}</div>
       <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
       <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> — I have checked every course scorecard against the official card.</span></label>
       <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>`<div class="planTeeDay"><strong>Day ${day}</strong>${enabledEventTees(W.event,day).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${tee}" class="${selectedEventTee(day,W.event)===tee?"active":""}">${esc(teeMarkerColour(tee,course(W.event["course"+day])))}<small>${EVENT_TEE_LABELS[tee]}</small></button>`).join("")}</div>`).join("")}</div>
