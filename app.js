@@ -11327,7 +11327,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       }
       if (
         confirm(
-          "Lock and send the final event setup?\\n\\nAfter this, normal planning details cannot be changed. Emergency score recovery remains available.",
+          "Lock and send the final event setup?\n\nAfter this, normal planning details cannot be changed. Emergency score recovery remains available.",
         )
       ) {
         ensureEventTeePlanning(store.event);
