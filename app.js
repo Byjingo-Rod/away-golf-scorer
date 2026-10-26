@@ -2195,6 +2195,10 @@
     delete event.activeGroupDay;
     delete event.leaderboardScrollLeft;
     delete event.workspaceId;
+    // The join code identifies the cloud connection on this device. It is not
+    // an editable part of the published event plan and must not make an opened
+    // event appear to be waiting for upload.
+    delete event.joinCode;
     // This is a receipt recorded by the organiser device after the cloud has
     // accepted the final update. It is not part of the shared event plan and
     // must not create a perpetual "waiting to upload" safe-copy record.
@@ -2334,9 +2338,12 @@
     const id=store.cloud.eventId,clone=JSON.parse(JSON.stringify(bundle));
     if(store.cloud.role==="organiser" && !store.cloud.restorePublished && !store.cloud.secondaryOrganiser) {
       const merged=AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
-      const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;
+      const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot,
+        finalUpdateCloudSentAt=store.event.finalUpdateCloudSentAt;
       const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>k!=="playerSubstitutions" && /^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
       store.event={...merged.event,...ui,scoring,courseSnapshot};
+      if(finalUpdateCloudSentAt)
+        store.event.finalUpdateCloudSentAt=finalUpdateCloudSentAt;
       clone.event.event_data=merged;
     }
     for(const row of clone.scores||[]) {

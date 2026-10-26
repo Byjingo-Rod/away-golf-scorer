@@ -61,7 +61,12 @@
     if(measuredBytes>=4*1024*1024)messages.push("App’s local storage is getting full — Review unwanted data.");
     if(counts.conflicts)messages.push(`${counts.conflicts} saved ${counts.conflicts===1?"copy needs":"copies need"} organiser review.`);
     if(counts.blocked)messages.push("Accepted-card changes retained on this device for organiser review.");
-    if(counts.pending)messages.push(`${counts.pending} ${counts.pending===1?"card or plan is":"cards or plans are"} waiting to upload.`);
+    if(counts.pending){
+      const parts=[];
+      if(counts.pendingCards)parts.push(`${counts.pendingCards} scorecard${counts.pendingCards===1?"":"s"}`);
+      if(counts.pendingPlans)parts.push(`${counts.pendingPlans} event plan${counts.pendingPlans===1?"":"s"}`);
+      messages.push(`${parts.join(" and ")} ${counts.pending===1?"is":"are"} waiting to upload.`);
+    }
     if(cloudStatus)messages.push(cloudStatus);
     node.textContent=messages.join(" ");node.hidden=!messages.length;
     // App Storage already has a permanent button on the home page. Keep this
@@ -120,7 +125,14 @@
   const persist=()=>{if(unreadable){showHealth();throw Error("Saved-copy recovery data is unreadable; the original has been preserved.");}prune();storageWrite(key,JSON.stringify(state));};
   function saveHealth(id){
     const rows=Object.entries(state).filter(([k])=>id&&k.startsWith(id+":"));
-    return {pending:rows.filter(([,s])=>s.pending&&!s.conflict&&!s.blocked).length,conflicts:rows.filter(([,s])=>s.conflict).length,blocked:rows.filter(([,s])=>s.blocked).length};
+    const pendingRows=rows.filter(([,s])=>s.pending&&!s.conflict&&!s.blocked);
+    return {
+      pending:pendingRows.length,
+      pendingCards:pendingRows.filter(([record])=>record.split(":")[1]==="score").length,
+      pendingPlans:pendingRows.filter(([record])=>record.split(":")[1]==="event").length,
+      conflicts:rows.filter(([,s])=>s.conflict).length,
+      blocked:rows.filter(([,s])=>s.blocked).length
+    };
   }
   const error=(message,code)=>Object.assign(new Error(message),{code});
   let api,raw;
@@ -212,7 +224,7 @@
     adapter.stageRound=(id,day,player,data)=>{activeEvent=id;const s=state[entry(id,"score",day,player)]||={};s.pending=copy(data);persist();};
     adapter.saveHealth=saveHealth;
     adapter.pendingSafeSaves=id=>Object.values(state).filter(s=>s.conflict?.event_id===id).length;
-    adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:copy(data),revision,acknowledged:true,savedAt:Date.now()};persist();};
+    adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
   window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
