@@ -4054,8 +4054,9 @@
     const test=retainedTestEvent();
     if(test?.savedAt && Date.now()-test.savedAt>=TEST_STORAGE_RETENTION_MS)removeRetainedTestData(test);
   }
-  function openAppStorage() {
-    expireRetainedTestData();
+  function renderAppStorage() {
+    try { expireRetainedTestData(); }
+    catch (error) { console.warn("Old TEST-event storage could not be expired", error); }
     const limited=isPlayerDevice() || isSpectatorDevice();
     const rows=GolfSafeCloud.storageRecords(),panel=$("#modalContent"),retainedTest=retainedTestEvent();
     const activeStorageEventId=String(store.cloud?.eventId||"");
@@ -4097,6 +4098,18 @@
     $$('[data-storagebackup]').forEach(button=>button.onclick=()=>{const row=inventory[+button.dataset.storagebackup];if((!exported&&!row.testBackup)||!row.removable)return;if(GolfSafeCloud.storageRecords().some(r=>r.pending||r.status.includes("review"))||[store.cloud?.eventId,store.event?.id].filter(Boolean).some(id=>row.value.includes(id))){$("#storageMessage").textContent="New or active work is protected. Refresh Storage.";return;}if(localStorage.getItem(row.key)!==row.value){$("#storageMessage").textContent="This backup changed. Refresh Storage before removing it.";return;}const question=row.testBackup?"Remove this local TEST-event backup now? It is not required online.":"Confirm the downloaded App Storage backup is saved, then remove this older local backup copy?";if(!confirm(question))return;localStorage.removeItem(row.key);openAppStorage();});
     $$('[data-storageremove]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storageremove];if(!confirm(`Remove the local saved copy of ${label(row)}? Its confirmed online copy remains.`))return;try{GolfSafeCloud.removeStorageRecord(row.record);openAppStorage();}catch(error){$("#storageMessage").textContent=error.message;}});
     $$('[data-storageretry]').forEach(button=>button.onclick=async()=>{button.disabled=true;$("#storageMessage").textContent="Retrying upload…";try{await GolfSafeCloud.retryStorageRecord(rows[+button.dataset.storageretry].record);openAppStorage();$("#storageMessage").textContent="Upload confirmed online.";}catch(error){$("#storageMessage").textContent="Upload not completed: "+error.message;button.disabled=false;}});
+  }
+  function openAppStorage() {
+    try { renderAppStorage(); }
+    catch (error) {
+      console.error("App Storage could not be displayed", error);
+      const panel=$("#modalContent"),shade=$("#modalShade");
+      if(!panel || !shade){ alert("App Storage could not open: "+(error?.message||"Unknown error")); return; }
+      panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p class="storageOpenError"><b>The storage list could not be prepared.</b></p><p>Your saved information has not been deleted or changed.</p><p>${esc(error?.message||"Unknown storage error")}</p><div class="rowBtns"><button class="primary" id="storageTryAgain">Try Again</button><button class="soft" id="storageClose">Close</button></div></section>`;
+      shade.classList.add("open");
+      $("#storageClose").onclick=()=>shade.classList.remove("open");
+      $("#storageTryAgain").onclick=openAppStorage;
+    }
   }
   window.addEventListener("golf-open-storage",openAppStorage);
   function openOrganiserInstructions() {
