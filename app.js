@@ -764,6 +764,7 @@
     return {
       players: AWAY_SEED.players.map((p) => ({
         ...p,
+        gaCategory: p.gaCategory === "women" ? "women" : "men",
         rosterActive: !inactiveNames.has(p.name),
         homeClub: "",
         notes: "",
@@ -918,6 +919,12 @@
   }
   restoreWorkspaceFromJournalIfShrunk();
   store.playerLists = Array.isArray(store.playerLists) ? store.playerLists : [];
+  // The saved player category is now required. Preserve recorded women and
+  // migrate the existing player list to men without individual data entry.
+  (store.players || []).forEach((person) => {
+    if (person.gaCategory !== "women" && person.gaCategory !== "men")
+      person.gaCategory = "men";
+  });
   try {
     store.template =
       JSON.parse(
@@ -4355,6 +4362,10 @@ Count-back if tied
     showSide(
       `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
+    $("#editPlayerProfile")?.insertAdjacentHTML(
+      "beforebegin",
+      `<p><small>PLAYER CATEGORY</small><br><b>${p.gaCategory === "women" ? "Female" : "Male"}</b></p>`,
+    );
     $("#editPlayerProfile").onclick = () => editPlayerProfile(id, status);
   }
   function editPlayerProfile(id, status = "", onSaved = null) {
@@ -4374,22 +4385,33 @@ Count-back if tied
     const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
     $("#sideContent").innerHTML =
       `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
+    const categorySelect = $("#epGaCategory"), categoryLabel = categorySelect?.closest("label")?.querySelector("span");
+    if (categoryLabel) categoryLabel.textContent = "Male/Female (required)";
+    if (categorySelect) {
+      categorySelect.options[0].textContent = "Male";
+      categorySelect.options[1].textContent = "Female";
+      if (p.pendingNewPlayer) {
+        categorySelect.insertAdjacentHTML("afterbegin", '<option value="">Choose</option>');
+        categorySelect.value = "";
+      }
+    }
     const toggleGolfId=()=>{const noOfficial=$('#epHandicapStatus').value==='none';$('#epGolfLink').hidden=$('#epHandicapStatus').value!=='insert';$('#epGa').disabled=noOfficial;$('#epGaPlus').disabled=noOfficial;};$('#epHandicapStatus').onchange=toggleGolfId;toggleGolfId();
     const toggleOtherStreet=()=>{$('#epOtherStreetLabel').hidden=$('#epStreetType').value!=='Other';};$('#epStreetType').onchange=toggleOtherStreet;toggleOtherStreet();
     $("#cancelPlayerProfile").onclick = () => p.pendingNewPlayer ? $("#sidePanel").classList.remove("open") : playerInfo(id, status);
     $("#savePlayerProfile").onclick = () => {
-      const firstName=$('#epFirst').value.trim(),lastName=$('#epLast').value.trim(),choice=$('#epHandicapStatus').value,golfLink=choice==='none'?'':$('#epGolfLink').value.trim();
+      const firstName=$('#epFirst').value.trim(),lastName=$('#epLast').value.trim(),category=$('#epGaCategory').value,choice=$('#epHandicapStatus').value,golfLink=choice==='none'?'':$('#epGolfLink').value.trim();
       if(!firstName||!lastName||firstName.length+lastName.length+1>120)return alert('Enter First Name and Last Name (up to 120 characters together).');
+      if(!category)return alert('Choose Male or Female for this player.');
       if(!choice||(choice==='insert'&&!/^[0-9]+$/.test(golfLink)))return alert('Insert a Golf ID number or choose No Official Handicap.');
       const addressDetails={...address};$$('[data-playeraddress]').forEach(input=>addressDetails[input.dataset.playeraddress]=input.value.trim());addressDetails.streetType=$('#epStreetType').value;
       if(addressDetails.streetType==='Other'&&!addressDetails.otherStreetType)return alert('Please insert the other street type.');
       p.firstName=firstName;p.lastName=lastName;p.name=firstName+' '+lastName;p.golfLink=golfLink;p.noOfficialHandicap=choice==='none';p.nickname=$('#epNickname').value.trim();p.cellPhone=$('#epPhone').value.trim();p.addressDetails=addressDetails;
       p.address=[[addressDetails.houseNo,addressDetails.streetName,addressDetails.streetType==='Other'?addressDetails.otherStreetType:addressDetails.streetType].filter(Boolean).join(' '),[addressDetails.suburb,addressDetails.state,addressDetails.postCode].filter(Boolean).join(' '),addressDetails.legacyAddress].filter(Boolean).join('\n');
       p.homeClub = $("#epHomeClub").value.trim();
+      p.gaCategory = category;
       const gaRaw = Number($("#epGa").value);
       if (!p.noOfficialHandicap && $("#epGa").value !== "" && Number.isFinite(gaRaw)) {
         p.ga = $("#epGaPlus").checked ? -Math.abs(gaRaw) : Math.abs(gaRaw);
-        p.gaCategory = $("#epGaCategory").value;
         p.gaUpdatedAt = new Date().toISOString();
       }
       if(p.pendingNewPlayer){delete p.pendingNewPlayer;store.players.push(p);}
@@ -4445,7 +4467,7 @@ Count-back if tied
   $("#playerSearchMain").oninput = renderPlayersAdmin;
   $("#addPlayerTop").onclick = addPlayer;
   function addPlayer(onSaved = null) {
-    editPlayerProfile({id:'p'+uid(),name:'',golfLink:'',ga:0,rosterActive:true,homeClub:'',notes:'',eventsPlayed:0,lastEvent:'',pendingNewPlayer:true},'',typeof onSaved === 'function' ? onSaved : null);
+    editPlayerProfile({id:'p'+uid(),name:'',golfLink:'',ga:0,gaCategory:'',rosterActive:true,homeClub:'',notes:'',eventsPlayed:0,lastEvent:'',pendingNewPlayer:true},'',typeof onSaved === 'function' ? onSaved : null);
     return null;
   }
   let masterCourseLibrary = null;
@@ -6115,7 +6137,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return true;
   }
 
-  function bindEventGaControls(gaInputs, storeGaValue) {
+  function bindEventGaControls(gaInputs, storeGaValue, afterBulkChange = null) {
     const editable = gaInputs.filter(input => !input.readOnly && !input.disabled);
     gaInputs.forEach(input => { if (input.readOnly || input.disabled) input.tabIndex = -1; });
     editable.forEach((input, index) => {
@@ -6151,6 +6173,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         control.onchange?.();
       });
       refreshLabel();
+      afterBulkChange?.(target);
     };
     refreshLabel();
   }
@@ -6182,14 +6205,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
     )];
     const categoryIds = ids.filter(id => eventGaCategory(id,W.event) === activeCategory);
     const teeHead = tees.map(
-      (tee) => `<span>${esc(teeMarkerColour(tee,c,activeCategory))} Hcp</span><span>Plus</span>`,
+      (tee) => `<span>${esc(teeMarkerColour(tee,c,activeCategory))}</span><span>Plus</span>`,
     ).join("");
-    const gaRows = allIds.map((id, index) => {
+    const gaRows = allIds
+      .filter((id) => eventGaCategory(id, W.event) === activeCategory)
+      .map((id, index) => {
       const value = eventGaHandicap(id, W.event),
         plus = Number(value) < 0,
         category = eventGaCategory(id, W.event);
       return `<div class="eventGaRow"><span><b>${esc(player(id)?.name || "")}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
-    }).join("");
+      }).join("");
     const rows = categoryIds
       .map((id) => {
         const cells = tees.map((tee) => {
@@ -6206,6 +6231,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const availableTees=courseEventTees(day,W.event,activeCategory);
     const teeChoices=availableTees.map(tee=>`<label class="eventTeeChoice"><input type="checkbox" data-categorytee="${tee}" ${tees.includes(tee)?"checked":""}><span>${esc(teeMarkerColour(tee,c,activeCategory))}</span></label>`).join("");
     $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap and category. Calculate and save the selected Men's and Women's tee handicaps separately.</p></div><div class="handicapCategorySwitch"><b>Calculate Hcps</b><button type="button" class="${activeCategory==="men"?"primary":"soft"}" data-hcpcategory="men">Men</button><button type="button" class="${activeCategory==="women"?"primary":"soft"}" data-hcpcategory="women">Women</button></div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><section class="categoryTeePlanner"><div><h3>${activeCategory==="women"?"Women's":"Men's"} tee positions</h3><p>Choose ${activeCategory==="women"?"Women's":"Men's"} tee positions (Max 3)</p></div><div class="categoryTeeChoices">${teeChoices||"<span>No completed tee cards are available for this category.</span>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Handicaps — ${esc(c?.name || "Course")} · ${activeCategory==="women"?"Women":"Men"}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || `<p>No ${activeCategory==="women"?"women":"men"} are currently selected for this event.</p>`}</div></div><div class="rowBtns handicapEntryActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="primary" id="saveQuickHandicaps">Save ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    const bulkCategoryButton = $("#changeAllGaCategories");
+    if (bulkCategoryButton)
+      bulkCategoryButton.textContent = activeCategory === "women"
+        ? "Change All Women to Men"
+        : "Change All Men to Women";
+    $$("#modalContent p").forEach((paragraph) => {
+      paragraph.textContent = paragraph.textContent
+        .replace("No women are currently selected for this event.", "No women are currently participating in this event.")
+        .replace("No men are currently selected for this event.", "No men are currently participating in this event.");
+    });
     $("#modalShade").classList.add("open");
     const inputs = tees.flatMap((tee) => categoryIds.map((id) => $(`[data-teequickhcp="${tee}|${id}"]`))).filter(Boolean);
     const gaInputs = $$('[data-eventga]');
@@ -6262,7 +6297,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
         }),
     );
     gesBindProposedHandicaps(day);
-    bindEventGaControls(gaInputs, storeGaValue);
+    bindEventGaControls(gaInputs, storeGaValue, (target) => {
+      W.handicapCategory = target;
+      openWizardHandicapEntry(day);
+    });
     $$('[data-hcpcategory]').forEach(button=>button.onclick=()=>{gaInputs.forEach(storeGaValue);W.handicapCategory=button.dataset.hcpcategory;openWizardHandicapEntry(day);});
     $$('[data-categorytee]').forEach(box=>box.onchange=()=>{
       const selected=$$('[data-categorytee]:checked').map(input=>input.dataset.categorytee);
