@@ -5560,6 +5560,24 @@ body.joinOnlyDevice .playerJoinLanding {
   font-size: 9px;
   font-weight: 600;
 }
+.eventTeeCategoryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(250px, 1fr));
+  grid-column: 2 / -1;
+  gap: 12px;
+  min-width: 0;
+}
+.eventTeeCategoryGrid .categoryPlayingTee {
+  min-width: 0;
+  margin: 0;
+}
+.eventTeeCategoryGrid .eventTeeButtons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.eventTeeCategoryGrid .eventTeeButtons button {
+  min-width: 0;
+}
 .eventTeePanel.ambroseTeePanel {
   grid-template-columns: minmax(210px, 1fr) auto auto minmax(220px, 270px);
 }
@@ -5595,6 +5613,7 @@ body.joinOnlyDevice .playerJoinLanding {
 }
 .finaliseTeeBtn,
 .reopenTeeBtn {
+  grid-column: 1 / -1;
   white-space: nowrap;
 }
 .teeSelectionWarning {
@@ -5699,6 +5718,16 @@ body.joinOnlyDevice .playerJoinLanding {
   .startingHoleChange button,
   .startingHoleChange select {
     width: 100%;
+  }
+}
+@media (max-width: 1000px) {
+  .eventTeePanel,
+  .eventTeePanel.ambroseTeePanel {
+    grid-template-columns: 1fr;
+  }
+  .eventTeeCategoryGrid {
+    grid-template-columns: 1fr;
+    grid-column: 1;
   }
 }
 .quickHcpRow.awaitingPlayer small {
