@@ -478,8 +478,28 @@
     const available = courseEventTees(day, event, category), key = "day" + day;
     const saved = event.enabledTeesByDayCategory?.[key]?.[category];
     if (Array.isArray(saved)) {
+      const planned = saved.filter(tee => EVENT_TEES.includes(tee)).slice(0, 3);
+      // Once an event is locked, its saved tee plan is authoritative. A device
+      // may not yet have the same category-specific course-card copy, but that
+      // must not make the planned Men's or Women's tee choices disappear.
+      if (event.locked && planned.length) return planned;
       const valid = saved.filter(tee => available.includes(tee)).slice(0, 3);
       if (valid.length) return valid;
+    }
+    if (event.locked) {
+      const categoryIds = (event.confirmed?.length ? event.confirmed : Object.keys(event.gaCategories || {}))
+        .filter(id => String(id) !== NO_PARTNER_ID)
+        .filter(id => GolfCourseCategories.category(event, id, day, eventPlayer) === category);
+      const inferred = EVENT_TEES.filter(tee => {
+        const handicaps = event.teeHandicaps?.[key]?.[tee] || {};
+        return categoryIds.length && categoryIds.every(id => {
+          const value = handicaps[String(id)];
+          return value !== "" && value != null && Number.isFinite(+value);
+        });
+      }).slice(0, 3);
+      if (inferred.length) return inferred;
+      const selected = event.teeSelectionByCategory?.[key]?.[category];
+      if (EVENT_TEES.includes(selected)) return [selected];
     }
     const legacy = event.enabledTeesByDay?.[key];
     if (category === "men" && Array.isArray(legacy)) {
