@@ -10,7 +10,7 @@ assert.match(app, /function openAppStorage\(\)\s*\{\s*try \{ renderAppStorage\(\
 assert.match(app, /Your saved information has not been deleted or changed\./);
 assert.match(app, /id="storageTryAgain"/);
 assert.match(app, /storageButton\.onclick=openAppStorage/);
-assert.match(html, /Version 15\.96\.32/);
-assert.match(sw, /away-golf-v15-96-32/);
+assert.match(html, /Version 15\.96\.33/);
+assert.match(sw, /away-golf-v15-96-33/);
 
 console.log("15.96.28 App Storage opening regression passed");

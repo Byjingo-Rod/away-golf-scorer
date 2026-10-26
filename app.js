@@ -2328,7 +2328,7 @@
   function safeCloudBundle(bundle) {
     if(!AwayCloud.reconcile || !store.cloud?.eventId || !store.event)return bundle;
     const id=store.cloud.eventId,clone=JSON.parse(JSON.stringify(bundle));
-    if(store.cloud.role==="organiser" && !store.cloud.restorePublished) {
+    if(store.cloud.role==="organiser" && !store.cloud.restorePublished && !store.cloud.secondaryOrganiser) {
       const merged=AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
       const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;
       const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>k!=="playerSubstitutions" && /^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
@@ -2488,6 +2488,7 @@
       enforceAuthoritativeOatlandsCard();
       if (store.cloud?.role === "player")
         store.event.playerPreviewId = String(store.cloud.playerId);
+      if (restoreOrganiser) refreshOpenWizardFromCloud();
       if (restoreOrganiser) delete store.cloud.restorePublished;
     }
     (bundle?.scores || []).forEach((row) => {
@@ -3409,7 +3410,33 @@
     initialiseCloud();
     nav("home");
   }
-  function continueWorkspaceEvent(id) {
+  async function continueWorkspaceEvent(id) {
+    const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
+    if (!record?.event) return;
+    if (eventWorkspaceStatus(record.event) !== "Draft") {
+      const eventId = record.cloud?.eventId,
+        joinCode = record.cloud?.joinCode || record.event.joinCode || "";
+      // Published events belong to the live organiser workspace. Reload the
+      // authoritative cloud copy instead of reopening an old planning wizard
+      // snapshot which may still contain pre-publication checks and scores.
+      if (eventId) {
+        await openPublishedEvent(
+          String(eventId),
+          String(joinCode),
+          record.event.name || "this published event",
+          true,
+        );
+        return;
+      }
+      if (String(store.activeEventId || "") !== String(id))
+        switchWorkspaceEvent(id);
+      else {
+        $("#modalShade").classList.remove("open");
+        nav("home");
+        void syncCloudNow();
+      }
+      return;
+    }
     if (String(store.activeEventId || "") !== String(id))
       switchWorkspaceEvent(id);
     else $("#modalShade").classList.remove("open");
@@ -3919,7 +3946,10 @@
         setCloudMessage(error.code==="GOLF_CONFLICT"?"Saved copies need organiser review":"Card accepted · local copy retained");
         return false;
       }
-      setCloudMessage("Saved on phone · online sync will retry");
+      if (error.code === "AWAY_AUTH_EXPIRED")
+        setCloudMessage("Scores safe on phone · secure connection retrying");
+      else
+        setCloudMessage("Saved on phone · online sync will retry");
       cloudRoundTimers.set(
         key,
         setTimeout(() => {
@@ -5177,6 +5207,27 @@ Count-back if tied
     benefits: {},
     benefitOpen: new Set(),
   };
+  function refreshOpenWizardFromCloud() {
+    if (!store.event || !$("#wizardShade")?.classList.contains("open")) return;
+    const step = Math.min(6, Math.max(1, +(W?.step || store.event.draftStep || 6)));
+    W = {
+      step,
+      newEvent: false,
+      event: JSON.parse(JSON.stringify(store.event)),
+      invites: new Map(),
+      competitions: new Set(store.event.competitions || []),
+      benefits: JSON.parse(JSON.stringify(store.event.benefits || {})),
+      benefitOpen: new Set(),
+    };
+    Object.entries(store.event.invitationStatus || {}).forEach(([id, status]) =>
+      sharedPositionId(id, W.event) === String(id) && W.invites.set(String(id), status),
+    );
+    if (!W.invites.size)
+      (store.event.confirmed || []).forEach(id =>
+        sharedPositionId(id, W.event) === String(id) && W.invites.set(String(id), "accepted"),
+      );
+    renderWizard();
+  }
   const stepNames = [
     "Event details",
     "Select players",

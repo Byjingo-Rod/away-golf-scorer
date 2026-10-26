@@ -105,6 +105,35 @@
     return initPromise;
   }
 
+  function isExpiredSessionError(error) {
+    const status = +(error?.status || error?.statusCode || 0),
+      message = String(error?.message || error?.error_description || "");
+    return status === 401 || status === 403 ||
+      /jwt|token|session|not authenticated|unauthori[sz]ed/i.test(message);
+  }
+
+  async function refreshSecureSession() {
+    const refreshed = await within(
+      client.auth.refreshSession(),
+      10000,
+      "Secure sign-in refresh timed out.",
+    );
+    if (refreshed.error || !refreshed.data?.session)
+      throw Object.assign(
+        new Error("The secure connection expired. Your scores remain saved on this phone."),
+        { code: "AWAY_AUTH_EXPIRED", cause: refreshed.error },
+      );
+    return refreshed.data.session;
+  }
+
+  async function retryAfterSessionRefresh(operation) {
+    let result = await operation();
+    if (!isExpiredSessionError(result?.error)) return result;
+    await refreshSecureSession();
+    result = await operation();
+    return result;
+  }
+
   async function ownerAccount() {
     const session = await ensureSignedIn();
     const { data, error } = await client.auth.getUser();
@@ -256,7 +285,7 @@
 
   async function loadEvent(eventId) {
     await ensureSignedIn();
-    const [eventResult, playersResult, scoresResult, spectatorResult] = await Promise.all([
+    const load = () => Promise.all([
       client
         .from("away_events")
         .select("id,join_code,name,status,event_data,revision,updated_at")
@@ -272,6 +301,13 @@
         .eq("event_id", eventId),
       client.rpc("away_event_spectator_count", { p_event_id: eventId }),
     ]);
+    let [eventResult, playersResult, scoresResult, spectatorResult] = await load();
+    const authError = [eventResult, playersResult, scoresResult, spectatorResult]
+      .find((result) => isExpiredSessionError(result?.error));
+    if (authError) {
+      await refreshSecureSession();
+      [eventResult, playersResult, scoresResult, spectatorResult] = await load();
+    }
     if (eventResult.error) throw eventResult.error;
     if (playersResult.error) throw playersResult.error;
     if (scoresResult.error) throw scoresResult.error;
@@ -285,11 +321,15 @@
 
   async function saveRound(eventId, day, playerId, scoreData, options={}) {
     await ensureSignedIn();
-    const {data,error}=await client.rpc("golf_safe_away_save",{
+    const args={
       p_kind:"score",p_event_id:eventId,p_day:+day,p_player_id:String(playerId),
       p_data:scoreData,p_expected_revision:options.expectedRevision??null,
       p_correction:!!options.correction,p_reason:options.reason||null,p_status:null,
-    });if(error)throw error;return data;
+    };
+    const {data,error}=await retryAfterSessionRefresh(
+      () => client.rpc("golf_safe_away_save",args),
+    );
+    if(error)throw error;return data;
   }
 
   async function releasePlayer(eventId, playerId) {
