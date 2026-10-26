@@ -484,6 +484,21 @@
     return event?.teeNamesByDayCategory?.["day" + day]?.[category]?.[tee]
       || teeMarkerColour(tee, courseRecord || course(event?.["course" + day]), category);
   }
+  function authoritativeMasterCourse(id) {
+    const key = String(id), state = store.courseLibrary || {};
+    return state.conflicts?.[key]?.data
+      || state.bases?.[key]?.data
+      || course(id, true);
+  }
+  function refreshEventCourseSnapshot(event = store.event) {
+    if (!event) return;
+    const ids = [...new Set(eventDays(event).map(day => String(event["course" + day] || "")).filter(Boolean))];
+    const retained = (event.courseSnapshot || []).filter(item => !ids.includes(String(item.id)));
+    event.courseSnapshot = [
+      ...retained,
+      ...ids.map(authoritativeMasterCourse).filter(Boolean).map(item => JSON.parse(JSON.stringify(item))),
+    ];
+  }
   function courseEventTees(day, event = store.event, category = "men", courseRecord = null) {
     const c = courseRecord || course(event?.["course" + day]), data = GolfCourseCategories.data(c, category);
     return GolfCourseCategories.positions(data).filter(tee => {
@@ -6444,8 +6459,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         `GA Handicaps cannot be changed because scoring has begun. ${player(scoreEntry.scorerId)?.name || "A player"} has an entry on Hole ${scoreEntry.hole}.`,
       );
     const event = JSON.parse(JSON.stringify(store.event));
+    refreshEventCourseSnapshot(event);
     eventDays(event).forEach(day => ["men", "women"].forEach(category =>
-      captureEventTeeNames(event, day, category, course(event["course" + day], true), true),
+      captureEventTeeNames(event, day, category, authoritativeMasterCourse(event["course" + day]), true),
     ));
     W = {
       step: 2,
@@ -7176,7 +7192,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ${days.length>1?`<div class="startCard"><h4>Multi-day Competitions</h4>${multiDayCompetitions.length?multiDayCompetitions.map(comp=>`<p><b>${esc(comp.name)}</b>${comp.detail?`<br>${esc(comp.detail)}`:""}</p>`).join(""):"<p>None</p>"}</div>`:""}</div>
       <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
       <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> — I have checked every course scorecard against the official card.</span></label>
-      <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>eventPlayerCategories(day,W.event).map(category=>`<div class="planTeeDay"><strong>Day ${day} · ${category==="women"?"Women":"Men"}</strong>${enabledEventTeesForCategory(W.event,day,category).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${category}|${tee}" class="${selectedEventTee(day,W.event,category)===tee?"active":""}">${esc(teeMarkerColour(tee,course(W.event["course"+day]),category))}</button>`).join("")}</div>`).join("")).join("")}</div>
+      <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>eventPlayerCategories(day,W.event).map(category=>`<div class="planTeeDay"><strong>Day ${day} · ${category==="women"?"Women":"Men"}</strong>${enabledEventTeesForCategory(W.event,day,category).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${category}|${tee}" class="${selectedEventTee(day,W.event,category)===tee?"active":""}">${esc(eventTeeDisplayName(day,tee,W.event,category))}</button>`).join("")}</div>`).join("")).join("")}</div>
       <button class="soft" id="changeStartingTee">Change Course / Starting Arrangement</button><button class="startEventBig" id="startEventBig" ${allReady?"":"disabled"}>SAVE EVENT PLAN – PROCEED TO SET UP SCORING</button>`;
     $("#scorecardsChecked").onchange=e=>{W.event.scorecardsChecked=e.target.checked;renderStep6();};
     $("#changeStartingTee").onclick=()=>{W.step=1;renderWizard();};
@@ -11462,9 +11478,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ) {
         ensureEventTeePlanning(store.event);
         eventDays(store.event).forEach(eventDay => ["men", "women"].forEach(category =>
-          captureEventTeeNames(store.event, eventDay, category, course(store.event["course" + eventDay], true), true),
+          captureEventTeeNames(store.event, eventDay, category, authoritativeMasterCourse(store.event["course" + eventDay]), true),
         ));
-        store.event.courseSnapshot = cloudPayload(store.event).courses;
+        refreshEventCourseSnapshot(store.event);
         store.event.locked = true;
         store.event.status = "locked";
         store.event.setupStage = "final";

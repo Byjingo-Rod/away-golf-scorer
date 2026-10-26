@@ -10,7 +10,7 @@ assert.match(app, /const categoryIds = \(event\.confirmed\?\.length/);
 assert.match(app, /const handicaps = event\.teeHandicaps\?\.\[key\]\?\.\[tee\] \|\| \{\}/);
 assert.match(app, /if \(inferred\.length\) return inferred/);
 assert.match(app, /if \(EVENT_TEES\.includes\(selected\)\) return \[selected\]/);
-assert.match(html, /Version 15\.96\.31/);
-assert.match(sw, /away-golf-v15-96-31/);
+assert.match(html, /Version 15\.96\.32/);
+assert.match(sw, /away-golf-v15-96-32/);
 
-console.log("15.96.31 locked category tee recovery regression passed");
+console.log("15.96.32 locked category tee recovery regression passed");
