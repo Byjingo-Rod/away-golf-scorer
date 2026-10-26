@@ -11,7 +11,7 @@ assert.match(app, /must not create a perpetual "waiting to upload"/);
 assert.match(safe, /function safeData\(kind,value\)/);
 assert.match(safe, /delete data\.event\.finalUpdateCloudSentAt/);
 assert.match(safe, /s\.pending=safeData\(kind,s\.pending\)/);
-assert.match(html, /Version 15\.96\.34/);
-assert.match(sw, /away-golf-v15-96-34/);
+assert.match(html, /Version 15\.96\.35/);
+assert.match(sw, /away-golf-v15-96-35/);
 
 console.log("15.96.34 final-update receipt storage regression passed");

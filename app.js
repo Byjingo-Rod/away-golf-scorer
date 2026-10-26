@@ -2464,6 +2464,11 @@
                 liveControlDay: store.event?.liveControlDay || 1,
                 activeGroupDay: store.event?.activeGroupDay || 1,
                 playerPreviewDay: store.event?.playerPreviewDay || 1,
+                finalUpdateCloudSentAt:
+                  store.event?.finalUpdateCloudSentAt ||
+                  payload.event?.finalUpdateAt ||
+                  payload.event?.lockedAt ||
+                  "",
               };
       store.event = {
         ...JSON.parse(JSON.stringify(payload.event)),
@@ -3101,8 +3106,23 @@
         payload = bundle?.event?.event_data || {};
       if (!payload.event)
         throw new Error("The published event plan could not be read.");
+      // Choosing Open Event is an explicit instruction to trust the published
+      // online plan. Clear only a stale local event-plan save; scorecard safety
+      // records are separate and remain protected.
+      AwayCloud.safeReconcileAcknowledged?.(
+        String(eventId),
+        "event",
+        payload,
+        bundle.event.revision,
+      );
       closeCloudConnection();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      if (store.event.locked)
+        store.event.finalUpdateCloudSentAt =
+          store.event.finalUpdateCloudSentAt ||
+          store.event.finalUpdateAt ||
+          bundle.event.updated_at ||
+          new Date().toISOString();
       store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       let existingRecord = store.eventWorkspace.find(
         (item) => String(item.cloud?.eventId || "") === String(eventId),

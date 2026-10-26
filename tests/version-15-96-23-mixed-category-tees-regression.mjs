@@ -4,7 +4,7 @@ import fs from 'node:fs';
 const app=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
 const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 
-assert.match(html,/Version 15\.96\.34/);
+assert.match(html,/Version 15\.96\.35/);
 assert.match(app,/const EVENT_TEES = \["back", "middle", "front", "tee4", "tee5"\]/);
 assert.match(app,/function enabledEventTeesForCategory/);
 assert.match(app,/Choose .*tee positions \(Max 3\)/);
