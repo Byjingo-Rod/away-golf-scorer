@@ -5,8 +5,8 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const worker = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.96\.30/);
-assert.match(worker, /away-golf-v15-96-30/);
+assert.match(html, /Version 15\.96\.31/);
+assert.match(worker, /away-golf-v15-96-31/);
 assert.match(app, /function openPlayerRulesFromWelcome\(playerId\)/);
 assert.match(
   app,

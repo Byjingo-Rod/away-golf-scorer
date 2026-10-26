@@ -8,7 +8,7 @@ const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 assert.match(app, /function isTestEventName\(event\)\s*\{\s*return \/\^TEST\\b\/i\.test/);
 assert.match(app, /isTestEventName\(\{name:row\.name\|\|""\}\)/);
 assert.match(app, /isTestEventName\(store\.event\)/);
-assert.match(html, /Version 15\.96\.30/);
-assert.match(sw, /away-golf-v15-96-30/);
+assert.match(html, /Version 15\.96\.31/);
+assert.match(sw, /away-golf-v15-96-31/);
 
 console.log("15.96.29 TEST-event storage helper regression passed");
