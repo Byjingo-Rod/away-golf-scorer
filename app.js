@@ -2195,6 +2195,10 @@
     delete event.activeGroupDay;
     delete event.leaderboardScrollLeft;
     delete event.workspaceId;
+    // This is a receipt recorded by the organiser device after the cloud has
+    // accepted the final update. It is not part of the shared event plan and
+    // must not create a perpetual "waiting to upload" safe-copy record.
+    delete event.finalUpdateCloudSentAt;
     const players = cloudPlayerIds().map((id) => {
       const p = player(id);
       return {

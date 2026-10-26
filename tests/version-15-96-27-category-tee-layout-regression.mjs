@@ -12,7 +12,7 @@ assert.match(app, /category==="women"\?"Women's":"Men's"/);
 assert.match(css, /\.eventTeeCategoryGrid\s*\{[^}]*grid-column:\s*2\s*\/\s*-1/s);
 assert.match(css, /\.eventTeeCategoryGrid \.eventTeeButtons\s*\{[^}]*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
 assert.match(css, /@media \(max-width: 1000px\)[\s\S]*?\.eventTeePanel[\s\S]*?grid-template-columns:\s*1fr/s);
-assert.match(html, /15\.96\.33/);
-assert.match(sw, /away-golf-v15-96-33/);
+assert.match(html, /15\.96\.34/);
+assert.match(sw, /away-golf-v15-96-34/);
 
 console.log("15.96.27 category tee layout regression passed");

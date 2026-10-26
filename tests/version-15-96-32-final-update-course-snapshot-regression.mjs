@@ -11,7 +11,7 @@ assert.match(app, /function refreshEventCourseSnapshot/);
 assert.match(app, /refreshEventCourseSnapshot\(event\)/);
 assert.match(app, /eventTeeDisplayName\(day,tee,W\.event,category\)/);
 assert.match(app, /refreshEventCourseSnapshot\(store\.event\)/);
-assert.match(html, /Version 15\.96\.33/);
-assert.match(sw, /away-golf-v15-96-33/);
+assert.match(html, /Version 15\.96\.34/);
+assert.match(sw, /away-golf-v15-96-34/);
 
 console.log("15.96.32 final-update course snapshot regression passed");

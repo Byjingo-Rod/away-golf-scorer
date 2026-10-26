@@ -22,7 +22,7 @@ assert.match(cloud, /async function retryAfterSessionRefresh\(operation\)/);
 assert.match(cloud, /client\.rpc\("golf_safe_away_save",args\)/);
 assert.match(cloud, /Your scores remain saved on this phone/);
 assert.match(app, /Scores safe on phone · secure connection retrying/);
-assert.match(html, /Version 15\.96\.33/);
-assert.match(sw, /away-golf-v15-96-33/);
+assert.match(html, /Version 15\.96\.34/);
+assert.match(sw, /away-golf-v15-96-34/);
 
 console.log("15.96.33 organiser tablet wizard refresh regression passed");

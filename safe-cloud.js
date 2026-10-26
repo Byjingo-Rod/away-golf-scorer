@@ -125,10 +125,15 @@
   const error=(message,code)=>Object.assign(new Error(message),{code});
   let api,raw;
   function entry(id,kind,day,player){return [id,kind,day||"",player||""].join(":");}
-  function remember(k,data,revision){if(!state[k]?.acknowledged){state[k]={...state[k],base:copy(data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
+  function safeData(kind,value){
+    const data=copy(value);
+    if(kind==="event"&&object(data?.event))delete data.event.finalUpdateCloudSentAt;
+    return data;
+  }
+  function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
   function ingest(id,bundle){
-    remember(entry(id,"event"),bundle.event.event_data,bundle.event.revision);
-    for(const row of bundle.scores||[])remember(entry(id,"score",row.day,row.scorer_player_id),row.score_data,row.revision);
+    remember(entry(id,"event"),bundle.event.event_data,bundle.event.revision,"event");
+    for(const row of bundle.scores||[])remember(entry(id,"score",row.day,row.scorer_player_id),row.score_data,row.revision,"score");
     return bundle;
   }
   async function retain(id,kind,day,player,s,remote,result){
@@ -139,9 +144,10 @@
   async function save(id,kind,data,day,player,options={}) {
     activeEvent=id;
     const k=entry(id,kind,day,player);
+    data=safeData(kind,data);
     // Save before any network operation. No acknowledged base moves on polling.
     const s=state[k] ||= {};s.pending=copy(data);persist();
-    if(!s.acknowledged){const b=await raw.loadEvent(id);ingest(id,b);if(!state[k].acknowledged)remember(k,{},null);}
+    if(!s.acknowledged){const b=await raw.loadEvent(id);ingest(id,b);if(!state[k].acknowledged)remember(k,{},null,kind);}
     const current=state[k];
     if(current!==s)return save(id,kind,data,day,player,options);
     if(s.conflict)throw error("Saved copies need organiser review.","GOLF_CONFLICT");
@@ -162,7 +168,10 @@
     throw error("Other devices are still saving. Your changes remain on this device. Retry shortly.","GOLF_BUSY");
   }
   function reconcile(id,kind,local,remote,revision,day,player){
-    const k=entry(id,kind,day,player),s=remember(k,remote,revision);
+    local=safeData(kind,local);remote=safeData(kind,remote);
+    const k=entry(id,kind,day,player),s=remember(k,remote,revision,kind);
+    s.base=safeData(kind,s.base);
+    if(s.pending!==undefined)s.pending=safeData(kind,s.pending);
     if(s.reviewedFrom){local=merge(s.reviewedFrom,local,s.base).data;delete s.reviewedFrom;}
     if(s.conflict)return copy(local);
     const result=merge(s.virgin?undefined:s.base,s.pending?merge(s.base,local,s.pending).data:local,remote);
