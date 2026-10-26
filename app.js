@@ -4034,6 +4034,9 @@
   startPlayerPolling();
 
   const TEST_STORAGE_RETENTION_MS = 24 * 60 * 60 * 1000;
+  function isTestEventName(event) {
+    return /^TEST\b/i.test(String(event?.name || event || "").trim());
+  }
   function retainedTestEvent() {
     try {
       const snapshot=JSON.parse(localStorage.getItem("awayGolfBeforeLeavingPlayerEvent")||"null"),event=snapshot?.event;
