@@ -2376,9 +2376,28 @@
       const row=rows[0],comparison=GolfSafeCloud.merge(row.base_data,row.local_data,row.remote_data);
       const label=path=>path.map((key,i)=>i===0&&/^([1-9]|1[0-8])$/.test(key)?"Hole "+key:key).join(" · ");
       const value=v=>v===undefined?"Removed":JSON.stringify(v);
-      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><div style="overflow:auto"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
+      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><button class="primary" id="keepOnlineSafeReviews">Keep Online Copy for All ${rows.length===1?"Differences":"Reviews"}</button><p class="hint">Use this when the published online event has already been verified as correct.</p><div style="overflow:auto;max-height:45vh"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
       $("#modalShade").classList.add("open");
       $("#closeSafeReview").onclick=()=>$("#modalShade").classList.remove("open");
+      $("#keepOnlineSafeReviews").onclick=async()=>{
+        if(!confirm(`Keep the published online copy for all ${rows.length} outstanding review${rows.length===1?"":"s"}?\n\nThe incoming device copies will remain in the audit record but will not alter the event.`))return;
+        const button=$("#keepOnlineSafeReviews");button.disabled=true;
+        $("#saveSafeReview").disabled=true;
+        try {
+          let result=null;
+          for(const saved of rows){
+            const merged=GolfSafeCloud.merge(saved.base_data,saved.local_data,saved.remote_data);
+            result=await AwayCloud.resolveSafeConflict(saved.id,merged.conflicts.map(field=>({path:field.path,choice:"remote"})));
+          }
+          if(store.cloud!==connection)return;
+          if(result?.kind==="event"){
+            const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot;
+            store.event={...store.event,...result.data.event,scoring,courseSnapshot};
+          }
+          writeLocalStore();$("#modalShade").classList.remove("open");await syncCloudNow();
+          alert("The verified online event was kept and all outstanding reviews were closed.");
+        }catch(error){$("#safeReviewStatus").textContent=error.message||String(error);button.disabled=false;$("#saveSafeReview").disabled=false;}
+      };
       $("#saveSafeReview").onclick=async()=>{
         const choices=comparison.conflicts.map((field,i)=>({path:field.path,choice:$(`[data-safechoice="${i}"]`).value}));
         if(choices.some(c=>!c.choice))return $("#safeReviewStatus").textContent="Choose a value for each difference.";
