@@ -139,7 +139,10 @@
   function entry(id,kind,day,player){return [id,kind,day||"",player||""].join(":");}
   function safeData(kind,value){
     const data=copy(value);
-    if(kind==="event"&&object(data?.event))delete data.event.finalUpdateCloudSentAt;
+    if(kind==="event"&&object(data?.event)){
+      delete data.event.finalUpdateCloudSentAt;
+      delete data.event.joinCode;
+    }
     return data;
   }
   function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}

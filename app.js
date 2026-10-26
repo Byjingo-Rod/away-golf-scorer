@@ -2342,8 +2342,11 @@
         finalUpdateCloudSentAt=store.event.finalUpdateCloudSentAt;
       const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>k!=="playerSubstitutions" && /^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
       store.event={...merged.event,...ui,scoring,courseSnapshot};
-      if(finalUpdateCloudSentAt)
-        store.event.finalUpdateCloudSentAt=finalUpdateCloudSentAt;
+      const verifiedFinalReceipt = finalUpdateCloudSentAt ||
+        (merged.event?.locked &&
+          (merged.event?.finalUpdateAt || merged.event?.lockedAt));
+      if(verifiedFinalReceipt)
+        store.event.finalUpdateCloudSentAt=verifiedFinalReceipt;
       clone.event.event_data=merged;
     }
     for(const row of clone.scores||[]) {
