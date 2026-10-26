@@ -598,9 +598,20 @@
         : enabled.includes("middle") ? "middle" : enabled[0];
       if (event.teeSelectionFinalised[key] == null)
         event.teeSelectionFinalised[key] = Boolean(event.locked);
-      event.dailyHandicaps[key] = {
-        ...event.teeHandicaps[key][event.teeSelection[key]],
-      };
+      // Daily handicaps must follow the saved tee for each player's category.
+      // Copying the whole Men's selected-tee map here used to reintroduce
+      // declined men and remove women merely by displaying a locked event.
+      const field = Array.isArray(event.dayFields?.[key]) && event.dayFields[key].length
+        ? event.dayFields[key]
+        : (event.confirmed || []).filter(id => event.dayAvailability?.[String(id)]?.[String(day)] !== false);
+      event.dailyHandicaps[key] = Object.fromEntries(
+        field.filter(id => String(id) !== NO_PARTNER_ID).map(id => {
+          const category = event.gaCategories?.[String(id)] === "women" ? "women" : "men",
+            selected = event.teeSelectionByCategory[key][category] || event.teeSelection[key],
+            value = event.teeHandicaps[key]?.[selected]?.[String(id)];
+          return [String(id), value];
+        }),
+      );
     }
     event.teePlanningVersion = 1;
   }

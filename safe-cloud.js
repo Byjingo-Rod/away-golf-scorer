@@ -143,6 +143,14 @@
       delete data.event.finalUpdateCloudSentAt;
       delete data.event.joinCode;
     }
+    if(kind==="event"&&Array.isArray(data?.courses))for(const course of data.courses){
+      if(!object(course))continue;
+      delete course.versions;delete course.activeVersionId;
+      if(object(course.womenTeeData)){
+        delete course.womenTeeData.versions;
+        delete course.womenTeeData.activeVersionId;
+      }
+    }
     return data;
   }
   function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
