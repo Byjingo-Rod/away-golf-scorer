@@ -11677,6 +11677,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function rememberPlayerWelcome(playerId) {
     localStorage.setItem(welcomeKey(playerId), "yes");
   }
+  function openPlayerRulesFromWelcome(playerId) {
+    // The welcome screen is local to a player's phone. Do not use the broad
+    // save() path here: that also renders organiser pages and can interrupt
+    // the first player-only navigation on a joined device.
+    rememberPlayerWelcome(playerId);
+    store.event.playerRulesOpen = true;
+    store.event.playerRoundMode = "preview";
+    writeLocalStore();
+    renderPlayerExperience();
+  }
   function renderCompletedScorecard(selected, day) {
     const host = $("#playerExperience");
     if (!roundFinalisedFor(day, selected)) {
@@ -13978,13 +13988,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (isPlayerDevice() && !playerHasSeenWelcome(selected)) {
       host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You’re playing in <b>${esc(store.event.name || "today’s Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY’S RULES</button></div></div>`;
-      $("#continueFromWelcome").onclick = () => {
-        rememberPlayerWelcome(selected);
-        store.event.playerRulesOpen = true;
-        store.event.playerRoundMode = "preview";
-        save();
-        renderPlayerExperience();
-      };
+      $("#continueFromWelcome").onclick = () =>
+        openPlayerRulesFromWelcome(selected);
       return;
     }
     const g = ctx.group,
