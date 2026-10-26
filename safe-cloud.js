@@ -94,7 +94,13 @@
   }
   function discardTestEvent(eventId){
     if(!eventId)throw Error("The test event could not be identified.");
-    if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
+    if(unreadable)throw Error("Saved-copy recovery data is unreadable; nothing was removed.");
+    const stored=JSON.parse(localStorage.getItem(key)||"{}");
+    if(!object(stored))throw Error("Saved-copy recovery data could not be read; nothing was removed.");
+    // Background score polling can legitimately refresh this store while the
+    // confirmation question is open. Work from the latest protected copy after
+    // the user has explicitly confirmed removal of a TEST event.
+    if(!equal(stored,state))state=stored;
     const prefix=String(eventId)+":";
     const removed=Object.keys(state).filter(record=>record.startsWith(prefix));
     if(!removed.length)return 0;
@@ -104,9 +110,12 @@
     measuredAt=0;showHealth();return removed.length;
   }
   function discardAbandonedRecord(record,allowActiveTest=false){
+    if(unreadable)throw Error("Saved-copy recovery data is unreadable; nothing was removed.");
+    const stored=JSON.parse(localStorage.getItem(key)||"{}");
+    if(!object(stored))throw Error("Saved-copy recovery data could not be read; nothing was removed.");
+    if(!equal(stored,state))state=stored;
     const row=storageRecords().find(item=>item.record===record);
     if(!row?.pending||(row.eventId===activeEvent&&!allowActiveTest))throw Error("Only an unsent copy from an event that is no longer open, or an explicitly confirmed TEST event, can be discarded here.");
-    if(unreadable||!equal(JSON.parse(localStorage.getItem(key)||"{}"),state))throw Error("Saved copies changed in another window. Reopen the app before cleaning up.");
     const previous=state[record];delete state[record];
     try{persist();}catch(error){state[record]=previous;throw error;}
     measuredAt=0;showHealth();return true;

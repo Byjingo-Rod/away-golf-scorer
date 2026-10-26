@@ -2348,7 +2348,25 @@
     if(!AwayCloud.reconcile || !store.cloud?.eventId || !store.event)return bundle;
     const id=store.cloud.eventId,clone=JSON.parse(JSON.stringify(bundle));
     if(store.cloud.role==="organiser" && !store.cloud.restorePublished && !store.cloud.secondaryOrganiser) {
-      const merged=AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
+      const health=AwayCloud.saveHealth?.(id)||{},
+        finalPlanIsAuthoritative=Boolean(
+          store.event?.locked &&
+          store.event?.finalUpdateCloudSentAt &&
+          !health.pendingPlans &&
+          !health.conflicts
+        );
+      // After Final Update, routine polling is read-only. Deliberate organiser
+      // changes use updateCloudEvent(), which creates a protected pending save
+      // before contacting the cloud. A plain refresh must therefore accept the
+      // verified online plan rather than turn harmless render normalisation
+      // into another unsent event plan.
+      const merged=finalPlanIsAuthoritative
+        ? clone.event.event_data
+        : AwayCloud.reconcile(id,"event",cloudPayload(),clone.event.event_data,clone.event.revision);
+      if(finalPlanIsAuthoritative){
+        AwayCloud.safeReconcileAcknowledged?.(id,"event",clone.event.event_data,clone.event.revision);
+        store.cloud.restorePublished=true;
+      }
       const scoring=store.event.scoring,courseSnapshot=store.event.courseSnapshot,
         finalUpdateCloudSentAt=store.event.finalUpdateCloudSentAt;
       const ui=Object.fromEntries(Object.entries(store.event).filter(([k])=>k!=="playerSubstitutions" && /^(player|leaderboard|liveControlDay|activeGroupDay|workspaceId)/.test(k)));
