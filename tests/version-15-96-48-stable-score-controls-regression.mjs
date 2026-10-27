@@ -13,7 +13,7 @@ const scoringHandlers = app.slice(start, end);
 assert.match(scoringHandlers, /valueButton\.textContent/);
 assert.match(scoringHandlers, /updateScoreControl\(id, val\)/);
 assert.doesNotMatch(scoringHandlers, /renderHoleScoring\(selected, day\)/);
-assert.match(html, /Version 15\.96\.48/);
-assert.match(sw, /away-golf-v15-96-48/);
+assert.match(html, /Version 15\.96\.49/);
+assert.match(sw, /away-golf-v15-96-49/);
 
 console.log("15.96.48 stable score controls regression passed");

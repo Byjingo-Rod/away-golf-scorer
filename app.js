@@ -2587,7 +2587,12 @@
         store.cloud?.role === "player" &&
         String(row.scorer_player_id) === String(store.cloud.playerId) &&
         ["scoring", "verify"].includes(store.event?.playerRoundMode);
-      if (!ownActiveRound || AwayCloud.reconcile)
+      // While this phone is actively scoring, its locally persisted round is
+      // authoritative. A Realtime echo can contain the previous cloud
+      // revision and must not replace the live object between consecutive
+      // hole entries. The current round is loaded from the cloud normally
+      // before scoring begins and again after the player leaves scoring mode.
+      if (!ownActiveRound)
         scoringDayStore(+row.day)[String(row.scorer_player_id)] =
           row.score_data || {};
     });

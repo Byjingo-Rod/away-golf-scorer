@@ -22,7 +22,7 @@ assert.ok(
 );
 
 assert.match(css, /\.courseTransferActions > \.backupImportLabel\s*\{[\s\S]*?font-size:\s*13\.3333px/);
-assert.match(html, /Version 15\.96\.48/);
-assert.match(sw, /away-golf-v15-96-48/);
+assert.match(html, /Version 15\.96\.49/);
+assert.match(sw, /away-golf-v15-96-49/);
 
 console.log("15.96.46 organiser score authority regression passed");
