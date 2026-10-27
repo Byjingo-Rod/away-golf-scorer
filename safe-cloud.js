@@ -220,10 +220,19 @@
     adapter.loadEvent=async id=>{
       activeEvent=id;
       const bundle=await raw.loadEvent(id);
-      for(const [k,s] of Object.entries(state))if(s.conflict?.event_id===id&&s.conflict.id){
-        try{const reviewed=await raw.safeControl("status",{event_id:id,id:s.conflict.id});
+      for(const [k,s] of Object.entries(state))if(s.conflict?.event_id===id){
+        try{
+          // A phone can create a protected scorecard review while its
+          // connection is failing. Retry placing that review online whenever
+          // the event next loads so the organiser can recover it; never treat
+          // the absence of a server review id as permission to discard it.
+          if(!s.conflict.id){
+            const retained=await raw.safeControl("retain",s.conflict);
+            s.conflict.id=retained.id;delete s.conflictUploadError;persist();
+          }
+          const reviewed=await raw.safeControl("status",{event_id:id,id:s.conflict.id});
           if(reviewed?.resolved){const pending=s.pending?merge(s.conflict.local,s.pending,reviewed.data).data:reviewed.data;state[k]={base:copy(reviewed.data),revision:reviewed.revision,acknowledged:true,pending,reviewedFrom:copy(s.conflict.local)};persist();}
-        }catch{}
+        }catch(e){s.conflictUploadError=String(e.message||e);persist();}
       }
       return ingest(id,bundle);
     };
