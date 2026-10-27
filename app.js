@@ -4679,6 +4679,113 @@ Count-back if tied
     if(library.allowed&&AwayCloud.loadCourseLocations)try{const rows=await AwayCloud.loadCourseLocations();store.courseRegions ||= {};for(const row of rows){addCourseCountry(row.country);store.courseRegions[row.country]=GolfCourseLocations.unique([...(store.courseRegions[row.country]||[]),row.region]);}writeLocalStore();}catch(error){console.warn('Shared locations unavailable',error);}
     renderCoursesAdmin();
   }
+  const PRE_COURSE_LIST_IMPORT_KEY = "awayGolfPreCourseListImportV1";
+  function courseListTransferPayload(includeDrafts = false) {
+    const library = store.courseLibrary || {}, data = {
+      courses: JSON.parse(JSON.stringify(store.courses || [])),
+      courseCountries: JSON.parse(JSON.stringify(store.courseCountries || [])),
+      courseRegions: JSON.parse(JSON.stringify(store.courseRegions || {})),
+      // Pending uploads and conflicts belong to one browser. Transfer only the
+      // accepted master baselines so another device cannot submit the same
+      // pending change or inherit a stale review.
+      courseLibrary: JSON.parse(JSON.stringify({
+        bases: library.bases || {},
+        authority: library.authority || null,
+        lastSync: library.lastSync || null,
+        previousAuthorityBases: library.previousAuthorityBases || {},
+      })),
+    };
+    if (includeDrafts) {
+      data.courseFavourites = JSON.parse(JSON.stringify(store.courseFavourites || []));
+      data.courseDrafts = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("awayGolfCourseDraft:")) data.courseDrafts[key] = localStorage.getItem(key);
+      }
+    }
+    return {
+      format: "Away Golf Course List",
+      transferVersion: 1,
+      appVersion: document.querySelector('meta[name="app-version"]')?.content || "unknown",
+      exportedAt: new Date().toISOString(),
+      data,
+    };
+  }
+  function validateCourseListTransfer(payload) {
+    if (payload?.format !== "Away Golf Course List" || payload?.transferVersion !== 1 || !Array.isArray(payload?.data?.courses))
+      throw new Error("This is not a valid Away Golf course-list file.");
+    const ids = new Set();
+    for (const course of payload.data.courses) {
+      const id = String(course?.id || "").trim(), name = String(course?.name || "").trim();
+      if (!id || !name) throw new Error("The course-list file contains a course without an ID or name.");
+      if (ids.has(id)) throw new Error("The course-list file contains a duplicate course ID.");
+      ids.add(id);
+    }
+    return JSON.parse(JSON.stringify(payload.data));
+  }
+  function clearCourseDraftStorage() {
+    const keys=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith("awayGolfCourseDraft:"))keys.push(key);
+    }
+    keys.forEach(key=>localStorage.removeItem(key));
+  }
+  function setCourseListFromTransfer(payload, preserveCurrent = true, restoreDrafts = false) {
+    const imported = validateCourseListTransfer(payload), previous = courseListTransferPayload(true),
+      previousFavourites = [...(store.courseFavourites || [])],
+      importedIds = new Set(imported.courses.map(course => String(course.id)));
+    if (preserveCurrent) localStorage.setItem(PRE_COURSE_LIST_IMPORT_KEY, JSON.stringify(previous));
+    const old = {
+      courses: store.courses,
+      courseCountries: store.courseCountries,
+      courseRegions: store.courseRegions,
+      courseLibrary: store.courseLibrary,
+      courseFavourites: store.courseFavourites,
+    };
+    try {
+      clearCourseDraftStorage();
+      store.courses = imported.courses;
+      store.courseCountries = imported.courseCountries || ["Australia"];
+      store.courseRegions = imported.courseRegions || {};
+      store.courseLibrary = {
+        bases: imported.courseLibrary?.bases || {},
+        authority: imported.courseLibrary?.authority || null,
+        lastSync: imported.courseLibrary?.lastSync || null,
+        previousAuthorityBases: imported.courseLibrary?.previousAuthorityBases || {},
+        pending: {}, conflicts: {}, countriesPending: [],
+      };
+      const favourites = restoreDrafts && Array.isArray(imported.courseFavourites)
+        ? imported.courseFavourites
+        : previousFavourites;
+      store.courseFavourites = favourites.filter(id => importedIds.has(String(id)));
+      if (restoreDrafts) for (const [key,value] of Object.entries(imported.courseDrafts || {})) localStorage.setItem(key,value);
+      masterCourseLibrary = null;
+      if (writeLocalStore() === false) throw new Error("The replacement list could not be saved on this device.");
+    } catch (error) {
+      Object.assign(store, old);masterCourseLibrary=null;
+      clearCourseDraftStorage();
+      for (const [key,value] of Object.entries(previous.data.courseDrafts || {})) localStorage.setItem(key,value);
+      try { writeLocalStore(); } catch (_) {}
+      throw error;
+    }
+  }
+  function downloadCourseListTransfer() {
+    const payload=courseListTransferPayload(false),stamp=new Date().toISOString().slice(0,10),
+      blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),link=document.createElement("a");
+    link.href=URL.createObjectURL(blob);link.download=`Away-Golf-Course-List-${stamp}.json`;
+    document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+  }
+  function courseListMissingEventReferences(courses) {
+    const ids=new Set(courses.map(course=>String(course.id))),events=[store.event,...(store.eventWorkspace||[]).map(record=>record?.event)].filter(Boolean);
+    return events.filter(event=>eventDays(event).some(day=>event["course"+day]&&!ids.has(String(event["course"+day]))));
+  }
+  async function importCourseListTransfer(file) {
+    const payload=JSON.parse(await file.text()),imported=validateCourseListTransfer(payload),missing=courseListMissingEventReferences(imported.courses);
+    const warning=missing.length?`\n\n${missing.length} saved event plan${missing.length===1?" refers":"s refer"} to a course not included in this file. Those plans will retain their settings but may require that course to be selected again.`:"";
+    if(!confirm(`Replace all ${store.courses.length} courses on this device with the ${imported.courses.length} courses from this file?\n\nPlayers, favourites, events and scores will not be imported or replaced.${warning}`))return false;
+    setCourseListFromTransfer(payload,true,false);renderCoursesAdmin();return true;
+  }
   function queueMasterCourse(c) {
     const library=getMasterCourseLibrary();if(!library)return;
     try {library.queue(c);void syncMasterCourses(true);}catch(error){alert(error.message);}
@@ -4691,9 +4798,13 @@ Count-back if tied
     const panel=$("#masterCourseCloud");if(!panel)return;
     const library=getMasterCourseLibrary();if(!library)return;
     const conflicts=Object.keys(library.state().conflicts),pending=Object.keys(library.state().pending).length;
-    panel.innerHTML=`<b>Cloud Master Course List</b><p role="status">${esc(library.message)}</p><small>${pending ? pending+" course save(s) pending. " : ""}Changes download when you open Courses or refresh this list. Favourites stay personal to this device.</small><div class="rowBtns"><button class="primary" id="syncMasterCourseList" ${library.busy?'disabled':''}>${library.busy?'Synchronising…':'Refresh / Sync Courses'}</button>${!library.allowed?'<button class="soft" id="courseOwnerSignIn">Owner Sign-In</button>':''}${conflicts.length?'<button class="soft" id="reviewMasterCourses">Review Different Copies ('+conflicts.length+')</button>':''}</div>`;
+    let courseUndo=null;try{courseUndo=JSON.parse(localStorage.getItem(PRE_COURSE_LIST_IMPORT_KEY)||"null");}catch{}
+    panel.innerHTML=`<b>Cloud Master Course List</b><p role="status">${esc(library.message)}</p><small>${pending ? pending+" course save(s) pending. " : ""}Changes download when you open Courses or refresh this list. Favourites stay personal to this device.</small><div class="rowBtns"><button class="primary" id="syncMasterCourseList" ${library.busy?'disabled':''}>${library.busy?'Synchronising…':'Refresh / Sync Courses'}</button>${!library.allowed?'<button class="soft" id="courseOwnerSignIn">Owner Sign-In</button>':''}${conflicts.length?'<button class="soft" id="reviewMasterCourses">Review Different Copies ('+conflicts.length+')</button>':''}</div><div class="rowBtns courseTransferActions"><button class="soft" id="exportCourseList">Download Course List</button><label class="backupImportLabel">Replace Course List from File<input type="file" id="importCourseList" accept="application/json,.json"></label>${courseUndo?'<button class="soft" id="undoCourseListImport">Undo Last Course Import</button>':''}</div><small>Course transfer changes only this device’s planning course list. Players, events, scores and personal favourites remain on this device.</small>`;
     const shared=document.createElement('button');shared.type='button';shared.className='soft';shared.textContent='Review Shared Course Changes';shared.onclick=()=>{const host=$("#modalContent");$("#modalShade").classList.add('open');host.replaceChildren();const close=document.createElement('button');close.textContent='Close';close.onclick=()=>$("#modalShade").classList.remove('open');const reviews=document.createElement('div');host.append(close,reviews);void GolfCatalogueReview.render(reviews,AwayCloud,()=>syncMasterCourses(true));};panel.append(shared);
     $("#syncMasterCourseList").onclick=()=>void syncMasterCourses();
+    $("#exportCourseList").onclick=downloadCourseListTransfer;
+    $("#importCourseList").onchange=async event=>{const file=event.target.files?.[0];if(!file)return;try{if(await importCourseListTransfer(file))alert("Course list replaced successfully.");}catch(error){alert("The course list could not be replaced. "+(error.message||error));}finally{event.target.value="";}};
+    if($("#undoCourseListImport"))$("#undoCourseListImport").onclick=()=>{if(!confirm("Restore the course list that was on this device before the last course import?"))return;try{setCourseListFromTransfer(courseUndo,false,true);localStorage.removeItem(PRE_COURSE_LIST_IMPORT_KEY);renderCoursesAdmin();alert("The previous course list has been restored.");}catch(error){alert("The previous course list could not be restored. "+(error.message||error));}};
     if($("#courseOwnerSignIn"))$("#courseOwnerSignIn").onclick=openOwnerAccount;
     if($("#reviewMasterCourses"))$("#reviewMasterCourses").onclick=showMasterCourseConflicts;
   }
