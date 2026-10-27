@@ -930,10 +930,46 @@
       markSupersededTab();
       return false;
     }
-    restoreWorkspaceFromJournalIfShrunk();
+    const playerOnly = ["player", "spectator"].includes(store.cloud?.role);
+    if (!playerOnly) restoreWorkspaceFromJournalIfShrunk();
     try {
-      GolfSafeCloud.storageWrite("awayGolf13", JSON.stringify(store));
-      writeWorkspaceJournal();
+      // A player phone only needs the published event, its participants and
+      // the courses used by that event. Persisting the organiser's complete
+      // course library and event workspace on every hole duplicated several
+      // megabytes and could exhaust a mobile browser's storage quota mid-round.
+      // Keep the in-memory store intact; only the durable player copy is slim.
+      let durableStore = store;
+      if (playerOnly && store.event) {
+        durableStore = JSON.parse(JSON.stringify(store));
+        const participantIds = new Set(
+          eventDays(store.event)
+            .flatMap((day) => store.event.dayFields?.["day" + day] || store.event.confirmed || [])
+            .map(String),
+        );
+        const courseIds = new Set(
+          eventDays(store.event)
+            .map((day) => String(store.event["course" + day] || ""))
+            .filter(Boolean),
+        );
+        durableStore.players = (durableStore.players || []).filter(
+          (record) => participantIds.has(String(record.id)) || record.system,
+        );
+        durableStore.courses = (durableStore.courses || []).filter((record) =>
+          courseIds.has(String(record.id)),
+        );
+        durableStore.eventWorkspace = [];
+        durableStore.activeEventId = null;
+      }
+      GolfSafeCloud.storageWrite("awayGolf13", JSON.stringify(durableStore));
+      // The primary player copy and Safe Cloud score copy already provide two
+      // independent protections. The organiser workspace journal is both
+      // irrelevant and dangerously large on a player phone.
+      if (!playerOnly) writeWorkspaceJournal();
+      else {
+        const journal = readWorkspaceJournal();
+        if (["player", "spectator"].includes(journal?.data?.cloud?.role))
+          localStorage.removeItem(AWAY_GOLF_WORKSPACE_JOURNAL_KEY);
+      }
     } catch (_) { return false; }
     return true;
   }
@@ -2332,8 +2368,9 @@
     // local scoring render. Verification screens still refresh so completed
     // player/marker cards can agree without a manual reload.
     if (
-      store.cloud?.role === "player" &&
-      store.event?.playerRoundMode === "scoring"
+      store.event?.playerRoundMode === "completed" ||
+      (store.cloud?.role === "player" &&
+        store.event?.playerRoundMode === "scoring")
     )
       return;
     const scrollingElement = document.scrollingElement || document.documentElement;
@@ -8636,14 +8673,26 @@ function estimateEventGa(handicap, rating, category, calculate) {
     });
   }
   function roundFinalisedFor(day, playerId) {
-    const id = String(playerId);
+    const id = String(playerId),
+      finalisedAt = scoringDayStore(day)?.[id]?._meta?.finalisedAt;
+    if (
+      finalisedAt &&
+      store.cloud?.role === "player" &&
+      String(store.cloud.playerId) === id &&
+      store.cloud?.eventId
+    ) {
+      const state = AwayCloud.roundSaveState?.(store.cloud.eventId, day, id) || {};
+      return Boolean(
+        state.acknowledged &&
+        !state.pending &&
+        !state.conflict &&
+        !state.blocked,
+      );
+    }
     return Boolean(
       manualDayFinalised(day) ||
         store.event?.roundFinalised?.["day" + day]?.[id] ||
-        scoringDayStore(day)?.[id]?._meta?.finalisedAt ||
-        (officialCardProgress(day, id).complete &&
-          verificationIssueCount(day, id) === 0 &&
-          markedScorecardVerification(day, id).mismatches.length === 0),
+        finalisedAt,
     );
   }
   function mergeOrganiserCorrections(local = {}, remote = {}) {
@@ -12218,10 +12267,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : "mine",
       marked = markedScorecardVerification(day, selected),
       targetName = eventPlayer(marked.targetId, day)?.name || "the player you marked";
-    if (recoveredRoundAccepted(day, selected) || (
+    const allCardsAgree =
       ownMismatches.length === 0 &&
       marked.mismatches.length === 0 &&
-      officialCardProgress(day, selected).complete
+      officialCardProgress(day, selected).complete;
+    const saveState = AwayCloud.roundSaveState?.(
+      store.cloud?.eventId,
+      day,
+      selected,
+    ) || {};
+    if (recoveredRoundAccepted(day, selected) || (
+      allCardsAgree &&
+      scorerStore(day, selected)?._meta?.finalisedAt &&
+      saveState.acknowledged &&
+      !saveState.pending &&
+      !saveState.conflict &&
+      !saveState.blocked
     )) {
       store.event.playerVerificationStage = "mine";
       store.event.returnToMarkedVerification = false;
@@ -12234,6 +12295,42 @@ function estimateEventGa(handicap, rating, category, calculate) {
       releaseRoundWakeLock();
       save();
       return renderCompletedScorecard(selected, day);
+    }
+    if (allCardsAgree) {
+      const waiting = Boolean(scorerStore(day, selected)?._meta?.finalisedAt);
+      host.innerHTML = `<div class="roundTop"><button class="soft" id="backToAgreedRound">← Back to Round</button><div><h2>Cards Agree</h2><p>${esc(eventPlayer(selected, day)?.name || "")}${store.event.days === 1 ? "" : ` · Day ${day}`} · ${esc(c?.name || "Course")}</p></div></div><div class="verifyCard"><h3>✓ Both 18-hole cards agree</h3><p>${waiting ? "Your complete agreed card is still protected on this phone and is waiting to be accepted online." : "The card will close only after this complete agreed copy has been accepted online."}</p>${saveState.conflict || saveState.blocked ? '<p class="verificationAdvice"><b>Organiser review required.</b> Ask the organiser to open Review Saved Copies. This scorecard remains accessible.</p>' : ""}<button class="startRoundBtn" id="finaliseAgreedRound">${waiting ? "RETRY FINAL UPLOAD" : "SAVE AND FINALISE AGREED CARDS"}</button></div>`;
+      $("#backToAgreedRound").onclick = () => {
+        store.event.playerRoundMode = "scoring";
+        save();
+        renderPlayerExperience();
+      };
+      $("#finaliseAgreedRound").onclick = async () => {
+        const button = $("#finaliseAgreedRound");
+        button.disabled = true;
+        button.textContent = "SAVING COMPLETE CARD…";
+        const accepted = scorerStore(day, selected);
+        accepted._meta = {
+          ...(accepted._meta || {}),
+          finalisedAt: accepted._meta?.finalisedAt || new Date().toISOString(),
+        };
+        if (writeLocalStore() === false) {
+          delete accepted._meta.finalisedAt;
+          alert("This phone could not protect the complete card. Keep the App open and free App Storage before trying again.");
+          return renderRoundVerification(selected, day);
+        }
+        const uploaded = await flushCloudRound(day, selected);
+        const current = AwayCloud.roundSaveState?.(store.cloud?.eventId, day, selected) || {};
+        if (uploaded && current.acknowledged && !current.pending && !current.conflict && !current.blocked) {
+          store.event.playerRoundMode = "completed";
+          store.event.playerVerificationStage = "mine";
+          store.event.returnToMarkedVerification = false;
+          releaseRoundWakeLock();
+          writeLocalStore();
+          return renderCompletedScorecard(selected, day);
+        }
+        renderRoundVerification(selected, day);
+      };
+      return;
     }
     const ownCard = `<div class="verifyCard"><h3>${ownMismatches.length ? `${ownMismatches.length} hole${ownMismatches.length === 1 ? "" : "s"} need attention` : puttsRequired ? "✓ Your card: all 18 scores and putts agree" : "✓ Your card: all 18 scores agree"}</h3><p>Your ${puttsRequired ? "scores and putts are" : "scores are"} compared with the official entries made by your marker.</p><div class="verifyRows">${ownRows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}"><b>Hole ${r.h}</b><span>Marker: ${r.off === "" ? "—" : r.off}${r.offPts != null ? ` (${r.offPts} pt${r.offPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.offPutts === "" ? "—" : r.offPutts}</small>` : ""}</span><span>You: ${r.self === "" ? "—" : r.self}${r.selfPts != null ? ` (${r.selfPts} pt${r.selfPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.selfPutts === "" ? "—" : r.selfPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — Marker ${r.off === "" ? "—" : r.off}, You ${r.self === "" ? "—" : r.self}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — Marker ${r.offPutts === "" ? "—" : r.offPutts}, You ${r.selfPutts === "" ? "—" : r.selfPutts}</em>` : ""}</div>`).join("")}</div></div>`;
     const markedCard = `<div class="verifyCard markedVerifyCard"><h3>${marked.mismatches.length ? `Card marked for ${esc(targetName)} — ${marked.mismatches.length} hole${marked.mismatches.length === 1 ? "" : "s"} need attention` : `✓ Card marked for ${esc(targetName)}: all 18 agree`}</h3><p>Your marker entries are compared with ${esc(playerFirstName(marked.targetId))}’s checking entries.</p><div class="verifyRows">${marked.rows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}" ${r.match ? "" : `data-fixmarked="${r.h}" role="button" tabindex="0"`}><b>Hole ${r.h}</b><span>You: ${r.marked === "" ? "—" : r.marked}${puttsRequired ? `<small>Putts: ${r.markedPutts === "" ? "—" : r.markedPutts}</small>` : ""}</span><span>${esc(playerFirstName(marked.targetId))}: ${r.checked === "" ? "—" : r.checked}${puttsRequired ? `<small>Putts: ${r.checkedPutts === "" ? "—" : r.checkedPutts}</small>` : ""}</span><strong>${r.match ? "✓" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch — You ${r.marked === "" ? "—" : r.marked}, ${esc(playerFirstName(marked.targetId))} ${r.checked === "" ? "—" : r.checked}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch — You ${r.markedPutts === "" ? "—" : r.markedPutts}, ${esc(playerFirstName(marked.targetId))} ${r.checkedPutts === "" ? "—" : r.checkedPutts}</em>` : ""}</div>`).join("")}</div></div>`;

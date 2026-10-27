@@ -29,7 +29,7 @@ assert.doesNotMatch(transfer, /store\.score/);
 assert.match(transfer, /pending:\s*\{\},\s*conflicts:\s*\{\},\s*countriesPending:\s*\[\]/);
 assert.match(transfer, /PRE_COURSE_LIST_IMPORT_KEY/);
 
-assert.match(html, /Version 15\.96\.45/);
-assert.match(sw, /away-golf-v15-96-45/);
+assert.match(html, /Version 15\.96\.52/);
+assert.match(sw, /away-golf-v15-96-52/);
 
 console.log("15.96.45 course-list transfer regression passed");

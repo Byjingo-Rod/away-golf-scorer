@@ -269,6 +269,16 @@
     };
     adapter.pendingRounds=id=>Object.entries(state).filter(([k,s])=>k.startsWith(id+":score:")&&s.pending&&!s.conflict&&!s.blocked).map(([k])=>{const parts=k.split(":");return {day:+parts[2],playerId:parts[3]};});
     adapter.stageRound=(id,day,player,data)=>{activeEvent=id;const s=state[entry(id,"score",day,player)]||={};s.pending=copy(data);persist();};
+    adapter.roundSaveState=(id,day,player)=>{
+      const s=state[entry(id,"score",day,player)]||{};
+      return {
+        acknowledged:!!s.acknowledged,
+        pending:!!s.pending,
+        conflict:!!(s.conflict||s.conflictId),
+        blocked:!!s.blocked,
+        savedAt:s.savedAt||0
+      };
+    };
     adapter.saveHealth=saveHealth;
     adapter.pendingSafeSaves=id=>Object.values(state).filter(s=>s.conflict?.event_id===id).length;
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};

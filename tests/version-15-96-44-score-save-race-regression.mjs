@@ -69,7 +69,7 @@ assert.match(safeCloudSource, /if\(!object\(s\.conflict\.local\)&&object\(s\.pen
 assert.match(safeCloudSource, /s\.conflict\.local=copy\(s\.pending\)/);
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
-assert.match(html, /Version 15\.96\.51/);
-assert.match(sw, /away-golf-v15-96-51/);
+assert.match(html, /Version 15\.96\.52/);
+assert.match(sw, /away-golf-v15-96-52/);
 
 console.log("15.96.44 immutable score-save snapshot regression passed");

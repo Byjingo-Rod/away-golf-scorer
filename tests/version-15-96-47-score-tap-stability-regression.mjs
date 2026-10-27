@@ -18,7 +18,7 @@ assert.match(refresh, /store\.event\?\.playerRoundMode === "scoring"/);
 assert.ok(refresh.indexOf('playerRoundMode === "scoring"') < refresh.indexOf("renderPlayerExperience();"));
 assert.match(css, /\.scoreStepper button\s*\{[\s\S]*?touch-action:\s*manipulation/);
 assert.match(css, /\.holeNav button,[\s\S]*?touch-action:\s*manipulation/);
-assert.match(html, /Version 15\.96\.51/);
-assert.match(sw, /away-golf-v15-96-51/);
+assert.match(html, /Version 15\.96\.52/);
+assert.match(sw, /away-golf-v15-96-52/);
 
 console.log("15.96.47 score tap stability regression passed");
