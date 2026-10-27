@@ -11140,11 +11140,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const sequence = scoreSequence(startHolesFor(store.event, day)[0] || 1);
     return holes.sort((a, b) => sequence.indexOf(a) - sequence.indexOf(b));
   }
+  function ntpScoreSupportsClaim(day, record) {
+    if (!competitionIsOn("teamPutts", day)) return true;
+    const gross = record?.official?.gross,
+      putts = record?.official?.putts;
+    return Boolean(
+      scoreEntered(gross) &&
+        String(gross).toUpperCase() !== "P" &&
+        scoreEntered(putts) &&
+        Number(gross) === Number(putts) + 1,
+    );
+  }
   function ntpHistory(day, hole) {
     const entries = [];
     Object.entries(scoringDayStore(day)).forEach(([scorerId, holes]) => {
       const n = holes?.[String(hole)]?.ntp;
-      if (!n?.confirmedAt) return;
+      if (!n?.confirmedAt || !ntpScoreSupportsClaim(day, holes?.[String(hole)])) return;
       entries.push({
         id: String(n.entrantId || scorerId),
         scorerId: String(scorerId),
@@ -12896,6 +12907,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
     );
     if ($("#yesNtp"))
       $("#yesNtp").onclick = () => {
+        if (!ntpScoreSupportsClaim(day, rec)) {
+          alert(
+            `NTP cannot be recorded for ${target?.name || "this player"}. The score must show that the tee shot reached the green: putts must equal total strokes minus one (for example 2 strokes and 1 putt, or 4 strokes and 3 putts).`,
+          );
+          return;
+        }
         if (!rec.ntp.pending) {
           rec.ntp.pending = true;
         } else {
@@ -13702,9 +13719,20 @@ function estimateEventGa(handicap, rating, category, calculate) {
       field.length && field.every((id) => livePlayerStatus(day, id).finalised),
     );
   }
-  function yellowBallViewerGroupIndex(day) {
-    if (store.cloud?.role !== "player" || !store.cloud?.playerId) return -1;
-    return playerGroupContext(String(store.cloud.playerId), day)?.groupIndex ?? -1;
+  function yellowBallResultsReady(day) {
+    if (eventDayComplete(day)) return true;
+    if (dayScoringMethod(day) !== "holeByHole") return false;
+    const field = dayFieldIds(day).filter(
+      (id) => String(id) !== NO_PARTNER_ID,
+    );
+    return Boolean(
+      field.length &&
+        field.every(
+          (id) =>
+            officialCardProgress(day, id).complete &&
+            verificationIssueHoles(day, id).length === 0,
+        ),
+    );
   }
   function leaderboardComplete(def, rows) {
     const finalised = def.day
@@ -13727,7 +13755,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       );
     }
     if (def.type === "yellowBall")
-      return Boolean(finalised && rows.length);
+      return Boolean(yellowBallResultsReady(def.day) && rows.length);
     const eligible = rows.filter(row => !row.disqualified);
     if (def.type === "combined" && finalised && rows.length && !eligible.length) return true;
     return Boolean(finalised && eligible.length && eligible.every(row => row.thru === row.target));
@@ -14197,26 +14225,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `<span class="scratchMinus">−</span>${Math.abs(n)}`);
       body =
         def.type === "yellowBall" && !competitionComplete
-          ? (() => {
-              const viewerGroup = yellowBallViewerGroupIndex(def.day);
-              if (viewerGroup < 0)
-                return '<div class="leaderEmpty yellowBallHidden"><b>Result announced at the end of play</b><span>Yellow Ball standings remain hidden until every scorecard for the day is complete.</span></div>';
-              return [...rows]
-                .sort(
-                  (a, b) =>
-                    +String(a.id).replace(/^d\d+g/, "") -
-                    +String(b.id).replace(/^d\d+g/, ""),
-                )
-                .map((r) => {
-                  const groupIndex = +String(r.id).replace(/^d\d+g/, ""),
-                    ownTeam = groupIndex === viewerGroup,
-                    ownStatus = r.loss
-                      ? `Ball lost on Hole ${r.loss.hole} · ${r.survived} holes survived`
-                      : `Ball alive · Thru ${r.thru}`;
-                  return `<div class="leaderRow ${ownTeam ? "yellowBallOwnTeam" : "yellowBallOpponent"}"><span class="leaderRank">${ownTeam ? "YOU" : "—"}</span><span class="leaderName">${esc(r.name)}${r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${ownTeam ? `${r.total} <small>pts</small>` : "—"}</span><span class="leaderThru">${ownTeam ? ownStatus : "Score hidden until end of play"}</span></div>`;
-                })
-                .join("");
-            })()
+          ? '<div class="leaderEmpty yellowBallHidden"><b>Result announced at the end of play</b><span>Yellow Ball standings remain hidden until every scorecard for the day is complete and agreed.</span></div>'
           : rows
           .map((r, i) => {
             const waiting =
