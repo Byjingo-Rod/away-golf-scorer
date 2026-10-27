@@ -2325,6 +2325,17 @@
   }
   function renderPlayerExperienceAfterCloudRefresh() {
     if (!document.querySelector("#scorePage.active")) return;
+    // A live update from another phone must never replace the score-entry DOM
+    // while this player is entering a hole. On touch devices, replacing a
+    // button between pointerdown and click silently loses the tap. Remote
+    // scores are already merged into store above and will appear on the next
+    // local scoring render. Verification screens still refresh so completed
+    // player/marker cards can agree without a manual reload.
+    if (
+      store.cloud?.role === "player" &&
+      store.event?.playerRoundMode === "scoring"
+    )
+      return;
     const scrollingElement = document.scrollingElement || document.documentElement;
     const pageScrollTop = scrollingElement?.scrollTop || window.scrollY || 0;
     const rulesScrollTop = document.querySelector("#playerExperience .playerRulesPanel")?.scrollTop || 0;

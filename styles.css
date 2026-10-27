@@ -6793,6 +6793,7 @@ body.playerDevice .cloudHeader {
 .scoreStepper button {
   min-height: 58px;
   font-size: 28px;
+  touch-action: manipulation;
 }
 .scoreStepper .stepValue {
   font-size: 26px;
@@ -6807,6 +6808,12 @@ body.playerDevice .cloudHeader {
   color: #6b5217;
   font-weight: 950;
   letter-spacing: 0.02em;
+}
+
+.holeNav button,
+.holeTrack,
+.ntpPlayCard button {
+  touch-action: manipulation;
 }
 .pickupRow.picked {
   border-color: #6f591e;
