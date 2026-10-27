@@ -334,15 +334,18 @@
 
   async function releasePlayer(eventId, playerId) {
     await ensureSignedIn();
-    const { data, error } = await client
-      .from("away_event_players")
-      .update({ member_user_id: null, joined_at: null })
-      .eq("event_id", eventId)
-      .eq("player_id", String(playerId))
-      .select("player_id,display_name,joined_at")
-      .single();
+    // Once member_user_id is cleared, RLS can make the released row invisible
+    // to the same request. Do not ask PostgREST to return exactly one row: the
+    // update can succeed while .single() incorrectly reports zero rows.
+    const { error } = await retryAfterSessionRefresh(() =>
+      client
+        .from("away_event_players")
+        .update({ member_user_id: null, joined_at: null })
+        .eq("event_id", eventId)
+        .eq("player_id", String(playerId)),
+    );
     if (error) throw error;
-    return data;
+    return { player_id: String(playerId), joined_at: null };
   }
 
   async function saveWorkspace(workspaceData) {
@@ -490,8 +493,12 @@
 
   async function archiveAllOwnedEvents() {
     const session=await ensureSignedIn();
-    const {data,error}=await client.from("away_events").select("id").eq("organiser_id",session.user.id).neq("status","archived");
-    if(error)throw error;const result=[];for(const row of data||[])result.push(await archiveEvent(row.id));return result;
+    const {data,error}=await client.from("away_events").select("id,name,status").eq("organiser_id",session.user.id).neq("status","archived");
+    if(error)throw error;
+    // This command is deliberately restricted to plainly named TEST events.
+    // It must never archive a genuine event merely because the organiser owns it.
+    const tests=(data||[]).filter((row)=>/\btest\b/i.test(String(row.name||"")));
+    const result=[];for(const row of tests)result.push(await archiveEvent(row.id));return result;
   }
   async function archiveEvent(eventId) {
     const bundle=await loadEvent(eventId);

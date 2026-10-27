@@ -10172,7 +10172,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   async function clearPreviousTestEvents() {
     if (
       !confirm(
-        "Clear ALL previous test events?\n\nThis will archive every published event from this organiser, disconnect the current test on phones and tablets and remove local event scores. Players, courses and scorecards will remain.",
+        "Clear ALL previous test events?\n\nOnly published events with TEST in their event name will be archived. Genuine events will remain untouched. Connected test phones and tablets will be disconnected and local test scores will be removed. Players, courses and scorecards will remain.",
       )
     )
       return;
