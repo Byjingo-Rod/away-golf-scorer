@@ -12696,6 +12696,25 @@ function estimateEventGa(handicap, rating, category, calculate) {
         save();
         renderHoleScoring(selected, day);
       };
+    const updateScoreControl = (id, val) => {
+      const valueButton = document.querySelector(`[data-confirm="${id}"]`),
+        stepperControl = valueButton?.closest(".scoreStepper"),
+        pickupButton = document.querySelector(`[data-pickup="${id}"]`),
+        picked = String(val).toUpperCase() === "P";
+      if (valueButton) valueButton.textContent = picked ? "P" : String(val);
+      if (stepperControl) {
+        stepperControl.classList.remove("unset");
+        stepperControl.classList.add("set");
+      }
+      if (pickupButton) {
+        pickupButton.classList.toggle("picked", picked);
+        pickupButton.textContent = picked
+          ? pickupButton.closest(".pickupControl")
+            ? "✓ PICK-UP (P)"
+            : "✓ PICK-UP RECORDED (P)"
+          : "P — PICK-UP";
+      }
+    };
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
@@ -12707,7 +12726,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
         delete store.event.roundFinalised["day" + day][selected];
       writeLocalStore();
       queueCloudRound(day, selected);
-      renderHoleScoring(selected, day);
+      // Keep the actual score buttons in place until the player chooses the
+      // next hole. Replacing the whole scoring DOM after every value can remove
+      // the next button between touch-down and click on a fast phone entry.
+      updateScoreControl(id, val);
     };
     $$("[data-step]").forEach(
       (btn) =>
