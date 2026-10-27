@@ -168,8 +168,12 @@
     for(const row of bundle.scores||[])remember(entry(id,"score",row.day,row.scorer_player_id),row.score_data,row.revision,"score");
     return bundle;
   }
-  async function retain(id,kind,day,player,s,remote,result){
-    s.conflict={event_id:id,kind,day,player_id:player,base:s.virgin?null:s.base,local:s.pending,remote:remote.data,revision:remote.revision,fields:result.conflicts};persist();
+  async function retain(id,kind,day,player,s,remote,result,local,base){
+    // Never build a review from the mutable pending property after awaiting
+    // the network. A background refresh may have acknowledged and removed it
+    // while this save was in flight. The immutable save snapshot is the copy
+    // that must be retained for organiser review.
+    s.conflict={event_id:id,kind,day,player_id:player,base:base===undefined?null:copy(base),local:copy(local),remote:remote.data,revision:remote.revision,fields:result.conflicts};persist();
     try{const row=await raw.safeControl("retain",s.conflict);s.conflict.id=row.id;persist();}catch(e){s.conflictUploadError=String(e.message||e);persist();}
     throw error("Conflicting changes retained. The organiser must review the saved copies.","GOLF_CONFLICT");
   }
@@ -183,17 +187,22 @@
     const current=state[k];
     if(current!==s)return save(id,kind,data,day,player,options);
     if(s.conflict)throw error("Saved copies need organiser review.","GOLF_CONFLICT");
+    const local=copy(s.pending===undefined?data:s.pending),base=s.virgin?undefined:copy(s.base);
     for(let attempt=0;attempt<3;attempt++) {
       const bundle=await raw.loadEvent(id);
       const row=kind==="event"?bundle.event:(bundle.scores||[]).find(x=>+x.day===+day&&String(x.scorer_player_id)===String(player));
       const remote={data:kind==="event"?row.event_data:row?.score_data||{},revision:row?.revision??null};
-      const result=merge(s.virgin?undefined:s.base,s.pending,remote.data);
-      if(result.conflicts.length)await retain(id,kind,day,player,s,remote,result);
+      const result=merge(base,local,remote.data);
+      if(result.conflicts.length)await retain(id,kind,day,player,s,remote,result,local,base);
       try{
         const response=kind==="event"?await raw.updateEvent(id,result.data,options.status,remote.revision):await raw.saveRound(id,day,player,result.data,{...options,expectedRevision:remote.revision});
         let acknowledged=result.data,ackRevision=response.revision;
         if(kind==="event"){const fresh=await raw.loadEvent(id);acknowledged=fresh.event.event_data;ackRevision=fresh.event.revision;}
-        s.base=copy(acknowledged);s.revision=ackRevision;s.savedAt=Date.now();delete s.virgin;delete s.pending;persist();
+        s.base=copy(acknowledged);s.revision=ackRevision;s.savedAt=Date.now();delete s.virgin;
+        // Preserve edits staged after this upload began. Only clear the
+        // pending copy when it is the exact immutable snapshot just saved.
+        if(equal(s.pending,local))delete s.pending;
+        persist();
         return {...response,revision:ackRevision,saved_data:copy(acknowledged)};
       }catch(e){if(e.code!=="40001"){if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}throw e;}}
     }
@@ -222,6 +231,15 @@
       const bundle=await raw.loadEvent(id);
       for(const [k,s] of Object.entries(state))if(s.conflict?.event_id===id){
         try{
+          // Repair reviews produced by the pre-15.96.44 timing race. Their
+          // complete card is still protected in pending, but conflict.local
+          // may be absent and the server correctly rejects that malformed
+          // review until the local card is restored here.
+          if(!object(s.conflict.local)&&object(s.pending)){
+            s.conflict.local=copy(s.pending);
+            s.conflict.fields=merge(s.conflict.base,s.conflict.local,s.conflict.remote).conflicts;
+            delete s.conflictUploadError;persist();
+          }
           // A phone can create a protected scorecard review while its
           // connection is failing. Retry placing that review online whenever
           // the event next loads so the organiser can recover it; never treat
