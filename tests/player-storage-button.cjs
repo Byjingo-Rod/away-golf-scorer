@@ -1,9 +1,12 @@
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const source=fs.readFileSync('app.js','utf8');
-const start=source.indexOf('  function openAppStorage()'),end=source.indexOf('\n  window.addEventListener("golf-open-storage"',start),body=source.slice(start,end);
+const start=source.indexOf('  function renderAppStorage()'),end=source.indexOf('\n  window.addEventListener("golf-open-storage"',start),body=source.slice(start,end);
 assert(start>=0&&end>start);
 assert.match(body,/const limited=isPlayerDevice\(\) \|\| isSpectatorDevice\(\)/);
 assert.doesNotMatch(body,/if\(isPlayerDevice\(\) \|\| isSpectatorDevice\(\)\)return/);
+assert.match(source,/storageButton\.hidden=isSpectatorDevice\(\)/);
+assert.doesNotMatch(source,/storageButton\.hidden=isPlayerDevice\(\) \|\| isSpectatorDevice\(\)/);
+assert.match(body,/isSpectatorDevice\(\)\?"":'<button class="primary" id="storageExport">Download App Storage Backup<\/button>'/);
 assert.match(body,/TEST-event data requires two confirmations/);
 assert.match(body,/data-storageretry/);
 assert.match(body,/deleteRetainedTestData/);
