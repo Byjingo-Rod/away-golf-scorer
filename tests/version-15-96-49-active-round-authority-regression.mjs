@@ -13,7 +13,7 @@ const scoreMerge = app.slice(start, end);
 assert.match(scoreMerge, /const ownActiveRound\s*=/);
 assert.match(scoreMerge, /if \(!ownActiveRound\)/);
 assert.doesNotMatch(scoreMerge, /!ownActiveRound \|\| AwayCloud\.reconcile/);
-assert.match(html, /Version 15\.96\.50/);
-assert.match(sw, /away-golf-v15-96-50/);
+assert.match(html, /Version 15\.96\.51/);
+assert.match(sw, /away-golf-v15-96-51/);
 
 console.log("15.96.49 active round authority regression passed");

@@ -2397,6 +2397,18 @@
       // protected save path before polling, so the verified online row is the
       // correct display source here.
       if(store.cloud?.role==="organiser")continue;
+      const ownActiveRound =
+        store.cloud?.role === "player" &&
+        String(row.scorer_player_id) === String(store.cloud.playerId) &&
+        ["scoring", "verify"].includes(store.event?.playerRoundMode);
+      // Realtime may echo an earlier revision while this phone is still
+      // entering the same card. The visible-card guard in applyRemoteCloud()
+      // prevents that echo replacing the live object; the safety layer must
+      // also leave its acknowledged base alone. Reconciling here can mistake
+      // two sequential saves from this one phone for independent edits,
+      // create a protected conflict and then block every later hole upload.
+      // The card is reconciled normally after scoring/verification ends.
+      if(ownActiveRound)continue;
       const local=store.event.scoring?.["day"+row.day]?.[String(row.scorer_player_id)];
       if(local && Object.keys(local).length)row.score_data=AwayCloud.reconcile(id,"score",local,row.score_data,row.revision,+row.day,String(row.scorer_player_id));
     }

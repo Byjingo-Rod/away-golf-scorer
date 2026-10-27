@@ -17,7 +17,7 @@ assert.ok(
   flush.indexOf("if (!ownActiveRound) {") <
     flush.indexOf("GolfSafeCloud.merge(snapshot,latest,result.saved_data)"),
 );
-assert.match(html, /Version 15\.96\.50/);
-assert.match(sw, /away-golf-v15-96-50/);
+assert.match(html, /Version 15\.96\.51/);
+assert.match(sw, /away-golf-v15-96-51/);
 
 console.log("15.96.50 save acknowledgement regression passed");
