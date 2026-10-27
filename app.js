@@ -2394,18 +2394,20 @@
       const row=rows[0],comparison=GolfSafeCloud.merge(row.base_data,row.local_data,row.remote_data);
       const label=path=>path.map((key,i)=>i===0&&/^([1-9]|1[0-8])$/.test(key)?"Hole "+key:key).join(" · ");
       const value=v=>v===undefined?"Removed":JSON.stringify(v);
-      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><button class="primary" id="keepOnlineSafeReviews">Keep Online Copy for All ${rows.length===1?"Differences":"Reviews"}</button><p class="hint">Use this when the published online event has already been verified as correct.</p><div style="overflow:auto;max-height:45vh"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
+      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><div class="rowBtns"><button class="primary" id="keepIncomingSafeReviews">Keep Incoming Device Copy for All ${rows.length===1?"Differences":"Reviews"}</button><button class="soft" id="keepOnlineSafeReviews">Keep Online Copy for All ${rows.length===1?"Differences":"Reviews"}</button></div><p class="hint"><b>Incoming device</b> is the copy retained on the phone or tablet that made the unsent changes. <b>Online copy</b> is the version already visible to the organiser.</p><div style="overflow:auto;max-height:45vh"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
       $("#modalShade").classList.add("open");
       $("#closeSafeReview").onclick=()=>$("#modalShade").classList.remove("open");
-      $("#keepOnlineSafeReviews").onclick=async()=>{
-        if(!confirm(`Keep the published online copy for all ${rows.length} outstanding review${rows.length===1?"":"s"}?\n\nThe incoming device copies will remain in the audit record but will not alter the event.`))return;
-        const button=$("#keepOnlineSafeReviews");button.disabled=true;
-        $("#saveSafeReview").disabled=true;
+      const resolveAllSafeReviews=async(choice)=>{
+        const incoming=choice==="local";
+        if(!confirm(`${incoming?"Keep the incoming device copy":"Keep the published online copy"} for all ${rows.length} outstanding review${rows.length===1?"":"s"}?\n\n${incoming?"Use this when the phone or tablet contains the complete, correct scorecard.":"Use this when the published online event has already been verified as correct."}`))return;
+        const incomingButton=$("#keepIncomingSafeReviews"),onlineButton=$("#keepOnlineSafeReviews");
+        incomingButton.disabled=true;onlineButton.disabled=true;$("#saveSafeReview").disabled=true;
         try {
           let result=null;
           for(const saved of rows){
             const merged=GolfSafeCloud.merge(saved.base_data,saved.local_data,saved.remote_data);
-            result=await AwayCloud.resolveSafeConflict(saved.id,merged.conflicts.map(field=>({path:field.path,choice:"remote"})));
+            result=await AwayCloud.resolveSafeConflict(saved.id,merged.conflicts.map(field=>({path:field.path,choice})));
+            if(result?.kind==="score")scoringDayStore(result.day)[result.player_id]=result.data;
           }
           if(store.cloud!==connection)return;
           if(result?.kind==="event"){
@@ -2413,8 +2415,12 @@
             store.event={...store.event,...result.data.event,scoring,courseSnapshot};
           }
           writeLocalStore();$("#modalShade").classList.remove("open");await syncCloudNow();
-          alert("The verified online event was kept and all outstanding reviews were closed.");
-        }catch(error){$("#safeReviewStatus").textContent=error.message||String(error);button.disabled=false;$("#saveSafeReview").disabled=false;}
+          alert(incoming?"The complete incoming device copy was saved online and all outstanding reviews were closed.":"The verified online event was kept and all outstanding reviews were closed.");
+        }catch(error){$("#safeReviewStatus").textContent=error.message||String(error);incomingButton.disabled=false;onlineButton.disabled=false;$("#saveSafeReview").disabled=false;}
+      };
+      $("#keepIncomingSafeReviews").onclick=()=>resolveAllSafeReviews("local");
+      $("#keepOnlineSafeReviews").onclick=async()=>{
+        await resolveAllSafeReviews("remote");
       };
       $("#saveSafeReview").onclick=async()=>{
         const choices=comparison.conflicts.map((field,i)=>({path:field.path,choice:$(`[data-safechoice="${i}"]`).value}));
@@ -3237,7 +3243,7 @@
       workspaceShrinkAuthorised = true;
       persistStore();
       cloudBusy = false;
-      cloudMessage = "Live event opened";
+      setCloudMessage("Live event opened");
       $("#modalShade").classList.remove("open");
       watchCloudEvent();
       renderHome();
