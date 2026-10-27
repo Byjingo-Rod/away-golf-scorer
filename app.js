@@ -4044,8 +4044,20 @@
       if (store.cloud !== connection || result === false) return false;
       if (cloudRoundChains.get(key) === saving) cloudRoundChains.delete(key);
       if(result?.saved_data) {
-        const latest=scorerStore(day,playerId);
-        scoringDayStore(day)[String(playerId)]=GolfSafeCloud.merge(snapshot,latest,result.saved_data).data;
+        const ownActiveRound =
+          store.cloud?.role === "player" &&
+          String(store.cloud.playerId) === String(playerId) &&
+          store.event?.playerRoundMode === "scoring";
+        // The cloud acknowledgement describes the immutable snapshot that
+        // began uploading, not necessarily the card after the player's next
+        // few taps. Replacing the live round here disconnects the current
+        // hole object and a later NTP or navigation render appears to erase
+        // those newer entries. Safe Cloud has already acknowledged this save;
+        // keep the live phone card untouched until scoring mode ends.
+        if (!ownActiveRound) {
+          const latest=scorerStore(day,playerId);
+          scoringDayStore(day)[String(playerId)]=GolfSafeCloud.merge(snapshot,latest,result.saved_data).data;
+        }
         writeLocalStore();
       }
       setCloudMessage("Hole saved online ✓");
