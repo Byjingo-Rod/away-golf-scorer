@@ -2379,6 +2379,13 @@
       clone.event.event_data=merged;
     }
     for(const row of clone.scores||[]) {
+      // Player phones are the authority for ordinary scorecard entry. An
+      // organiser PC or tablet merely displaying an earlier revision must not
+      // be treated as a second editor when a later player-phone revision
+      // arrives. Deliberate organiser corrections already pass through the
+      // protected save path before polling, so the verified online row is the
+      // correct display source here.
+      if(store.cloud?.role==="organiser")continue;
       const local=store.event.scoring?.["day"+row.day]?.[String(row.scorer_player_id)];
       if(local && Object.keys(local).length)row.score_data=AwayCloud.reconcile(id,"score",local,row.score_data,row.revision,+row.day,String(row.scorer_player_id));
     }

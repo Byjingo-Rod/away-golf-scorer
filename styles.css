@@ -5113,6 +5113,10 @@ body.joinOnlyDevice .playerJoinLanding {
   height: 1px;
   opacity: 0;
 }
+.courseTransferActions > .soft,
+.courseTransferActions > .backupImportLabel {
+  font-size: 13.3333px;
+}
 .backupSafetyNote {
   margin-top: 14px;
   padding: 11px;
