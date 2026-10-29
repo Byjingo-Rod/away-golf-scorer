@@ -2569,7 +2569,24 @@
               playerPreviewDay: store.event?.playerPreviewDay || 1,
               playerPreviewId: store.event?.playerPreviewId || "",
               playerRulesOpen: Boolean(store.event?.playerRulesOpen),
-              playerPreviewAck: store.event?.playerPreviewAck || {},
+              // Acknowledgements are normally device-local UI state, but an
+              // organiser may publish one during an emergency recovery. Merge
+              // the two maps by day and player so an empty local object cannot
+              // erase a verified online acknowledgement on every refresh.
+              playerPreviewAck: Object.fromEntries(
+                [
+                  ...new Set([
+                    ...Object.keys(payload.event?.playerPreviewAck || {}),
+                    ...Object.keys(store.event?.playerPreviewAck || {}),
+                  ]),
+                ].map((dayKey) => [
+                  dayKey,
+                  {
+                    ...(payload.event?.playerPreviewAck?.[dayKey] || {}),
+                    ...(store.event?.playerPreviewAck?.[dayKey] || {}),
+                  },
+                ]),
+              ),
               leaderboardTab: store.event?.leaderboardTab || "",
               leaderboardView: store.event?.leaderboardView || "",
               playerStartingHoleNotice: startingHoleChanged
