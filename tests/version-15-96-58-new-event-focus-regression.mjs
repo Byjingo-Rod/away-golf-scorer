@@ -18,4 +18,16 @@ assert.ok(
   "the new-event guard runs before any wizard redraw",
 );
 
+assert.match(app, /<h3>Operation<\/h3>/, "planner rules page has an Operation heading");
+assert.match(
+  app,
+  /Swipe left for the next hole and right for the previous hole\./,
+  "the concise swipe instruction is shown consistently",
+);
+assert.doesNotMatch(
+  app,
+  /<h4>Using the scoring card<\/h4>/,
+  "player instructions use Operation rather than the old heading",
+);
+
 console.log("15.96.58 new-event focus regression checks passed");
