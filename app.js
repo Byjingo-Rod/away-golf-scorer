@@ -2798,18 +2798,23 @@
     const eventName = store.event?.name || "this event";
     if (
       !confirm(
-        `Leave ${eventName} on this device and enter a different event code?\n\nScores already sent remain safe online. Unsent scores will not automatically appear when you rejoin. A local safety copy will be kept on this device; download an Organiser Backup first if scores have not synced.`,
+        `Delete ${eventName} from this phone and join another event?\n\nScores already transmitted remain safely stored online. This removes this phone's event, scorecard and local saved copies. It does not delete the organiser's event or leaderboard results.`,
       )
     )
       return;
+    const eventId = String(store.cloud?.eventId || "");
+    const saveHealth = eventId ? GolfSafeCloud.saveHealth(eventId) : null;
+    if (saveHealth && (saveHealth.pending || saveHealth.conflicts || saveHealth.blocked)) {
+      alert("This event still has scores saved only on this phone. Use Retry Sync and wait for the scores to upload before deleting the event.");
+      return;
+    }
     try {
-      if (store.event) {
-        localStorage.setItem("awayGolfBeforeLeavingPlayerEvent", JSON.stringify({savedAt:new Date().toISOString(),event:store.event,cloud:store.cloud,players:store.players,courses:store.courses}));
-        captureCurrentEvent();
-        if (writeLocalStore() === false) throw new Error("Another app tab controls this device's saved data.");
-      }
+      if (eventId) GolfSafeCloud.discardEventCopies(eventId);
+      const retained = JSON.parse(localStorage.getItem("awayGolfBeforeLeavingPlayerEvent") || "null");
+      if (String(retained?.cloud?.eventId || "") === eventId)
+        localStorage.removeItem("awayGolfBeforeLeavingPlayerEvent");
     } catch (error) {
-      alert("Could not back up your phone scores. Stay in this event and download a backup before leaving.");
+      alert("This event could not be removed from the phone. Please keep it open and try again.");
       return;
     }
     closeCloudConnection();
@@ -2822,17 +2827,49 @@
     renderPlayerExperience();
     renderLeaderboard();
     nav("home");
-    setCloudMessage("Previous event left ¬∑ enter the new code");
+    setCloudMessage("Previous event deleted from this phone ¬∑ enter the new code");
     const quickCode = $("#quickJoinCode");
     if (quickCode) quickCode.value = "";
     setQuickJoinStatus("Enter the six-character event code.");
     requestAnimationFrame(() => quickCode?.focus());
+  }
+  const verifiedCloudAuthority = new Set();
+  async function correctStoredCloudRole() {
+    if (!store.cloud?.eventId || verifiedCloudAuthority.has(String(store.cloud.eventId))) return true;
+    if (isGuestOrganiser() && (await AwayCloud.guestOrganiserActive(store.cloud.eventId))) {
+      verifiedCloudAuthority.add(String(store.cloud.eventId));
+      return true;
+    }
+    const access = await AwayCloud.eventAccess(store.cloud.eventId);
+    verifiedCloudAuthority.add(String(store.cloud.eventId));
+    if (access.role === "organiser") {
+      store.cloud.role = "organiser";
+      delete store.cloud.playerId;
+      return true;
+    }
+    if (access.role === "player") {
+      store.cloud.role = "player";
+      store.cloud.playerId = access.playerId;
+      if (store.event) store.event.playerPreviewId = access.playerId;
+      writeLocalStore();
+      applyDeviceRole();
+      return true;
+    }
+    if (store.cloud.joinCode) {
+      store.cloud.role = "spectator";
+      delete store.cloud.playerId;
+      writeLocalStore();
+      applyDeviceRole();
+      return true;
+    }
+    return false;
   }
   async function syncCloudNow() {
     if (!store.cloud?.eventId || cloudBusy) return false;
     const connection = store.cloud;
     setCloudMessage("Synchronising‚Ä¶", true);
     try {
+      await correctStoredCloudRole();
       const bundle = await cloudTimeout(
         isSpectatorDevice()
           ? AwayCloud.spectateEvent(store.cloud.joinCode)
@@ -4102,7 +4139,7 @@
         .then(() => {
           if(store.cloud!==connection)return false;
           snapshot=JSON.parse(JSON.stringify(scorerStore(day,playerId)));
-          return AwayCloud.saveRound(eventId,+day,String(playerId),snapshot,{correction:connection.role==="organiser",reason:"Organiser score entry or Emergency Recovery"});
+          return AwayCloud.saveRound(eventId,+day,String(playerId),snapshot,{correction:connection.role==="organiser",expectedPlayerId:connection.role==="player"?connection.playerId:null,reason:"Organiser score entry or Emergency Recovery"});
         });
     cloudRoundChains.set(key, saving);
     try {
@@ -4201,14 +4238,14 @@
       return;
     }
     if (store.cloud?.role === "player" && store.cloud.eventId) {
-      host.innerHTML = `<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name || "Player")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name || "the Away Golf event")}</b>. Scores are saved locally first and shared automatically.</p><div class="cloudActions"><button class="primary" id="openMyCard">Open Scoring Card</button>${retryButton}<button class="soft leavePlayerEvent" id="leavePlayerEvent">Leave This Event and Join Another</button></div>`;
+      host.innerHTML = `<div class="cloudPanelHead"><div><small>JOINED AS</small><h3>${esc(player(store.cloud.playerId)?.name || "Player")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>Your phone is connected to <b>${esc(store.event?.name || "the Away Golf event")}</b>. Scores are saved locally first and shared automatically.</p><div class="cloudActions"><button class="primary" id="openMyCard">Open Scoring Card</button>${retryButton}<button class="soft leavePlayerEvent" id="leavePlayerEvent">Delete This Event from This Phone and Join Another</button></div>`;
       $("#openMyCard").onclick = () => nav("scorePage");
       if ($("#retryCloud")) $("#retryCloud").onclick = syncCloudNow;
       $("#leavePlayerEvent").onclick = leavePlayerEvent;
       return;
     }
     if (store.cloud?.role === "spectator" && store.cloud.eventId) {
-      host.innerHTML = `<div class="cloudPanelHead"><div><small>SPECTATOR VIEW</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>You are watching this event live. Spectator View is read only and cannot alter scores, players, prizes or event settings.</p><div class="cloudActions"><button class="primary" id="openSpectatorLeaderboard">View Live Leaderboard</button><button class="soft" id="refreshSpectator">Refresh</button><button class="soft leavePlayerEvent" id="leaveSpectatorEvent">Leave This Event</button></div>`;
+      host.innerHTML = `<div class="cloudPanelHead"><div><small>SPECTATOR VIEW</small><h3>${esc(store.event?.name || "Away Golf Event")}</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><p>You are watching this event live. Spectator View is read only and cannot alter scores, players, prizes or event settings.</p><div class="cloudActions"><button class="primary" id="openSpectatorLeaderboard">View Live Leaderboard</button><button class="soft" id="refreshSpectator">Refresh</button><button class="soft leavePlayerEvent" id="leaveSpectatorEvent">Delete This Event from This Phone and Join Another</button></div>`;
       $("#openSpectatorLeaderboard").onclick = () => nav("leaderboardPage");
       $("#refreshSpectator").onclick = syncCloudNow;
       $("#leaveSpectatorEvent").onclick = leavePlayerEvent;
@@ -6685,8022 +6722,102 @@ function estimateEventGa(handicap, rating, category, calculate) {
         map[id] = plus ? -raw : raw;
         if (markManual) {
           W.event.teeHandicapSources[key][tee][id] = "manual";
-          const source = $(`[data-hcpsource="${tee}|${id}"]`);
-          if (source) {
-            source.textContent = "Manual";
-            source.className = "hcpSource manual";
-          }
-        }
-        $(`[data-teesigned="${tee}|${id}"]`)?.classList.toggle(
-          "plus",
-          Boolean(plus),
-        );
-      }
-    };
-    inputs.forEach((inp, i) => {
-      inp.oninput = () => storeValue(inp);
-      inp.onkeydown = (e) => {
-        if (e.key !== "Enter") return;
-        e.preventDefault();
-        storeValue(inp);
-        if (inputs[i + 1]) {
-          inputs[i + 1].focus();
-          inputs[i + 1].select();
-        } else $("#saveQuickHandicaps").focus();
-      };
-    });
-    $$('[data-eventgaplus], [data-eventgacategory]').forEach(
-      (control) =>
-        (control.onchange = () => {
-          const id = control.dataset.eventgaplus || control.dataset.eventgacategory;
-          const inp = $(`[data-eventga="${id}"]`);
-          if (inp) storeGaValue(inp);
-        }),
-    );
-    gesBindProposedHandicaps(day);
-    bindEventGaControls(gaInputs, storeGaValue, (target) => {
-      W.handicapCategory = target;
-      openWizardHandicapEntry(day);
-    });
-    $$('[data-hcpcategory]').forEach(button=>button.onclick=()=>{gaInputs.forEach(storeGaValue);W.handicapCategory=button.dataset.hcpcategory;openWizardHandicapEntry(day);});
-    $$('[data-categorytee]').forEach(box=>box.onchange=()=>{
-      const selected=$$('[data-categorytee]:checked').map(input=>input.dataset.categorytee);
-      if(selected.length>3){box.checked=false;return alert("Choose no more than three tee positions.");}
-      if(!selected.length){box.checked=true;return alert("Choose at least one tee position.");}
-      const key="day"+day;W.event.enabledTeesByDayCategory[key][activeCategory]=selected;
-      if(!selected.includes(selectedEventTee(day,W.event,activeCategory)))W.event.teeSelectionByCategory[key][activeCategory]=selected[0];
-      openWizardHandicapEntry(day);
-    });
-    $("#calculateEventHandicaps").onclick = () => {
-      if(!gesCheckEstimates(categoryIds))return;
-      gaInputs.forEach(storeGaValue);
-      const missingGa = categoryIds.filter((id) => eventGaHandicap(id, W.event) === "");
-      if (missingGa.length)
-        return alert(`Enter a GA Handicap for: ${missingGa.map((id) => player(id)?.name || "Player").join(", ")}.`);
-      const ratingIssues = [];
-      for(let d=1;d<=(W.event.days||1);d++)for(const tee of enabledEventTeesForCategory(W.event,d,activeCategory)){
-        const rating=teeRatingForDailyHandicap(d,tee,W.event,activeCategory);if(!rating.valid)ratingIssues.push(`${rating.courseName} ‚Äî ${rating.teeColour}`);
-      }
-      if (ratingIssues.length)
-        return alert(`Daily Handicaps cannot be calculated yet. Enter Slope, Scratch Rating and Par in Course Details for:\n\n${ratingIssues.join("\n")}`);
-      if (!confirm(`Calculate every ${activeCategory === "women" ? "woman's" : "man's"} Daily Handicap for the selected tees on all event days? Existing calculated values for this category will be replaced.`)) return;
-      const issues = applyCalculatedEventHandicaps(W.event,activeCategory);
-      W.event.gaHandicapSetAt = new Date().toISOString();
-      saveEventGaToPlayerProfiles(allIds, W.event);
-      writeLocalStore();
-      if (issues.length) alert(issues.join("\n"));
-      openWizardHandicapEntry(day);
-    };
-    $$('[data-teequickplus]').forEach(
-      (cb) =>
-        (cb.onchange = () => {
-          const inp = $(`[data-teequickhcp="${cb.dataset.teequickplus}"]`);
-          if (inp) storeValue(inp);
-        }),
-    );
-    $("#closeQuickHandicaps").onclick = () =>
-      $("#modalShade").classList.remove("open");
-    $("#saveQuickHandicaps").onclick = () => {
-      gaInputs.forEach(storeGaValue);
-      inputs.forEach((inp) => storeValue(inp, false));
-      saveEventGaToPlayerProfiles(allIds, W.event);
-      if (day === 1 && W.event.days === 2 && !W.event.gaHandicapSetAt && String(W.event.course1) === String(W.event.course2))
-        EVENT_TEES.forEach((tee) => {
-          const d1 = teeHandicapsFor(1, tee, W.event),
-            d2 = teeHandicapsFor(2, tee, W.event),
-            initial = initialDay1[tee] || {};
-          wizardPlanningPlayers(2)
-            .filter((id) => id !== NO_PARTNER_ID)
-            .forEach((id) => {
-              if (
-                d1[id] != null &&
-                d1[id] !== "" &&
-                (d2[id] == null || d2[id] === "" || d2[id] === initial[id])
-              )
-                d2[id] = d1[id];
-            });
-        });
-      eventPlayerCategories(day,W.event).forEach(category=>selectEventTee(day,selectedEventTee(day,W.event,category),W.event,category));
-      if (W.gaUpdateOnly) {
-        store.event = JSON.parse(JSON.stringify(W.event));
-        store.event.handicapUpdatePendingAt = new Date().toISOString();
-        delete store.event.finalUpdateCloudSentAt;
-        save();
-        $("#modalShade").classList.remove("open");
-        renderHome();
-        alert(
-          "Updated GA Handicaps have been saved. Press Send All Set ‚Äî Final Update to send them to the players' phones.",
-        );
-        return;
-      }
-      writeLocalStore();
-      $("#modalShade").classList.remove("open");
-      renderStep2();
-    };
-    if (inputs[0]) inputs[0].focus();
-  }
-  function openPublishedGaHandicapUpdate() {
-    if (!store.event) return;
-    const scoreEntry = Array.from(
-      { length: store.event.days || 1 },
-      (_, index) => firstDayScoreEntry(index + 1),
-    ).find(Boolean);
-    if (scoreEntry)
-      return alert(
-        `GA Handicaps cannot be changed because scoring has begun. ${player(scoreEntry.scorerId)?.name || "A player"} has an entry on Hole ${scoreEntry.hole}.`,
-      );
-    const event = JSON.parse(JSON.stringify(store.event));
-    refreshEventCourseSnapshot(event);
-    eventDays(event).forEach(day => ["men", "women"].forEach(category =>
-      captureEventTeeNames(event, day, category, authoritativeMasterCourse(event["course" + day]), true),
-    ));
-    W = {
-      step: 2,
-      newEvent: false,
-      gaUpdateOnly: true,
-      event,
-      invites: new Map(),
-      competitions: new Set(event.competitions || []),
-      benefits: JSON.parse(JSON.stringify(event.benefits || {})),
-      benefitOpen: new Set(),
-    };
-    Object.entries(event.invitationStatus || {}).forEach(([id, status]) =>
-      sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), status),
-    );
-    if (!W.invites.size)
-      (event.confirmed || []).forEach((id) =>
-        sharedPositionId(id,W.event)===String(id) && W.invites.set(String(id), "accepted"),
-      );
-    openWizardHandicapEntry(1);
-  }
-  document.addEventListener("click", (e) => {
-    let t = e.target;
-    if (t.dataset.winvite) {
-      const id = String(t.dataset.winvite);
-      W.invites.set(id, id === NO_PARTNER_ID ? "accepted" : "awaiting");
-      renderStep2();
-    }
-    if (t.dataset.wstatus) {
-      let [id, s] = t.dataset.wstatus.split("|");
-      if(s==="declined" && W.event.sharedPositions)delete W.event.sharedPositions[String(id)];
-      W.invites.set(String(id), s);
-      if (s === "accepted") {
-        W.event.dayAvailability = W.event.dayAvailability || {};
-        W.event.dayAvailability[String(id)] = W.event.dayAvailability[
-          String(id)
-        ] || { 1: true, 2: true };
-      }
-      renderStep2();
-    }
-    if (t.dataset.wpinfo)
-      playerInfo(t.dataset.wpinfo, W.invites.get(t.dataset.wpinfo) || "");
-    if (t.dataset.wpinactive) {
-      let p = player(t.dataset.wpinactive);
-      if (
-        p &&
-        confirm(
-          `Make ${p.name} inactive?\n\nThe player remains in Away Golf history.`,
-        )
-      ) {
-        p.rosterActive = false;
-        if(W.event.sharedPositions)delete W.event.sharedPositions[String(p.id)];
-        W.invites.delete(p.id);
-        save();
-        renderStep2();
-      }
-    }
-    if (t.dataset.wpreactivate) {
-      let p = player(t.dataset.wpreactivate);
-      if (p) {
-        p.rosterActive = true;
-        save();
-        renderStep2();
-      }
-    }
-  });
-  function eclecticCourseGroups(event = W.event) {
-    const groups = new Map();
-    eventDays(event).forEach((day) => {
-      const courseId = event["course" + day],
-        courseName = (course(courseId)?.name || "").trim(),
-        key = courseId ? `id:${courseId}` : `name:${courseName.toLowerCase()}`;
-      if (!courseId && !courseName) return;
-      if (!groups.has(key))
-        groups.set(key, { key, courseId: String(courseId || ""), courseName: courseName || `Day ${day} course`, days: [] });
-      groups.get(key).days.push(day);
-    });
-    return [...groups.values()].filter((group) => group.days.length >= 2);
-  }
-  function selectedEclecticGroups(event = W.event) {
-    const eligible = eclecticCourseGroups(event), selected = event.eclecticCourseIds;
-    if (!Array.isArray(selected) || !selected.length) return eligible;
-    return eligible.filter((group) => selected.includes(group.key));
-  }
-  function syncEclecticCompetitionDays(event = W.event) {
-    event.competitionDays ||= {};
-    event.competitionDays.eclectic = [...new Set(selectedEclecticGroups(event).flatMap((group) => group.days))].sort((a, b) => a - b);
-  }
-  function eclecticCourseChoiceHtml(event = W.event) {
-    const groups = eclecticCourseGroups(event), selected = new Set(selectedEclecticGroups(event).map((group) => group.key));
-    return `<div class="ntpBox eclecticCourseChoices"><b>Select the repeated course Eclectic competition(s)</b>${groups.map((group) => `<label><input style="width:auto" type="checkbox" data-eclecticcourse="${esc(group.key)}" ${selected.has(group.key) ? "checked" : ""}> ${esc(group.courseName)} ‚Äî Days ${group.days.join(" and ")}</label>`).join("")}<small>Each selected course has its own Eclectic leaderboard using only the rounds played on that course.</small></div>`;
-  }
-  function compDefinitions() {
-    let d = W.event.days,
-      eclecticGroups = (() => {
-        const groups = new Map();
-        eventDays(W.event).forEach((day) => {
-          const courseId = W.event["course" + day], courseName = (course(courseId)?.name || "").trim(),
-            key = courseId ? `id:${courseId}` : `name:${courseName.toLowerCase()}`;
-          if (!courseId && !courseName) return;
-          if (!groups.has(key)) groups.set(key, { key, days: [] });
-          groups.get(key).days.push(day);
-        });
-        return [...groups.values()].filter((group) => group.days.length >= 2);
-      })(),
-      defs = [
-        {
-          id: d == 1 ? "single" : "combined",
-          name: "Single Stableford",
-          desc:
-            d == 1
-              ? "Highest Stableford score over the round."
-              : "Choose daily winners, the overall Event winner or both.",
-          tag: d == 1 ? "INDIVIDUAL" : "FORMAT CHOICE",
-        },
-        {
-          id: "stroke",
-          name: "Stroke",
-          desc: "Lowest gross or net stroke total. Choose whether every stroke counts or each hole has a maximum score.",
-          tag: "INDIVIDUAL STROKE",
-        },
-        {
-          id: "fourball",
-          name: "4BBB Stableford",
-          desc:
-            d == 1
-              ? "Played by each 4BBB pair."
-              : "Separate 4BBB Stableford on the selected days.",
-          tag: "2-PLAYER PAIRS",
-        },
-        {
-          id: "teamPutts",
-          name: "Putting Competition",
-          desc: "Choose a 4BBB pairs event or a four-player team event.",
-          tag: "PAIRS OR TEAM",
-        },
-        {
-          id: "best3of4",
-          name: "Best 3 of 4 Stableford",
-          desc:
-            d == 1
-              ? "Best three Stableford scores from the four-person team on every hole."
-              : "Separate Best 3 of 4 event on each day.",
-          tag: "4-PERSON TEAM",
-        },
-        {
-          id: "ambrose",
-          name: "Ambrose",
-          desc: "One team stroke score per hole. Record the selected drive and optionally use a second card to check it.",
-          tag: "TEAM STROKE",
-        },
-        {
-          id: "yellowBall",
-          name: "Yellow Ball",
-          desc:
-            d == 1
-              ? "The team ball rotates through the playing group. Its Stableford score is recorded until it is lost or the round is complete."
-              : "Choose the playing days for the rotating team ball event.",
-          tag: "TEAM ROTATION",
-        },
-        {
-          id: "par3",
-          name: "Par 3 Competition",
-          desc: "Choose daily or multi-day format",
-          tag: "PAR 3",
-        },
-        {
-          id: "ntp",
-          name: "Nearest the Pin",
-          desc:
-            d == 1
-              ? "Choose one or two NTPs."
-              : "Tick the days you want to run NTP. You can also choose two NTP holes for the final day. The app will suggest suitable holes during setup.",
-          tag: "NTP",
-        },
-        {
-          id: "capTeams",
-          name: "Black Cap ‚Äì White Cap",
-          desc: "Balanced GA teams across all days; daily best all-but-one Stableford scores.",
-          tag: "TRIP TEAMS",
-        },
-        {
-          id: "scratch",
-          name: "Scratch",
-          desc: "Optional event for low-handicap players and professionals.",
-          tag: "OPTIONAL",
-        },
-      ];
-    if (d > 1)
-      defs.push({
-        id: "eclectic",
-        name: "Eclectic",
-        desc: eclecticGroups.length
-          ? "Best Stableford score on each hole over repeated rounds at the same course."
-          : "Available when the same course is played on two or more playing days.",
-        tag: eclecticGroups.length
-          ? `${eclecticGroups.length} REPEATED COURSE${eclecticGroups.length === 1 ? "" : "S"}`
-          : "NO REPEATED COURSE",
-        unavailable: !eclecticGroups.length,
-      });
-    return defs;
-  }
-  function benefitSummary(id) {
-    let b = id === "capTeams" ? capRewardBenefit(W.benefits[id]) : W.benefits[id] || {};
-    if (["best3of4", "yellowBall"].includes(id)) {
-      const mode =
-        b.mode ||
-        (id === "yellowBall" && (b.balls || b.plus || b.extra)
-          ? "prize"
-          : "");
-      if (mode === "lottery" && b.contribution)
-        return `Currently Set at Lottery Pool ‚Äî $${b.contribution} per team member`;
-      if (mode === "prize") {
-        let p = [];
-        if (b.balls) p.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
-        if (b.plus) p.push(id === "capTeams" && !b.balls ? "Prize" : "+ Prize");
-        if (b.extra) p.push(`(${b.extra})`);
-        return p.length ? `Currently Set at ${p.join(" ")}` : "Not Yet Set";
-      }
-      return "Not Yet Set";
-    }
-    let p = [];
-    if (b.balls) p.push(`${b.balls} Ball${+b.balls === 1 ? "" : "s"}`);
-    if (b.plus) p.push(id === "capTeams" && !b.balls ? "Prize" : "+ Prize");
-    if (b.extra) p.push(`(${b.extra})`);
-    return p.length ? `Currently Set at ${p.join(" ")}` : "Not Yet Set";
-  }
-  function benefitHtml(id) {
-    if (["single","combined"].includes(id)) return stablefordBenefitsHtml();
-    let b = W.benefits[id] || {},
-      open = W.benefitOpen.has(id);
-    const supportsLottery = ["best3of4", "yellowBall"].includes(id);
-    const benefitMode =
-      b.mode ||
-      (id === "yellowBall" && (b.balls || b.plus || b.extra)
-        ? "prize"
-        : "");
-    const contributionChoices =
-      id === "yellowBall" ? [5, 10, 15, 20] : [10, 20, 30, 40, 50];
-    const prizeModeLabel = id === "yellowBall" ? "Balls / Prize" : "Prize";
-    const ambroseDrives =
-      id === "ambrose"
-        ? `<label class="ambroseMinimumInline"><span>Required drives per player</span><select id="ambroseMinimumDrives">${[2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>`
-        : "";
-    let body =
-      supportsLottery
-        ? `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid"><label>Win Benefit<select data-bmode="${id}"><option value="" ${!benefitMode ? "selected" : ""}>Not Yet Set</option><option value="lottery" ${benefitMode === "lottery" ? "selected" : ""}>Lottery Pool</option><option value="prize" ${benefitMode === "prize" ? "selected" : ""}>${prizeModeLabel}</option></select></label>${benefitMode === "lottery" ? `<label>Losing Team(s) Contribution<div class="benefitSuffix"><select data-bcontrib="${id}"><option value="">Not Yet Set</option>${contributionChoices.map((x) => `<option value="${x}" ${b.contribution == x ? "selected" : ""}>$${x}</option>`).join("")}</select><span>per team member</span></div></label>` : ""}${benefitMode === "prize" ? prizeFields(id, b) : ""}</div></div>`
-        : `<div class="benefit ${open ? "open" : ""}"><div class="benefitGrid">${prizeFields(id, b)}</div></div>`;
-    return `<div class="benefitControlRow ${id === "ambrose" ? "ambroseBenefitRow" : ""}"><button class="soft benefitBtn" data-benefit="${id}">Set/Change Win Benefit</button><div class="benefitCurrent ${benefitSummary(id) === "Not Yet Set" ? "notSet" : ""}">${benefitSummary(id)}</div>${ambroseDrives}</div>${body}`;
-  }
-  function prizeFields(id, b, ballsOnly = false) {
-    if (id === "capTeams" && !ballsOnly) return capRewardFields(b);
-    const ballChoices = id === "yellowBall" ? [1, 2, 3] : [1, 2, 3, 4, 6, 8, 12];
-    const balls = `<label>Balls per Winner<select data-bballs="${id}"><option value="">Not Yet Set</option>${ballChoices.map((x) => `<option value="${x}" ${+b.balls === x ? "selected" : ""}>${x} Ball${x === 1 ? "" : "s"}</option>`).join("")}</select></label>`;
-    return balls + (id === "dailyStableford" || ballsOnly ? "" : `<label>Additional reward<span style="display:block;margin-top:9px"><input style="width:auto" type="checkbox" data-bplus="${id}" ${b.plus ? "checked" : ""}> + Prize</span></label><label class="prizeLabel"><span>Specify Prize</span><input data-bextra="${id}" value="${esc(b.extra || "")}" placeholder="Optional"></label>`);
-  }
-  function competitionScheduleHtml(id) {
-    const days = competitionDays(id, W.event), all = eventDays(W.event),
-      compatible = competitionCompatibleDays(id, W.event), compatibleSet = new Set(compatible),
-      hasRestrictedDays = compatible.length !== all.length;
-    if (id === "capTeams" || (id === "scratch" && ["aggregate", "bestAggregate"].includes(W.event.scratchFormat)) || (id === "par3" && ["overallPlayers","overallPairs"].includes(par3Mode(W.event)))) return `<p class="hint">Covers all ${all.length} event day(s).</p>`;
-    return `${all.length > 1 ? `<div class="competitionDayChoices"><b>Playing days</b><label class="${hasRestrictedDays ? "scoreMethodUnavailable" : ""}"><input type="checkbox" data-compalldays="${id}" ${days.length===all.length?"checked":""} ${hasRestrictedDays?"disabled":""}> All Days</label>${all.map(day=>`<label class="${compatibleSet.has(day)?"":"scoreMethodUnavailable"}"><input type="checkbox" data-compday="${id}|${day}" ${days.includes(day)?"checked":""} ${compatibleSet.has(day)?"":"disabled"}> Day ${day}</label>`).join("")}${hasRestrictedDays ? `<small class="competitionMethodNote">Grey days use a final-score method that cannot calculate this competition.</small>` : ""}</div>` : ""}${id==="combined" && days.length ? `<label class="countingRounds">Overall Event Stableford: counting rounds<select id="stablefordCountingRounds">${Array.from({length:days.length},(_,i)=>`<option value="${i+1}" ${(+(W.event.stablefordCountingRounds||days.length))===i+1?"selected":""}>Best ${i+1} of ${days.length}</option>`).join("")}</select><small>A golfer needs this many completed rounds to qualify for the overall prize. A missed day does not count as a round.</small></label>`:""}`;
-  }
-  function par3FormatHtml(event) {
-    const mode = par3Mode(event), choice = (value, label) => `<label class="par3FormatChoice"><input type="radio" name="p3Mode" value="${value}" ${mode === value ? "checked" : ""}><span>${label}</span></label>`;
-    return `<div class="ntpBox par3FormatBox"><b>Select Format</b><div class="par3FormatSection"><h5>Daily</h5>${choice("dailyPairs", "a) Aggregate Stableford points on the Par 3s for each 4BBB team")}${choice("dailyTeams", "b) Aggregate Stableford points on the Par 3s for each four-person team")}</div>${+event.days > 1 ? `<div class="par3FormatSection"><h5>Multi-day</h5>${choice("overallPlayers", "a) Aggregate Stableford points on the Par 3s for each player over the event")}${choice("overallPairs", `b) Aggregate Stableford points on the Par 3s for each 4BBB team ‚Äî partners are the Day ${event.days} 4BBB partners`)}</div>` : ""}</div>`;
-  }
-  function lastDayNtpHtml(event) {
-    const day = eventDays(event).length, enabled = competitionDays("ntp",event).includes(day);
-    return `<div class="ntpBox lastDayNtpBox"><fieldset class="lastDayNtpChoices ${enabled ? "" : "inactive"}" ${enabled ? "" : "disabled"}><legend>NTPs on the last day (Day ${day})</legend>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${enabled && ntpCount(day,event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join(" ")}</fieldset><small class="lastDayNtpHelp">${enabled ? "Choose one or two NTP holes for the final day. The app will suggest suitable holes on the NTP setup page." : `<strong>Tick Day ${day} in Playing days above to choose one or two NTP holes for the final day.</strong>`}</small></div>`;
-  }
-  function renderStep3() {
-    normaliseStablefordBenefits(W.benefits);
-    const setupMethods={holeByHole:"On course by players and confirmed by Markers hole-by-hole",fullCardPlayer:"After round ‚Äî strokes entered hole-by-hole by a Player",finalGross:"After round ‚Äî final Gross Strokes only",finalStableford:"After round ‚Äî final Stableford points only"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
-    const stablefordId = W.event.days === 1 ? "single" : "combined",
-      previousId = W.event.days === 1 ? "combined" : "single";
-    if (W.competitions.has(previousId)) {
-      W.competitions.delete(previousId);
-      W.competitions.add(stablefordId);
-      if (W.event.competitionDays?.[previousId]) {
-        W.event.competitionDays[stablefordId] = W.event.competitionDays[previousId];
-        delete W.event.competitionDays[previousId];
-      }
-    }
-    let defs = compDefinitions(),
-      ec = defs.find((x) => x.id === "eclectic");
-    const ambroseOn = W.competitions.has("ambrose");
-    if (ambroseOn && W.event.days === 1)
-      [...W.competitions].forEach((id) => {
-        if (!["ambrose", "ntp"].includes(id)) W.competitions.delete(id);
-      });
-    if (ec?.unavailable) W.competitions.delete("eclectic");
-    let templateText = store.template
-      ? "Your previous event choices are loaded as the starting point. Change only what is different this time."
-      : "Set up your first event. These choices will be retained as the starting point for your next event.";
-    W.event.scratchMaxHcp = Number.isFinite(+W.event.scratchMaxHcp)
-      ? +W.event.scratchMaxHcp
-      : 10;
-    W.event.scratchScoringMode =
-      W.event.scratchScoringMode === "maxDoubleBogey"
-        ? "maxDoubleBogey"
-        : "stroke";
-    W.event.scoringMethods ||= {};
-    eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] ||= "holeByHole");
-    if (eventDays(W.event).some(day => setupMethodFor(day) !== "holeByHole"))
-      W.event.planAlternativeScoring = true;
-    [...W.competitions].forEach(id => {
-      const selectedDays = competitionDays(id,W.event),
-        validDays = selectedDays.filter(day => finalScoreCompetitionAllowed(id,setupMethodFor(day)));
-      if (validDays.length === selectedDays.length) return;
-      if (competitionNeedsEverySelectedDay(id,W.event) || !validDays.length) {
-        W.competitions.delete(id);
-        return;
-      }
-      W.event.competitionDays ||= {};
-      W.event.competitionDays[id] = validDays;
-    });
-    // Stroke is a net competition. Gross scoring belongs under Scratch,
-    // where the organiser can apply the event's handicap eligibility limit.
-    W.event.strokeResult = "net";
-    W.event.strokeScoringMode ||= "allStrokes";
-    W.event.strokeCountingMode ||= "daily";
-    if (typeof W.event.strokeDailyResults !== "boolean") W.event.strokeDailyResults = W.event.strokeCountingMode === "daily";
-    if (typeof W.event.strokeAggregateEnabled !== "boolean") W.event.strokeAggregateEnabled = W.event.strokeCountingMode !== "daily";
-    W.event.strokeAggregateMode ||= W.event.strokeCountingMode === "bestAggregate" ? "bestAggregate" : "aggregate";
-    if (W.competitions.has("eclectic")) syncEclecticCompetitionDays(W.event);
-    const scoringMethodSetup = `<div class="scoringUseSetup"><div class="scoringUseQuestion"><b>Scoring to be completed using the App while playing</b><div class="scoringUseChoices"><label><input type="radio" name="planAlternativeScoring" value="no" ${W.event.planAlternativeScoring?"":"checked"}> Yes</label><label><input type="radio" name="planAlternativeScoring" value="yes" ${W.event.planAlternativeScoring?"checked":""}> No</label></div></div>${W.event.planAlternativeScoring ? `<div class="scoringMethodSetup"><h4>If the App is not being used for any round in the event, use this section to plan the scoring process.</h4><p class="hint">Choose one method for each playing day. Any competition that cannot be calculated from the selected score information will be greyed out.</p>${eventDays(W.event).map(day => `<div class="scoringMethodDay"><b>${W.event.days > 1 ? `Day ${day}` : "Playing Day"}</b><div class="scoringMethodChoices">${Object.entries(setupMethods).map(([value,label]) => `<label class="scoringMethodChoice ${setupMethodFor(day)===value?"selected":""}"><span>${label}</span><input type="checkbox" data-scoringmethod="${day}" value="${value}" ${setupMethodFor(day)===value?"checked":""}></label>`).join("")}</div>${setupConflicts(day).length ? `<small class="methodConflict">Incompatible competitions have been removed from this day.</small>` : ""}</div>`).join("")}</div>` : ""}</div>`;
-    $("#wizardBody").innerHTML =
-      `<h3>Competition Setup</h3><div class="templateNote">${templateText}</div>${scoringMethodSetup}${defs
-        .map((c) => {
-          let on = W.competitions.has(c.id),
-            compatibleDays = competitionCompatibleDays(c.id, W.event),
-            methodUnavailable = !compatibleDays.length || (competitionNeedsEverySelectedDay(c.id,W.event) && compatibleDays.length !== eventDays(W.event).length),
-            disabled = c.unavailable || methodUnavailable || (ambroseOn && W.event.days === 1 && !["ambrose", "ntp"].includes(c.id)),
-            methodReason = methodUnavailable ? `<div class="methodUnavailableReason">Unavailable with the selected final-score method${W.event.days > 1 ? "s" : ""}.</div>` : "";
-          return `<div class="comp ${disabled ? "unavailable" : ""}"><div class="compTop"><input type="checkbox" data-comp="${c.id}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""}><div><h4>${c.name}</h4><div class="hint">${c.desc}</div>${methodReason}${c.id === "combined" && on && !disabled ? `<div class="ntpBox starCompetitionBox"><b>Event Single Stableford Format</b><label><input style="width:auto" type="radio" name="singleFormat" value="daily" ${W.event.singleStablefordFormat === "daily" ? "checked" : ""}> Each selected day ‚Äî a separate Single Stableford winner</label><label><input style="width:auto" type="radio" name="singleFormat" value="aggregate" ${!W.event.singleStablefordFormat || W.event.singleStablefordFormat === "aggregate" ? "checked" : ""}> Overall Event total ‚Äî one overall winner only</label><label><input style="width:auto" type="radio" name="singleFormat" value="both" ${W.event.singleStablefordFormat === "both" ? "checked" : ""}> Both ‚Äî daily winners plus the overall Event winner</label></div>` : ""}${on && !disabled ? (c.id === "eclectic" ? eclecticCourseChoiceHtml(W.event) : competitionScheduleHtml(c.id)) + benefitHtml(c.id) : ""}${c.id === "teamPutts" && on && !disabled ? `<div class="ntpBox puttingFormatBox"><b>Putting Competition Format</b><label><input style="width:auto" type="radio" name="puttingFormat" value="pairs" ${W.event.puttingFormat === "pairs" ? "checked" : ""}> 4BBB Pairs ‚Äî the two partners' putts are added together</label><label><input style="width:auto" type="radio" name="puttingFormat" value="team" ${W.event.puttingFormat !== "pairs" ? "checked" : ""}> Four-Player Team ‚Äî all four group members' putts are added together</label></div>` : ""}${c.id === "par3" && on && !disabled ? par3FormatHtml(W.event) : ""}${c.id === "ntp" && on && !disabled && W.event.days > 1 ? `<div class="ntpBox"><b>NTP Prizes</b><label><input style="width:auto" type="checkbox" id="ntpJackpot" ${W.event.ntpJackpot ? "checked" : ""}> NTP Holes Jackpot</label>${W.event.ntpJackpot ? `<div class="jackpotMode"><b>Jackpot destination</b><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="final" ${W.event.ntpJackpotMode !== "rolling" ? "checked" : ""}> Final NTP ‚Äî all unclaimed prizes build the event-ending jackpot</label><label><input style="width:auto" type="radio" name="ntpJackpotMode" value="rolling" ${W.event.ntpJackpotMode === "rolling" ? "checked" : ""}> Rolling ‚Äî carry to the next NTP and reset when won</label></div>` : ""}<small class="ntpJackpotHelp">Choose a big final-hole jackpot or a rolling jackpot through the event.</small></div>` : ""}</div><span class="tag">${c.tag}</span></div></div>`;
-        })
-        .join("")}`;
-    $$("[data-comp]").forEach(
-      (x) =>
-        (x.onchange = () => {
-          x.checked
-            ? W.competitions.add(x.dataset.comp)
-            : W.competitions.delete(x.dataset.comp);
-          if (x.checked && !competitionNeedsEverySelectedDay(x.dataset.comp,W.event)) {
-            W.event.competitionDays ||= {};
-            W.event.competitionDays[x.dataset.comp] = competitionCompatibleDays(x.dataset.comp,W.event);
-          }
-          if (x.checked && x.dataset.comp === "yellowBall")
-            W.event.yellowBallDays = eventDays(W.event);
-          if (x.checked && x.dataset.comp === "eclectic") {
-            W.event.eclecticCourseIds = eclecticCourseGroups(W.event).map((group) => group.key);
-            syncEclecticCompetitionDays(W.event);
-          }
-          if (x.checked && x.dataset.comp === "ambrose") {
-            if (W.event.days === 1) W.competitions = new Set(["ambrose"]);
-            W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerOnly";
-            W.event.ambroseMinimumDrives = +W.event.ambroseMinimumDrives || 3;
-            W.event.ntpDay1Count = 0;
-            W.event.ntpDay2Count = 0;
-          }
-          renderStep3();
-        }),
-    );
-    $$('[data-scoringmethod]').forEach(choice => choice.onchange = () => {
-      if (!choice.checked) return renderStep3();
-      W.event.scoringMethods["day" + choice.dataset.scoringmethod] = choice.value;
-      const day = +choice.dataset.scoringmethod;
-      [...W.competitions].forEach(id => {
-        if (!competitionDays(id,W.event).includes(day) || finalScoreCompetitionAllowed(id,choice.value)) return;
-        if (competitionNeedsEverySelectedDay(id,W.event)) {
-          W.competitions.delete(id);
-          return;
-        }
-        W.event.competitionDays ||= {};
-        W.event.competitionDays[id] = competitionDays(id,W.event).filter(selectedDay => selectedDay !== day);
-        if (!W.event.competitionDays[id].length) W.competitions.delete(id);
-      });
-      renderStep3();
-    });
-    $$('[name="planAlternativeScoring"]').forEach(choice => choice.onchange = () => {
-      W.event.planAlternativeScoring = choice.value === "yes";
-      if (!W.event.planAlternativeScoring)
-        eventDays(W.event).forEach(day => W.event.scoringMethods["day" + day] = "holeByHole");
-      renderStep3();
-    });
-    $$("[data-benefit]").forEach(
-      (x) =>
-        (x.onclick = () => {
-          W.benefitOpen.has(x.dataset.benefit)
-            ? W.benefitOpen.delete(x.dataset.benefit)
-            : W.benefitOpen.add(x.dataset.benefit);
-          renderStep3();
-        }),
-    );
-    const ambroseComp = $('[data-comp="ambrose"]')?.closest(".comp");
-    if (ambroseComp && W.competitions.has("ambrose"))
-      ambroseComp.insertAdjacentHTML(
-        "beforeend",
-        `<div class="ntpBox ambroseSetup"><b>Ambrose Scoring</b><small>Every team has one scorer. Choose whether every team also has a checking marker on the Groups &amp; Teams page.</small><div class="ambroseNtpChoice"><b>Nearest the Pin holes</b><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="0" ${!W.competitions.has("ntp") ? "checked" : ""}> None</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="1" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 1 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="ambroseNtpCount" value="2" ${W.competitions.has("ntp") && +W.event.ntpDay1Count === 2 ? "checked" : ""}> Two</label><small>The app selects suitable Par 3 holes automatically. You can change them on the NTP page.</small></div></div>`,
-      );
-    const scratchComp = $('[data-comp="scratch"]')?.closest(".comp");
-    const strokeComp = $('[data-comp="stroke"]')?.closest(".comp");
-    if (strokeComp && W.competitions.has("stroke")) {
-      const strokeDays = competitionDays("stroke", W.event), total = strokeDays.length, best = Math.max(1, total - 1);
-      strokeComp.insertAdjacentHTML("beforeend", `<div class="ntpBox strokeSetupBox"><section><b>Stroke Result</b><strong>Net only</strong><small>Gross scoring is available as a separate Scratch competition.</small></section><section><b>Maximum score on a hole</b><label><input style="width:auto" type="radio" name="strokeScoringMode" value="allStrokes" ${W.event.strokeScoringMode==="allStrokes"?"checked":""}> All Strokes Count</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxDoubleBogey" ${W.event.strokeScoringMode==="maxDoubleBogey"?"checked":""}> Maximum Double Bogey</label><label><input style="width:auto" type="radio" name="strokeScoringMode" value="maxTripleBogey" ${W.event.strokeScoringMode==="maxTripleBogey"?"checked":""}> Maximum Triple Bogey</label></section><section><b>Counting Scores</b><label><input style="width:auto" type="checkbox" name="strokeDailyResults" ${W.event.strokeDailyResults?"checked":""}> Daily prize ‚Äî each selected day</label>${total > 1 ? `<label><input style="width:auto" type="checkbox" name="strokeAggregateEnabled" ${W.event.strokeAggregateEnabled?"checked":""}> Overall event prize</label><div class="strokeAggregateChoices ${W.event.strokeAggregateEnabled?"":"inactive"}"><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="aggregate" ${W.event.strokeAggregateMode!=="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> All ${total} rounds count</label><label><input style="width:auto" type="radio" name="strokeAggregateMode" value="bestAggregate" ${W.event.strokeAggregateMode==="bestAggregate"?"checked":""} ${W.event.strokeAggregateEnabled?"":"disabled"}> Best ${best} of ${total} rounds</label></div>` : ""}</section><small>Daily and overall Stroke prizes can run together. With Final-score entry, the caddie or official card must supply the already-capped competition total.</small></div>`);
-    }
-    if (scratchComp && W.competitions.has("scratch"))
-      scratchComp.insertAdjacentHTML(
-        "beforeend",
-        `<div class="ntpBox scratchLimitBox"><label><b>Set Max Scratch Hcp</b><input id="scratchMaxHcp" type="number" step="1" value="${W.event.scratchMaxHcp}"></label><small>Players with a daily handicap of ${W.event.scratchMaxHcp} or less are included automatically. Players above ${W.event.scratchMaxHcp} are not included.</small><div class="scratchScoringMode"><b>Scratch Scoring</b><label><input style="width:auto" type="radio" name="scratchScoringMode" value="stroke" ${W.event.scratchScoringMode !== "maxDoubleBogey" ? "checked" : ""}> Pure Stroke ‚Äî every stroke counts; a P withdraws the player from Scratch</label><label><input style="width:auto" type="radio" name="scratchScoringMode" value="maxDoubleBogey" ${W.event.scratchScoringMode === "maxDoubleBogey" ? "checked" : ""}> Maximum Double Bogey ‚Äî the highest score is 2 over par; a P records 2 over par</label></div></div>`,
-      );
-    const ntpComp = $('[data-comp="ntp"]')?.closest(".comp");
-    if (ntpComp && W.competitions.has("ntp") && W.event.days === 1)
-      ntpComp.insertAdjacentHTML(
-        "beforeend",
-        `<div class="ntpBox"><b>Number of NTPs</b><label><input style="width:auto" type="radio" name="n1" value="1" ${W.event.ntpDay1Count != 2 ? "checked" : ""}> One</label><label><input style="width:auto" type="radio" name="n1" value="2" ${W.event.ntpDay1Count == 2 ? "checked" : ""}> Two</label></div>`,
-      );
-    if (W.competitions.has("capTeams")) {
-      const ids = [...new Set(eventDays(W.event).flatMap(wizardPlanningPlayers))].filter(id => id !== NO_PARTNER_ID);
-      $('[data-comp="capTeams"]')?.closest(".comp")?.insertAdjacentHTML("beforeend", capTeamsHtml(W.event, ids));
-      bindCapTeams(W.event, ids, renderStep3);
-    }
-    if (scratchComp && W.competitions.has("scratch")) scratchComp.insertAdjacentHTML("beforeend", `<div class="ntpBox"><b>Scratch Format</b><label><input style="width:auto" type="radio" name="scratchFormat" value="daily" ${!["aggregate", "bestAggregate"].includes(W.event.scratchFormat) ? "checked" : ""}> Daily</label>${W.event.days > 1 ? `<label><input style="width:auto" type="radio" name="scratchFormat" value="aggregate" ${W.event.scratchFormat === "aggregate" ? "checked" : ""}> Score over full event ‚Äî all ${W.event.days} rounds</label><label><input style="width:auto" type="radio" name="scratchFormat" value="bestAggregate" ${W.event.scratchFormat === "bestAggregate" ? "checked" : ""}> Score best ${Math.max(1, W.event.days - 1)} of ${W.event.days} rounds</label><p class="hint">Best rounds drops one round. A missed round or pick-up can be dropped; the required number of qualifying completed rounds must still be played.</p>` : ""}</div>`);
-    if (ntpComp && W.competitions.has("ntp") && W.event.days > 1) ntpComp.insertAdjacentHTML("beforeend", lastDayNtpHtml(W.event));
-    $("#wizardBody").onchange = (e) => {
-      let t = e.target,
-        id =
-          t.dataset.breward ||
-          t.dataset.bmode ||
-          t.dataset.bballs ||
-          t.dataset.bcontrib ||
-          t.dataset.bplus ||
-          t.dataset.bextra;
-      if (t.dataset.compday || t.dataset.compalldays) {
-        const [id, rawDay] = (t.dataset.compday || t.dataset.compalldays).split("|");
-        W.event.competitionDays ||= {};
-        const selected = new Set(competitionDays(id, W.event));
-        if (t.dataset.compalldays) {
-          if (!t.checked) { t.checked = true; return; }
-          W.event.competitionDays[id] = eventDays(W.event);
-        } else {
-          t.checked ? selected.add(+rawDay) : selected.delete(+rawDay);
-          if (!selected.size) { t.checked=true; return alert("Select at least one playing day, or untick the competition above."); }
-          W.event.competitionDays[id] = [...selected].sort((a,b)=>a-b);
-        }
-        if (id === "yellowBall") W.event.yellowBallDays = [...W.event.competitionDays[id]];
-        if (id === "combined") W.event.stablefordCountingRounds = Math.min(+W.event.stablefordCountingRounds || selected.size, W.event.competitionDays[id].length);
-        renderStep3(); return;
-      }
-      if (t.id === "stablefordCountingRounds") W.event.stablefordCountingRounds = +t.value;
-      if (t.name === "singleFormat") { W.event.singleStablefordFormat = t.value; renderStep3(); return; }
-      if (t.name === "puttingFormat") W.event.puttingFormat = t.value;
-      if (t.name === "scratchScoringMode")
-        W.event.scratchScoringMode = t.value;
-      if (t.name === "strokeScoringMode") { W.event.strokeScoringMode = t.value; renderStep3(); return; }
-      if (t.name === "strokeDailyResults") {
-        if (!t.checked && !W.event.strokeAggregateEnabled) { t.checked = true; return alert("Keep at least one Stroke prize selected."); }
-        W.event.strokeDailyResults = t.checked; renderStep3(); return;
-      }
-      if (t.name === "strokeAggregateEnabled") {
-        if (!t.checked && !W.event.strokeDailyResults) { t.checked = true; return alert("Keep at least one Stroke prize selected."); }
-        W.event.strokeAggregateEnabled = t.checked; renderStep3(); return;
-      }
-      if (t.name === "strokeAggregateMode") { W.event.strokeAggregateMode = t.value; renderStep3(); return; }
-      if (t.dataset.eclecticcourse) {
-        const selected = new Set(selectedEclecticGroups(W.event).map((group) => group.key));
-        t.checked ? selected.add(t.dataset.eclecticcourse) : selected.delete(t.dataset.eclecticcourse);
-        if (!selected.size) {
-          selected.add(t.dataset.eclecticcourse);
-          t.checked = true;
-          return alert("Select at least one repeated course for Eclectic, or untick Eclectic above.");
-        }
-        W.event.eclecticCourseIds = [...selected];
-        syncEclecticCompetitionDays(W.event);
-        renderStep3();
-        return;
-      }
-      if (t.name === "ambroseScoringMode") W.event.ambroseScoringMode = t.value;
-      if (t.id === "ambroseMinimumDrives")
-        W.event.ambroseMinimumDrives = +t.value;
-      if (t.name === "ambroseNtpCount") {
-        const count = +t.value;
-        if (count) W.competitions.add("ntp");
-        else W.competitions.delete("ntp");
-        W.event.ntpDay1Count = count;
-        W.event.ntpDay2Count = count;
-        renderStep3();
-      }
-      if (t.name === "p3Mode") { W.event.par3Mode = t.value; W.event.par3Format = t.value === "overallPairs" ? "aggregate" : "daily"; renderStep3(); }
-      if (t.name === "scratchFormat") { W.event.scratchFormat = t.value; renderStep3(); }
-      if (t.name === "lastDayNtpCount") { if (!competitionDays("ntp",W.event).includes(+W.event.days) || ![1,2].includes(+t.value)) return; W.event.ntpCounts ||= {}; W.event.ntpCounts["day" + W.event.days] = +t.value; if (W.event.days <= 2) W.event["ntpDay" + W.event.days + "Count"] = +t.value; }
-      if (t.dataset.yellowballday) {
-        const day = +t.dataset.yellowballday,
-          selectedDays = new Set(
-            (W.event.yellowBallDays || [1, 2]).map(Number),
-          );
-        t.checked ? selectedDays.add(day) : selectedDays.delete(day);
-        if (!selectedDays.size) {
-          selectedDays.add(day);
-          t.checked = true;
-          alert("Yellow Ball must be played on at least one day.");
-        }
-        W.event.yellowBallDays = [...selectedDays].sort();
-      }
-      if (t.name === "n1") W.event.ntpDay1Count = +t.value;
-      if (t.name === "n2") W.event.ntpDay2Count = +t.value;
-      if (t.id === "ntpJackpot") {
-        W.event.ntpJackpot = t.checked;
-        renderStep3();
-      }
-      if (t.name === "ntpJackpotMode") W.event.ntpJackpotMode = t.value;
-      if (t.id === "scratchMaxHcp") {
-        W.event.scratchMaxHcp = Number.isFinite(+t.value) ? +t.value : 10;
-        renderStep3();
-      }
-      if (id) {
-        W.benefits[id] = W.benefits[id] || {};
-        if (t.dataset.breward) W.benefits[id].rewardChoice = t.value;
-        if (t.dataset.bmode) W.benefits[id].mode = t.value;
-        if (t.dataset.bballs) W.benefits[id].balls = +t.value || "";
-        if (t.dataset.bcontrib) W.benefits[id].contribution = +t.value || "";
-        if (t.dataset.bplus) W.benefits[id].plus = t.checked;
-        if (t.dataset.bextra) W.benefits[id].extra = t.value;
-        W.benefitOpen.add(id);
-        renderStep3();
-      }
-    };
-  }
-  function renderStep4() {
-    W.event.preferredLiesByDay = W.event.preferredLiesByDay || {
-      day1: Boolean(W.event.preferredLies),
-      day2: Boolean(W.event.preferredLies),
-    };
-    W.event.preferredLiesAreaByDay = W.event.preferredLiesAreaByDay || {
-      day1: W.event.preferredLiesArea || "general",
-      day2: W.event.preferredLiesArea || "general",
-    };
-    const putting = W.competitions.has("teamPutts"),
-      defaultRules = puttingRulesText(W.event);
-    const txt = W.event.puttingRulesCustom || defaultRules,
-      editing = Boolean(W.editPuttingRules);
-    const preferredCard = (day) => {
-      const key = `day${day}`,
-        pref = Boolean(W.event.preferredLiesByDay[key]),
-        courseName = course(W.event["course" + day])?.name;
-      return `<div class="ruleCard preferredCard"><h4>${W.event.days > 1 ? `Day ${day} ‚Äî ${esc(courseName || "Course")}` : "Preferred Lies"}</h4><div class="preferredLine"><div class="preferredStatus ${pref ? "yes" : ""}">${pref ? "Yes" : "No"}</div><div class="preferredDefault">${pref ? `Preferred lies are in use ${W.event.days > 1 ? `on Day ${day}` : "for this event"}.` : "Play the ball as it lies."}</div><button type="button" class="soft" data-change-preferred="${day}">Change</button></div>${pref ? `<div class="prefArea"><label>Preferred Lies Apply<select data-pref-area="${day}"><option value="general" ${W.event.preferredLiesAreaByDay[key] === "general" ? "selected" : ""}>In the General Area</option><option value="fairway" ${W.event.preferredLiesAreaByDay[key] === "fairway" ? "selected" : ""}>On the closely mown part of the course</option></select></label></div>` : ""}</div>`;
-    };
-    $("#wizardBody").innerHTML =
-      `<div class="rulesHead"><div><h3>Rules</h3><p class="hint">Set any conditions that differ from normal play.</p></div><span class="rulesBadge">EVENT RULES</span></div>
- <div class="preferredDayGrid ${W.event.days > 1 ? "twoDays" : ""}">${eventDays(W.event).map(preferredCard).join("")}</div>
- ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
- ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
- ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(ambroseRulesText(W.event))}</div></div>` : ""}
- <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add each separate instruction as a bullet point. Press Enter for the next bullet.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><ul id="specialRules" class="specialRulesEditor" contenteditable="true" role="textbox" aria-label="Special Rules">${specialRulesEditorHtml(W.event.specialRules)}</ul></div>
- <div class="rulesPreview ${W.rulesPreviewAck ? "acknowledged" : ""}"><div><b>Player acknowledgement</b><span>${W.rulesPreviewAck ? "Acknowledgement recorded for this preview." : "Players see the event rules before scoring begins."}</span></div><button type="button" class="gotItPreview" id="gotItPreview">${W.rulesPreviewAck ? "‚úì Got It" : "Got It"}</button></div>`;
-    $$('[data-change-preferred]').forEach((button) => {
-      button.onclick = () => {
-        const day = +button.dataset.changePreferred,
-          key = `day${day}`;
-        W.event.preferredLiesByDay[key] =
-          !W.event.preferredLiesByDay[key];
-        if (!W.event.preferredLiesByDay[key])
-          W.event.preferredLiesAreaByDay[key] = "general";
-        W.event.preferredLies = W.event.preferredLiesByDay.day1;
-        W.event.preferredLiesArea = W.event.preferredLiesAreaByDay.day1;
-        renderStep4();
-      };
-    });
-    $$('[data-pref-area]').forEach((select) => {
-      select.onchange = () => {
-        const key = `day${select.dataset.prefArea}`;
-        W.event.preferredLiesAreaByDay[key] = select.value;
-        if (key === "day1") W.event.preferredLiesArea = select.value;
-      };
-    });
-    if ($("#editPutting"))
-      $("#editPutting").onclick = () => {
-        W.editPuttingRules = !W.editPuttingRules;
-        renderStep4();
-      };
-    if ($("#puttingRulesEdit"))
-      $("#puttingRulesEdit").oninput = (e) =>
-        (W.event.puttingRulesCustom = e.target.value);
-    const specialRulesEditor = $("#specialRules");
-    specialRulesEditor.oninput = (e) =>
-      (W.event.specialRules = specialRuleLines(e.target.innerText).join("\n"));
-    $("#clearSpecial").onclick = () => {
-      W.event.specialRules = "";
-      renderStep4();
-    };
-    $("#gotItPreview").onclick = () => {
-      W.rulesPreviewAck = !W.rulesPreviewAck;
-      renderStep4();
-    };
-  }
-  function renderStep5() {
-    const ntpOn = W.competitions.has("ntp");
-    if (!ntpOn) {
-      $("#wizardBody").innerHTML =
-        `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">NTP hole selection</p></div><span class="rulesBadge">NTP</span></div><div class="ruleCard"><h4>Nearest the Pin is not included in this event.</h4><p class="hint">There is nothing to set up on this page.</p></div>`;
-      return;
-    }
-    W.event.ntpSelections = W.event.ntpSelections || {};
-    W.event.ntpSelectionSources = W.event.ntpSelectionSources || {};
-    const par3s = (id, day) => {
-      let v = eventCourseScorecard(day, W.event),
-        r = [];
-      for (let i = 0; i < 18; i++)
-        if (+v.par?.[i] === 3)
-          r.push({
-            hole: i + 1,
-            index: String(v.index?.[i] ?? ""),
-            metres: courseHoleDistance(v, i),
-            distanceUnit: courseDistanceAbbrev(v),
-          });
-      let rank = (x) => {
-        let n = parseInt(x.index.split("/")[0], 10);
-        return Number.isFinite(n) ? n : -1;
-      };
-      return r.sort((x, y) => rank(y) - rank(x) || x.hole - y.hole);
-    };
-    const ensure = (key, id, count) => {
-      let ch = par3s(id, +key.replace("day", "")),
-        v = Array.isArray(W.event.ntpSelections[key])
-          ? W.event.ntpSelections[key].map(Number)
-          : [];
-      const day = +key.replace("day", ""),
-        source = `${String(id || "")}|${selectedEventTee(day, W.event)}`;
-      if (W.event.ntpSelectionSources[key] !== source) v = [];
-      v = v
-        .filter((h, i) => ch.some((x) => x.hole === h) && v.indexOf(h) === i)
-        .slice(0, count);
-      for (let x of ch) {
-        if (v.length >= count) break;
-        if (!v.includes(x.hole)) v.push(x.hole);
-      }
-      W.event.ntpSelections[key] = v;
-      W.event.ntpSelectionSources[key] = source;
-      return ch;
-    };
-    const startLabel = (day) => {
-      const method = startMethodFor(W.event, day),
-        holes = startHolesFor(W.event, day);
-      if (method === "shotgun") return "Today is a Shotgun start";
-      if (method === "two")
-        return `Starting tees today are Holes ${holes[0]} and ${holes[1]}`;
-      return `Starting tee today is Hole ${holes[0]}`;
-    };
-    const row = (day, key, slot, ch, cid) => {
-      let sel = W.event.ntpSelections[key][slot],
-        open = W.ntpChange === `${key}:${slot}`,
-        used = W.event.ntpSelections[key].filter((_, i) => i !== slot),
-        x = ch.find((q) => q.hole === sel);
-      return `<div class="ntpSelectCard"><div class="ntpDay"><b>${day}${W.event.ntpSelections[key].length > 1 ? ` ‚Äî NTP ${slot + 1}` : ""}</b><span>${esc(course(cid)?.name || "Course")}</span></div><div class="ntpSelected"><div><small>SELECTED</small><strong>Hole ${sel || "‚Äî"}</strong><span>${x ? `Par 3${x.metres ? ` ¬∑ ${x.metres} ${x.distanceUnit}` : ""}${x.index ? ` ¬∑ Index ${esc(x.index)}` : ""}` : ""}</span></div><button type="button" class="soft" data-ntpchange="${key}:${slot}">${open ? "Close" : "Change"}</button></div>${open ? `<div class="ntpChoices"><b>Choose another Par 3</b>${ch.map((q) => `<button type="button" class="ntpChoice ${q.hole === sel ? "selected" : ""} ${used.includes(q.hole) ? "used" : ""}" ${used.includes(q.hole) ? "disabled" : ""} data-ntppick="${key}:${slot}:${q.hole}"><span>Hole ${q.hole}</span><small>${q.metres ? q.metres + " " + q.distanceUnit + " ¬∑ " : ""}${q.index ? "Index " + esc(q.index) : ""}${q.hole === sel ? " ¬∑ Selected" : ""}</small></button>`).join("")}</div>` : ""}</div>`;
-    };
-    const dayHead = (day, key) =>
-      `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">‚áÑ Swap NTP Order</button>` : ""}</div>`;
-    const printableNtpCards = competitionDays("ntp", W.event).flatMap((day) => {
-      const cid = W.event["course" + day];
-      return (W.event.ntpSelections?.["day" + day] || []).map((hole) => ({
-        courseName: course(cid)?.name || "Course",
-        hole: +hole,
-      }));
-    });
-    const ntpPrintHtml = printableNtpCards.length
-      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "‚Äî"}</h6><div class="ntpPrintLines"><span></span><span></span><span></span><span></span></div></article>`).join("")}</div></section>`
-      : "";
-    $("#wizardBody").innerHTML =
-      `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
-        const key="day"+day, cid=W.event["course"+day], count=ntpCount(day,W.event), choices=ensure(key,cid,count);
-        return `<div class="ntpDayGroup">${dayHead(day,key)}<label>Number of NTP holes<select data-ntpcount="${day}"><option value="1" ${count===1?"selected":""}>One</option><option value="2" ${count===2?"selected":""}>Two</option></select></label>${Array.from({length:count},(_,i)=>row(`Day ${day}`,key,i,choices,cid)).join("")}</div>`;
-      }).join("")}${ntpPrintHtml}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP marker. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
-    if ($("#printNtpCards")) $("#printNtpCards").onclick = () => window.print();
-    $$("[data-ntpcount]").forEach(input=>input.onchange=()=>{
-      W.event.ntpCounts ||= {}; W.event.ntpCounts["day"+input.dataset.ntpcount]=+input.value; renderStep5();
-    });
-    $$("[data-ntpchange]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          W.ntpChange =
-            W.ntpChange === b.dataset.ntpchange ? "" : b.dataset.ntpchange;
-          renderStep5();
-        }),
-    );
-    $$("[data-ntppick]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          let [k, s, h] = b.dataset.ntppick.split(":");
-          W.event.ntpSelections[k][+s] = +h;
-          W.ntpChange = "";
-          renderStep5();
-        }),
-    );
-    $$("[data-ntpswap]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          const k = b.dataset.ntpswap,
-            v = W.event.ntpSelections[k];
-          if (v?.length === 2) {
-            [v[0], v[1]] = [v[1], v[0]];
-            W.ntpChange = "";
-            renderStep5();
-          }
-        }),
-    );
-  }
-  function renderStep6() {
-    ensureEventTeePlanning(W.event);
-    const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
-      summaryEvent = {...W.event, competitions:selected.map(comp=>comp.id)},
-      multiDayCompetitions = multiDayCompetitionSummary(summaryEvent),
-      cardResults = days.flatMap(day=>eventCardChecks(day,W.event)),
-      cardsValid = cardResults.every(result=>result?.ok),
-      checks = [
-        {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
-        {ok:Boolean(W.event.date),label:`Start Date: ${W.event.date?australianDate(W.event.date):"Not entered"}`},
-        ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} ¬∑ ${australianDate(eventDate(day,W.event))} ¬∑ First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
-        {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
-        ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
-        ...days.map(day=>{const categories=eventPlayerCategories(day,W.event),complete=categories.every(category=>enabledEventTeesForCategory(W.event,day,category).every(tee=>teeHandicapsComplete(day,tee,W.event,category)));return {ok:complete,label:`Day ${day} Tee Handicaps: ${complete?"Complete":"Incomplete"}`};}),
-        ...dailyCompetitionChecks(summaryEvent),
-        ...(multiDayCompetitions.length?[{ok:true,label:`Multi-day Competitions: ${multiDayCompetitions.length}`}]:[]),
-        ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
-      ], allReady=checks.every(check=>check.ok);
-    $("#wizardBody").innerHTML = `<div class="startHead"><div><h3>Event Plan Ready</h3><p>Review all ${days.length} playing day${days.length>1?"s":""} before proceeding to scoring setup.</p></div><span class="startBadge ${allReady?"ready":"check"}">${allReady?"READY":"CHECK"}</span></div>
-      <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} ¬∑ Trip field: ${W.event.fieldSize}</p><p>Start: ${esc(australianDate(eventDate(days[0],W.event)))} ¬∑ Finish: ${esc(australianDate(eventDate(days[days.length-1],W.event)))}</p></div>
-      ${days.map(day=>{const daily=dailyCompetitionSummary(day,summaryEvent).filter(comp=>!comp.aggregate);return `<div class="startCard"><h4>Day ${day}</h4><p>${esc(course(W.event["course"+day])?.name||"No course")} ¬∑ ${wizardPlanningPlayers(day).length} players ¬∑ ${firstEventTeeTime(day,W.event)}</p><p><b>Daily Competitions</b><br>${daily.length?daily.map(comp=>esc(comp.name)).join(" ¬∑ "):"None"}</p></div>`;}).join("")}
-      ${days.length>1?`<div class="startCard"><h4>Multi-day Competitions</h4>${multiDayCompetitions.length?multiDayCompetitions.map(comp=>`<p><b>${esc(comp.name)}</b>${comp.detail?`<br>${esc(comp.detail)}`:""}</p>`).join(""):"<p>None</p>"}</div>`:""}</div>
-      <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"‚úì":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
-      <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> ‚Äî I have checked every course scorecard against the official card.</span></label>
-      <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>eventPlayerCategories(day,W.event).map(category=>`<div class="planTeeDay"><strong>Day ${day} ¬∑ ${category==="women"?"Women":"Men"}</strong>${enabledEventTeesForCategory(W.event,day,category).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${category}|${tee}" class="${selectedEventTee(day,W.event,category)===tee?"active":""}">${esc(eventTeeDisplayName(day,tee,W.event,category))}</button>`).join("")}</div>`).join("")).join("")}</div>
-      <button class="soft" id="changeStartingTee">Change Course / Starting Arrangement</button><button class="startEventBig" id="startEventBig" ${allReady?"":"disabled"}>SAVE EVENT PLAN ‚Äì PROCEED TO SET UP SCORING</button>`;
-    $("#scorecardsChecked").onchange=e=>{W.event.scorecardsChecked=e.target.checked;renderStep6();};
-    $("#changeStartingTee").onclick=()=>{W.step=1;renderWizard();};
-    $$("[data-wizardplayingtee]").forEach(button=>button.onclick=()=>{const [day,category,tee]=button.dataset.wizardplayingtee.split("|");selectEventTee(+day,tee,W.event,category);renderStep6();});
-    $("#startEventBig").onclick=()=>{if(allReady)finishEvent();};
-  }
-  function finishEvent() {
-    if (W.newEvent) captureCurrentEvent();
-    let confirmed = [...W.invites]
-      .filter((x) => x[1] === "accepted")
-      .map((x) => String(x[0]));
-    let invitationStatus = Object.fromEntries(
-      [...W.invites].map(([id, status]) => [String(id), status]),
-    );
-    Object.entries(W.event.sharedPositions || {}).forEach(([slot,days])=>Object.values(days).forEach(id=>invitationStatus[String(id)]=invitationStatus[slot]));
-    let dayAvailability = JSON.parse(
-      JSON.stringify(W.event.dayAvailability || {}),
-    );
-    const dayFields = {};
-    eventDays(W.event).forEach(day => dayFields["day" + day] = wizardPlanningPlayers(day));
-    const oldGroups = W.newEvent ? null : store.event?.groupSetup;
-    if (W.newEvent) {
-      closeCloudConnection();
-      delete store.cloud;
-      store.cloudPlayers = [];
-      forgetOrganiserEvent();
-    }
-    store.event = {
-      ...W.event,
-      workspaceId: W.event.workspaceId || uid(),
-      confirmed,
-      invitationStatus,
-      dayAvailability,
-      dayFields,
-      competitions: [...W.competitions],
-      benefits: W.benefits,
-      status: "planned",
-      locked: false,
-      groupSetup: oldGroups || {},
-      setupStage: "planned",
-    };
-    delete store.event.draftStep;
-    if (W.newEvent) resetDuplicatedEventRuntime(store.event);
-    normaliseTwoDaySingleStableford(store.event);
-    store.template = {
-      competitions: [...W.competitions].filter((x) => x !== "eclectic"),
-      benefits: W.benefits,
-      puttingFormat: W.event.puttingFormat || "team",
-      singleStablefordFormat: W.event.singleStablefordFormat || "aggregate",
-      scratchMaxHcp: Number.isFinite(+W.event.scratchMaxHcp)
-        ? +W.event.scratchMaxHcp
-        : 10,
-      scratchScoringMode:
-        W.event.scratchScoringMode === "maxDoubleBogey"
-          ? "maxDoubleBogey"
-          : "stroke",
-      ambroseScoringMode:
-        W.event.ambroseScoringMode === "scorerOnly"
-          ? "scorerOnly"
-          : "scorerMarker",
-      ambroseMinimumDrives: [2, 3, 4].includes(+W.event.ambroseMinimumDrives)
-        ? +W.event.ambroseMinimumDrives
-        : 3,
-      par3Format: W.event.par3Format || "daily",
-      par3Mode: par3Mode(W.event),
-      scratchFormat: W.event.scratchFormat || "daily",
-      ntpDay1Count: W.event.ntpDay1Count || 1,
-      ntpDay2Count: ntpCount(2, W.event),
-      ntpCounts: JSON.parse(JSON.stringify(W.event.ntpCounts || {})),
-      ntpJackpot: Boolean(W.event.ntpJackpot),
-      ntpJackpotMode: W.event.ntpJackpotMode === "rolling" ? "rolling" : "final",
-    };
-    localStorage.setItem(
-      "awayGolfOrganiserTemplateV1",
-      JSON.stringify(store.template),
-    );
-    // Preserve saved group arrangements. initialiseGroups only rebuilds a day
-    // when that day's actual player membership has changed.
-    initialiseGroups();
-    save();
-    $("#wizardShade").classList.remove("open");
-    nav("teamsPage");
-  }
-
-  function pairKey(a, b) {
-    return [String(a), String(b)].sort().join("|");
-  }
-  function isTestEvent(event) {
-    return /^TEST\b/i.test(String(event?.name || "").trim());
-  }
-  function playedTogetherCount(a, b) {
-    if (String(a) === NO_PARTNER_ID || String(b) === NO_PARTNER_ID) return 0;
-    return +(store.pairHistory?.[pairKey(a, b)] || 0);
-  }
-  function partneredCount(a, b) {
-    if (String(a) === NO_PARTNER_ID || String(b) === NO_PARTNER_ID) return 0;
-    return +(store.partnerHistory?.[pairKey(a, b)] || 0);
-  }
-  function groupRepeatScore(g, day) {
-    let score = 0;
-    for (let i = 0; i < g.length; i++)
-      for (let j = i + 1; j < g.length; j++) {
-        score += playedTogetherCount(g[i], g[j]);
-        // Strongly discourage repeating Day 1 group-mates on Day 2.
-        if (day > 1) {
-          const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-          if (
-            d1.some(
-              (old) =>
-                old.some((x) => String(x) === String(g[i])) &&
-                old.some((x) => String(x) === String(g[j])),
-            )
-          )
-            score += 12;
-        }
-      }
-    // Repeated 4BBB partnerships are more important than simply sharing the four.
-    if (g.length >= 2) {
-      score += 2 * partneredCount(g[0], g[1]);
-      if (day > 1) {
-        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 2 &&
-              pairKey(old[0], old[1]) === pairKey(g[0], g[1]),
-          )
-        )
-          score += 25;
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 4 &&
-              pairKey(old[2], old[3]) === pairKey(g[0], g[1]),
-          )
-        )
-          score += 25;
-      }
-    }
-    if (g.length >= 4) {
-      score += 2 * partneredCount(g[2], g[3]);
-      if (day > 1) {
-        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 2 &&
-              pairKey(old[0], old[1]) === pairKey(g[2], g[3]),
-          )
-        )
-          score += 25;
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 4 &&
-              pairKey(old[2], old[3]) === pairKey(g[2], g[3]),
-          )
-        )
-          score += 25;
-      }
-    }
-    return score;
-  }
-  function drawRepeatScore(groups, day) {
-    return groups.reduce((n, g) => n + groupRepeatScore(g, day), 0);
-  }
-  function fourballDrawSignature(groups) {
-    return groups
-      .map((g) => {
-        const pairs = [];
-        for (let i = 0; i < g.length; i += 2)
-          pairs.push(
-            g
-              .slice(i, i + 2)
-              .map(String)
-              .sort()
-              .join(","),
-          );
-        return pairs.sort().join("/");
-      })
-      .sort()
-      .join("|");
-  }
-  function repeatsDay1Fourball(groups, day = 2) {
-    const oldPairs = new Set(
-      eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[])
-        .flatMap((g) => [g.slice(0, 2), g.slice(2, 4)])
-        .filter(
-          (p) => p.length === 2 && !p.some((x) => String(x) === NO_PARTNER_ID),
-        )
-        .map((p) => pairKey(p[0], p[1])),
-    );
-    return groups.some((g) =>
-      [g.slice(0, 2), g.slice(2, 4)].some(
-        (p) =>
-          p.length === 2 &&
-          !p.some((x) => String(x) === NO_PARTNER_ID) &&
-          oldPairs.has(pairKey(p[0], p[1])),
-      ),
-    );
-  }
-  function historyBalancedGroups(ids, day) {
-    const seen = new Set(),
-      candidates = [];
-    for (let n = 0; n < 1800; n++) {
-      const cand = makeGroups(shuffleCopy(ids), day);
-      const signature = fourballDrawSignature(cand);
-      if (seen.has(signature)) continue;
-      seen.add(signature);
-      candidates.push({
-        groups: cand,
-        score: drawRepeatScore(cand, day),
-        repeatsPartner: day > 1 && repeatsDay1Fourball(cand, day),
-      });
-    }
-    if (!candidates.length) return makeGroups(ids, day);
-    const eligible =
-      day > 1 && candidates.some((x) => !x.repeatsPartner)
-        ? candidates.filter((x) => !x.repeatsPartner)
-        : candidates;
-    eligible.sort((a, b) => a.score - b.score);
-    const best = eligible[0].score;
-    // Allow a few near-equal good solutions so repeated clicks can show another sensible draw.
-    const shortlist = eligible.filter((x) => x.score <= best + 2).slice(0, 12);
-    return shortlist[Math.floor(Math.random() * shortlist.length)].groups;
-  }
-  function drawMixingStats(draw) {
-    const groups = new Map(), partners = new Map(), mates = new Map();
-    for (const [day, teams] of Object.entries(draw)) for (const team of teams) {
-      const real = team.filter(id => String(id) !== NO_PARTNER_ID).map(String);
-      for (const id of real) if (!mates.has(id)) mates.set(id, new Set());
-      for (let i=0;i<real.length;i++) for (let j=i+1;j<real.length;j++) {
-        const key=pairKey(real[i],real[j]);
-        groups.set(key,[...(groups.get(key)||[]),+day]);
-        mates.get(real[i]).add(real[j]);mates.get(real[j]).add(real[i]);
-      }
-      for (const pair of [team.slice(0,2),team.slice(2,4)]) {
-        if (pair.length!==2 || pair.some(id=>String(id)===NO_PARTNER_ID)) continue;
-        const key=pairKey(...pair);partners.set(key,[...(partners.get(key)||[]),+day]);
-      }
-    }
-    const repeated = map => [...map].filter(([,days])=>days.length>1).map(([key,days])=>({ids:key.split('|'),days}));
-    return {groupRepeats:repeated(groups),partnerRepeats:repeated(partners),
-      groupRepeatEncounters:[...groups.values()].reduce((n,ds)=>n+Math.max(0,ds.length-1),0),
-      partnerRepeatEncounters:[...partners.values()].reduce((n,ds)=>n+Math.max(0,ds.length-1),0),
-      distinctMates:Object.fromEntries([...mates].map(([id,seen])=>[id,seen.size]))};
-  }
-  function maximumMixingDraw(fields) {
-    const days=Object.keys(fields).map(Number).sort((a,b)=>a-b), first=fields[days[0]] || [];
-    const exact=first.length===16 && days.length<=5 && days.every(day=>
-      fields[day].length===16 && [...fields[day]].map(String).sort().join('|')===[...first].map(String).sort().join('|'));
-    if (exact) {
-      // Lines of the affine plane over GF(4): five partitions of sixteen
-      // points into fours. Every pair of points lies on exactly one line.
-      const ids=shuffleCopy(first), slopes=shuffleCopy([0,1,2,3,4]);
-      const multiply=(a,b)=>{let result=0;for(let i=0;i<2;i++){if(b&1)result^=a;b>>=1;a<<=1;if(a&4)a^=7;}return result;};
-      return Object.fromEntries(days.map((day,index)=>{
-        const slope=slopes[index], teams=[];
-        for(let intercept=0;intercept<4;intercept++) {
-          const group=[];
-          for(let x=0;x<4;x++) {
-            const y=slope===4?x:multiply(slope,x)^intercept;
-            group.push(ids[slope===4?intercept*4+y:x*4+y]);
-          }
-          teams.push(shuffleCopy(group));
-        }
-        return [day,shuffleCopy(teams)];
-      }));
-    }
-    // For other field sizes/attendance, search complete schedules rather
-    // than committing one day at a time. Repeated partners take priority.
-    let best=null,bestScore=Infinity;
-    for(let attempt=0;attempt<30;attempt++) {
-      const draw={},groupCounts=new Map(),partnerCounts=new Map();
-      for(const day of days) {
-        let chosen=null,chosenScore=Infinity;
-        for(let trial=0;trial<45;trial++) {
-          const teams=makeGroups(shuffleCopy(fields[day]),day);let score=0;
-          for(const team of teams) {
-            const real=team.filter(id=>String(id)!==NO_PARTNER_ID);
-            for(let i=0;i<real.length;i++)for(let j=i+1;j<real.length;j++)score+=10*(groupCounts.get(pairKey(real[i],real[j]))||0);
-            for(const pair of [team.slice(0,2),team.slice(2,4)])if(pair.length===2&&!pair.includes(NO_PARTNER_ID))score+=100*(partnerCounts.get(pairKey(...pair))||0);
-          }
-          if(score<chosenScore){chosen=teams;chosenScore=score;}
-          if(score===0)break;
-        }
-        draw[day]=chosen;
-        for(const team of chosen) {
-          const real=team.filter(id=>String(id)!==NO_PARTNER_ID);
-          for(let i=0;i<real.length;i++)for(let j=i+1;j<real.length;j++){const k=pairKey(real[i],real[j]);groupCounts.set(k,(groupCounts.get(k)||0)+1);}
-          for(const pair of [team.slice(0,2),team.slice(2,4)])if(pair.length===2&&!pair.includes(NO_PARTNER_ID)){const k=pairKey(...pair);partnerCounts.set(k,(partnerCounts.get(k)||0)+1);}
-        }
-      }
-      const stats=drawMixingStats(draw), counts=Object.values(stats.distinctMates);
-      const score=10000*stats.partnerRepeatEncounters+100*stats.groupRepeatEncounters+(Math.max(...counts,0)-Math.min(...counts));
-      if(score<bestScore){best=draw;bestScore=score;}
-      if(score===0)break;
-    }
-    return best;
-  }
-  function mixingSummaryHtml(event=store.event) {
-    const draw=Object.fromEntries(eventDays(event).map(day=>[day,event.groupSetup?.['day'+day]?.groups||[]]));
-    const stats=drawMixingStats(draw), counts=Object.values(stats.distinctMates);
-    if(!counts.length)return '';
-    const repeats=(rows)=>rows.map(row=>`<li>${row.ids.map(id=>esc(player(id)?.name||'Player')).join(' &amp; ')} ‚Äî Days ${row.days.join(', ')}</li>`).join('');
-    const low=Math.min(...counts),high=Math.max(...counts);
-    return `<section class="ntpBox mixingSummary"><b>Player Mixing ‚Äî whole event</b><p>Repeated 4BBB partnerships: <strong>${stats.partnerRepeats.length}</strong> ¬∑ Repeated groupmate combinations: <strong>${stats.groupRepeats.length}</strong>.</p><p>Different groupmates per golfer: <strong>${low===high?low:low+'‚Äì'+high}</strong>. Counts cover the current draw across all playing days, including saved teams.</p>${stats.partnerRepeats.length||stats.groupRepeats.length?`<details><summary>Review repeated combinations</summary><h4>Repeated 4BBB partners</h4>${stats.partnerRepeats.length?`<ul>${repeats(stats.partnerRepeats)}</ul>`:'<p>None.</p>'}<h4>Repeated groupmates (including partners)</h4><ul>${repeats(stats.groupRepeats)}</ul></details>`:''}</section>`;
-  }
-  function lockAllEventTeams() {
-    const event=store.event;
-    if(!event || event.locked || event.pastEventReadOnly)return;
-    const days=eventDays(event);
-    const incomplete=days.filter(day=>{
-      const setup=event.groupSetup?.["day"+day],ids=dayFieldIds(day).map(String).sort();
-      const drawn=(setup?.groups||[]).flat().map(String).filter(id=>id!==NO_PARTNER_ID).sort();
-      return ids.length<4 || ids.join("|")!==drawn.join("|");
-    });
-    if(incomplete.length)return alert(`Review the player lists and teams for Day ${incomplete.join(", Day ")} before locking all teams.`);
-    const previous=JSON.parse(JSON.stringify(event.groupSetup));
-    const oldSwap=event.swapPlayer,oldOrder=event.teamOrderSwap;
-    try {
-      for(const day of days){const setup=event.groupSetup["day"+day];ensureShortTeamSelections(setup,day);setup.saved=true;}
-      event.swapPlayer=null;delete event.teamOrderSwap;
-      if(save()===false)throw new Error("Saving did not complete. Please try again.");
-    } catch(error) {
-      event.groupSetup=previous;event.swapPlayer=oldSwap;event.teamOrderSwap=oldOrder;
-      alert("Teams could not be locked: "+error.message);
-    }
-    renderTeamsPage();
-  }
-  function applyMaximumPlayerMixing() {
-    const event=store.event,days=eventDays(event);
-    if(event.locked || event.pastEventReadOnly || days.some(day=>firstDayScoreEntry(day) || Object.keys(event.manualScorecards?.["day"+day]?.groups || {}).length))return alert('Maximum Player Mixing is available before the event is locked or scoring starts.');
-    if(event.emergencyReplacements && Object.keys(event.emergencyReplacements).length)return alert('An emergency replacement is already assigned. Keep the existing teams or resolve the replacement before drawing the whole event again.');
-    const fields=Object.fromEntries(days.map(day=>[day,dayFieldIds(day)]));
-    if(days.some(day=>fields[day].length<4))return alert('Select at least four players on every playing day before drawing the whole event.');
-    if(!confirm('Draw all playing days using Maximum Player Mixing? This replaces the current teams and 4BBB partnerships, including saved days. Check and save each day afterwards.'))return;
-    const draw=maximumMixingDraw(fields);
-    for(const day of days) {
-      const key='day'+day,setup=event.groupSetup[key];
-      setup.groups=draw[day];setup.starts=defaultStarts(setup.groups,startMethodFor(event,day),day);setup.saved=false;
-      delete setup.shortTeams;delete setup.virtualPlayer;delete setup.ntpExtraPlayer;delete setup.ntpExtraPlayers;
-      ensureShortTeamSelections(setup,day);
-    }
-    event.drawMode='mixing';event.manualMode=false;event.swapPlayer=null;delete event.teamOrderSwap;
-    writeLocalStore();renderTeamsPage();
-  }
-  function playerHistoryAgainstGroup(pid, g) {
-    return g
-      .filter((x) => String(x) !== String(pid))
-      .map((id) => ({
-        id,
-        name: player(id)?.name || "Unknown",
-        played: playedTogetherCount(pid, id),
-        partners: partneredCount(pid, id),
-      }))
-      .sort((a, b) => b.partners - a.partners || b.played - a.played);
-  }
-  function awayGolfEventCourseNames(event) {
-    const snapshots = [
-      ...(event?.courseSnapshot || []),
-      ...(store.cloud?.courseCards || []),
-      ...(store.courses || []),
-    ];
-    const names = [];
-    for (let day = 1; day <= Math.max(1, +event?.days || 1); day++) {
-      const selected = event?.["course" + day];
-      const match = snapshots.find(
-        (candidate) => String(candidate?.id) === String(selected),
-      );
-      const name = match?.name || "";
-      if (name && !names.includes(name)) names.push(name);
-    }
-    return names;
-  }
-  function awayGolfEventPlayerIds(event) {
-    const ids = new Set();
-    for (let day = 1; day <= Math.max(1, +event?.days || 1); day++) {
-      const key = "day" + day;
-      let slots = (event?.groupSetup?.[key]?.groups || []).flat();
-      if (!slots.length) slots = event?.dayFields?.[key] || event?.confirmed || [];
-      for (const slot of slots) {
-        if (slot == null || String(slot) === NO_PARTNER_ID) continue;
-        const base = store.players.find(
-          (person) => String(person.id) === String(slot),
-        );
-        const occupant = window.GolfPlayerSubstitution?.occupant(
-          event,
-          slot,
-          base,
-          day,
-        );
-        ids.add(String(occupant?.profileId || occupant?.id || slot));
-      }
-    }
-    return [...ids];
-  }
-  function recordAwayGolfEventPlayed(event) {
-    const eventName = String(event?.name || "").trim();
-    if (!/^Away Golf\b/i.test(eventName) || isTestEvent(event)) return false;
-    const courses = awayGolfEventCourseNames(event),
-      date = String(event?.date || ""),
-      dateLabel = date
-        ? new Date(date + "T12:00:00").toLocaleDateString("en-AU")
-        : "",
-      key = String(
-        event?.workspaceId ||
-          event?.cloudEventId ||
-          event?.id ||
-          `${eventName}|${date}|${courses.join("|")}`,
-      ),
-      entry = {
-        key,
-        eventName,
-        date,
-        dateLabel,
-        courses: courses.join(" ¬∑ "),
-        recordedAt: new Date().toISOString(),
-      };
-    let changed = false;
-    for (const id of awayGolfEventPlayerIds(event)) {
-      const person = store.players.find(
-        (candidate) => String(candidate.id) === String(id),
-      );
-      if (!person) continue;
-      person.awayGolfEventsPlayed = Array.isArray(person.awayGolfEventsPlayed)
-        ? person.awayGolfEventsPlayed
-        : [];
-      if (person.awayGolfEventsPlayed.some((item) => item.key === key)) continue;
-      person.awayGolfEventsPlayed.push({ ...entry });
-      changed = true;
-    }
-    return changed;
-  }
-  function recordCompletedEventHistory(event = store.event) {
-    const awayGolfHistoryChanged = recordAwayGolfEventPlayed(event);
-    if (
-      !event?.groupSetup ||
-      event.historyRecordedAt ||
-      isTestEvent(event)
-    )
-      return awayGolfHistoryChanged;
-    for (let day = 1; day <= (event.days || 1); day++) {
-      const gs = event.groupSetup["day" + day]?.groups || [];
-      for (const g of gs) {
-        const realPlayers = g.filter(
-          (id) => id != null && String(id) !== NO_PARTNER_ID,
-        );
-        for (let i = 0; i < realPlayers.length; i++)
-          for (let j = i + 1; j < realPlayers.length; j++) {
-            let k = pairKey(realPlayers[i], realPlayers[j]);
-            store.pairHistory[k] = (store.pairHistory[k] || 0) + 1;
-          }
-        const pairs = [g.slice(0, 2), g.slice(2, 4)];
-        for (const pair of pairs) {
-          if (
-            pair.length !== 2 ||
-            pair.some((id) => id == null || String(id) === NO_PARTNER_ID)
-          )
-            continue;
-          let k = pairKey(pair[0], pair[1]);
-          store.partnerHistory[k] = (store.partnerHistory[k] || 0) + 1;
-        }
-      }
-    }
-    event.historyRecordedAt = new Date().toISOString();
-    return true;
-  }
-  function removeRecordedTestEventHistory() {
-    let changed = false;
-    const reduceCount = (history, key) => {
-      const next = Math.max(0, +(history[key] || 0) - 1);
-      if (next) history[key] = next;
-      else delete history[key];
-    };
-    for (const record of store.eventWorkspace || []) {
-      const event = record?.event;
-      if (
-        !event?.historyRecordedAt ||
-        event.testHistoryExcludedAt ||
-        !isTestEvent(event)
-      )
-        continue;
-      for (let day = 1; day <= (event.days || 1); day++) {
-        const groups = event.groupSetup?.[`day${day}`]?.groups || [];
-        for (const group of groups) {
-          const realPlayers = group.filter(
-            (id) => id != null && String(id) !== NO_PARTNER_ID,
-          );
-          for (let i = 0; i < realPlayers.length; i++)
-            for (let j = i + 1; j < realPlayers.length; j++)
-              reduceCount(
-                store.pairHistory,
-                pairKey(realPlayers[i], realPlayers[j]),
-              );
-          for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
-            if (
-              pair.length === 2 &&
-              !pair.some(
-                (id) => id == null || String(id) === NO_PARTNER_ID,
-              )
-            )
-              reduceCount(store.partnerHistory, pairKey(pair[0], pair[1]));
-          }
-        }
-      }
-      event.testHistoryExcludedAt = new Date().toISOString();
-      changed = true;
-    }
-    for (const person of store.players || []) {
-      if (Array.isArray(person.awayGolfEventsPlayed)) {
-        const kept = person.awayGolfEventsPlayed.filter(
-          (entry) => !isTestEvent({ name: entry?.eventName }),
-        );
-        if (kept.length !== person.awayGolfEventsPlayed.length) {
-          person.awayGolfEventsPlayed = kept;
-          changed = true;
-        }
-      }
-      for (const [courseId, entry] of Object.entries(
-        person.courseHandicaps || {},
-      )) {
-        if (!isTestEvent({ name: entry?.eventName })) continue;
-        delete person.courseHandicaps[courseId];
-        changed = true;
-      }
-    }
-    const active = (store.eventWorkspace || []).find(
-      (record) =>
-        String(record.id) ===
-        String(store.event?.workspaceId || store.activeEventId || ""),
-    );
-    if (active?.event?.testHistoryExcludedAt && store.event)
-      store.event.testHistoryExcludedAt =
-        active.event.testHistoryExcludedAt;
-    if (changed) writeLocalStore();
-    return changed;
-  }
-  function installFederalRidgeHistoryBaseline() {
-    const baselineId = "federal-ridge-2026-v1";
-    if (store.historyBaseline?.id === baselineId) return false;
-    const ridgeGroups = [
-        ["Jeremy Ward", "Graeme Hennessy", "Ben Mees", "Rod Ruston"],
-        ["Sam Reece", "Jerry Maher", "Ian Priest", "Maurice Melan"],
-        ["Grant Lomas", "Luke Bradshaw", "Bob Valk", "David Fairweather"],
-        ["Christian Fong", "Peter Rolfe", "Rob Blain", "Ross Smith"],
-      ],
-      federalDay1Groups = [
-        ["Rod Bowyer", "Jerry Maher", "Graeme Hennessy", "Ross Smith"],
-        ["David Fairweather", "Rod Ruston", "David Gaffaney", "Ben Mees"],
-      ],
-      federalDay2Groups = [
-        ["Rod Ruston", "Ben Mees", "Graeme Hennessy", "Jerry Maher"],
-        ["Rod Bowyer", "Ross Smith", "David Gaffaney", "David Fairweather"],
-      ],
-      playerIdByName = new Map(
-        (store.players || []).map((person) => [person.name, String(person.id)]),
-      ),
-      namedRounds = [ridgeGroups, federalDay1Groups, federalDay2Groups],
-      rounds = namedRounds.map((round) =>
-        round.map((names) => names.map((name) => playerIdByName.get(name))),
-      );
-    if (rounds.some((round) => round.some((group) => group.some((id) => !id))))
-      return false;
-
-    // Deliberately replace, rather than add to, the device's old counters.
-    store.pairHistory = {};
-    store.partnerHistory = {};
-    for (const round of rounds) {
-      for (const group of round) {
-        for (let i = 0; i < group.length; i++)
-          for (let j = i + 1; j < group.length; j++) {
-            const key = pairKey(group[i], group[j]);
-            store.pairHistory[key] = (store.pairHistory[key] || 0) + 1;
-          }
-        for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
-          const key = pairKey(pair[0], pair[1]);
-          store.partnerHistory[key] = (store.partnerHistory[key] || 0) + 1;
-        }
-      }
-    }
-
-    const installedAt = new Date().toISOString();
-    store.historyBaseline = {
-      id: baselineId,
-      installedAt,
-      events: [
-        "Away Golf - The Ridge",
-        "Away Golf - Federal GC Day 1",
-        "Away Golf - Federal GC Day 2",
-      ],
-    };
-    // Prevent old local event copies from being re-added by the legacy
-    // completed-event backfill. Genuine events completed after this reset are
-    // still recorded normally when they close.
-    for (const record of store.eventWorkspace || []) {
-      const event = record?.event;
-      if (!event) continue;
-      const hasPlayedScore = Object.values(event.scoring || {}).some(
-        (roundData) =>
-          Object.values(roundData || {}).some((round) =>
-            Object.entries(round || {}).some(
-              ([hole, entry]) =>
-                /^\d+$/.test(hole) &&
-                (scoreEntered(entry?.official?.gross) ||
-                  scoreEntered(entry?.self?.gross)),
-            ),
-          ),
-      );
-      if (
-        event.status === "complete" ||
-        event.status === "completed" ||
-        event.finalResults?.confirmedAt ||
-        hasPlayedScore
-      )
-        event.historyRecordedAt = installedAt;
-      if (isTestEvent(event)) event.testHistoryExcludedAt = installedAt;
-    }
-    const active = (store.eventWorkspace || []).find(
-      (record) =>
-        String(record.id) ===
-        String(store.event?.workspaceId || store.activeEventId || ""),
-    );
-    if (active?.event?.historyRecordedAt && store.event)
-      store.event.historyRecordedAt = active.event.historyRecordedAt;
-    if (active?.event?.testHistoryExcludedAt && store.event)
-      store.event.testHistoryExcludedAt = active.event.testHistoryExcludedAt;
-    return true;
-  }
-  function backfillCompletedEventHistory() {
-    let changed = false;
-    for (const record of store.eventWorkspace || []) {
-      const event = record?.event,
-        hasPlayedScore = Object.values(event?.scoring || {}).some((rounds) =>
-          Object.values(rounds || {}).some((round) =>
-            Object.entries(round || {}).some(
-              ([hole, entry]) =>
-                /^\d+$/.test(hole) &&
-                (scoreEntered(entry?.official?.gross) ||
-                  scoreEntered(entry?.self?.gross)),
-            ),
-          ),
-        );
-      if (
-        event &&
-        (event.status === "complete" ||
-          event.status === "completed" ||
-          event.finalResults?.confirmedAt ||
-          hasPlayedScore)
-      )
-        changed = recordCompletedEventHistory(event) || changed;
-    }
-    const active = (store.eventWorkspace || []).find(
-      (record) =>
-        String(record.id) ===
-        String(store.event?.workspaceId || store.activeEventId || ""),
-    );
-    if (active?.event?.historyRecordedAt && store.event)
-      store.event.historyRecordedAt = active.event.historyRecordedAt;
-    if (changed) writeLocalStore();
-  }
-  function shuffleCopy(arr) {
-    let a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      let j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-  function makeGroups(ids, day = store.event?.activeGroupDay || 1) {
-    const real = ids.filter(id => String(id) !== NO_PARTNER_ID);
-    if (real.length < 6) {
-      const out = [];
-      for (let i=0; i<ids.length; i+=4) out.push(ids.slice(i,i+4));
-      return out;
-    }
-    const count = Math.ceil(real.length/4), base = Math.floor(real.length/count), extra = real.length%count;
-    let offset=0;
-    return Array.from({length:count},(_,index)=>{
-      const size=base+(index<extra?1:0), group=real.slice(offset,offset+size);offset+=size;
-      if(size===3&&!ambroseIsOn(store.event, day))group.push(NO_PARTNER_ID);
-      return group;
-    });
-  }
-  function defaultStarts(groups, method, day = 1) {
-    method = method || startMethodFor(store.event, day);
-    if (method === "shotgun") {
-      const common = [1, 3, 5, 7, 9, 10, 12, 14, 16, 18];
-      return groups.map((_, i) => common[i] || ((i * 2) % 18) + 1);
-    }
-    const holes = startHolesFor(store.event, day);
-    if (method === "two") return groups.map((_, i) => +(holes[i % 2] || 1));
-    if (method === "single") return groups.map(() => +(holes[0] || 1));
-    return groups.map((_, i) => i + 1);
-  }
-  function dayFieldIds(day) {
-    if (!store.event) return [];
-    const key = "day" + day;
-    const missing = String(store.event.emergencyReplacements?.[key]?.missingPlayerId || "");
-    if (store.event.dayFields?.[key])
-      return store.event.dayFields[key].map(String).filter((id) => id !== missing);
-    const ids = (store.event.confirmed || []).map(String);
-    if (store.event.days === 1) return ids.filter((id) => id !== missing);
-    return ids.filter(
-      (id) => store.event.dayAvailability?.[id]?.[day] !== false,
-    ).filter((id) => id !== missing);
-  }
-  function aggregatePar3Partner(playerId, day = store.event.days) {
-    if (
-      par3Mode(store.event) !== "overallPairs" ||
-      !(store.event?.competitions || []).includes("par3")
-    )
-      return "";
-    const groups = store.event?.groupSetup?.["day" + store.event.days]?.groups || [],
-      id = sharedActualId(playerId,store.event.days),
-      group = groups.find((team) => team.map(String).includes(id));
-    if (!group) return "";
-    const index = group.map(String).indexOf(id),
-      pairStart = index < 2 ? 0 : 2;
-    return sharedActualId(String(
-      group
-        .slice(pairStart, pairStart + 2)
-        .map(String)
-        .find((candidate) => candidate !== id && candidate !== NO_PARTNER_ID) ||
-        "",
-    ),day);
-  }
-  function noPartnerContext(groups, day, groupIndex = null) {
-    const all = dayFieldIds(day),
-      shortIndex = groupIndex === null ? groups.findIndex((g) =>
-        g.some((id) => String(id) === NO_PARTNER_ID),
-      ) : groups[groupIndex]?.some(id => String(id) === NO_PARTNER_ID) ? groupIndex : -1;
-    if (shortIndex < 0) return null;
-    const g = groups[shortIndex],
-      npIndex = g.findIndex((id) => String(id) === NO_PARTNER_ID);
-    const pairStart = npIndex < 2 ? 0 : 2;
-    const affected = g
-      .slice(pairStart, pairStart + 2)
-      .find((id) => String(id) !== NO_PARTNER_ID);
-    const realInGroup = g.filter((id) => String(id) !== NO_PARTNER_ID);
-    const inShortGroup = new Set(realInGroup.map(String));
-    const candidates = all.filter(
-      (id) => String(id) !== NO_PARTNER_ID && !inShortGroup.has(String(id)),
-    );
-    return {
-      groupIndex: shortIndex,
-      noPartnerIndex: npIndex,
-      affected: String(affected || ""),
-      realInGroup,
-      candidates,
-    };
-  }
-  function ambroseThreePlayerContext(groups, groupIndex = null) {
-    const shortIndex = groupIndex === null ? groups.findIndex(
-      (group) => group.filter((id) => String(id) !== NO_PARTNER_ID).length === 3,
-    ) : groups[groupIndex]?.filter(id=>String(id)!==NO_PARTNER_ID).length===3 ? groupIndex : -1;
-    if (shortIndex < 0) return null;
-    return {
-      groupIndex: shortIndex,
-      noPartnerIndex: -1,
-      affected: "",
-      realInGroup: groups[shortIndex]
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String),
-      candidates: [],
-    };
-  }
-  function chooseRandom(arr, exclude = []) {
-    const ex = new Set(exclude.map(String)),
-      a = arr.filter((x) => !ex.has(String(x)));
-    return a.length ? a[Math.floor(Math.random() * a.length)] : null;
-  }
-  function ensureOneShortTeamSelections(setup, day) {
-    const ctx = ambroseIsOn(store.event, day)
-      ? ambroseThreePlayerContext(setup.groups, setup.shortTeamIndex ?? null)
-      : noPartnerContext(setup.groups, day, setup.shortTeamIndex ?? null);
-    if (!ctx) {
-      setup.virtualPlayer = null;
-      setup.ntpExtraPlayer = null;
-      setup.ntpExtraPlayers = {};
-      return;
-    }
-    if (ambroseIsOn(store.event, day)) setup.virtualPlayer = null;
-    else if (
-      !setup.virtualPlayer ||
-      !ctx.candidates.map(String).includes(String(setup.virtualPlayer))
-    )
-      setup.virtualPlayer = chooseRandom(ctx.candidates);
-    const emergency = store.event.emergencyReplacements?.["day" + day];
-    if (emergency && emergency.groupIndex === ctx.groupIndex) {
-      setup.virtualPlayer = emergency.virtualPlayerId;
-      setup.ntpExtraPlayers = emergency.ntpExtraPlayers || {};
-      setup.ntpExtraPlayer = null;
-    } else if (competitionIsOn("ntp", day)) {
-      const eligible = ctx.realInGroup.map(String);
-      // Preserve existing locked single-VP events; new draws rotate attempts by hole.
-      if (setup.ntpExtraPlayer && (setup.saved || store.event.locked) && !Object.keys(setup.ntpExtraPlayers || {}).length) return;
-      const order = (setup.ntpRotation || []).filter(id => eligible.includes(id));
-      if (order.length !== eligible.length || new Set(order).size !== eligible.length) setup.ntpRotation = shuffleCopy(eligible);
-      else setup.ntpRotation = order;
-      setup.ntpExtraPlayers = Object.fromEntries(ntpHolesInPlayingOrder(day).map((hole,index)=>[String(hole),setup.ntpRotation[index%eligible.length]]));
-      setup.ntpExtraPlayer = null;
-    } else {
-      setup.ntpExtraPlayer = null;
-      setup.ntpExtraPlayers = {};
-    }
-  }
-  function swapWholeTeams(event, day, first, second) {
-    const setup = event?.groupSetup?.['day' + day];
-    if (!setup || event.locked || setup.saved || firstDayScoreEntry(day) ||
-        !Number.isInteger(first) || !Number.isInteger(second) || first === second ||
-        first < 0 || second < 0 || !setup.groups[first] || !setup.groups[second]) return false;
-    const exchange = (map) => {
-      if (!map) return;
-      const a = map[first], b = map[second];
-      if (b === undefined) delete map[first]; else map[first] = b;
-      if (a === undefined) delete map[second]; else map[second] = a;
-    };
-    exchange(setup.groups);
-    exchange(setup.shortTeams);
-    exchange(event.ambroseRoleAssignments?.['day' + day]);
-    const emergency = event.emergencyReplacements?.['day' + day];
-    if (emergency?.groupIndex === first) emergency.groupIndex = second;
-    else if (emergency?.groupIndex === second) emergency.groupIndex = first;
-    // Starting holes and tee times belong to the tee slots, not the golfers.
-    const firstShort = setup.groups.findIndex(g => g.filter(id => String(id) !== NO_PARTNER_ID).length === 3);
-    const assignment = setup.shortTeams?.[firstShort] || {};
-    setup.virtualPlayer = assignment.virtualPlayer || null;
-    setup.ntpExtraPlayer = assignment.ntpExtraPlayer || null;
-    setup.ntpExtraPlayers = assignment.ntpExtraPlayers || {};
-    setup.saved = false;
-    event.swapPlayer = null;
-    return true;
-  }
-  function setupForTeam(setup, groupIndex) {
-    if (!setup) return setup;
-    if (setup.shortTeams) return {...setup, virtualPlayer:null, ntpExtraPlayer:null, ntpExtraPlayers:{}, ...setup.shortTeams[String(groupIndex)], shortTeamIndex:groupIndex};
-    const first = setup.groups.findIndex(g => g.some(id => String(id)===NO_PARTNER_ID) || (ambroseIsOn() && g.length===3));
-    return {...setup, ...(first===groupIndex?{}:{virtualPlayer:null,ntpExtraPlayer:null,ntpExtraPlayers:{}}),shortTeamIndex:groupIndex};
-  }
-  function ensureShortTeamSelections(setup, day) {
-    const previous=setup.shortTeams || {}, next={}, used=new Set();
-    const emergency=store.event.emergencyReplacements?.['day'+day];
-    if(emergency?.virtualPlayerId)used.add(String(emergency.virtualPlayerId));
-    const shortIndexes=setup.groups.map((g,i)=>g.filter(id=>String(id)!==NO_PARTNER_ID).length===3?i:-1).filter(i=>i>=0);
-    const legacyIndex=setup.groups.findIndex(g=>g.some(id=>String(id)===NO_PARTNER_ID) || (ambroseIsOn(store.event, day)&&g.length===3));
-    for(const gi of shortIndexes){
-      if(!ambroseIsOn(store.event, day)&&!setup.groups[gi].some(id=>String(id)===NO_PARTNER_ID))setup.groups[gi].push(NO_PARTNER_ID);
-      const legacy=!setup.shortTeams&&gi===legacyIndex ? {virtualPlayer:setup.virtualPlayer,ntpExtraPlayer:setup.ntpExtraPlayer,ntpExtraPlayers:setup.ntpExtraPlayers} : {};
-      const local={...setup,...legacy,...previous[String(gi)],shortTeamIndex:gi};
-      if(!previous[String(gi)]&&!Object.keys(legacy).length){local.virtualPlayer=null;local.ntpExtraPlayer=null;local.ntpExtraPlayers={};local.ntpRotation=[];}
-      ensureOneShortTeamSelections(local,day);
-      if(!ambroseIsOn(store.event, day)){
-        const ctx=noPartnerContext(setup.groups,day,gi);
-        const reserved=emergency?.groupIndex===gi;
-        if(!reserved && used.has(String(local.virtualPlayer))) local.virtualPlayer=chooseRandom(ctx.candidates,[...used]);
-        if(!local.virtualPlayer)throw new Error('No distinct Virtual Player is available for Team '+(gi+1)+'. Review the draw.');
-        used.add(String(local.virtualPlayer));
-      }
-      next[String(gi)]={virtualPlayer:local.virtualPlayer||null,ntpExtraPlayer:local.ntpExtraPlayer||null,ntpExtraPlayers:local.ntpExtraPlayers||{},ntpRotation:local.ntpRotation||[]};
-    }
-    setup.shortTeams=next;
-    const first=next[String(shortIndexes[0])] || {};
-    // Legacy fields remain readable by old backups. Current scoring uses the team map.
-    setup.virtualPlayer=first.virtualPlayer||null;setup.ntpExtraPlayer=first.ntpExtraPlayer||null;setup.ntpExtraPlayers=first.ntpExtraPlayers||{};
-  }
-  function shortTeamRuleLines(event, day) {
-    const setup=event.groupSetup?.['day'+day];if(!setup)return [];
-    return Object.entries(setup.shortTeams||{}).flatMap(([gi,a])=>{
-      const lines=[`Team ${+gi+1}: three real golfers${a.virtualPlayer?`; ${player(a.virtualPlayer)?.name || 'the assigned golfer'} supplies the Virtual Player score for multiplayer competitions`:'. No borrowed score is used for Ambrose'}.`];
-      const attempts=Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`Hole ${hole}: ${player(id)?.name||'the assigned golfer'} takes two tee shots; either may win NTP`);
-      if(a.ntpExtraPlayer)attempts.push(`${player(a.ntpExtraPlayer)?.name||'the assigned golfer'} takes two shots on each NTP hole`);
-      if(attempts.length)lines.push(`Team ${+gi+1} NTP extra attempts ‚Äî ${attempts.join('; ')}.`);
-      return lines;
-    });
-  }
-  function initialiseGroups() {
-    if (!store.event) return;
-    store.event.groupSetup = store.event.groupSetup || {};
-    for (let day = 1; day <= store.event.days; day++) {
-      const key = "day" + day,
-        ids = dayFieldIds(day),
-        emergency = store.event.emergencyReplacements?.[key],
-        expectedIds = emergency ? [...ids, NO_PARTNER_ID] : ids;
-      const current = store.event.groupSetup[key];
-      const same =
-        current &&
-        current.groups &&
-        current.groups.flat().map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") ===
-          expectedIds.map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") &&
-        current.groups.every(group=>ambroseIsOn(store.event,day) ? !group.includes(NO_PARTNER_ID) : group.filter(id=>id!==NO_PARTNER_ID).length!==3 || group.includes(NO_PARTNER_ID));
-      if (!same) {
-        // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
-        // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
-        let groups = historyBalancedGroups(ids, day);
-        // Extra safeguard: if No Partner exists on both days, avoid allocating it to the same golfer where alternatives exist.
-        if (
-          day === 2 &&
-          groups.some((g) => g.some((x) => String(x) === NO_PARTNER_ID))
-        ) {
-          const d1 = store.event.groupSetup.day1,
-            ctx1 = d1 ? noPartnerContext(d1.groups, 1) : null;
-          let ctx2 = noPartnerContext(groups, 2);
-          if (ctx1 && ctx2 && String(ctx1.affected) === String(ctx2.affected)) {
-            const npG = ctx2.groupIndex,
-              npI = ctx2.noPartnerIndex;
-            let swapped = false;
-            for (let gi = 0; gi < groups.length && !swapped; gi++)
-              for (let pi = 0; pi < groups[gi].length && !swapped; pi++) {
-                const candidate = String(groups[gi][pi]);
-                if (
-                  candidate !== NO_PARTNER_ID &&
-                  candidate !== String(ctx1.affected)
-                ) {
-                  const temp =
-                    groups[npG][npI === 0 ? 1 : npI === 2 ? 3 : npI - 1];
-                  const partnerIndex = npI === 0 ? 1 : npI === 2 ? 3 : npI - 1;
-                  groups[npG][partnerIndex] = groups[gi][pi];
-                  groups[gi][pi] = temp;
-                  swapped = true;
-                }
-              }
-          }
-        }
-        store.event.groupSetup[key] = {
-          groups,
-          starts: defaultStarts(groups, startMethodFor(store.event, day), day),
-          saved: false,
-          virtualPlayer: null,
-          ntpExtraPlayer: null,
-        };
-      }
-      ensureShortTeamSelections(store.event.groupSetup[key], day);
-    }
-    synchroniseSingleTeeGroupStarts(store.event);
-    store.event.activeGroupDay = store.event.activeGroupDay || 1;
-    store.event.drawMode = store.event.drawMode || "history";
-    store.event.manualMode = store.event.drawMode === "manual";
-    if (store.event.swapPlayer === undefined) store.event.swapPlayer = null;
-  }
-  function groupCompetitionText() {
-    if (!store.event) return "";
-    let c = manualSelectedCompetitions(store.event.activeGroupDay || 1),
-      parts = [];
-    if (c.has("fourball"))
-      parts.push("4BBB partners are the two pairs shown in each group");
-    if (c.has("teamPutts"))
-      parts.push(
-        store.event.puttingFormat === "pairs"
-          ? "the two 4BBB partnerships are the Putting pairs"
-          : "the full four-person group is the Putting team",
-      );
-    if (c.has("best3of4"))
-      parts.push("the full four-person group is the Best 3 of 4 team");
-    return parts.join(" ¬∑ ");
-  }
-  function eventDayHandicaps(day) {
-    ensureEventTeePlanning(store.event);
-    store.event.dailyHandicaps = store.event.dailyHandicaps || {
-      day1: {},
-      day2: {},
-    };
-    const key = "day" + day,
-      active = Object.fromEntries(dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID).map(id=>{
-        const category=eventCourseCategory(day,store.event,id),tee=selectedEventTee(day,store.event,category);
-        return [String(id),teeHandicapsFor(day,tee)[String(id)]];
-      }));
-    store.event.dailyHandicaps[key] = active;
-    return active;
-  }
-  function playerDailyHandicap(id, day) {
-    const category=eventCourseCategory(day,store.event,id);
-    const v = teeHandicapsFor(
-      day,
-      selectedEventTee(day,store.event,category),
-    )[String(id)];
-    return v === "" || v == null ? null : +v;
-  }
-  function recordEventHandicapHistory(dayOnly = null) {
-    if (!store.event || isTestEvent(store.event)) return;
-    const firstDay = dayOnly || 1,
-      lastDay = dayOnly || store.event.days;
-    for (let day = firstDay; day <= lastDay; day++) {
-      const c = course(store.event["course" + day]);
-      dayFieldIds(day)
-        .filter((id) => id !== NO_PARTNER_ID)
-        .forEach((id) => {
-          const h = playerDailyHandicap(id, day),
-            identity = eventPlayer(id,day),
-            p = store.players.find(p=>String(p.id)===String(identity?.profileId || id));
-          if (h == null || !p || !c) return;
-          p.courseHandicaps = p.courseHandicaps || {};
-          p.courseHandicaps[String(c.id)] = {
-            courseId: String(c.id),
-            courseName: c.name,
-            handicap: h,
-            updatedAt: new Date().toISOString(),
-            eventName: store.event.name || "",
-          };
-        });
-    }
-  }
-  function retainedLegacyScoringRules() {
-    return Boolean(store.event?.finalResults?.confirmedAt && store.event.finalResults.scoringRulesVersion !== 2);
-  }
-  function stablefordStrokeCount(indexValue, handicap) {
-    handicap = +handicap || 0;
-    const txt = String(indexValue ?? "").trim();
-    if (handicap < 0) {
-      const idx = +(txt.split("/")[0] || 0),
-        plus = Math.abs(handicap);
-      if (!idx) return 0;
-      const base = Math.floor(plus / 18),
-        rem = plus % 18;
-      return -base - (rem && idx > 18 - rem ? 1 : 0);
-    }
-    if (handicap === 0) return 0;
-    if (txt.includes("/")) {
-      const indexes = txt.split("/").map((x) => +String(x).trim())
-        .filter((x) => Number.isFinite(x) && x > 0);
-      const listed = indexes.filter((x) => x <= handicap).length;
-      // Preserve confirmed historical results. Above 36, repeat the primary
-      // 1‚Äì18 index while retaining the course's separate second-stroke order.
-      if (retainedLegacyScoringRules() || handicap <= 36) return listed;
-      const primary = indexes[0];
-      if (!primary || primary > 18) return listed;
-      const extra = handicap - 36;
-      return listed + Math.floor(extra / 18) + (primary <= extra % 18 ? 1 : 0);
-    }
-    const idx = +txt;
-    if (!idx) return 0;
-    const base = Math.floor(handicap / 18),
-      rem = handicap % 18;
-    return base + (rem && idx <= rem ? 1 : 0);
-  }
-  function stablefordPoints(gross, par, indexValue, handicap) {
-    if (String(gross).toUpperCase() === "P") return 0;
-    gross = +gross;
-    par = +par;
-    if (!gross || !par || handicap == null) return null;
-    return Math.max(
-      0,
-      2 + par + stablefordStrokeCount(indexValue, handicap) - gross,
-    );
-  }
-  function scoreSequence(start) {
-    start = +start || 1;
-    return Array.from({ length: 18 }, (_, i) => ((start - 1 + i) % 18) + 1);
-  }
-  function scoringDayStore(day) {
-    store.event.scoring = store.event.scoring || { day1: {}, day2: {} };
-    store.event.scoring["day" + day] = store.event.scoring["day" + day] || {};
-    return store.event.scoring["day" + day];
-  }
-  function scorerStore(day, scorerId) {
-    const d = scoringDayStore(day),
-      id = String(scorerId);
-    d[id] = d[id] || {};
-    return d[id];
-  }
-  function scoreRecord(day, scorerId, hole) {
-    const s = scorerStore(day, scorerId),
-      k = String(hole);
-    s[k] = s[k] || { official: {}, self: {}, ntp: {} };
-    return s[k];
-  }
-  const scoreEntered = (value) => value !== "" && value != null;
-  function firstDayScoreEntry(day) {
-    const rounds = store.event?.scoring?.["day" + day] || {};
-    for (const [scorerId, round] of Object.entries(rounds)) {
-      for (const [hole, rec] of Object.entries(round || {})) {
-        if (!/^([1-9]|1[0-8])$/.test(hole)) continue;
-        if (
-          [
-            rec?.self?.gross,
-            rec?.self?.putts,
-            rec?.official?.gross,
-            rec?.official?.putts,
-          ].some(scoreEntered)
-        )
-          return { scorerId: String(scorerId), hole: +hole };
-      }
-    }
-    return null;
-  }
-  function dayHasScoreEntries(day) {
-    return Boolean(firstDayScoreEntry(day));
-  }
-  function groupHasScoreEntries(day, groupIndex) {
-    const group = store.event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || [],
-      scorerIds = new Set(group.map(String).filter((id) => id !== NO_PARTNER_ID)),
-      rounds = store.event?.scoring?.["day" + day] || {};
-    for (const [scorerId, round] of Object.entries(rounds)) {
-      if (!scorerIds.has(String(scorerId))) continue;
-      for (const [hole, rec] of Object.entries(round || {})) {
-        if (!/^([1-9]|1[0-8])$/.test(hole)) continue;
-        if ([rec?.self?.gross, rec?.self?.putts, rec?.official?.gross, rec?.official?.putts].some(scoreEntered))
-          return { scorerId: String(scorerId), hole: +hole };
-      }
-    }
-    return null;
-  }
-  function teeHandicapsComplete(day, tee, event = store.event, category = null) {
-    const map = teeHandicapsFor(day, tee, event),
-      ids = event === store.event ? dayFieldIds(day) : wizardPlanningPlayers(day);
-    return ids
-      .filter((id) => String(id) !== NO_PARTNER_ID)
-      .filter((id) => !category || eventGaCategory(id,event) === category)
-      .every((id) => map[String(id)] !== "" && map[String(id)] != null);
-  }
-  function scratchHandicapLimit(event = store.event) {
-    return event?.scratchMaxHcp == null
-      ? null
-      : Number.isFinite(+event.scratchMaxHcp)
-        ? +event.scratchMaxHcp
-        : 10;
-  }
-  function scratchRulesText(event = store.event) {
-    const max = scratchHandicapLimit(event) ?? 10;
-    const scoring =
-      event?.scratchScoringMode === "maxDoubleBogey"
-        ? "Scoring is capped at double bogey (2 over par) on each hole. A PICK-UP (P) records a score of 2 over par for that hole."
-        : "Pure Stroke scoring applies: every stroke counts. Every hole must be played to completion and a PICK-UP (P) results in disqualification from the Scratch Competition.";
-    return `This event includes a Scratch Competition. Any player with a daily handicap of ${max} or less is included in the Scratch Competition. Any player with a daily handicap greater than ${max} is not included. ${scoring}`;
-  }
-  function scratchPickupHole(day, playerId) {
-    for (let h = 1; h <= 18; h++) {
-      const gross = findOfficialForPlayer(day, playerId, h)?.gross;
-      if (String(gross ?? "").toUpperCase() === "P") return h;
-    }
-    return null;
-  }
-  function scratchGrossScores(day, playerId, card) {
-    const maximumDoubleBogey =
-      store.event?.scratchScoringMode === "maxDoubleBogey";
-    return Array.from({ length: 18 }, (_, i) => {
-      const gross = findOfficialForPlayer(day, playerId, i + 1)?.gross;
-      if (String(gross ?? "").toUpperCase() === "P")
-        return maximumDoubleBogey ? +(card?.par?.[i] || 0) + 2 : null;
-      if (gross === "" || gross == null) return null;
-      return maximumDoubleBogey
-        ? Math.min(+gross, +(card?.par?.[i] || 0) + 2)
-        : +gross;
-    });
-  }
-  function roundFinalisedFor(day, playerId) {
-    const id = String(playerId),
-      finalisedAt = scoringDayStore(day)?.[id]?._meta?.finalisedAt;
-    if (
-      finalisedAt &&
-      store.cloud?.role === "player" &&
-      String(store.cloud.playerId) === id &&
-      store.cloud?.eventId
-    ) {
-      const state = AwayCloud.roundSaveState?.(store.cloud.eventId, day, id) || {};
-      return Boolean(
-        state.acknowledged &&
-        !state.pending &&
-        !state.conflict &&
-        !state.blocked,
-      );
-    }
-    return Boolean(
-      manualDayFinalised(day) ||
-        store.event?.roundFinalised?.["day" + day]?.[id] ||
-        finalisedAt,
-    );
-  }
-  function mergeOrganiserCorrections(local = {}, remote = {}) {
-    const merged = JSON.parse(JSON.stringify(local || {}));
-    Object.entries(remote || {}).forEach(([dayKey, players]) => {
-      merged[dayKey] = merged[dayKey] || {};
-      Object.entries(players || {}).forEach(([playerId, holes]) => {
-        merged[dayKey][playerId] = merged[dayKey][playerId] || {};
-        Object.entries(holes || {}).forEach(([hole, correction]) => {
-          const current = merged[dayKey][playerId][hole];
-          if (
-            !current ||
-            (Date.parse(correction?.correctedAt || 0) || 0) >=
-              (Date.parse(current?.correctedAt || 0) || 0)
-          )
-            merged[dayKey][playerId][hole] = JSON.parse(
-              JSON.stringify(correction),
-            );
-        });
-      });
-    });
-    return merged;
-  }
-  function organiserCorrectionFor(day, playerId, hole) {
-    return store.event?.organiserCorrections?.["day" + day]?.[
-      String(playerId)
-    ]?.[String(hole)] || null;
-  }
-  function recordOrganiserCorrection(day, playerId, hole, values) {
-    store.event.organiserCorrections =
-      store.event.organiserCorrections || {};
-    const correctionDay =
-        (store.event.organiserCorrections["day" + day] ||= {}),
-      correctionPlayer = (correctionDay[String(playerId)] ||= {});
-    correctionPlayer[String(hole)] = {
-      ...values,
-      playerId: String(playerId),
-      organiserCorrected: true,
-      correctedAt: values.correctedAt || new Date().toISOString(),
-    };
-    return correctionPlayer[String(hole)];
-  }
-  function explicitlyRecoveredPlayer(day, playerId) {
-    return (store.event.emergencyRecoveryLog || []).some((entry) => {
-      if (+entry.day !== +day) return false;
-      const id = String(playerId);
-      if (entry.type === "self-score-copy")
-        return String(entry.recoveredPlayerId) === id ||
-          String(entry.recoveredFailedPlayerId || "") === id;
-      if (entry.type === "virtual-player-marker-card")
-        return [entry.scorerId, entry.markedPlayerId].map(String).includes(id);
-      return false;
-    });
-  }
-  function recoveredRoundAccepted(day, playerId) {
-    return explicitlyRecoveredPlayer(day, playerId) &&
-      roundFinalisedFor(day, playerId) && officialCardProgress(day, playerId).complete;
-  }
-  function syncRecoveredPlayerRound(day, playerId) {
-    if (!["scoring", "verify"].includes(store.event.playerRoundMode) ||
-        !recoveredRoundAccepted(day, playerId)) return false;
-    store.event.playerRoundMode = "completed";
-    store.event.playerVerificationStage = "mine";
-    store.event.returnToMarkedVerification = false;
-    releaseRoundWakeLock();
-    writeLocalStore();
-    return true;
-  }
-  function officialCardProgress(day, playerId) {
-    const puttsRequired = competitionIsOn("teamPutts", day),
-      records = Array.from({ length: 18 }, (_, i) =>
-        findOfficialForPlayer(day, playerId, i + 1),
-      ),
-      entered = records.filter((record) =>
-        scoreEntered(record?.gross),
-      ).length,
-      puttsEntered = records.filter((record) =>
-        scoreEntered(record?.putts),
-      ).length;
-    return {
-      entered,
-      puttsEntered,
-      complete: entered === 18 && (!puttsRequired || puttsEntered === 18),
-    };
-  }
-  function verificationIssueCount(day, playerId) {
-    const mine = scoringDayStore(day)?.[String(playerId)] || {},
-      puttsRequired = competitionIsOn("teamPutts", day);
-    return Array.from({ length: 18 }, (_, i) => i + 1).filter((h) => {
-      const self = mine[String(h)]?.self || {},
-        off = findOfficialForPlayer(day, playerId, h),
-        selfGross = self.gross ?? "",
-        offGross = off?.gross ?? "";
-      if (!off || !scoreEntered(selfGross) || !scoreEntered(offGross))
-        return true;
-      const scoreMatch =
-          String(offGross).toUpperCase() === String(selfGross).toUpperCase(),
-        puttsMatch =
-          !puttsRequired ||
-          (scoreEntered(off.putts) &&
-            scoreEntered(self.putts) &&
-            +off.putts === +self.putts);
-      return !(scoreMatch && puttsMatch);
-    }).length;
-  }
-  function verificationIssueHoles(day, playerId) {
-    const mine = scoringDayStore(day)?.[String(playerId)] || {},
-      puttsRequired = competitionIsOn("teamPutts", day);
-    return Array.from({ length: 18 }, (_, i) => i + 1).filter((h) => {
-      const self = mine[String(h)]?.self || {},
-        off = findOfficialForPlayer(day, playerId, h);
-      if (!off || !scoreEntered(self.gross) || !scoreEntered(off.gross))
-        return true;
-      return !(
-        String(off.gross).toUpperCase() === String(self.gross).toUpperCase() &&
-        (!puttsRequired ||
-          (scoreEntered(off.putts) &&
-            scoreEntered(self.putts) &&
-            +off.putts === +self.putts))
-      );
-    });
-  }
-  function livePlayerStatus(day, playerId) {
-    const setup = store.event.groupSetup?.["day" + day],
-      ctx = playerGroupContext(playerId, day),
-      start = setup?.starts?.[ctx?.groupIndex] || 1,
-      seq = scoreSequence(start),
-      official = officialCardProgress(day, playerId),
-      entered = official.entered,
-      mine = scoringDayStore(day)?.[String(playerId)] || {},
-      eventComplete = store.event.status === "complete",
-      verificationIssues = official.complete
-        ? verificationIssueCount(day, playerId)
-        : 0,
-      markedVerificationIssues = official.complete
-        ? markedScorecardVerification(day, playerId).mismatches.length
-        : 0,
-      emergencyFinalised = explicitlyRecoveredPlayer(day, playerId),
-      finalised =
-        eventComplete ||
-        (roundFinalisedFor(day, playerId) &&
-          ((emergencyFinalised && official.complete) ||
-            (verificationIssues === 0 && markedVerificationIssues === 0))),
-      issues = official.complete && !finalised
-        ? verificationIssues + markedVerificationIssues
-        : 0,
-      next = seq[Math.min(entered, 17)],
-      joined = Boolean(
-        (store.cloudPlayers || []).find(
-          (x) => String(x.playerId) === String(playerId),
-        )?.joined,
-      );
-    const manualCard = ctx
-      ? submittedManualCard(day, ctx.groupIndex)
-      : null;
-    if (manualCard) {
-      return {
-        playerId: String(playerId),
-        joined,
-        entered: 18,
-        finalised: true,
-        issues: 0,
-        state: "finalised",
-        label: "Complete",
-        detail: "Official paper team card submitted",
-        group: ctx.groupIndex + 1,
-      };
-    }
-    if (ambroseIsOn(store.event, day) && ctx) {
-      const checks = Array.from({ length: 18 }, (_, index) =>
-          ambroseHoleAgreement(day, ctx.groupIndex, index + 1),
-        ),
-        ambroseEntered = checks.filter((check) => check.scorerDone).length,
-        ambroseIssues = checks.filter((check) => check.mismatch).length,
-        ambroseFinalised =
-          store.event.status === "complete" ||
-          Boolean(store.event.roundFinalised?.["day" + day]?.[String(playerId)]) ||
-          ambroseTeamComplete(day, ctx.groupIndex);
-      let ambroseState = "notStarted",
-        ambroseLabel = "Not started",
-        ambroseDetail = joined ? "Connected ¬∑ ready to start" : "Phone not joined";
-      if (ambroseEntered) {
-        ambroseState = "playing";
-        ambroseLabel = "Playing";
-        ambroseDetail = `${ambroseEntered} of 18 team scores entered`;
-      }
-      if (ambroseIssues) {
-        ambroseState = "attention";
-        ambroseLabel = "Attention";
-        ambroseDetail = `${ambroseIssues} hole${ambroseIssues === 1 ? "" : "s"} need checking`;
-      }
-      if (ambroseTeamComplete(day, ctx.groupIndex) && !ambroseFinalised) {
-        ambroseState = "ready";
-        ambroseLabel = "Ready to finalise";
-        ambroseDetail = "Team score and selected drives are complete";
-      }
-      if (ambroseFinalised) {
-        ambroseState = "finalised";
-        ambroseLabel = "Complete";
-        ambroseDetail = "Ambrose team card complete";
-      }
-      return {
-        playerId: String(playerId), joined, entered: ambroseEntered,
-        finalised: ambroseFinalised, issues: ambroseIssues,
-        state: ambroseState, label: ambroseLabel, detail: ambroseDetail,
-        group: ctx.groupIndex + 1,
-      };
-    }
-    let state = "notStarted",
-      label = "Not started",
-      detail = joined ? "Connected ¬∑ ready to start" : "Phone not joined";
-    if (entered > 0 && entered < 18) {
-      state = "playing";
-      label = "Playing";
-      detail = `Hole ${next} next ¬∑ ${entered} of 18 entered`;
-    }
-    if (entered === 18 && issues) {
-      state = "attention";
-      label = "Attention";
-      detail = `${issues} hole${issues === 1 ? "" : "s"} need checking`;
-    }
-    if (entered === 18 && !issues) {
-      state = "ready";
-      label = "Ready to finalise";
-      detail = competitionIsOn("teamPutts", day)
-        ? "Both cards agree on all scores and putts"
-        : "Both cards agree on all scores";
-    }
-    if (finalised) {
-      state = "finalised";
-      label = "Complete";
-      detail = "Official card complete";
-    }
-    return {
-      playerId: String(playerId),
-      joined,
-      entered,
-      finalised,
-      issues,
-      state,
-      label,
-      detail,
-      group: (ctx?.groupIndex ?? 0) + 1,
-    };
-  }
-  function emergencyLog(entry) {
-    store.event.emergencyRecoveryLog =
-      store.event.emergencyRecoveryLog || [];
-    store.event.emergencyRecoveryLog.push({
-      ...entry,
-      at: new Date().toISOString(),
-      device: "organiser",
-    });
-  }
-  function emergencyFinaliseIfVerified(
-    day,
-    playerId,
-    organiserAccepted = false,
-  ) {
-    const id = String(playerId || "");
-    if (
-      !id ||
-      (organiserAccepted
-        ? !officialCardProgress(day, id).complete
-        : verificationIssueCount(day, id) !== 0)
-    )
-      return false;
-    const at = new Date().toISOString(),
-      round = scorerStore(day, id);
-    store.event.roundFinalised = store.event.roundFinalised || {};
-    store.event.roundFinalised["day" + day] =
-      store.event.roundFinalised["day" + day] || {};
-    store.event.roundFinalised["day" + day][id] = at;
-    round._meta = {
-      ...(round._meta || {}),
-      finalisedAt: at,
-      emergencyFinalised: true,
-    };
-    queueCloudRound(day, id);
-    return true;
-  }
-  function closeEmergencyRecovery() {
-    $("#modalShade").classList.remove("open");
-  }
-  function emergencyPlayerOptions(day, selected = "") {
-    return dayFieldIds(day)
-      .filter((id) => String(id) !== NO_PARTNER_ID)
-      .map(String)
-      .map(
-        (id) =>
-          `<option value="${esc(id)}" ${id === String(selected) ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`,
-      )
-      .join("");
-  }
-  function openEmergencyRecovery() {
-    const day = Math.min(
-      store.event.days || 1,
-      +(store.event.liveControlDay || 1),
-    );
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player‚ÄìMarker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button><button type="button" id="correctOfficialHole"><b>Correct One Official Hole</b><span>Fix an isolated accepted score or missing putts after checking the manual card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
-    $("#modalShade").classList.add("open");
-    $("#correctOfficialHole b").textContent = "Correct a Player‚Äôs Card";
-    $("#correctOfficialHole span").textContent =
-      "Select a player, work through every unconfirmed hole and save authoritative organiser corrections.";
-    $("#closeEmergencyRecovery").onclick = closeEmergencyRecovery;
-    $("#recoverSelfScores").onclick = () =>
-      renderSelfScoreRecovery(day);
-    $("#enterVirtualCard").onclick = () => renderVirtualCard(day);
-    $("#correctOfficialHole").onclick = () => renderOfficialHoleCorrection(day);
-  }
-  function officialRecordLocation(day, playerId, hole) {
-    const dayScores = scoringDayStore(day);
-    for (const [scorerId, round] of Object.entries(dayScores)) {
-      const record = round?.[String(hole)];
-      if (
-        String(record?.official?.playerId || "") === String(playerId) &&
-        (scoreEntered(record.official.gross) || scoreEntered(record.official.putts))
-      )
-        return { scorerId, record };
-    }
-    return null;
-  }
-  function renderOfficialHoleCorrection(day, selectedPlayerId, selectedHole = 1) {
-    const ids = dayFieldIds(day)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String),
-      playerId = String(selectedPlayerId || ids[0] || ""),
-      hole = Math.max(1, Math.min(18, +selectedHole || 1)),
-      location = officialRecordLocation(day, playerId, hole),
-      correction = organiserCorrectionFor(day, playerId, hole),
-      official = correction || location?.record?.official || {},
-      unconfirmed = verificationIssueHoles(day, playerId);
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER CORRECTION ¬∑ DAY ${day}</small><h2>Correct a Player‚Äôs Card</h2><p>Use the signed card to correct an official entry. Organiser corrections are kept separately so an older phone upload cannot replace them.</p></div><div class="correctionWorklist"><label class="correctionHolePick">Select Hole<select id="correctionHole">${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === hole ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label><div class="unconfirmedHoles"><small>UNCONFIRMED HOLES</small><b>${unconfirmed.length ? unconfirmed.join(", ") : "None ‚Äî all holes agree"}</b></div></div><div class="officialCorrectionGrid"><label>Player<select id="correctionPlayer">${ids.map((id) => `<option value="${esc(id)}" ${id === playerId ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label><label>Gross strokes<input id="correctionGross" inputmode="text" maxlength="2" value="${esc(official.gross ?? "")}" placeholder="1‚Äì20 or P"></label><label>Putts<input id="correctionPutts" inputmode="numeric" maxlength="1" value="${esc(official.putts ?? "")}" placeholder="0‚Äì9"></label></div>${correction ? '<p class="recoveryNotice"><b>Authoritative organiser correction saved for this hole.</b></p>' : location ? `<p class="recoveryNotice">Current official entry found. Marker device: ${esc(player(location.scorerId)?.name || "Organiser recovery")}</p>` : '<p class="emergencyWarning"><b>No official entry is currently stored for this hole.</b><span>Select the correct player and hole, then enter the signed-card values.</span></p>'}<div class="emergencyActions"><button class="soft" id="backEmergency">‚Üê Back</button><button class="primary" id="saveOfficialCorrection">Save Organiser Correction</button></div>`;
-    $("#correctionPlayer").onchange = (event) =>
-      renderOfficialHoleCorrection(day, event.target.value, hole);
-    $("#correctionHole").onchange = (event) =>
-      renderOfficialHoleCorrection(day, playerId, +event.target.value);
-    $("#backEmergency").onclick = openEmergencyRecovery;
-    $("#saveOfficialCorrection").onclick = async () => {
-      let gross = $("#correctionGross").value.trim().toUpperCase(),
-        putts = $("#correctionPutts").value.trim();
-      if (gross === "-" || gross === "‚Äì") gross = "P";
-      if (
-        !scoreEntered(gross) ||
-        !scoreEntered(putts) ||
-        (gross !== "P" && (!Number.isInteger(+gross) || +gross < 1 || +gross > 20)) ||
-        !Number.isInteger(+putts) ||
-        +putts < 0 ||
-        +putts > 9 ||
-        (gross !== "P" && +putts > +gross)
-      )
-        return alert("Enter gross strokes from 1‚Äì20 (or P) and putts from 0‚Äì9.");
-      if (
-        !confirm(
-          `Record ${player(playerId)?.name || "Player"} ‚Äî Hole ${hole}: ${gross} strokes, ${putts} putts as the official organiser correction?`,
-        )
-      )
-        return;
-      const assignedScorer =
-          ids.find(
-            (id) => String(markerTargetFor(id, day)) === String(playerId),
-          ) || playerId,
-        target =
-          location ||
-          ({
-            scorerId: assignedScorer,
-            record: scoreRecord(day, assignedScorer, hole),
-          });
-      target.record.official = {
-        ...(target.record.official || {}),
-        playerId,
-        gross,
-        putts: +putts,
-        organiserCorrected: true,
-        correctedAt: new Date().toISOString(),
-      };
-      recordOrganiserCorrection(day, playerId, hole, {
-        gross,
-        putts: +putts,
-        scorerId: String(target.scorerId),
-        correctedAt: target.record.official.correctedAt,
-      });
-      if (store.event.roundFinalised?.["day" + day])
-        delete store.event.roundFinalised["day" + day][playerId];
-      const correctedPlayerRound = scorerStore(day, playerId);
-      if (correctedPlayerRound._meta?.finalisedAt)
-        delete correctedPlayerRound._meta.finalisedAt;
-      emergencyLog({
-        type: "organiser-hole-correction",
-        day,
-        playerId,
-        scorerId: target.scorerId,
-        hole,
-        gross,
-        putts: +putts,
-      });
-      writeLocalStore();
-      await flushCloudRound(day, target.scorerId);
-      await updateCloudEvent();
-      if (
-        verificationIssueCount(day, playerId) === 0 &&
-        markedScorecardVerification(day, playerId).mismatches.length === 0
-      )
-        emergencyFinaliseIfVerified(day, playerId, false);
-      renderHome();
-      renderLeaderboard();
-      alert("The official hole has been corrected and saved.");
-      renderOfficialHoleCorrection(day, playerId, hole);
-    };
-  }
-  function renderSelfScoreRecovery(day, failedScorerId) {
-    const ids = dayFieldIds(day)
-      .filter((id) => String(id) !== NO_PARTNER_ID)
-      .map(String);
-    const failed = String(failedScorerId || ids[0] || ""),
-      puttsRequired = competitionIsOn("teamPutts", day),
-      markedId = markerTargetFor(failed, day),
-      marked = player(markedId),
-      own = scoringDayStore(day)?.[String(markedId)] || {},
-      missing = [];
-    for (let h = 1; h <= 18; h++) {
-      const self = own[String(h)]?.self || {},
-        official = findOfficialForPlayer(day, markedId, h);
-      if (!official && scoreEntered(self.gross))
-        missing.push({ h, gross: self.gross, putts: self.putts });
-    }
-    const rows = missing.length
-      ? missing
-          .map(
-            (r) =>
-              `<tr><td>${r.h}</td><td><input class="recoveryEdit" data-recoverygross="${r.h}" inputmode="text" maxlength="2" value="${esc(r.gross)}" aria-label="Hole ${r.h} gross strokes"></td>${puttsRequired ? `<td><input class="recoveryEdit" data-recoveryputts="${r.h}" inputmode="numeric" maxlength="1" value="${scoreEntered(r.putts) ? esc(r.putts) : ""}" placeholder="Required" aria-label="Hole ${r.h} putts"></td>` : ""}<td>${scoreEntered(r.gross) && (!puttsRequired || scoreEntered(r.putts)) ? "Ready" : "Complete entry"}</td></tr>`,
-          )
-          .join("")
-      : '<tr><td colspan="4">No recoverable missing scores were found.</td></tr>';
-    const recoveryRowValid = (row) => {
-        const gross = String(row.gross ?? "").toUpperCase(),
-          putts = Number(row.putts);
-        return (
-          scoreEntered(gross) &&
-          (gross === "P" ||
-            (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20)) &&
-          (!puttsRequired || (scoreEntered(row.putts) &&
-            Number.isInteger(putts) && putts >= 0 && putts <= 9 &&
-            (gross === "P" || putts <= +gross)))
-        );
-      },
-      recoveryReady = () =>
-        missing.length > 0 && missing.every(recoveryRowValid);
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>PHONE FAILURE ¬∑ DAY ${day}</small><h2>Recover from Self-Scores</h2><p>Select the player whose phone failed. The app will find the official card that phone was marking.</p></div><label class="emergencySelect">Phone that failed<select id="failedScorer">${emergencyPlayerOptions(day, failed)}</select></label><div class="recoveryRelationship"><span><small>FAILED PHONE</small><b>${esc(player(failed)?.name || "Player")}</b></span><strong>was marking ‚Üí</strong><span><small>PLAYER TO RECOVER</small><b>${esc(marked?.name || "No marker partner found")}</b></span></div><p class="recoveryNotice">Compare every entry with the manually completed card. Fill any missing ${puttsRequired ? "score or putts" : "score"} before accepting. Existing official scores will not be changed.</p><div class="emergencyTableWrap"><table class="emergencyTable"><thead><tr><th>Hole</th><th>${esc(playerSurname(markedId))} self score</th>${puttsRequired ? "<th>Putts</th>" : ""}<th>Official entry</th></tr></thead><tbody>${rows}</tbody></table></div>${officialCardProgress(day, failed).complete ? `<label class="recoveryNotice"><input id="acceptFailedOfficial" type="checkbox" checked style="width:auto"> Also accept ${esc(player(failed)?.name || "the failed-phone player")}‚Äôs completed official card after checking it. Their failed phone cannot verify the remaining holes.</label>` : ""}<div class="emergencyActions"><button class="soft" id="backEmergency">‚Üê Back</button><button class="primary" id="acceptSelfRecovery" ${recoveryReady() ? "" : "disabled"}>Accept ${missing.length} Self-Score${missing.length === 1 ? "" : "s"} as Correct</button></div>`;
-    $("#failedScorer").onchange = (e) =>
-      renderSelfScoreRecovery(day, e.target.value);
-    $("#backEmergency").onclick = openEmergencyRecovery;
-    $$('[data-recoverygross], [data-recoveryputts]').forEach((input) => {
-      input.oninput = () => {
-        const h = +(input.dataset.recoverygross || input.dataset.recoveryputts),
-          row = missing.find((item) => item.h === h);
-        if (!row) return;
-        if (input.dataset.recoverygross) {
-          const value = input.value.trim().toUpperCase();
-          row.gross = value === "-" || value === "‚Äì" ? "P" : value;
-        } else row.putts = input.value.trim();
-        $("#acceptSelfRecovery").disabled = !recoveryReady();
-      };
-    });
-    if ($("#acceptSelfRecovery"))
-      $("#acceptSelfRecovery").onclick = async () => {
-        if (!recoveryReady()) return;
-        const acceptFailedOfficial = Boolean($("#acceptFailedOfficial")?.checked && officialCardProgress(day, failed).complete);
-        if (
-          !confirm(
-            `Copy ${missing.length} ${marked?.name || "player"} self-score entries into the missing official card?${acceptFailedOfficial ? ` Also accept ${player(failed)?.name || "the failed-phone player"}'s completed official card.` : ""}`,
-          )
-        )
-          return;
-        missing.forEach((r) => {
-          const rec = scoreRecord(day, failed, r.h);
-          if (!findOfficialForPlayer(day, markedId, r.h)) {
-            rec.official = {
-              playerId: String(markedId),
-              gross: r.gross,
-              ...(puttsRequired ? { putts: r.putts } : {}),
-              emergencyRecovered: true,
-              recoveredAt: new Date().toISOString(),
-            };
-            recordOrganiserCorrection(day, markedId, r.h, {
-              gross: r.gross,
-              ...(puttsRequired ? { putts: +r.putts } : {}),
-              scorerId: String(failed),
-              emergencyRecovered: true,
-            });
-          }
-        });
-        emergencyLog({
-          type: "self-score-copy",
-          day,
-          failedScorerId: failed,
-          recoveredPlayerId: String(markedId),
-          recoveredFailedPlayerId: acceptFailedOfficial ? failed : null,
-          failedSelfMissingHoles: acceptFailedOfficial ? Array.from({length:18}, (_,i) => i+1).filter(h => !scoreEntered(scorerStore(day, failed)[String(h)]?.self?.gross)) : [],
-          holes: missing.map((x) => x.h),
-        });
-        emergencyFinaliseIfVerified(day, markedId, true);
-        if (acceptFailedOfficial) emergencyFinaliseIfVerified(day, failed, true);
-        writeLocalStore();
-        if (store.cloud?.role === "organiser" && store.cloud?.eventId) {
-          await flushCloudRound(day, failed);
-          await flushCloudRound(day, markedId);
-          await updateCloudEvent();
-        }
-        closeEmergencyRecovery();
-        renderHome();
-        renderLeaderboard();
-        alert(`${marked?.name || "Player"}'s missing official scores have been recovered.`);
-      };
-  }
-  function virtualCardWarnings(values) {
-    const warnings = [];
-    values.forEach((row) => {
-      [
-        ["Player", row.selfGross, row.selfPutts],
-        ["Partner", row.officialGross, row.officialPutts],
-      ].forEach(([label, gross, putts]) => {
-        if (!scoreEntered(gross) || !scoreEntered(putts))
-          warnings.push(`Hole ${row.h}: ${label} entry is incomplete.`);
-        else if (
-          String(gross).toUpperCase() !== "P" &&
-          (+gross < 1 || +gross > 20)
-        )
-          warnings.push(`Hole ${row.h}: ${label} score must be 1‚Äì20 or P.`);
-        else if (+putts < 0 || +putts > 9)
-          warnings.push(`Hole ${row.h}: ${label} putts must be 0‚Äì9.`);
-        else if (String(gross).toUpperCase() !== "P" && +putts > +gross)
-          warnings.push(`Hole ${row.h}: ${label} putts exceed total strokes.`);
-      });
-    });
-    return warnings;
-  }
-  function renderVirtualCard(day, scorerId) {
-    const ids = dayFieldIds(day)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String),
-      scorer = String(scorerId || ids[0] || ""),
-      targetId = markerTargetFor(scorer, day),
-      c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day,store.event,scorer),
-      existing = Object.keys(scoringDayStore(day)?.[scorer] || {}).filter(
-        (x) => /^\d+$/.test(x),
-      ).length;
-    const rows = Array.from({ length: 18 }, (_, i) => {
-      const h = i + 1;
-      return `<tr><td><b>${h}</b><small>Par ${v.par?.[i] || "‚Äî"}</small></td><td><input aria-label="${esc(player(scorer)?.name || "Player")} Hole ${h} strokes" data-vcard="${h}|selfGross" inputmode="text" maxlength="2"></td><td><input aria-label="${esc(player(scorer)?.name || "Player")} Hole ${h} putts" data-vcard="${h}|selfPutts" inputmode="numeric" maxlength="1"></td><td><input aria-label="${esc(player(targetId)?.name || "Partner")} Hole ${h} strokes" data-vcard="${h}|officialGross" inputmode="text" maxlength="2"></td><td><input aria-label="${esc(player(targetId)?.name || "Partner")} Hole ${h} putts" data-vcard="${h}|officialPutts" inputmode="numeric" maxlength="1"></td></tr>`;
-    }).join("");
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>COMPLETE CARD ¬∑ DAY ${day}</small><h2>Enter Player‚ÄìMarker Card</h2><div class="virtualCourseName"><small>COURSE SCORECARD</small><b>${esc(c?.name || "Course not selected")}</b></div><p>Enter <b>gross strokes taken</b> from MiScore or the manual card. Away Golf calculates Stableford points automatically.</p></div><label class="emergencySelect">Virtual player / scorer<select id="virtualScorer">${emergencyPlayerOptions(day, scorer)}</select></label><div class="virtualCardNames"><span><small>SELF-CHECK CARD</small><b>${esc(player(scorer)?.name || "Player")}</b></span><span><small>OFFICIAL CARD BEING MARKED</small><b>${esc(player(targetId)?.name || "Marker partner")}</b></span></div>${existing ? `<div class="emergencyWarning"><b>Card already contains ${existing} hole${existing === 1 ? "" : "s"}.</b><span>Complete-card entry is disabled so existing phone scores cannot be overwritten.</span></div>` : ""}<p class="fastEntryHelp">Enter gross strokes and press Return to move to the next box. Zero putts is valid. Enter <b>P</b> or <b>‚Äì</b> for a pickup.</p><div class="emergencyTableWrap virtualCardWrap"><table class="emergencyTable virtualCard"><thead><tr><th>Hole</th><th>${esc(playerSurname(scorer))}<br>Gross Strokes</th><th>${esc(playerSurname(scorer))}<br>Putts</th><th>${esc(playerSurname(targetId))}<br>Official Strokes</th><th>${esc(playerSurname(targetId))}<br>Putts</th></tr></thead><tbody>${rows}</tbody></table></div><div id="virtualCardCheck" class="virtualCardCheck">0 of 72 entries completed</div><div class="emergencyActions"><button class="soft" id="backEmergency">‚Üê Back</button><button class="primary" id="reviewVirtualCard" ${existing ? "disabled" : ""}>Review Card</button></div>`;
-    $("#virtualScorer").onchange = (e) =>
-      renderVirtualCard(day, e.target.value);
-    $("#backEmergency").onclick = openEmergencyRecovery;
-    const inputs = $$('[data-vcard]');
-    const updateCount = () => {
-      const n = inputs.filter((x) => x.value.trim() !== "").length;
-      $("#virtualCardCheck").textContent = `${n} of 72 entries completed`;
-    };
-    inputs.forEach((input, i) => {
-      input.oninput = () => {
-        const scoreField = /Gross$/.test(input.dataset.vcard || "");
-        input.value = scoreField
-          ? input.value.toUpperCase().replace(/[‚Äì‚Äî-]/g, "P").replace(/[^0-9P]/g, "")
-          : input.value.replace(/[^0-9]/g, "");
-        if (scoreField && input.value.includes("P")) input.value = "P";
-        updateCount();
-      };
-      input.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          inputs[i + 1]?.focus();
-          inputs[i + 1]?.select();
-        }
-      };
-    });
-    $("#reviewVirtualCard").onclick = () => {
-      const values = Array.from({ length: 18 }, (_, i) => {
-        const h = i + 1,
-          get = (key) =>
-            $(`[data-vcard="${h}|${key}"]`).value.trim().toUpperCase();
-        return {
-          h,
-          selfGross: get("selfGross"),
-          selfPutts: get("selfPutts"),
-          officialGross: get("officialGross"),
-          officialPutts: get("officialPutts"),
-        };
-      });
-      const warnings = virtualCardWarnings(values);
-      if (warnings.length) {
-        $("#virtualCardCheck").innerHTML = `<b>Check ${warnings.length} entr${warnings.length === 1 ? "y" : "ies"}</b><span>${warnings.slice(0, 6).map(esc).join("<br>")}${warnings.length > 6 ? `<br>‚Ä¶and ${warnings.length - 6} more` : ""}</span>`;
-        $("#virtualCardCheck").classList.add("hasWarnings");
-        return;
-      }
-      if (
-        !confirm(
-          `Accept the complete Player‚ÄìMarker card for ${player(scorer)?.name || "this player"}?`,
-        )
-      )
-        return;
-      values.forEach((r) => {
-        const rec = scoreRecord(day, scorer, r.h);
-        rec.self = {
-          playerId: scorer,
-          gross: r.selfGross,
-          putts: +r.selfPutts,
-          emergencyEntered: true,
-        };
-        rec.official = {
-          playerId: String(targetId),
-          gross: r.officialGross,
-          putts: +r.officialPutts,
-          emergencyEntered: true,
-        };
-        recordOrganiserCorrection(day, targetId, r.h, {
-          gross: r.officialGross,
-          putts: +r.officialPutts,
-          scorerId: String(scorer),
-          emergencyEntered: true,
-        });
-      });
-      emergencyLog({
-        type: "virtual-player-marker-card",
-        day,
-        scorerId: scorer,
-        markedPlayerId: String(targetId),
-        holes: Array.from({ length: 18 }, (_, i) => i + 1),
-      });
-      emergencyFinaliseIfVerified(day, scorer, true);
-      emergencyFinaliseIfVerified(day, targetId, true);
-      writeLocalStore();
-      queueCloudRound(day, scorer);
-      closeEmergencyRecovery();
-      renderHome();
-      renderLeaderboard();
-      alert("The complete Player‚ÄìMarker card has been accepted.");
-    };
-    inputs[0]?.focus();
-  }
-  function emergencyRuleText(day, virtualId, affectedId, ntpExtraPlayers) {
-    const prefix = store.event.days > 1 ? `Day ${day}: ` : "";
-    const base = `${prefix}We are a player short for our Away Golf Event today. ${player(virtualId)?.name || "A player"} has been randomly selected to be the virtual player to partner ${player(affectedId)?.name || "the player with the missing partner"} in all multiplayer competitions.`;
-    const shots = Object.entries(ntpExtraPlayers || {}).map(([hole, id]) => `${player(id)?.name || "A player"} has been randomly selected to have 2 shots on the NTP hole ${hole}.`);
-    return [base, ...shots].join(" ");
-  }
-  function openMissingPlayerReplacement(day) {
-    initialiseGroups();
-    const key = "day" + day, setup = store.event.groupSetup?.[key];
-    if (!setup || store.event.emergencyReplacements?.[key]) {
-      alert(store.event.emergencyReplacements?.[key] ? "An emergency replacement has already been applied for this day." : "The groups for this day are not ready.");
-      return;
-    }
-    const ids = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>BEFORE PLAY ¬∑ DAY ${day}</small><h2>Emergency Missing Player</h2><p>Select the player who has not arrived. The change remains available until that player's group records its first score.</p></div><label class="emergencySelect">Select Missing Player<select id="missingPlayerSelect"><option value="">Choose player‚Ä¶</option>${ids.map((id) => { const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(id))), started = groupHasScoreEntries(day, groupIndex); return `<option value="${esc(id)}" ${started ? "disabled" : ""}>${esc(player(id)?.name || "Player")}${started ? " ‚Äî group already scoring" : ""}</option>`; }).join("")}</select></label><div id="missingPlayerPreview"></div><div class="emergencyActions"><button class="soft" id="cancelMissingPlayer">Cancel</button><button class="primary" id="applyMissingPlayer" disabled>Apply Emergency Replacement</button></div>`;
-    $("#modalShade").classList.add("open");
-    let proposal = null;
-    const propose = (missingId) => {
-      const groupIndex = setup.groups.findIndex((g) => g.map(String).includes(String(missingId))), group = setup.groups[groupIndex]?.map(String) || [], missingIndex = group.indexOf(String(missingId)), pairStart = missingIndex < 2 ? 0 : 2, affectedId = group.slice(pairStart, pairStart + 2).find((id) => id !== String(missingId)), realInGroup = group.filter((id) => id !== String(missingId) && id !== NO_PARTNER_ID), aggregatePartner = aggregatePar3Partner(missingId,day), candidates = ids.filter((id) => !group.includes(String(id)) && String(id) !== String(missingId) && String(id) !== aggregatePartner && !Object.values(setup.shortTeams||{}).some(a=>String(a.virtualPlayer)===String(id))), virtualId = chooseRandom(candidates), ntpExtraPlayers = {};
-      if (groupIndex < 0 || groupHasScoreEntries(day, groupIndex) || !affectedId || !virtualId || realInGroup.length !== 3) return null;
-      const shuffled = shuffleCopy(realInGroup);
-      ntpHolesInPlayingOrder(day).forEach((hole, i) => ntpExtraPlayers[String(hole)] = shuffled[i % shuffled.length]);
-      return { missingId: String(missingId), groupIndex, missingIndex, affectedId: String(affectedId), virtualId: String(virtualId), ntpExtraPlayers };
-    };
-    $("#missingPlayerSelect").onchange = (e) => {
-      proposal = propose(e.target.value); $("#applyMissingPlayer").disabled = !proposal;
-      $("#missingPlayerPreview").innerHTML = proposal
-        ? `<div class="emergencyWarning"><b>${esc(player(proposal.missingId)?.name)} will be removed from today‚Äôs draw.</b><span>${esc(player(proposal.virtualId)?.name)} will be the locked virtual player for ${esc(player(proposal.affectedId)?.name)}. The remaining three players will mark each other.</span>${Object.entries(proposal.ntpExtraPlayers).map(([hole, id]) => `<span>Hole ${hole} NTP extra attempt: ${esc(player(id)?.name)}</span>`).join("")}</div>`
-        : e.target.value
-          ? '<div class="emergencyWarning"><b>No emergency replacement is available.</b><span>An emergency replacement requires a four-player team that has not started scoring and an unused eligible Virtual Player outside that team.</span></div>'
-          : "";
-    };
-    $("#cancelMissingPlayer").onclick = () => $("#modalShade").classList.remove("open");
-    $("#applyMissingPlayer").onclick = async () => {
-      if (!proposal || !confirm(`Apply the emergency replacement for ${player(proposal.missingId)?.name}?`)) return;
-      if (groupHasScoreEntries(day, proposal.groupIndex)) {
-        alert("This group has now begun scoring, so its player arrangement can no longer be changed.");
-        return;
-      }
-      setup.groups[proposal.groupIndex][proposal.missingIndex] = NO_PARTNER_ID;
-      Object.assign(setup, { missingPlayerId: proposal.missingId, virtualPlayer: proposal.virtualId, ntpExtraPlayers: proposal.ntpExtraPlayers });
-      store.event.emergencyReplacements = store.event.emergencyReplacements || {};
-      store.event.emergencyReplacements[key] = { missingPlayerId: proposal.missingId, virtualPlayerId: proposal.virtualId, affectedPlayerId: proposal.affectedId, groupIndex: proposal.groupIndex, ntpExtraPlayers: proposal.ntpExtraPlayers, appliedAt: new Date().toISOString(), ruleText: emergencyRuleText(day, proposal.virtualId, proposal.affectedId, proposal.ntpExtraPlayers) };
-      ensureShortTeamSelections(setup,day);
-      persistStore();
-      if (store.cloud?.role === "organiser" && store.cloud.eventId) await updateCloudEvent();
-      $("#modalShade").classList.remove("open"); renderHome(); renderTeamsPage(); renderPlayerExperience();
-    };
-  }
-  function manualDayStore(day, create = true) {
-    if (!store.event) return null;
-    if (!store.event.manualScorecards && create)
-      store.event.manualScorecards = {};
-    const root = store.event.manualScorecards;
-    if (!root) return null;
-    const key = "day" + day;
-    if (!root[key] && create)
-      root[key] = { groups: {}, ntp: {}, status: "draft" };
-    return root[key] || null;
-  }
-  function manualDayFinalised(day) {
-    const dayStore = manualDayStore(day, false);
-    return Boolean(dayStore?.status === "submitted" && dayStore?.completedAt);
-  }
-  function manualGroupCard(day, groupIndex, create = true) {
-    const dayStore = manualDayStore(day, create);
-    if (!dayStore) return null;
-    dayStore.groups = dayStore.groups || {};
-    const key = String(groupIndex);
-    if (!dayStore.groups[key] && create) {
-      const setup = store.event?.groupSetup?.["day" + day],
-        ids = (setup?.groups?.[groupIndex] || [])
-          .map((id) =>
-            String(id) === NO_PARTNER_ID
-              ? String(setupForTeam(setup,groupIndex)?.virtualPlayer || "")
-              : String(id),
-          )
-          .filter(Boolean);
-      dayStore.groups[key] = {
-        status: "draft",
-        source: "paper-team-card",
-        playerIds: ids,
-        players: {},
-        pairs: {},
-        team: {},
-        updatedAt: new Date().toISOString(),
-      };
-    }
-    return dayStore.groups[key] || null;
-  }
-  function submittedManualCard(day, groupIndex) {
-    const card = manualGroupCard(day, groupIndex, false);
-    return card?.status === "submitted" ? card : null;
-  }
-  function manualCardForPlayer(day, playerId) {
-    const ctx = playerGroupContext(String(playerId), day);
-    return ctx ? submittedManualCard(day, ctx.groupIndex) : null;
-  }
-  function manualValue(object, path, fallback = "") {
-    let value = object;
-    for (const key of path.split(".")) {
-      if (value == null) return fallback;
-      value = value[key];
-    }
-    return value == null ? fallback : value;
-  }
-  function setManualValue(object, path, value) {
-    const keys = path.split(".");
-    let target = object;
-    keys.slice(0, -1).forEach((key) => {
-      target[key] = target[key] || {};
-      target = target[key];
-    });
-    target[keys[keys.length - 1]] = value;
-  }
-  function manualSummaryFields(prefix, values = {}, required = true) {
-    const field = (key, label, css = "") =>
-      `<label class="${css}"><span>${label}</span><input inputmode="numeric" pattern="[0-9]*" data-manual="${esc(prefix + "." + key)}" ${required && key === "total" ? "data-required" : ""} value="${esc(values[key] ?? "")}"></label>`;
-    return `<div class="manualSummaryFields">${field("total", "Total", "manualTotal")}${field("back9", "Back 9")}${field("last6", "Last 6")}${field("last3", "Last 3")}</div>`;
-  }
-  function manualSelectedCompetitions(day = store.event?.liveControlDay || 1) {
-    return new Set((store.event?.competitions || []).filter(id=>competitionIsOn(id,day)));
-  }
-  function manualPar3Holes(day, id = null) {
-    const ids=id==null?dayFieldIds(day).filter(x=>String(x)!==NO_PARTNER_ID):[id];
-    const cards=ids.length?ids.map(pid=>eventCourseScorecard(day,store.event,pid)):[eventCourseScorecard(day)];
-    return Array.from({length:18},(_,i)=>i+1).filter(hole=>cards.some(v=>+v.par?.[hole-1]===3));
-  }
-
-  function manualPlayerSummary(day, playerId, type) {
-    const card = manualCardForPlayer(day, playerId);
-    return card?.players?.[String(playerId)]?.[type] || null;
-  }
-  function manualPar3Point(day, playerId, hole) {
-    const gross = manualCardForPlayer(day, playerId)?.players?.[
-        String(playerId)
-      ]?.par3?.[String(hole)];
-    if (gross === "" || gross == null) return null;
-    const v = eventCourseScorecard(day,store.event,playerId);
-    if(+v.par?.[hole-1]!==3)return 0;
-    return stablefordPoints(
-      gross,
-      +(v.par?.[hole - 1] || 0),
-      v.index?.[hole - 1] ?? "",
-      playerDailyHandicap(playerId, day),
-    );
-  }
-  function manualPairSummary(day, unitId, type = "fourball") {
-    const match = String(unitId).match(/^d\d+g(\d+)p(\d+)$/);
-    if (!match) return null;
-    const card = submittedManualCard(day, +match[1]);
-    return card?.pairs?.["p" + match[2]]?.[type] || null;
-  }
-  function manualTeamSummary(day, unitId, type) {
-    const match = String(unitId).match(/^d\d+g(\d+)$/);
-    if (!match) return null;
-    return submittedManualCard(day, +match[1])?.team?.[type] || null;
-  }
-  function manualTeamHasPhoneScores(day, groupIndex) {
-    return Boolean(groupHasScoreEntries(day, groupIndex));
-  }
-  function manualRequirements(day, groupIndex) {
-    const comps = manualSelectedCompetitions(day),
-      setup = store.event?.groupSetup?.["day" + day],
-      raw = setup?.groups?.[groupIndex] || [],
-      virtualId = raw.some((id) => String(id) === NO_PARTNER_ID)
-        ? String(setupForTeam(setup,groupIndex)?.virtualPlayer || "")
-        : "",
-      ids = raw
-        .map((id) =>
-          String(id) === NO_PARTNER_ID ? virtualId : String(id),
-        )
-        .filter(Boolean);
-    return {
-      ids,
-      virtualId,
-      shortTeam: Boolean(virtualId),
-      single: comps.has("single") || comps.has("combined") || comps.has("capTeams"),
-      fourball: comps.has("fourball"),
-      best3: comps.has("best3of4"),
-      putting: comps.has("teamPutts"),
-      puttingPairs: store.event.puttingFormat === "pairs",
-      par3: comps.has("par3"),
-      ntp: comps.has("ntp"),
-      yellowBall: yellowBallIsOn(day),
-    };
-  }
-  function manualCalculatedSummary(values) {
-    const sum = (items) =>
-      items.reduce((total, value) => total + (value == null ? 0 : +value || 0), 0);
-    return {
-      total: String(sum(values)),
-      back9: String(sum(values.slice(9, 18))),
-      last6: String(sum(values.slice(12, 18))),
-      last3: String(sum(values.slice(15, 18))),
-    };
-  }
-  function manualYellowBallLoss(day, groupIndex, result) {
-    if (!result || !result.lossHole || result.lossHole === "NONE") return null;
-    const hole = +result.lossHole;
-    const position = scoreSequence(groupStartingHole(store.event, day, groupIndex)).indexOf(hole);
-    return position < 0 ? null : {hole, position, playerId: yellowBallPlayerForHole(day, groupIndex, hole), source: "paper-team-card"};
-  }
-  function deriveManualYellowBall(day, groupIndex, card, points) {
-    const result = card.team.yellowBall;
-    if (!result?.lossHole) return;
-    const sequence = scoreSequence(groupStartingHole(store.event, day, groupIndex));
-    const loss = manualYellowBallLoss(day, groupIndex, result);
-    const counting = sequence.slice(0, loss ? loss.position : sequence.length);
-    const values = counting.map(hole => points[yellowBallPlayerForHole(day, groupIndex, hole)]?.[hole - 1]);
-    result.total = values.every(value => value != null) ? String(values.reduce((sum, value) => sum + value, 0)) : "";
-  }
-  function deriveManualFullCards(day, groupIndex, card, req) {
-    if (!card.fullCardsOpen) return;
-    const points = {};
-    req.ids.forEach((id) => {
-      const gross = card.players?.[id]?.fullGross || {},v=eventCourseScorecard(day,store.event,id);
-      points[id] = Array.from({ length: 18 }, (_, index) => {
-        const value = gross[String(index + 1)];
-        return value === "" || value == null
-          ? null
-          : stablefordPoints(
-              value,
-              +(v.par?.[index] || 0),
-              v.index?.[index] ?? "",
-              playerDailyHandicap(id, day),
-            );
-      });
-      setManualValue(card, `players.${id}.single`, manualCalculatedSummary(points[id]));
-      manualPar3Holes(day).forEach((hole) => {
-        const value = gross[String(hole)];
-        setManualValue(
-          card,
-          `players.${id}.par3.${hole}`,
-          value === "" || value == null ? "" : value,
-        );
-      });
-      const putts = card.players?.[id]?.fullPuttsTotal;
-      if (putts !== "" && putts != null)
-        setManualValue(card, `players.${id}.putts.total`, String(+putts || 0));
-    });
-    if (req.yellowBall) deriveManualYellowBall(day, groupIndex, card, points);
-    [req.ids.slice(0, 2), req.ids.slice(2, 4)].forEach((ids, pairIndex) => {
-      const pairPoints = Array.from({ length: 18 }, (_, index) => {
-        const values = ids.map((id) => points[id]?.[index]);
-        return values.every((value) => value != null)
-          ? Math.max(...values)
-          : null;
-      });
-      setManualValue(
-        card,
-        `pairs.p${pairIndex}.fourball`,
-        manualCalculatedSummary(pairPoints),
-      );
-    });
-    const best3 = Array.from({ length: 18 }, (_, index) => {
-      const values = req.ids.map((id) => points[id]?.[index]);
-      if (!values.every((value) => value != null)) return null;
-      return values.sort((a, b) => b - a).slice(0, 3).reduce((n, value) => n + value, 0);
-    });
-    setManualValue(card, "team.best3", manualCalculatedSummary(best3));
-    const puttValues = req.ids.map(
-      (id) => card.players?.[id]?.fullPuttsTotal,
-    );
-    if (puttValues.some((value) => value !== "" && value != null)) {
-      const total = puttValues.reduce(
-        (sum, value) => sum + (value === "" || value == null ? 0 : +value || 0),
-        0,
-      );
-      setManualValue(card, "team.putts.total", String(total));
-    }
-  }
-  function syncManualCalculatedInputs(card) {
-    $("#modalContent")
-      .querySelectorAll("[data-manual]")
-      .forEach((input) => {
-        if (
-          input.dataset.manual.includes(".fullGross.") ||
-          input.dataset.manual.endsWith(".fullPuttsTotal")
-        )
-          return;
-        const value = manualValue(card, input.dataset.manual, "");
-        input.value = value;
-      });
-  }
-  function validateManualCard(card, host) {
-    const missing = [...host.querySelectorAll("[data-required]")].filter(
-      (input) => String(input.value).trim() === "",
-    );
-    if (missing.length) {
-      missing[0].focus();
-      alert(`Complete the remaining ${missing.length} highlighted field${missing.length === 1 ? "" : "s"} before submitting this team card.`);
-      missing.forEach((input) => input.classList.add("manualMissing"));
-      return false;
-    }
-    const invalid = [...host.querySelectorAll("[data-manual]")].find((input) => {
-      if (input.value === "") return false;
-      const grossEntry =
-        input.dataset.manual.includes(".fullGross.") ||
-        input.dataset.manual.includes(".par3.");
-      if (grossEntry && input.value.toUpperCase() === "P") return false;
-      if (!Number.isInteger(+input.value)) return true;
-      return grossEntry
-        ? +input.value < 1 || +input.value > 20
-        : +input.value < 0 || +input.value > 999;
-    });
-    if (invalid) {
-      invalid.focus();
-      alert("Enter whole numbers only, or P for a pickup on a gross-score card. Check the highlighted field.");
-      invalid.classList.add("manualMissing");
-      return false;
-    }
-    return Boolean(card);
-  }
-  function bindManualInputs(card, day, groupIndex, req) {
-    const inputs = [...$("#modalContent").querySelectorAll("[data-manual]")];
-    inputs.forEach((input, index) => {
-      input.oninput = () => {
-        input.classList.remove("manualMissing");
-        if (input.dataset.manual.includes(".fullGross."))
-          input.value = input.value
-            .toUpperCase()
-            .replace(/[‚Äì‚Äî-]/g, "P")
-            .replace(/[^0-9P]/g, "")
-            .slice(0, 2);
-        setManualValue(card, input.dataset.manual, input.value.trim());
-        deriveManualFullCards(day, groupIndex, card, req);
-        syncManualCalculatedInputs(card);
-        card.status = "draft";
-        card.updatedAt = new Date().toISOString();
-        writeLocalStore();
-        const saved = $("#manualSavedState");
-        if (saved) saved.textContent = "Saved on this device ‚úì";
-      };
-      input.onkeydown = (event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        inputs[index + 1]?.focus();
-        inputs[index + 1]?.select?.();
-      };
-    });
-  }
-  function renderManualTeamCard(day, groupIndex) {
-    const req = manualRequirements(day, groupIndex),
-      card = manualGroupCard(day, groupIndex),
-      playingCourse = course(store.event["course" + day]),
-      playingVersion = eventCourseScorecard(day),
-      comps = [],
-      summarySection = (title, body, note = "") =>
-        `<section class="manualEntrySection"><h3>${title}</h3>${note ? `<p>${note}</p>` : ""}${body}</section>`;
-    deriveManualFullCards(day, groupIndex, card, req);
-    const playerLabel = (id) =>
-        `${esc(player(id)?.name || "Player")}${id === req.virtualId ? " <small>(VIRTUAL PLAYER)</small>" : ""}`,
-      pairLabel = (ids) =>
-        ids
-          .map(
-            (id) =>
-              `<span class="manualPairPlayer">${playerLabel(id)}</span>`,
-          )
-          .join('<span class="manualPairAnd"> &amp; </span>'),
-      fullCardEntry = card.fullCardsOpen
-          ? `<section class="manualEntrySection manualFullCards"><div class="manualFullCardTitle"><div><h3>Individual Score Cards</h3><p>${req.shortTeam ? "Enter gross strokes from the three signed cards and the selected virtual player's card." : "Enter gross strokes from each player's signed card."} Enter P for a pickup.</p></div><div class="manualFullCardControls"><span>Calculated automatically</span><button type="button" class="soft" id="closeManualFullCards">Close Score Cards</button></div></div><div class="manualFullCardGrid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner" style="grid-column:1;grid-row:1">Hole</span><span class="manualPar3Corner" style="grid-column:2;grid-row:1">Par</span>${req.ids.map((id, playerIndex) => `<strong class="manualPar3Player" style="grid-column:${playerIndex + 3};grid-row:1">${playerLabel(id)}</strong>`).join("")}${Array.from({ length: 18 }, (_, index) => `<b class="manualPar3Hole" style="grid-column:1;grid-row:${index + 2}">${index + 1}</b><b class="manualFullCardPar" style="grid-column:2;grid-row:${index + 2}">${esc(playingVersion.par?.[index] ?? "‚Äì")}</b>`).join("")}${req.ids.map((id, playerIndex) => Array.from({ length: 18 }, (_, index) => `<input style="grid-column:${playerIndex + 3};grid-row:${index + 2}" inputmode="text" maxlength="2" data-required data-manual="players.${id}.fullGross.${index + 1}" value="${esc(card.players?.[id]?.fullGross?.[index + 1] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${index + 1} gross score, par ${esc(playingVersion.par?.[index] ?? "unknown")}">`).join("")).join("")}</div><div class="manualFullPutting"><h3>Team Putting</h3><div class="manualFullPuttingGrid" style="--manual-putting-count:${req.ids.length + 1}">${req.ids.map((id) => `<label><span>${playerLabel(id)}</span><input inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.fullPuttsTotal" value="${esc(card.players?.[id]?.fullPuttsTotal ?? "")}"></label>`).join("")}<label class="manualPuttingTotal"><span>Total</span><input readonly data-manual="team.putts.total" value="${esc(card.team?.putts?.total ?? "")}" aria-label="Team putting total"></label></div></div></section>`
-          : `<button type="button" class="primary manualOpenFullCards" id="openManualFullCards">Open Individual Score Cards</button>`;
-    if (req.single)
-      comps.push(
-        summarySection(
-          "Single Stableford",
-          req.ids
-            .map(
-              (id) =>
-                `<div class="manualEntryRow"><b>${playerLabel(id)}</b>${manualSummaryFields(`players.${id}.single`, card.players?.[id]?.single)}</div>`,
-            )
-            .join(""),
-          "Enter each player's signed-card total and countback figures.",
-        ),
-      );
-    if (req.fourball) {
-      const pairs = [req.ids.slice(0, 2), req.ids.slice(2, 4)].filter(
-        (ids) => ids.length,
-      );
-      comps.push(
-        summarySection(
-          "4BBB Stableford",
-          pairs
-            .map(
-              (ids, index) =>
-                `<div class="manualEntryRow"><b class="manualPairLabel">${pairLabel(ids)}</b>${manualSummaryFields(`pairs.p${index}.fourball`, card.pairs?.["p" + index]?.fourball)}</div>`,
-            )
-            .join(""),
-        ),
-      );
-    }
-    if (req.best3)
-      comps.push(
-        summarySection(
-          "Best 3 of 4 Stableford",
-          `<div class="manualEntryRow"><b>Team ${groupIndex + 1}</b>${manualSummaryFields("team.best3", card.team?.best3)}</div>`,
-        ),
-      );
-    if (req.putting) {
-      if (req.puttingPairs)
-        comps.push(
-          summarySection(
-            "Putting ‚Äî individual totals",
-            req.ids
-              .map(
-                (id) =>
-                  `<div class="manualEntryRow"><b>${playerLabel(id)}</b>${manualSummaryFields(`players.${id}.putts`, card.players?.[id]?.putts)}</div>`,
-              )
-              .join(""),
-            "The app will combine the configured putting partners automatically.",
-          ),
-        );
-      else
-        comps.push(
-          summarySection(
-            "Team Putting",
-            `<div class="manualEntryRow"><b>Team ${groupIndex + 1}</b>${manualSummaryFields("team.putts", card.team?.putts)}</div>`,
-            "Only the team totals are required for this event's putting format.",
-          ),
-        );
-    }
-    if (req.par3) {
-      const holes = manualPar3Holes(day);
-      comps.push(
-        summarySection(
-          "Par 3 Scores",
-          `<div class="manualPar3Grid" style="--manual-player-count:${req.ids.length}"><span class="manualPar3Corner">Hole</span>${req.ids
-            .map(
-              (id, playerIndex) =>
-                `<strong class="manualPar3Player" style="grid-column:${playerIndex + 2};grid-row:1">${playerLabel(id)}</strong>`,
-            )
-            .join("")}${holes
-            .map(
-              (hole, holeIndex) =>
-                `<b class="manualPar3Hole" style="grid-column:1;grid-row:${holeIndex + 2}">Hole ${hole}</b>`,
-            )
-            .join("")}${req.ids
-            .map((id, playerIndex) =>
-              holes
-                .map(
-                  (hole, holeIndex) =>
-                    `<input style="grid-column:${playerIndex + 2};grid-row:${holeIndex + 2}" inputmode="numeric" pattern="[0-9]*" data-required data-manual="players.${id}.par3.${hole}" value="${esc(card.players?.[id]?.par3?.[hole] ?? "")}" aria-label="${esc(player(id)?.name || "Player")} Hole ${hole} gross score">`,
-                )
-                .join(""),
-            )
-            .join("")}</div>`,
-          "Enter gross strokes. The app applies each player's handicap.",
-        ),
-      );
-    }
-    if (req.yellowBall) {
-      card.team.yellowBall ||= {total: "", lossHole: ""};
-      const result = card.team.yellowBall;
-      const sequence = scoreSequence(groupStartingHole(store.event, day, groupIndex));
-      comps.push(summarySection("Yellow Ball", `<label>Ball result<select id="manualYellowBallLoss" data-required><option value="">Choose result</option><option value="NONE" ${result.lossHole === "NONE" ? "selected" : ""}>Completed ‚Äî ball not lost</option>${sequence.map(hole => `<option value="${hole}" ${String(result.lossHole) === String(hole) ? "selected" : ""}>Lost on Hole ${hole} ‚Äî ${esc(player(yellowBallPlayerForHole(day, groupIndex, hole))?.name || "Player")}</option>`).join("")}</select></label><div class="manualEntryRow"><b>Yellow Ball points</b><label><span>Total</span><input inputmode="numeric" data-required data-manual="team.yellowBall.total" value="${esc(result.total ?? "")}"></label></div>`, "Count the nominated real golfer's Stableford points on each hole before the ball was lost. The loss hole does not count. Full score cards calculate this total automatically. Virtual Players never enter the rotation."));
-    }
-    const phoneWarning = manualTeamHasPhoneScores(day, groupIndex)
-      ? '<div class="manualConflict"><b>Phone scores already exist for this team.</b><span>Submitting this paper card makes its summary results authoritative. The underlying phone scores are retained.</span></div>'
-      : "";
-    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>RECORD ALL SCORES ¬∑ DAY ${day}</small><h2>Team ${groupIndex + 1} Paper Card</h2><p>${req.ids.map(playerLabel).join(" ¬∑ ")}</p></div>${phoneWarning}<p class="manualAdaptiveNote">Only fields required by this event's selected competitions are shown.</p>${fullCardEntry}<div class="manualEntryBody">${comps.join("")}</div><div class="manualStickyActions"><span id="manualSavedState">${card.updatedAt ? "Saved on this device ‚úì" : "Not yet saved"}</span><div><button class="soft" id="backManualDashboard">‚Üê Teams</button><button class="soft" id="saveManualDraft">Save Draft</button><button class="primary" id="submitManualCard">${card.status === "submitted" ? "Update Submitted Card" : "Submit Team Card"}</button></div></div>`;
-    bindManualInputs(card, day, groupIndex, req);
-    if ($("#manualYellowBallLoss")) $("#manualYellowBallLoss").onchange = e => {
-      card.team.yellowBall.lossHole = e.target.value;
-      card.status = "draft";
-      deriveManualFullCards(day, groupIndex, card, req);
-      syncManualCalculatedInputs(card);
-      writeLocalStore();
-    };
-    if (card.fullCardsOpen)
-      $("#modalContent")
-        .querySelectorAll("[data-manual]")
-        .forEach((input) => {
-          if (
-            !input.dataset.manual.includes(".fullGross.") &&
-            !input.dataset.manual.endsWith(".fullPuttsTotal")
-          ) {
-            input.readOnly = true;
-            input.classList.add("manualCalculated");
-          }
-        });
-    if ($("#openManualFullCards"))
-      $("#openManualFullCards").onclick = () => {
-        card.fullCardsOpen = true;
-        card.status = "draft";
-        card.updatedAt = new Date().toISOString();
-        writeLocalStore();
-        renderManualTeamCard(day, groupIndex);
-      };
-    if ($("#closeManualFullCards"))
-      $("#closeManualFullCards").onclick = () => {
-        card.fullCardsOpen = false;
-        card.status = "draft";
-        card.updatedAt = new Date().toISOString();
-        writeLocalStore();
-        renderManualTeamCard(day, groupIndex);
-      };
-    $("#backManualDashboard").onclick = () => renderManualScoresDashboard(day);
-    $("#saveManualDraft").onclick = () => {
-      card.updatedAt = new Date().toISOString();
-      writeLocalStore();
-      $("#manualSavedState").textContent = "Saved on this device ‚úì";
-    };
-    $("#submitManualCard").onclick = async () => {
-      if (!validateManualCard(card, $("#modalContent"))) return;
-      if (
-        !confirm(
-          `Submit Team ${groupIndex + 1}'s paper card as the authoritative Day ${day} result?`,
-        )
-      )
-        return;
-      card.status = "submitted";
-      card.submittedAt = new Date().toISOString();
-      card.updatedAt = card.submittedAt;
-      card.phoneScoresSuperseded = manualTeamHasPhoneScores(day, groupIndex);
-      writeLocalStore();
-      if (store.cloud?.role === "organiser" && store.cloud.eventId)
-        await updateCloudEvent();
-      renderHome();
-      renderLeaderboard();
-      renderManualScoresDashboard(day);
-    };
-  }
-  function renderManualNtpEditor(day) {
-    const dayStore = manualDayStore(day),
-      holes = ntpHolesInPlayingOrder(day),
-      ids = dayFieldIds(day)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String);
-    if (!holes.length) return "";
-    return `<section class="manualNtpEditor"><h3>Nearest the Pin</h3><p>Select the paper-card winner or Not Won.</p>${holes
-      .map(
-        (hole) =>
-          `<label><b>Hole ${hole}</b><select data-manual-ntp="${hole}"><option value="">Select result</option><option value="NONE" ${dayStore.ntp?.[hole] === "NONE" ? "selected" : ""}>Not Won</option>${ids.map((id) => `<option value="${esc(id)}" ${String(dayStore.ntp?.[hole] || "") === id ? "selected" : ""}>${esc(player(id)?.name || "Player")}</option>`).join("")}</select></label>`,
-      )
-      .join("")}</section>`;
-  }
-  function manualDayReady(day) {
-    const setup = store.event?.groupSetup?.["day" + day],
-      cardsReady = Boolean(
-        setup?.groups?.length &&
-          setup.groups.every((raw, index) => {
-            if (submittedManualCard(day, index)) return true;
-            const ids = raw
-              .map(String)
-              .filter((id) => id && id !== NO_PARTNER_ID);
-            return Boolean(
-              ids.length && ids.every((id) => livePlayerStatus(day, id).finalised),
-            );
-          }),
-      ),
-      comps = manualSelectedCompetitions(day),
-      ntpReady =
-        !comps.has("ntp") ||
-        ntpHolesInPlayingOrder(day).every(
-          (hole) => String(manualDayStore(day, false)?.ntp?.[hole] || "") !== "",
-        );
-    return cardsReady && ntpReady;
-  }
-  function renderManualScoresDashboard(day) {
-    const days = store.event.days || 1,
-      selectedDay = Math.max(1, Math.min(days, +day || 1)),
-      setup = store.event?.groupSetup?.["day" + selectedDay],
-      dayStore = manualDayStore(selectedDay),
-      groups = setup?.groups || [];
-    $("#modalContent").innerHTML = `<div class="emergencyHead manualEntryHead"><small>ORGANISER PAPER-CARD ENTRY</small><h2>Record All Scores</h2><p>Enter one signed team card at a time. Draft entries do not affect results.</p></div>${dayTabs("manualday", selectedDay, store.event, "manualDayTabs")}<div class="manualTeamDashboard">${groups
-      .map((raw, index) => {
-        const req = manualRequirements(selectedDay, index),
-          ids = req.ids,
-          card = manualGroupCard(selectedDay, index, false),
-          status = card?.status === "submitted" ? "Submitted ‚úì" : card ? "Draft" : "Not started";
-        return `<section class="manualTeamTile ${card?.status || "empty"}"><div><small>TEAM ${index + 1}</small><h3>${ids.map((id) => `${esc(player(id)?.name || "Player")}${id === req.virtualId ? ' <em class="manualVirtualLabel">(VIRTUAL PLAYER)</em>' : ""}`).join(" ¬∑ ")}</h3><span>${status}</span></div><button class="${card?.status === "submitted" ? "soft" : "primary"}" data-openmanualteam="${index}">${card?.status === "submitted" ? "Review / Edit" : card ? "Continue" : "Open Team Card"}</button></section>`;
-      })
-      .join("") || '<p class="leaderEmpty">Save the teams for this day before recording paper cards.</p>'}</div>${manualSelectedCompetitions(selectedDay).has("ntp") ? renderManualNtpEditor(selectedDay) : ""}<div class="manualDayFinish"><div><b>${manualDayReady(selectedDay) ? `Day ${selectedDay} entry complete ‚úì` : `Day ${selectedDay} remains in progress`}</b><span>${manualDayReady(selectedDay) ? "All paper cards and NTP results are ready for the leaderboards." : "Submit every team card and complete the NTP result before finishing the day."}</span></div><button class="primary" id="completeManualDay" ${manualDayReady(selectedDay) ? "" : "disabled"}>Complete Day ${selectedDay} Results</button></div><button class="soft emergencyClose" id="closeManualScores">Close</button>`;
-    $("#modalShade").classList.add("open");
-    $$('[data-manualday]').forEach(
-      (button) =>
-        (button.onclick = () => openManualScores(+button.dataset.manualday)),
-    );
-    $$('[data-openmanualteam]').forEach(
-      (button) =>
-        (button.onclick = () =>
-          renderManualTeamCard(selectedDay, +button.dataset.openmanualteam)),
-    );
-    $$('[data-manual-ntp]').forEach((select) => {
-      select.onchange = () => {
-        dayStore.ntp[select.dataset.manualNtp] = select.value;
-        dayStore.ntpFinalised = false;
-        writeLocalStore();
-        renderManualScoresDashboard(selectedDay);
-      };
-    });
-    $("#completeManualDay").onclick = async () => {
-      if (!manualDayReady(selectedDay)) return;
-      dayStore.status = "submitted";
-      dayStore.ntpFinalised = true;
-      dayStore.completedAt = new Date().toISOString();
-      writeLocalStore();
-      if (store.cloud?.role === "organiser" && store.cloud.eventId)
-        await updateCloudEvent();
-      renderHome();
-      renderLeaderboard();
-      renderManualScoresDashboard(selectedDay);
-    };
-    $("#closeManualScores").onclick = () =>
-      $("#modalShade").classList.remove("open");
-  }
-  function openManualScores(day = 1) {
-    if (ambroseIsOn(store.event, day)) {
-      alert("Ambrose paper-card entry will use its dedicated team score and selected-drives card in the next stage.");
-      return;
-    }
-    const selectedDay = Math.max(
-        1,
-        Math.min(store.event?.days || 1, +day || 1),
-      ),
-      unsupported = [
-      ["scratch", "Scratch"],
-      ["eclectic", "Eclectic"],
-    ].filter(([key]) => manualSelectedCompetitions(selectedDay).has(key));
-    if (unsupported.length) {
-      alert(
-        `Record All Scores does not yet support ${unsupported.map(([, label]) => label).join(", ")} on Day ${selectedDay}. Keep using phone scoring for that day, or remove that competition before entering paper cards.`,
-      );
-      return;
-    }
-    renderManualScoresDashboard(selectedDay);
-  }
-
-  function renderLiveEventControl() {
-    const host = $("#liveEventControl"),
-      basic = $("#basicEventProgress");
-    if (!host || !basic) return;
-    if (store.event?.status === "cancelled") {
-      host.innerHTML = "";
-      basic.style.display = "none";
-      return;
-    }
-    if (!store.event?.locked || isPlayerDevice() || isSpectatorDevice()) {
-      host.innerHTML = "";
-      basic.style.display = "";
-      return;
-    }
-    basic.style.display = "none";
-    const days = store.event.days || 1,
-      day = Math.min(
-        days,
-        +(store.event.liveControlDay || store.event.activeGroupDay || 1),
-      ),
-      ids = dayFieldIds(day)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String),
-      rows = ids
-        .map((id) => livePlayerStatus(day, id))
-        .sort(
-          (a, b) =>
-            a.group - b.group ||
-            (eventPlayer(a.playerId, day)?.name || "").localeCompare(
-              eventPlayer(b.playerId, day)?.name || "",
-            ),
-        ),
-      joined = rows.filter((x) => x.joined).length,
-      playing = rows.filter(
-        (x) => x.state === "playing" || x.state === "ready",
-      ).length,
-      attention = rows.filter((x) => x.state === "attention").length,
-      finalised = rows.filter((x) => x.finalised).length,
-      allFinal = Boolean(rows.length && finalised === rows.length),
-      scoringOpen = scoringIsOpen(day);
-    scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="replaceRealPlayer">${store.event.realPlayerSubstitutionPending ? "Retry Substitute Update" : "Replace Player"}</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>‚úì Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(eventPlayer(r.playerId, day)?.name || "Player")}</b><small>Group ${r.group} ¬∑ ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
-    if (!scoringOpen) {
-      const actions = host.querySelector(".liveControlActions");
-      actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
-      host.querySelector(".liveControlHead p").textContent = `Scoring opens at ${scoringOpeningLabel(day)}, 15 minutes before the first tee time.`;
-    }
-    $$("[data-liveday]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          store.event.liveControlDay = +b.dataset.liveday;
-          writeLocalStore();
-          renderLiveEventControl();
-        }),
-    );
-    $("#refreshLiveControl").onclick = async () => {
-      await syncCloudNow();
-      renderLiveEventControl();
-    };
-    $("#emergencyRecovery").onclick = openEmergencyRecovery;
-    $("#recordAllScores").onclick = () => openManualScores(day);
-    $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
-    $("#replaceRealPlayer").onclick = () => openPlayerSubstitution(day);
-    $("#liveOrganiserInstructions").onclick = openOrganiserInstructions;
-    if ($("#openScoringNow"))
-      $("#openScoringNow").onclick = async () => {
-        if (!confirm(`Open all Day ${day} scorecards now?`)) return;
-        store.event.scoringOpenedEarly = store.event.scoringOpenedEarly || {};
-        store.event.scoringOpenedEarly["day" + day] = true;
-        persistStore();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId)
-          await updateCloudEvent();
-        renderLiveEventControl();
-        renderPlayerExperience();
-      };
-    if ($("#openPrizeSummary"))
-      $("#openPrizeSummary").onclick = () => {
-        store.event.leaderboardView = "summary";
-        writeLocalStore();
-        nav("leaderboardPage");
-      };
-  }
-
-  function closeCloudConnection() {
-    cloudBusy = false;
-    clearTimeout(cloudReloadTimer);
-    cloudReloadTimer = null;
-    for (const timer of cloudRoundTimers.values()) clearTimeout(timer);
-    cloudRoundTimers.clear();
-    cloudRoundChains.clear();
-    lastCloudBundleSignature = "";
-    if (cloudChannel && AwayCloud?.client?.removeChannel)
-      AwayCloud.client.removeChannel(cloudChannel);
-    cloudChannel = null;
-  }
-  function openEventOptions() {
-    if (!store.event) return;
-    if (isGuestOrganiser()) {
-      $("#modalContent").innerHTML = `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>Your Guest Organiser access is limited to planning and operating this event.</p><div class="eventOptionActions"><button class="primary" id="continueEventSetup">Continue Event Setup</button><button class="soft" id="closeEventOptions">Close</button></div>`;
-      $("#modalShade").classList.add("open");
-      $("#continueEventSetup").onclick = () => {
-        $("#modalShade").classList.remove("open");
-        reopenEventPlan();
-      };
-      $("#closeEventOptions").onclick = () => $("#modalShade").classList.remove("open");
-      return;
-    }
-    if (store.event.testMode) {
-      alert("Use Testing Tools to change or finish the protected test event.");
-      return;
-    }
-    const cancelled = store.event.status === "cancelled";
-    $("#modalContent").innerHTML =
-      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Continue planning, cancel an event that will not proceed, or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : '<button class="primary" id="continueEventSetup">Continue Event Setup</button>'}${!cancelled&&store.event.locked&&+store.event.days>1?'<button class="primary" id="modifyFutureRounds">Modify Future Rounds</button>':""}${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
-    $("#modalShade").classList.add("open");
-    if ($("#cancelCurrentEvent"))
-      $("#cancelCurrentEvent").onclick = cancelCurrentEvent;
-    if ($("#continueEventSetup"))
-      $("#continueEventSetup").onclick = () => {
-        $("#modalShade").classList.remove("open");
-        reopenEventPlan();
-      };
-    if ($("#modifyFutureRounds")) $("#modifyFutureRounds").onclick = openFutureRoundEditor;
-    $("#deleteCurrentEvent").onclick = deleteCurrentEvent;
-    $("#clearPreviousTests").onclick = clearPreviousTestEvents;
-    $("#preparePlayerDevice").onclick = prepareDeviceForPlayerUse;
-    $("#closeEventOptions").onclick = () =>
-      $("#modalShade").classList.remove("open");
-  }
-  function eventDayStarted(day) {
-    if (eventDayComplete(day) || manualDayStore(day,false)?.status) return true;
-    if (Object.values(store.event.scoring?.["day"+day]||{}).some(round=>Object.keys(round||{}).some(key=>/^([1-9]|1[0-8])$/.test(key)))) return true;
-    return Object.keys(store.event.finalScores?.["day"+day]||{}).length>0;
-  }
-  function openFutureRoundEditor() {
-    const editable=eventDays().filter(day=>!eventDayStarted(day));
-    if(!editable.length)return alert("Every playing day has started or finished. Completed scoring cannot be changed.");
-    const ids=Object.keys(competitionNames).filter(id=>id!=="eclectic"||eclecticCourseGroups(store.event).length>0);
-    $("#modalContent").innerHTML=`<h2>Modify Future Rounds</h2><p>Only unstarted days can change. Completed and started rounds remain locked.</p><div class="futureRoundEditor">${eventDays().map(day=>{const locked=!editable.includes(day);return `<section class="${locked?"locked":""}"><h3>Day ${day} ${locked?"‚Äî Locked":""}</h3><label>Score entry method<select data-futuremethod="${day}" ${locked?"disabled":""}>${Object.entries(SCORING_METHODS).map(([value,label])=>`<option value="${value}" ${dayScoringMethod(day)===value?"selected":""}>${label}</option>`).join("")}</select></label><div class="futureCompetitions">${ids.map(id=>`<label><input type="checkbox" data-futurecomp="${day}|${id}" ${competitionIsOn(id,day)?"checked":""} ${locked?"disabled":""}> ${esc(competitionNames[id]||id)}</label>`).join("")}</div></section>`}).join("")}</div><button class="primary" id="saveFutureRounds">Publish Future-Round Update</button><button class="soft" id="cancelFutureRounds">Cancel</button>`;
-    $("#cancelFutureRounds").onclick=()=>openEventOptions();
-    $("#saveFutureRounds").onclick=async()=>{
-      const nextMethods={...(store.event.scoringMethods||{})}, nextDays=JSON.parse(JSON.stringify(store.event.competitionDays||{}));
-      editable.forEach(day=>{nextMethods["day"+day]=$(`[data-futuremethod="${day}"]`).value;ids.forEach(id=>{const all=new Set(competitionDays(id));$(`[data-futurecomp="${day}|${id}"]`).checked?all.add(day):all.delete(day);nextDays[id]=[...all].sort((a,b)=>a-b);});});
-      for(const day of editable){const active=(store.event.competitions||[]).filter(id=>(nextDays[id]||competitionDays(id)).includes(day));if(!active.length)return alert(`Day ${day} needs at least one competition.`);const conflicts=active.filter(id=>!finalScoreCompetitionAllowed(id,nextMethods["day"+day]));if(conflicts.length)return alert(`Day ${day} cannot use ${conflicts.map(id=>competitionNames[id]||id).join(", ")} with ${SCORING_METHODS[nextMethods["day"+day]]}.`);}
-      store.event.scoringMethods=nextMethods;store.event.competitionDays=nextDays;store.event.competitions=ids.filter(id=>(nextDays[id]||[]).length||((store.event.competitions||[]).includes(id)&&eventDays().some(day=>!editable.includes(day)&&competitionIsOn(id,day))));store.event.futureRoundRevision=(+store.event.futureRoundRevision||0)+1;store.event.finalUpdateAt=new Date().toISOString();save();
-      if(store.cloud?.role==="organiser"&&store.cloud.eventId)await updateCloudEvent();
-      alert("Future-round update published. Player phones will receive the revised competitions and scoring method.");$("#modalShade").classList.remove("open");renderHome();
-    };
-  }
-  async function prepareDeviceForPlayerUse() {
-    if (!confirm("Prepare THIS device for player use?\n\nAll organiser events saved on this device will be removed. Players and courses will remain. Supabase, the organiser PC and every other device will be unchanged.")) return;
-    if (!confirm("Final check: remove this device's organiser-event list now?")) return;
-    try {
-      localStorage.setItem(
-        PRE_DEVICE_CLEAR_BACKUP_KEY,
-        JSON.stringify(organiserBackupPayload()),
-      );
-      closeCloudConnection();
-      await releaseRoundWakeLock();
-      workspaceShrinkAuthorised = true;
-      store.eventWorkspace = [];
-      store.activeEventId = null;
-      store.event = null;
-      delete store.cloud;
-      store.cloudPlayers = [];
-      forgetOrganiserEvent();
-      localStorage.removeItem(RECENT_PUBLISHED_KEY);
-      localStorage.removeItem("awayGolfTestBackupV1");
-      localStorage.removeItem("awayGolfRidgeTestBackupV1");
-      writeLocalStore();
-      $("#modalShade").classList.remove("open");
-      applyDeviceRole();
-      renderHome();
-      renderPlayerExperience();
-      renderLeaderboard();
-      nav("home");
-      updateDeviceClearRecoveryButton();
-      alert("This device is ready for player use. Its organiser events were cleared locally; Supabase and all other devices were unchanged. Enter the new event code when it is supplied.");
-    } catch (error) {
-      alert("This device was not cleared. " + (error.message || error));
-    }
-  }
-  function updateDeviceClearRecoveryButton() {
-    const button = $("#restoreClearedOrganiserEvents");
-    if (button)
-      button.hidden = !localStorage.getItem(PRE_DEVICE_CLEAR_BACKUP_KEY);
-  }
-  async function restoreClearedOrganiserEvents() {
-    let safety = null;
-    try {
-      safety = JSON.parse(
-        localStorage.getItem(PRE_DEVICE_CLEAR_BACKUP_KEY) || "null",
-      );
-    } catch (_) {}
-    if (!safety) return updateDeviceClearRecoveryButton();
-    if (!confirm("Restore the organiser events that were cleared from this device?\n\nThis restores only the local backup and does not publish anything.")) return;
-    try {
-      await applyOrganiserBackup(safety, false);
-      localStorage.removeItem(PRE_DEVICE_CLEAR_BACKUP_KEY);
-      updateDeviceClearRecoveryButton();
-      alert("The organiser events on this device have been restored.");
-    } catch (error) {
-      alert("The organiser events could not be restored. " + (error.message || error));
-    }
-  }
-  async function clearPreviousTestEvents() {
-    if (
-      !confirm(
-        "Clear ALL previous test events?\n\nOnly published events with TEST in their event name will be archived. Genuine events will remain untouched. Connected test phones and tablets will be disconnected and local test scores will be removed. Players, courses and scorecards will remain.",
-      )
-    )
-      return;
-    if (!confirm("Final check: clear all previous test events now?")) return;
-    const button = $("#clearPreviousTests");
-    if (button) button.disabled = true;
-    try {
-      const archived = await AwayCloud.archiveAllOwnedEvents();
-      try {
-        await AwayCloud.saveWorkspace({ activePublishedEvent: null });
-      } catch (_) {}
-      closeCloudConnection();
-      workspaceShrinkAuthorised = true;
-      store.event = null;
-      delete store.cloud;
-      store.cloudPlayers = [];
-      forgetOrganiserEvent();
-      localStorage.removeItem("awayGolfTestBackupV1");
-      localStorage.removeItem("awayGolfRidgeTestBackupV1");
-      writeLocalStore();
-      $("#modalShade").classList.remove("open");
-      applyDeviceRole();
-      renderHome();
-      renderPlayerExperience();
-      renderLeaderboard();
-      nav("home");
-      alert(
-        `${archived.length} published test event${archived.length === 1 ? " was" : "s were"} cleared. Away Golf is ready to create the field-test event.`,
-      );
-    } catch (error) {
-      if (button) button.disabled = false;
-      alert(
-        "The test events were not cleared because the cloud cleanup did not complete. " +
-          (error.message || error),
-      );
-    }
-  }
-  async function cancelCurrentEvent() {
-    if (
-      !confirm(
-        `Cancel ${store.event?.name || "this event"}?\n\nPlayers will no longer be able to join or score. The event will remain on this device as a cancelled record.`,
-      )
-    )
-      return;
-    const previous = store.event.status;
-    store.event.status = "cancelled";
-    store.event.cancelledAt = new Date().toISOString();
-    if (store.cloud?.role === "organiser" && store.cloud.eventId) {
-      try {
-        await AwayCloud.updateEvent(
-          store.cloud.eventId,
-          cloudPayload(),
-          "archived",
-        );
-      } catch (error) {
-        store.event.status = previous;
-        delete store.event.cancelledAt;
-        return alert(
-          "The event was not cancelled because the player connection could not be closed. " +
-            (error.message || error),
-        );
-      }
-      try { await AwayCloud.saveWorkspace({ activePublishedEvent: null }); } catch (_) {}
-    }
-    closeCloudConnection();
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    renderPlayerExperience();
-    alert(
-      "Event cancelled. It remains available as a record until you choose to delete it.",
-    );
-  }
-  async function deleteCurrentEvent() {
-    if (
-      !confirm(
-        `Permanently delete ${store.event?.name || "this event"} from this device?\n\nPlayers and courses will remain. This event setup and its locally stored scores will be removed.`,
-      )
-    )
-      return;
-    if (!confirm("Final check: delete this event now?")) return;
-    if (store.cloud?.role === "organiser" && store.cloud.eventId) {
-      try {
-        await AwayCloud.updateEvent(
-          store.cloud.eventId,
-          cloudPayload(),
-          "archived",
-        );
-      } catch (error) {
-        return alert(
-          "The event was not deleted because its player connection could not be closed. " +
-            (error.message || error),
-        );
-      }
-      try { await AwayCloud.saveWorkspace({ activePublishedEvent: null }); } catch (_) {}
-    }
-    closeCloudConnection();
-    const deletedWorkspaceId = String(store.event?.workspaceId || store.activeEventId || "");
-    workspaceShrinkAuthorised = true;
-    store.eventWorkspace = (store.eventWorkspace || []).filter(
-      (item) => String(item.id) !== deletedWorkspaceId,
-    );
-    const nextWorkspaceEvent = [...store.eventWorkspace].sort((a, b) =>
-      eventWorkspaceDate(b).localeCompare(eventWorkspaceDate(a)),
-    )[0];
-    store.event = nextWorkspaceEvent?.event
-      ? JSON.parse(JSON.stringify(nextWorkspaceEvent.event))
-      : null;
-    store.activeEventId = nextWorkspaceEvent?.id || null;
-    delete store.cloud;
-    store.cloudPlayers = [];
-    forgetOrganiserEvent();
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    renderPlayerExperience();
-    renderLeaderboard();
-    nav("home");
-    alert(nextWorkspaceEvent ? "Event deleted. Your next event is now current." : "Event deleted. Away Golf is ready for a new event.");
-  }
-  $("#eventOptions").onclick = openEventOptions;
-  $("#myEvents").onclick = openMyEvents;
-  $("#publishedEvents").onclick = openPublishedEvents;
-  $("#pastEvents").onclick = openPastEvents;
-  $("#organiserBackup").onclick = openOrganiserBackup;
-  $("#ownerAccount").onclick = openOwnerAccount;
-  $("#guestOrganiserAccess").onclick = openGuestOrganiserAccess;
-
-  const OATLANDS_TEST_IDS = [
-    "p42",
-    "p11",
-    "p27",
-    "p6",
-    "p2",
-    "p17",
-    "p49",
-    "p1",
-  ];
-  const OATLANDS_SIXTEEN_IDS = [
-    ...OATLANDS_TEST_IDS,
-    "p3",
-    "p4",
-    "p5",
-    "p7",
-    "p8",
-    "p9",
-    "p12",
-    "p13",
-  ];
-  const OATLANDS_TEST_GROSS = {
-    day1: {
-      p42: [6, 4, 5, 7, 4, 7, 4, 6, 7, 5, 6, 6, 4, 7, 6, 6, 6, 5],
-      p11: [5, 5, 6, 7, 5, 5, 4, 7, 6, 5, 4, 4, 3, 6, 5, 6, 5, 6],
-      p27: [6, 4, 6, 5, 5, 5, 3, 5, 7, 4, 6, 5, 4, 8, 4, 7, 7, 5],
-      p6: [5, 4, 4, 5, 4, 5, 4, 5, 6, 6, 5, 7, 3, 8, 5, 5, 6, 6],
-      p2: [6, 3, 5, 7, 6, 6, 3, 7, 8, 5, 5, 6, 4, 8, 6, 7, 5, 6],
-      p17: [7, 4, 6, 6, 3, 7, 3, 5, 6, 4, 5, 5, 3, 8, 5, 6, 4, 6],
-      p49: [4, 3, 5, 4, 4, 4, 3, 4, 6, 6, 4, 6, 3, 5, 4, 6, 5, 5],
-      p1: [4, 3, 6, 6, 4, 4, 3, 4, 7, 3, 4, 5, 4, 4, 6, 5, 4, 4],
-    },
-    day2: {
-      p42: [6, 5, 7, 6, 6, 6, 4, 5, 6, 4, 5, 7, 5, 6, 7, 6, 6, 6],
-      p11: [5, 4, 6, 5, 4, 5, 4, 7, 5, 6, 5, 5, 4, 8, 6, 6, 7, 6],
-      p27: [4, 4, 5, 4, 4, 6, 3, 4, 8, 4, 5, 6, 5, 5, 7, 6, 6, 7],
-      p6: [7, 5, 5, 5, 5, 5, 4, 6, 6, 4, 5, 5, 4, 7, 7, 6, 5, 7],
-      p2: [6, 4, 6, 5, 5, 6, 3, 5, 4, 3, 5, 6, 7, 6, 5, 6, 3, 5],
-      p17: [4, 3, 6, 6, 4, 4, 3, 4, 7, 3, 4, 5, 4, 4, 6, 5, 4, 4],
-      p49: [5, 4, 5, 4, 5, 6, 3, 4, 7, 4, 5, 6, 4, 6, 6, 5, 6, 6],
-      p1: [6, 4, 5, 6, 4, 5, 4, 6, 7, 4, 6, 5, 4, 7, 5, 7, 6, 5],
-    },
-  };
-  const OATLANDS_TEST_HCP = {
-    day1: {
-      p42: 28,
-      p11: 19,
-      p27: 26,
-      p6: 17,
-      p2: 22,
-      p17: 17,
-      p49: 5,
-      p1: 10,
-    },
-    day2: {
-      p42: 28,
-      p11: 18,
-      p27: 21,
-      p6: 16,
-      p2: 14,
-      p17: 10,
-      p49: 17,
-      p1: 22,
-    },
-  };
-  Object.assign(OATLANDS_TEST_HCP.day1, {
-    p3: 15,
-    p4: 12,
-    p5: 23,
-    p7: 18,
-    p8: 20,
-    p9: 11,
-    p12: 16,
-    p13: 25,
-  });
-  Object.assign(OATLANDS_TEST_HCP.day2, {
-    p3: 15,
-    p4: 12,
-    p5: 23,
-    p7: 18,
-    p8: 20,
-    p9: 11,
-    p12: 16,
-    p13: 25,
-  });
-  const OATLANDS_EXTRA_BASE = {
-    p3: "p1",
-    p4: "p49",
-    p5: "p42",
-    p7: "p11",
-    p8: "p27",
-    p9: "p6",
-    p12: "p2",
-    p13: "p17",
-  };
-  function testGross(day, id) {
-    const key = "day" + day;
-    if (OATLANDS_TEST_GROSS[key][id]) return OATLANDS_TEST_GROSS[key][id];
-    const base = OATLANDS_TEST_GROSS[key][OATLANDS_EXTRA_BASE[id]],
-      seed = OATLANDS_SIXTEEN_IDS.indexOf(id);
-    return base.map((g, i) =>
-      Math.max(
-        2,
-        g + ((i + seed * 2) % 7 === 0 ? 1 : (i + seed) % 11 === 0 ? -1 : 0),
-      ),
-    );
-  }
-  function testCourse() {
-    return (
-      store.courses.find((c) => c.id === "test-oatlands-full-rounds") ||
-      store.courses.find((c) => /oatlands/i.test(c.name)) ||
-      store.courses[0]
-    );
-  }
-  function installTestCourse() {
-    if (store.courses.some((c) => c.id === "test-oatlands-full-rounds")) return;
-    const source = testCourse(),
-      base = JSON.parse(JSON.stringify(source)),
-      v = version(base) || {};
-    base.id = "test-oatlands-full-rounds";
-    base.name = "Oatlands GC ‚Äî Test Card";
-    base.available = true;
-    base.versions = [
-      {
-        ...v,
-        id: "test-oatlands-full-rounds-v1",
-        par: [4, 3, 4, 4, 3, 4, 3, 4, 5, 3, 4, 4, 3, 5, 4, 5, 4, 4],
-      },
-    ];
-    base.activeVersionId = "test-oatlands-full-rounds-v1";
-    store.courses.push(base);
-  }
-  function testPutts(gross, par, points, hole, seed) {
-    if (points >= 3 || gross <= par) return 1;
-    if (points === 0 || gross >= par + 3) return 3;
-    return gross >= par + 2 && (hole + seed) % 4 === 0 ? 3 : 2;
-  }
-  function makeTestDayScoring(day, groups) {
-    const key = "day" + day,
-      c = testCourse(),
-      v = version(c) || {},
-      scores = {},
-      hcp = OATLANDS_TEST_HCP[key],
-      ids = groups.flat().filter((id) => id !== NO_PARTNER_ID);
-    ids.forEach((id) => (scores[id] = {}));
-    const partner = {};
-    groups.forEach((g) => {
-      for (let i = 0; i < g.length; i += 2) {
-        partner[g[i]] = g[i + 1];
-        partner[g[i + 1]] = g[i];
-      }
-    });
-    ids.forEach((id, seed) => {
-      const gross = testGross(day, id);
-      for (let h = 1; h <= 18; h++) {
-        const g = gross[h - 1],
-          par = +(
-            v.par?.[h - 1] ||
-            [4, 3, 4, 4, 3, 4, 3, 4, 5, 3, 4, 4, 3, 5, 4, 5, 4, 4][h - 1]
-          ),
-          pts = stablefordPoints(g, par, v.index?.[h - 1] ?? "", hcp[id]),
-          putts = testPutts(g, par, pts, h, seed);
-        scores[id][h] = {
-          self: { playerId: id, gross: g, putts },
-          official: {
-            playerId: partner[id],
-            gross: testGross(day, partner[id])[h - 1],
-            putts: 0,
-          },
-          ntp: {},
-        };
-      }
-      scores[id]._meta = {
-        finalisedAt: `2026-08-${day === 1 ? "08" : "09"}T08:00:00.000Z`,
-      };
-    });
-    // The marker's official putts must match the marked player's self putts.
-    ids.forEach((id) => {
-      for (let h = 1; h <= 18; h++)
-        scores[id][h].official.putts = scores[partner[id]][h].self.putts;
-    });
-    const ntps =
-      day === 1 && store.event?.ntpJackpot
-        ? []
-        : day === 1
-        ? [
-            {
-              hole: 2,
-              winner: "p42",
-              scorer: "p11",
-              at: "2026-08-08T09:24:00+10:00",
-            },
-            {
-              hole: 2,
-              winner: "p27",
-              scorer: "p6",
-              at: "2026-08-08T10:15:00+10:00",
-            },
-            {
-              hole: 2,
-              winner: "p2",
-              scorer: "p17",
-              at: "2026-08-08T11:02:00+10:00",
-            },
-          ]
-        : [
-            {
-              hole: 5,
-              winner: "p42",
-              scorer: "p27",
-              at: "2026-08-09T09:18:00+10:00",
-            },
-            {
-              hole: 5,
-              winner: "p27",
-              scorer: "p2",
-              at: "2026-08-09T10:41:00+10:00",
-            },
-            {
-              hole: 10,
-              winner: "p6",
-              scorer: "p17",
-              at: "2026-08-09T09:46:00+10:00",
-            },
-            {
-              hole: 10,
-              winner: "p11",
-              scorer: "p1",
-              at: "2026-08-09T11:07:00+10:00",
-            },
-          ];
-    ntps.forEach((n) => {
-      scores[n.scorer][n.hole].ntp = {
-        entrantId: n.winner,
-        confirmedAt: n.at,
-        locked: true,
-      };
-    });
-    return scores;
-  }
-  function buildOatlandsTestEvent() {
-    const c = testCourse(),
-      d1 = [
-        ["p42", "p11", "p27", "p6"],
-        ["p2", "p17", "p49", "p1"],
-      ],
-      d2 = [
-        ["p42", "p27", "p2", "p49"],
-        ["p11", "p6", "p17", "p1"],
-      ];
-    return {
-      name: "TEST ‚Äî Oatlands Two-Day Championship",
-      date: "2026-08-08",
-      days: 2,
-      testMode: true,
-      status: "locked",
-      locked: true,
-      lockedAt: new Date().toISOString(),
-      startMethod: "single",
-      startMethods: { day1: "single", day2: "single" },
-      startHoles: { day1: [1], day2: [13] },
-      course1: c.id,
-      course2: c.id,
-      fieldSize: 8,
-      confirmed: [...OATLANDS_TEST_IDS],
-      dayFields: { day1: [...OATLANDS_TEST_IDS], day2: [...OATLANDS_TEST_IDS] },
-      dayAvailability: Object.fromEntries(
-        OATLANDS_TEST_IDS.map((id) => [id, { 1: true, 2: true }]),
-      ),
-      competitions: [
-        "combined",
-        "fourball",
-        "teamPutts",
-        "best3of4",
-        "par3",
-        "ntp",
-        "scratch",
-        "eclectic",
-      ],
-      singleStablefordFormat: "aggregate",
-      puttingFormat: "team",
-      par3Format: "aggregate",
-      ntpDay2Count: 2,
-      ntpJackpot: true,
-      ntpSelections: { day1: [2], day2: [5, 10] },
-      benefits: {
-        combined: { balls: 3, plus: true },
-        fourball: { balls: 3 },
-        teamPutts: { balls: 2 },
-        best3of4: { mode: "lottery", contribution: 10 },
-        par3: { balls: 2 },
-        ntp: { balls: 4 },
-        scratch: { balls: 3 },
-        eclectic: { balls: 3 },
-      },
-      specialRules:
-        "TEST EVENT ‚Äî scores are based on genuine Oatlands rounds. Missing historical scores and putts have been completed with realistic test values.",
-      dailyHandicaps: JSON.parse(JSON.stringify(OATLANDS_TEST_HCP)),
-      groupSetup: {
-        day1: { groups: d1, starts: [1, 1], saved: true },
-        day2: { groups: d2, starts: [13, 13], saved: true },
-      },
-      roundFinalised: { day1: {}, day2: {} },
-      scoring: { day1: {}, day2: {} },
-      liveControlDay: 1,
-      leaderboardView: "summary",
-    };
-  }
-  function buildOatlandsOneDayTestEvent() {
-    const e = buildOatlandsTestEvent();
-    e.name = "TEST ‚Äî Oatlands One-Day Championship";
-    e.days = 1;
-    e.testKind = "oneDay";
-    e.competitions = [
-      "single",
-      "fourball",
-      "teamPutts",
-      "best3of4",
-      "par3",
-      "ntp",
-      "scratch",
-    ];
-    e.benefits = {
-      single: { balls: 3, plus: true },
-      fourball: { balls: 3 },
-      teamPutts: { balls: 2 },
-      best3of4: { mode: "lottery", contribution: 10 },
-      par3: { balls: 2 },
-      ntp: { balls: 2 },
-      scratch: { balls: 3 },
-    };
-    e.par3Format = "daily";
-    e.ntpSelections = { day1: [2] };
-    e.groupSetup = { day1: e.groupSetup.day1 };
-    e.dayFields = { day1: [...OATLANDS_TEST_IDS] };
-    e.scoring = { day1: {} };
-    e.roundFinalised = { day1: {} };
-    e.liveControlDay = 1;
-    e.leaderboardView = "summary";
-    delete e.course2;
-    delete e.singleStablefordFormat;
-    return e;
-  }
-  function buildOatlandsSixteenPlayerTestEvent() {
-    const e = buildOatlandsOneDayTestEvent(),
-      ids = [...OATLANDS_SIXTEEN_IDS],
-      groups = [
-        ids.slice(0, 4),
-        ids.slice(4, 8),
-        ids.slice(8, 12),
-        ids.slice(12, 16),
-      ];
-    e.name = "TEST ‚Äî Oatlands 16-Player Dress Rehearsal";
-    e.testKind = "sixteen";
-    e.fieldSize = 16;
-    e.confirmed = ids;
-    e.dayFields = { day1: ids };
-    e.dayAvailability = Object.fromEntries(ids.map((id) => [id, { 1: true }]));
-    e.dailyHandicaps = {
-      day1: Object.fromEntries(
-        ids.map((id) => [id, OATLANDS_TEST_HCP.day1[id]]),
-      ),
-    };
-    e.groupSetup = { day1: { groups, starts: [1, 1, 1, 1], saved: true } };
-    e.specialRules =
-      "PROTECTED 16-PLAYER DRESS REHEARSAL ‚Äî four groups, eight 4BBB pairs and every one-day competition. Test data is local and cannot be published.";
-    return e;
-  }
-  function loadTestStage(stage) {
-    const e = store.event;
-    if (!e?.testMode) return;
-    e.scoring = { day1: {}, day2: {} };
-    e.roundFinalised = { day1: {}, day2: {} };
-    e.prizesAwarded = {};
-    const ids = e.dayFields?.day1 || e.confirmed || [];
-    if (stage >= 1) {
-      e.scoring.day1 = makeTestDayScoring(1, e.groupSetup.day1.groups);
-      ids.forEach(
-        (id) =>
-          (e.roundFinalised.day1[id] = e.scoring.day1[id]._meta.finalisedAt),
-      );
-    }
-    if (stage >= 2 && e.days === 2) {
-      e.scoring.day2 = makeTestDayScoring(2, e.groupSetup.day2.groups);
-      (e.dayFields?.day2 || ids).forEach(
-        (id) =>
-          (e.roundFinalised.day2[id] = e.scoring.day2[id]._meta.finalisedAt),
-      );
-    }
-    store.cloudPlayers =
-      e.testKind === "sixteen"
-        ? ids.map((id, i) => ({
-            playerId: id,
-            name: player(id)?.name || id,
-            joined: true,
-            joinedAt: `2026-08-08T${String(7 + Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 7).padStart(2, "0")}:00.000Z`,
-          }))
-        : [];
-    e.liveControlDay = stage >= 2 && e.days === 2 ? 2 : 1;
-    e.leaderboardView = "summary";
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    nav("home");
-  }
-  function beginOatlandsTest(kind = "twoDay") {
-    const label =
-      kind === "sixteen"
-        ? "16-player one-day dress rehearsal"
-        : `eight-player ${kind === "oneDay" ? "one-day" : "two-day"} Oatlands test`;
-    if (
-      !confirm(
-        `Load the protected ${label}? Your current event and cloud connection will be saved for restoration.`,
-      )
-    )
-      return;
-    if (!localStorage.getItem("awayGolfTestBackupV1"))
-      localStorage.setItem(
-        "awayGolfTestBackupV1",
-        JSON.stringify({
-          event: store.event || null,
-          cloud: store.cloud || null,
-          cloudPlayers: store.cloudPlayers || [],
-          courses: store.courses,
-        }),
-      );
-    closeCloudConnection();
-    delete store.cloud;
-    store.cloudPlayers = [];
-    installTestCourse();
-    store.event =
-      kind === "sixteen"
-        ? buildOatlandsSixteenPlayerTestEvent()
-        : kind === "oneDay"
-          ? buildOatlandsOneDayTestEvent()
-          : buildOatlandsTestEvent();
-    loadTestStage(1);
-  }
-  function switchOatlandsTest(kind) {
-    const label =
-      kind === "sixteen"
-        ? "16-player one-day dress rehearsal"
-        : `eight-player ${kind === "oneDay" ? "one-day" : "two-day"} test`;
-    if (
-      !confirm(
-        `Switch to the protected ${label}? Current test scores and awarded test prizes will be replaced.`,
-      )
-    )
-      return;
-    installTestCourse();
-    store.event =
-      kind === "sixteen"
-        ? buildOatlandsSixteenPlayerTestEvent()
-        : kind === "oneDay"
-          ? buildOatlandsOneDayTestEvent()
-          : buildOatlandsTestEvent();
-    loadTestStage(1);
-  }
-  function restoreBeforeTest() {
-    let backup;
-    try {
-      backup = JSON.parse(
-        localStorage.getItem("awayGolfTestBackupV1") || "null",
-      );
-    } catch (_) {
-      backup = null;
-    }
-    if (!backup) return alert("No saved event was found.");
-    if (!confirm("Restore the event that was open before the Oatlands test?"))
-      return;
-    store.event = backup.event;
-    store.cloud = backup.cloud;
-    store.cloudPlayers = backup.cloudPlayers || [];
-    if (backup.courses) store.courses = backup.courses;
-    else
-      store.courses = store.courses.filter(
-        (c) => c.id !== "test-oatlands-full-rounds",
-      );
-    localStorage.removeItem("awayGolfTestBackupV1");
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    renderCoursesAdmin();
-    if (store.cloud?.eventId) {
-      watchCloudEvent();
-      syncCloudNow();
-    }
-    nav("home");
-  }
-  const RIDGE_TEST_TOTALS = {
-    "sam reece": 40,
-    "jeremy ward": 38,
-    "grant lomas": 37,
-    "christian fong": 36,
-    "jerry maher": 36,
-    "peter rolfe": 35,
-    "rob blain": 35,
-    "ross smith": 34,
-    "ralph cadman": 34,
-    "david fairweather": 34,
-    "graeme hennessy": 33,
-    "ben mees": 32,
-    "ian priest": 31,
-    "bob valk": 30,
-    "luke bradshaw": 27,
-    "rod ruston": 25,
-  };
-  const RIDGE_TEST_PUTTS = {
-    "sam reece": 28,
-    "jeremy ward": 31,
-    "grant lomas": 30,
-    "christian fong": 30,
-    "jerry maher": 30,
-    "peter rolfe": 32,
-    "rob blain": 32,
-    "ross smith": 32,
-    "ralph cadman": 33,
-    "david fairweather": 34,
-    "graeme hennessy": 33,
-    "ben mees": 31,
-    "ian priest": 31,
-    "bob valk": 35,
-    "luke bradshaw": 35,
-    "rod ruston": 37,
-  };
-  function ridgeTestEligible() {
-    const e = store.event,
-      c = course(e?.course1),
-      ids = dayFieldIds(1).filter((id) => String(id) !== NO_PARTNER_ID);
-    return Boolean(
-      e?.locked &&
-        e?.days === 1 &&
-        ids.length === 16 &&
-        /ridge/i.test(c?.name || ""),
-    );
-  }
-  function ridgePointPattern(name, target, seed) {
-    if (name.toLowerCase() === "rod ruston")
-      return [1, 0, 2, 1, 2, 1, 2, 3, 2, 1, 2, 1, 0, 2, 2, 0, 2, 1];
-    const out = Array(18).fill(2),
-      order = Array.from(
-        { length: 18 },
-        (_, i) => (i * 7 + seed * 5) % 18,
-      ).filter((x, i, a) => a.indexOf(x) === i);
-    let delta = target - 36,
-      n = 0;
-    while (delta > 0) {
-      const i = order[n++ % order.length];
-      if (out[i] < 4) {
-        out[i]++;
-        delta--;
-      }
-    }
-    while (delta < 0) {
-      const i = order[n++ % order.length];
-      if (out[i] > 0) {
-        out[i]--;
-        delta++;
-      }
-    }
-    return out;
-  }
-  function ridgePuttPattern(name, target, points, seed) {
-    const out = Array(18).fill(2),
-      good = Array.from({ length: 18 }, (_, i) => i).sort(
-        (a, b) =>
-          points[b] - points[a] || ((a + seed) % 18) - ((b + seed) % 18),
-      ),
-      bad = [...good].reverse();
-    let delta = target - 36,
-      n = 0;
-    while (delta < 0) {
-      const i = good[n++ % 18];
-      if (out[i] > 1) {
-        out[i]--;
-        delta++;
-      }
-    }
-    n = 0;
-    while (delta > 0) {
-      const i = bad[n++ % 18];
-      if (out[i] < 3) {
-        out[i]++;
-        delta--;
-      }
-    }
-    return out;
-  }
-  function makeRidgeTestScoring() {
-    const e = store.event,
-      groups = e.groupSetup?.day1?.groups || [],
-      ids = groups
-        .flat()
-        .map(String)
-        .filter((id) => id !== NO_PARTNER_ID),
-      c = course(e.course1),
-      v = version(c) || {},
-      scores = {},
-      partner = {};
-    groups.forEach((raw) => {
-      const g = raw.map(String);
-      for (let i = 0; i < g.length; i += 2) {
-        if (g[i] && g[i + 1]) {
-          partner[g[i]] = g[i + 1];
-          partner[g[i + 1]] = g[i];
-        }
-      }
-    });
-    ids.forEach((id, seed) => {
-      const name = (player(id)?.name || "").trim(),
-        key = name.toLowerCase(),
-        target = RIDGE_TEST_TOTALS[key] ?? 30 + ((seed * 7) % 9),
-        points = ridgePointPattern(name, target, seed),
-        putts = ridgePuttPattern(
-          name,
-          RIDGE_TEST_PUTTS[key] ?? 30 + ((seed * 5) % 7),
-          points,
-          seed,
-        ),
-        hcp = playerDailyHandicap(id, 1);
-      scores[id] = {};
-      for (let h = 1; h <= 18; h++) {
-        const par = +(v.par?.[h - 1] || 4),
-          index = v.index?.[h - 1] ?? "",
-          stroke = stablefordStrokeCount(index, hcp),
-          gross = Math.max(1, par + stroke + 2 - points[h - 1]);
-        scores[id][h] = {
-          self: { playerId: id, gross, putts: putts[h - 1] },
-          official: { playerId: partner[id] || "", gross: "", putts: "" },
-          ntp: {},
-        };
-      }
-      scores[id]._meta = {
-        finalisedAt: `2026-08-22T${String(8 + Math.floor(seed / 4)).padStart(2, "0")}:${String((seed % 4) * 7).padStart(2, "0")}:00+10:00`,
-      };
-    });
-    ids.forEach((id) => {
-      const marked = partner[id];
-      for (let h = 1; h <= 18; h++) {
-        scores[id][h].official.gross = scores[marked][h].self.gross;
-        scores[id][h].official.putts = scores[marked][h].self.putts;
-      }
-    });
-    const hole = +(e.ntpSelections?.day1?.[0] || 0),
-      findId = (name) =>
-        ids.find(
-          (id) => (player(id)?.name || "").toLowerCase() === name.toLowerCase(),
-        );
-    if (hole) {
-      const changes = [
-        ["Rob Blain", "Jeremy Ward", "2026-08-22T09:24:00+10:00"],
-        ["Jerry Maher", "Sam Reece", "2026-08-22T10:15:00+10:00"],
-        ["Peter Rolfe", "Grant Lomas", "2026-08-22T11:02:00+10:00"],
-      ];
-      changes.forEach(([entrant, scorer, at], i) => {
-        const entrantId =
-            findId(entrant) || ids[Math.min(i * 5, ids.length - 1)],
-          scorerId = findId(scorer) || ids[Math.min(i * 5 + 1, ids.length - 1)];
-        scores[scorerId][hole].ntp = {
-          entrantId,
-          confirmedAt: at,
-          locked: true,
-        };
-      });
-    }
-    return scores;
-  }
-  function loadRidgeEventTest() {
-    if (!ridgeTestEligible())
-      return alert(
-        "The Ridge test requires a locked one-day event with exactly 16 players.",
-      );
-    if (
-      !confirm(
-        "Play and finalise all 16 Ridge test rounds now?\n\nYour complete locked event will be backed up. Test scores will remain local and can be removed afterwards.",
-      )
-    )
-      return;
-    if (!localStorage.getItem("awayGolfRidgeTestBackupV1"))
-      localStorage.setItem(
-        "awayGolfRidgeTestBackupV1",
-        JSON.stringify({
-          event: store.event,
-          cloud: store.cloud || null,
-          cloudPlayers: store.cloudPlayers || [],
-        }),
-      );
-    closeCloudConnection();
-    delete store.cloud;
-    const e = store.event,
-      ids = dayFieldIds(1)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map(String),
-      scores = makeRidgeTestScoring();
-    e.scoring = { ...(e.scoring || {}), day1: scores };
-    e.roundFinalised = { ...(e.roundFinalised || {}), day1: {} };
-    ids.forEach(
-      (id) => (e.roundFinalised.day1[id] = scores[id]._meta.finalisedAt),
-    );
-    e.prizesAwarded = {};
-    e.ridgeTestMode = true;
-    e.liveControlDay = 1;
-    e.leaderboardView = "summary";
-    store.cloudPlayers = ids.map((id, i) => ({
-      playerId: id,
-      name: player(id)?.name || id,
-      joined: true,
-      joinedAt: `2026-08-22T${String(7 + Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 6).padStart(2, "0")}:00+10:00`,
-    }));
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    renderLeaderboard();
-    nav("home");
-  }
-  function restoreRidgeEventAfterTest() {
-    let backup;
-    try {
-      backup = JSON.parse(
-        localStorage.getItem("awayGolfRidgeTestBackupV1") || "null",
-      );
-    } catch (_) {
-      backup = null;
-    }
-    if (!backup) return alert("No Ridge event backup was found.");
-    if (
-      !confirm(
-        "Remove every test score and restore the locked Ridge event exactly as it was before the test?",
-      )
-    )
-      return;
-    closeCloudConnection();
-    store.event = backup.event;
-    if (
-      store.event?.days === 1 &&
-      Array.isArray(store.event.competitions) &&
-      store.event.competitions.includes("combined")
-    ) {
-      store.event.competitions = store.event.competitions.filter(
-        (id) => id !== "combined",
-      );
-      if (!store.event.competitions.includes("single"))
-        store.event.competitions.push("single");
-    }
-    store.cloud = backup.cloud || undefined;
-    store.cloudPlayers = backup.cloudPlayers || [];
-    localStorage.removeItem("awayGolfRidgeTestBackupV1");
-    writeLocalStore();
-    $("#modalShade").classList.remove("open");
-    renderHome();
-    renderLeaderboard();
-    renderPlayerExperience();
-    if (store.cloud?.eventId) {
-      watchCloudEvent();
-      syncCloudNow();
-    }
-    nav("home");
-  }
-  function openTestEventTools() {
-    const ridgeActive = Boolean(store.event?.ridgeTestMode),
-      ridgeReady = ridgeTestEligible(),
-      ridgeBackup = Boolean(localStorage.getItem("awayGolfRidgeTestBackupV1")),
-      active = Boolean(store.event?.testMode),
-      oneDay = active && store.event.days === 1,
-      sixteen = store.event?.testKind === "sixteen",
-      backup = Boolean(localStorage.getItem("awayGolfTestBackupV1"));
-    if (ridgeActive || ridgeReady || ridgeBackup) {
-      $("#modalContent").innerHTML =
-        `<h2>The Ridge ‚Äî 16-Player Test</h2><p>Complete all 288 holes locally using the locked players, groups, handicaps and competitions. The original locked event is backed up before any scores are added.</p>${ridgeActive ? '<div class="testStageButtons"><button class="primary" id="openRidgeResults">Open Results Summary</button><button class="danger" id="restoreRidgeEvent">Remove Test Scores & Restore Event</button></div>' : '<div class="testStageButtons"><button class="primary" id="loadRidgeTest">Play All 16 Rounds</button></div>'}<button class="soft closeTestTools" id="closeTestTools">Close</button>`;
-      $("#modalShade").classList.add("open");
-      if ($("#loadRidgeTest")) $("#loadRidgeTest").onclick = loadRidgeEventTest;
-      if ($("#restoreRidgeEvent"))
-        $("#restoreRidgeEvent").onclick = restoreRidgeEventAfterTest;
-      if ($("#openRidgeResults"))
-        $("#openRidgeResults").onclick = () => {
-          $("#modalShade").classList.remove("open");
-          store.event.leaderboardView = "summary";
-          nav("leaderboardPage");
-        };
-      $("#closeTestTools").onclick = () =>
-        $("#modalShade").classList.remove("open");
-      return;
-    }
-    $("#modalContent").innerHTML =
-      `<h2>Oatlands Test Events</h2><p>Test complete events safely with genuine Oatlands scoring patterns. Test data remains local and cannot be published.</p>${active ? `<h3>${sixteen ? "One-Day 16-Player Dress Rehearsal" : `${oneDay ? "One-Day" : "Two-Day"} Eight-Player Test`}</h3><div class="testStageButtons"><button class="soft" id="testClearScores">Start with No Scores</button><button class="primary" id="testDay1Scores">${oneDay ? "Complete Round" : "Complete Day 1"}</button>${oneDay ? "" : `<button class="primary" id="testBothDays">Complete Both Days</button>`}</div><div class="testChoiceButtons"><button class="soft" data-switchtest="oneDay">8 Players ¬∑ One Day</button><button class="soft" data-switchtest="twoDay">8 Players ¬∑ Two Days</button><button class="primary" data-switchtest="sixteen">16 Players ¬∑ One Day</button></div>${backup ? '<button class="danger restoreTestBtn" id="restoreTestEvent">Restore My Previous Event</button>' : ""}` : `<div class="testChoiceButtons"><button class="primary" id="beginOneDayTest">8 Players ¬∑ One Day</button><button class="primary" id="beginTwoDayTest">8 Players ¬∑ Two Days</button><button class="primary" id="beginSixteenTest">16 Players ¬∑ One-Day Dress Rehearsal</button></div>`}<button class="soft closeTestTools" id="closeTestTools">Close</button>`;
-    $("#modalShade").classList.add("open");
-    if ($("#beginOneDayTest"))
-      $("#beginOneDayTest").onclick = () => beginOatlandsTest("oneDay");
-    if ($("#beginTwoDayTest"))
-      $("#beginTwoDayTest").onclick = () => beginOatlandsTest("twoDay");
-    if ($("#beginSixteenTest"))
-      $("#beginSixteenTest").onclick = () => beginOatlandsTest("sixteen");
-    $$("[data-switchtest]").forEach(
-      (b) => (b.onclick = () => switchOatlandsTest(b.dataset.switchtest)),
-    );
-    if ($("#testClearScores"))
-      $("#testClearScores").onclick = () => loadTestStage(0);
-    if ($("#testDay1Scores"))
-      $("#testDay1Scores").onclick = () => loadTestStage(1);
-    if ($("#testBothDays")) $("#testBothDays").onclick = () => loadTestStage(2);
-    if ($("#restoreTestEvent"))
-      $("#restoreTestEvent").onclick = restoreBeforeTest;
-    $("#closeTestTools").onclick = () =>
-      $("#modalShade").classList.remove("open");
-  }
-  document.addEventListener("click", (e) => {
-    if (e.target.id === "testEventTools") openTestEventTools();
-  });
-  function markerTargetFor(pid, day) {
-    const ctx = playerGroupContext(pid, day);
-    if (!ctx) return null;
-    const g = ctx.group.filter((x) => String(x) !== NO_PARTNER_ID),
-      me = String(pid),
-      pos = g.indexOf(me);
-    if (pos < 0) return null;
-    // A genuine late withdrawal leaves three golfers. They mark in one closed
-    // loop so every visible Player and Marker is a real golfer in that group.
-    if (g.length === 3)
-      return String(g[(pos + 1) % 3]);
-    // Prefer the 4BBB partner because the two golfers naturally mark/verify each other.
-    if (competitionIsOn("fourball", day)) {
-      const pairStart = ctx.playerIndex < 2 ? 0 : 2;
-      const other = ctx.group
-        .slice(pairStart, pairStart + 2)
-        .map(String)
-        .find((x) => x !== me && x !== NO_PARTNER_ID);
-      if (other) return other;
-    }
-    return String(g[(pos + 1) % g.length] || "");
-  }
-  function ntpHolesFor(day) {
-    return competitionIsOn("ntp",day) ? (store.event.ntpSelections?.["day" + day] || []).map(Number) : [];
-  }
-  function ntpHolesInPlayingOrder(day) {
-    const holes = ntpHolesFor(day);
-    if (startMethodFor(store.event, day) !== "single") return holes;
-    const sequence = scoreSequence(startHolesFor(store.event, day)[0] || 1);
-    return holes.sort((a, b) => sequence.indexOf(a) - sequence.indexOf(b));
-  }
-  function ntpScoreSupportsClaim(day, record) {
-    if (!competitionIsOn("teamPutts", day)) return true;
-    const gross = record?.official?.gross,
-      putts = record?.official?.putts;
-    return Boolean(
-      scoreEntered(gross) &&
-        String(gross).toUpperCase() !== "P" &&
-        scoreEntered(putts) &&
-        Number(gross) === Number(putts) + 1,
-    );
-  }
-  function ntpHistory(day, hole) {
-    const entries = [];
-    Object.entries(scoringDayStore(day)).forEach(([scorerId, holes]) => {
-      const n = holes?.[String(hole)]?.ntp;
-      if (!n?.confirmedAt || !ntpScoreSupportsClaim(day, holes?.[String(hole)])) return;
-      entries.push({
-        id: String(n.entrantId || scorerId),
-        scorerId: String(scorerId),
-        at: n.confirmedAt,
-        t: Date.parse(n.confirmedAt) || 0,
-      });
-    });
-    return entries.sort((a, b) => a.t - b.t || a.id.localeCompare(b.id));
-  }
-  function currentNtpHolder(day, hole) {
-    const manualDay = manualDayStore(day, false),
-      manualResult = manualDay?.ntpFinalised
-        ? manualDay.ntp?.[String(hole)]
-        : null;
-    if (manualResult)
-      return manualResult === "NONE"
-        ? null
-        : { id: String(manualResult), manual: true, at: manualDay.completedAt };
-    const history = ntpHistory(day, hole);
-    return history[history.length - 1] || null;
-  }
-  function ntpEventSlots() {
-    const slots = [];
-    for (let day = 1; day <= (store.event?.days || 1); day++)
-      ntpHolesInPlayingOrder(day).forEach((hole) => slots.push({ day, hole }));
-    return slots;
-  }
-  function sameNtpSlot(a, b) {
-    return Boolean(a && b && a.day === b.day && a.hole === b.hole);
-  }
-  function ntpBaseBalls() {
-    const balls = +(store.event?.benefits?.ntp?.balls || 0);
-    return Number.isFinite(balls) ? balls : 0;
-  }
-  function ntpJackpotState(day, hole) {
-    const base = ntpBaseBalls(),
-      slots = ntpEventSlots(),
-      targetIndex = slots.findIndex(
-        (slot) => +slot.day === +day && +slot.hole === +hole,
-      ),
-      jackpotOn = Boolean(store.event?.ntpJackpot),
-      mode = store.event?.ntpJackpotMode === "rolling" ? "rolling" : "final",
-      finalIndex = slots.length - 1;
-    let carried = 0;
-    if (!base || targetIndex < 0 || !jackpotOn)
-      return { base, carried: 0, prize: base, resolved: false, mode };
-    for (let index = 0; index < targetIndex; index++) {
-      const slot = slots[index],
-        holder = currentNtpHolder(slot.day, slot.hole),
-        resolved = eventDayComplete(slot.day);
-      if (holder) {
-        if (mode === "rolling") carried = 0;
-        continue;
-      }
-      if (resolved) carried += base;
-    }
-    if (mode === "final" && targetIndex !== finalIndex) carried = 0;
-    return {
-      base,
-      carried,
-      prize: base + carried,
-      resolved: eventDayComplete(day),
-      mode,
-    };
-  }
-  function ntpPrizeBalls(day, hole) {
-    return ntpJackpotState(day, hole).prize;
-  }
-  function ntpPrizeText(day, hole) {
-    const balls = ntpPrizeBalls(day, hole);
-    return balls ? `${balls} Ball${balls === 1 ? "" : "s"}` : "";
-  }
-  function ntpSummaryLine(day, hole, complete) {
-    const holder = currentNtpHolder(day, hole),
-      state = ntpJackpotState(day, hole),
-      prize = ntpPrizeText(day, hole),
-      carryText = state.carried
-        ? ` (${state.base} + ${state.carried} jackpot)`
-        : "";
-    if (holder)
-      return `Hole ${hole}: ${complete ? "Winner" : "Current holder"} ‚Äî ${eventPlayer(holder.id, day)?.name || "Player"}${prize ? ` ‚Äî ${prize}${carryText}` : ""}`;
-    if (!complete)
-      return `Hole ${hole}: Pending${prize ? ` ‚Äî ${prize}${carryText} available` : ""}`;
-    const slots = ntpEventSlots(),
-      slot = { day, hole },
-      slotIndex = slots.findIndex((item) => sameNtpSlot(item, slot)),
-      nextSlot = slots[slotIndex + 1];
-    if (store.event?.ntpJackpot && nextSlot) {
-      const destination =
-        state.mode === "rolling" ? nextSlot : slots[slots.length - 1];
-      return `Hole ${hole}: No Winner ‚Äî ${prize || "Prize"} carries to Hole ${destination.hole}${store.event.days > 1 ? ` Day ${destination.day}` : ""}`;
-    }
-    return `Hole ${hole}: No Winner${prize ? ` ‚Äî ${prize}` : "Prize"} not awarded`;
-  }
-  function teamsFinalCheckHtml() {
-    const event = store.event;
-    if (!event) return "";
-    const displayDate = (iso) => {
-        const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        return match ? `${match[3]}/${match[2]}/${match[1]}` : iso || "Not entered";
-      },
-      teamText = (ids) =>
-        ids.length && ids.length % 4 === 0
-          ? `${ids.length / 4} team${ids.length === 4 ? "" : "s"} of 4`
-          : `${ids.length} playing positions`,
-      joinHoles = (holes) => {
-        const labels = (holes || []).map((hole) => `Hole ${hole}`);
-        return labels.length < 2
-          ? labels[0] || "Not selected"
-          : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
-      },
-      confirmed = (event.confirmed || []).filter(
-        (id) => String(id) !== NO_PARTNER_ID,
-      ),
-      invited = Object.entries(event.invitationStatus || {}).filter(
-        ([id, status]) =>
-          String(id) !== NO_PARTNER_ID &&
-          ["accepted", "awaiting"].includes(status),
-      ).length,
-      cards = Array.from({ length: event.days || 1 }, (_, index) => {
-        const day = index + 1,
-          item = course(event["course" + day]);
-        return item ? { item, tee: selectedEventTee(day, event) } : null;
-      }).filter(Boolean),
-      cardsChecked =
-        Boolean(event.scorecardsChecked) &&
-        cards.length > 0 &&
-        eventDays(event).every(day=>eventCardChecks(day,event).every(check=>check.ok)),
-      firstTeeText = Array.from({ length: event.days || 1 }, (_, index) => {
-        const day = index + 1,
-          hole = +(startHolesFor(event, day)[0] || 1),
-          suffix = [11, 12, 13].includes(hole % 100)
-            ? "th"
-            : hole % 10 === 1
-              ? "st"
-              : hole % 10 === 2
-                ? "nd"
-                : hole % 10 === 3
-                  ? "rd"
-                  : "th";
-        return `${event.days === 1 ? "" : `Day ${day}: `}${hole}${suffix}`;
-      }).join(" ¬∑ "),
-      checks = [
-        { ok: Boolean(event.name), label: `Event Name: ${event.name}` },
-        { ok: Boolean(event.date), label: `Start Date: ${displayDate(event.date)}` },
-        ...Array.from({ length: event.days || 1 }, (_, index) => {
-          const day = index + 1,
-            eventCourse = course(event["course" + day]),
-            timeLabel = startMethodFor(event, day) === "shotgun" ? "Shotgun Time" : "First Tee Time";
-          return {
-            ok: Boolean(eventCourse),
-            label: `${event.days === 1 ? "Course" : `Day ${day}`}: ${eventCourse?.name || "Not selected"} ¬∑ ${timeLabel}: ${startTimesFor(event, day)[0]}`,
-          };
-        }),
-        { ok: Boolean(firstTeeText), label: `First Tee: ${firstTeeText}` },
-        {
-          ok: cardsChecked,
-          label: "Course Scorecard Checked Against Official Card: Confirmed",
-        },
-        {
-          ok: confirmed.length > 0,
-          label: `Players Invited: ${invited || confirmed.length} ¬∑ Confirmed: ${confirmed.length}`,
-        },
-        ...Array.from({ length: event.days || 1 }, (_, index) => {
-          const day = index + 1,
-            tees = enabledEventTees(event, day),
-            complete = tees.every((tee) => teeHandicapsComplete(day, tee, event));
-          return {
-            ok: complete,
-            label: `${event.days === 1 ? "" : `Day ${day} `}${tees.map((tee) => EVENT_TEE_LABELS[tee]).join(", ")} Tee Handicaps: Complete`,
-          };
-        }),
-        {
-          ok: Array.from({ length: event.days || 1 }, (_, index) =>
-            dayFieldIds(index + 1).length > 0,
-          ).every(Boolean),
-          label:
-            event.days === 1
-              ? `Daily Field Selected: ${teamText(dayFieldIds(1))}`
-              : `Daily Fields Selected: ${eventDays(event).map(day=>`Day ${day} ‚Äî ${teamText(dayFieldIds(day))}`).join("; ")}`,
-        },
-        ...dailyCompetitionChecks(event),
-        ...((event.competitions || []).includes("ntp")
-          ? [{
-              ok: competitionDays("ntp",event).every(day=>(event.ntpSelections?.["day"+day]||[]).length>0),
-              label:
-                event.days === 1
-                  ? `NTP Holes Selected: ${joinHoles(event.ntpSelections?.day1)}`
-                  : `NTP Holes Selected: ${competitionDays("ntp",event).map(day=>`Day ${day} ‚Äî ${joinHoles(event.ntpSelections?.["day"+day])}`).join("; ")}`,
-            }]
-          : []),
-      ].filter((check) => check.ok);
-    return `<div class="finalCheck teamsFinalCheck"><h4>Final Check ‚Äî Event Setup Record</h4><div class="checkList">${checks.map((check) => `<div class="ok"><span>‚úì</span>${esc(check.label)}</div>`).join("")}</div></div>`;
-  }
-  function renderTeamsPage() {
-    const host = $("#teamsAdmin");
-    if (!host) return;
-    if (!store.event) {
-      if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = "Groups and Teams";
-      host.innerHTML = `<div class="card"><h3>No event plan is ready yet.</h3><p>Create and save an event plan first.</p><button class="primary" id="teamsNewEvent">Create New Event</button></div>`;
-      if ($("#teamsNewEvent")) $("#teamsNewEvent").onclick = openWizard;
-      return;
-    }
-    initialiseGroups();
-    const locked = Boolean(store.event.locked);
-    const day = Math.min(
-        store.event.activeGroupDay || 1,
-        store.event.days || 1,
-      ),
-      key = "day" + day,
-      setup = store.event.groupSetup[key],
-      groups = setup.groups;
-    const teamsSaved = Boolean(setup.saved);
-    const cname =
-      course(store.event["course" + day])?.name ||
-      "Course";
-    const method = startMethodFor(store.event, day),
-      ids = dayFieldIds(day),
-      ctx = ambroseIsOn(store.event, day)
-        ? ambroseThreePlayerContext(groups)
-        : noPartnerContext(groups, day);
-    const vp = setup.virtualPlayer ? player(setup.virtualPlayer) : null;
-    const extra = setup.ntpExtraPlayer ? player(setup.ntpExtraPlayer) : null;
-    const ambroseExtraAttempts = Object.entries(setup.ntpExtraPlayers || {})
-      .map(([hole, id]) => ({ hole: +hole, name: eventPlayer(id, day)?.name || "Player" }))
-      .sort((a, b) => a.hole - b.hole);
-    const startControl = (gi) => {
-      if (method === "shotgun")
-        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked || teamsSaved ? "disabled" : ""}>${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${+setup.starts[gi] === i + 1 ? "selected" : ""}>Hole ${i + 1}</option>`).join("")}</select></label>`;
-      if (method === "two") {
-        const tees = store.event.twoTeeStarts?.["day" + day] || [1, 10];
-        return `<label class="startPos">Starting Hole<select data-groupstart="${gi}" ${locked || teamsSaved ? "disabled" : ""}>${tees.map((h) => `<option value="${h}" ${+setup.starts[gi] === +h ? "selected" : ""}>Hole ${h}</option>`).join("")}</select></label>`;
-      }
-      if (method === "single")
-        return `<span class="startOrder">Starting Hole ${startHolesFor(store.event, day)[0]}</span>`;
-      return `<span class="startOrder">Tee order ${gi + 1}</span>`;
-    };
-    const playerRow = (pid, gi, pi) => {
-      let p = player(pid),
-        selected = String(store.event.swapPlayer || "") === String(pid),
-        np = String(pid) === NO_PARTNER_ID,
-        awaiting = store.event.invitationStatus?.[String(pid)] === "awaiting";
-      return `<div class="groupPlayer ${selected ? "swapSelected" : ""} ${np ? "noPartnerGroupPlayer" : ""} ${awaiting ? "awaitingPlayer" : ""}">
-     <div class="slotNo">${pi + 1}</div>
-     <div class="groupPlayerName"><b>${esc(p?.name || "Unknown")}${awaiting ? " <em>‚óè Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p?.golfLink || "")}</small></div>
-     ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
-   </div>`;
-    };
-    const pairName = (id, gi) => {
-      if (String(id) === NO_PARTNER_ID)
-        return `<span class="vpName">${esc(player(setupForTeam(setup,gi).virtualPlayer)?.name || "Virtual Player")} (VP)</span>`;
-      return esc(eventPlayer(id, day)?.name || "");
-    };
-    const pairBlock = (g, gi) => {
-      if (!competitionIsOn("fourball", day)) return "";
-      const one = g.slice(0, 2).map(id=>pairName(id,gi)).join(" & "),
-        two = g.slice(2, 4).map(id=>pairName(id,gi)).join(" & ");
-      return `<div class="partnerBlock"><div class="partnerHeading">Partners in 4BBB</div><div class="pairSummary"><span>${one || "‚Äî"}</span><span>${two || "‚Äî"}</span></div></div>`;
-    };
-    const ambroseRoleBlock = (g, gi) => {
-      if (!ambroseIsOn(store.event, day)) return "";
-      const team = g.map(String).filter((id) => id && id !== NO_PARTNER_ID),
-        roles = ambroseRoles(day, gi),
-        started = ambroseTeamHasEntries(day, gi),
-        options = (selectedId, excludeId = "") => team
-          .filter((id) => id !== excludeId)
-          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "Player")}</option>`)
-          .join("");
-      return `<div class="ambroseTeamRoles ${store.event.ambroseScoringMode === "scorerOnly" ? "scorerOnly" : ""}"><label>Scorer<select data-ambrosescorer="${gi}" ${started ? "disabled" : ""}>${options(roles.scorerId)}</select></label>${store.event.ambroseScoringMode === "scorerOnly" ? "" : `<label>Marker<select data-ambrosemarker="${gi}" ${started ? "disabled" : ""}>${options(roles.markerId, roles.scorerId)}</select></label>`}</div>`;
-    };
-    const allSaved = Array.from(
-      { length: store.event.days },
-      (_, i) => store.event.groupSetup["day" + (i + 1)]?.saved,
-    ).every(Boolean);
-    const handicapsComplete = Array.from(
-      { length: store.event.days },
-      (_, i) => eventPlayerCategories(i+1,store.event).every(category=>enabledEventTeesForCategory(store.event,i+1,category).every(tee=>teeHandicapsComplete(i+1,tee,store.event,category))),
-    ).every(Boolean);
-    const lockReady = allSaved && handicapsComplete;
-    const awaitingIds = ids.filter(
-      (id) => store.event.invitationStatus?.[String(id)] === "awaiting",
-    );
-    ensureEventTeePlanning(store.event);
-    const teeCategories=eventPlayerCategories(day,store.event),
-      teeFinal = teeSelectionIsFinal(day),
-      scoreEntry = firstDayScoreEntry(day),
-      teeScoringStarted = Boolean(scoreEntry),
-      selectedTeeComplete = teeCategories.every(category=>teeHandicapsComplete(day,selectedEventTee(day,store.event,category),store.event,category)),
-      eventCourse = course(store.event["course" + day]),
-      eventScoringStarted = Array.from({ length: store.event.days || 1 }, (_, index) => firstDayScoreEntry(index + 1)).some(Boolean),
-      markerIncluded = store.event.ambroseScoringMode !== "scorerOnly",
-      markerChoice = ambroseIsOn(store.event, day) ? `<div class="ambroseMarkerChoice"><b>Score Marker</b><button type="button" id="toggleAmbroseMarker" class="${markerIncluded ? "included" : ""}" ${eventScoringStarted ? "disabled" : ""}>${markerIncluded ? "‚úì Marker Included" : "Click to include a Score Marker"}</button><small>${eventScoringStarted ? "Scoring has started ‚Äî setting locked." : "Applies to every team in this event."}</small></div>` : "",
-      teeChangeControl = locked && teeFinal && !teeScoringStarted ? '<button type="button" class="soft reopenTeeBtn" id="reopenEventTee">Change Tee Before Scoring</button>' : "",
-      teePanel = `<div class="eventTeePanel ${ambroseIsOn(store.event, day) ? "ambroseTeePanel" : ""} ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "‚úì " : ""}${teeCategories.map(category=>`${category==="women"?"Women":"Men"}: ${eventTeeMarkerColour(day,store.event,category)}`).join(" ¬∑ ")}</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee for each category, then finalise before anyone starts scoring." : "Provisional selections. All calculated handicap sets remain stored."}</p></div><div class="eventTeeCategoryGrid">${teeCategories.map(category=>`<section class="categoryPlayingTee"><b>${category==="women"?"Women's":"Men's"} tee</b><div class="eventTeeButtons">${enabledEventTeesForCategory(store.event,day,category).map(tee=>`<button type="button" data-eventtee="${category}|${tee}" class="${selectedEventTee(day,store.event,category)===tee?"active":""}" ${teeFinal||teeScoringStarted?"disabled":""}>${esc(eventTeeDisplayName(day,tee,store.event,category,eventCourse))}<small>${teeHandicapsComplete(day,tee,store.event,category)?"Ready":"Incomplete"}</small></button>`).join("")}</div></section>`).join("")}</div>${teeChangeControl}${markerChoice}${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
-      startingHole = +(startHolesFor(store.event, day)[0] || 1),
-      scoringBlocker = scoreEntry
-        ? `${eventPlayer(scoreEntry.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
-        : "",
-      startingHolePanel =
-        locked && method === "single"
-          ? `<div class="eventTeePanel startingHolePanel ${teeScoringStarted ? "locked" : ""}"><div><small>${store.event.days === 1 ? "STARTING HOLE" : `DAY ${day} STARTING HOLE`}</small><h3>Hole ${startingHole}</h3><p>${teeScoringStarted ? `Starting hole cannot be changed. ${esc(scoringBlocker)}` : "If the club changes the starting hole, update it here before anyone begins scoring."}</p></div><div class="startingHoleChange"><label>New Starting Hole<select id="lockedStartHole" ${teeScoringStarted ? "disabled" : ""}>${Array.from({ length: 18 }, (_, i) => `<option value="${i + 1}" ${i + 1 === startingHole ? "selected" : ""}>Hole ${i + 1}</option>`).join("")}</select></label><button type="button" class="primary" id="applyStartingHole" ${teeScoringStarted ? "disabled" : ""}>APPLY STARTING HOLE</button></div></div>`
-          : "";
-    const affected = ctx?.affected ? player(ctx.affected) : null;
-    const shortNotice = ctx
-      ? ambroseIsOn(store.event, day)
-        ? `<div class="virtualNotice"><h4>${store.event.days === 1 ? "Three-Player Ambrose Team" : `Three-Player Ambrose Team ‚Äî Day ${day}`}</h4><p>This team plays with its three actual golfers. No Virtual Player score is used.</p>${ambroseExtraAttempts.length ? `<p><b>NTP Extra Shots:</b> ${ambroseExtraAttempts.map((attempt) => `Hole ${attempt.hole} ‚Äî ${esc(attempt.name)}`).join("; ")}. The extra attempt rotates to a different golfer when two NTP holes are selected; either tee shot may qualify.</p>` : ""}</div>`
-        : `<div class="virtualNotice">
-   <h4>${store.event.days === 1 ? "Short Team Arrangement" : `Short Team Arrangement ‚Äî Day ${day}`}</h4>
-   <p>Due to fewer than the planned number of players being available for this event, <b>${esc(affected?.name || "the player")}</b> has been placed in a team with No Partner. <span class="vpName"><b>${esc(vp?.name || "Virtual Player")} (VP)</b></span> has been randomly selected as the Virtual Player.</p>
-   <p>Where a partner or fourth team member's score is required, the Virtual Player's score will be used. The Virtual Player remains in their own playing group and is not entitled to any additional prize or required to make any additional Best 3 of 4 Lottery contribution because their score is also being used virtually.</p>
-   ${extra ? `<p><b>NTP Extra Shot:</b> ${esc(extra.name)} has been randomly selected from the three golfers in the short team. On each NTP hole that day, ${esc(extra.name)} may play two tee shots; either shot may qualify for the NTP.</p>` : ""}
- </div>`
-      : "";
-    if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = `Groups and Teams Day ${day} ${cname} ¬∑ ${ids.length} positions ¬∑ ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " ¬∑ EVENT LOCKED" : ""}`;
-    host.innerHTML = `<div class="teamsTop">
-   <div><h3>${esc(store.event.name)}</h3></div>
-   <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">‚Üê Back to Event Setup</button>`}</div>
- </div>
-   ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
- ${locked ? `<div class="lockedBanner">üîí Event Locked ‚Äî players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">üîí ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected ‚Äî now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active ‚Äî click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
- ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button> <button type="button" class="primary" id="lockAllEventTeams" ${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?"disabled":""}>Lock All Teams All Days</button>${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?'<p><b>All days‚Äô teams are saved and locked.</b></p>':''}<p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
- ${mixingSummaryHtml()}
- ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
- ${awaitingIds.length ? `<div class="planningAwaitingNotice"><b>${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply.</b><span>They remain amber in this provisional plan. Return to Event Setup to mark each acceptance green before locking.</span></div>` : ""}
- ${teePanel}
- ${startingHolePanel}
- ${!locked && !teamsSaved ? `<p role="status">${store.event.teamOrderSwap?.day === day ? `Team ${store.event.teamOrderSwap.index + 1} selected ‚Äî click Swap on the team to exchange tee slots with, or click the selected button to cancel.` : "To change the order of play, click Swap beside the starting hole on two teams. Players and partnerships stay together; the teams exchange numbers and tee slots."}</p>` : ""}
- <div class="groupGrid">${groups
-   .map(
-     (g, gi) => `<div class="playingGroup">
-   <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} ¬∑ Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected ¬∑ Cancel" : "Swap"}</button></div>
-   <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
-   ${ambroseRoleBlock(g, gi)}
-   ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn(store.event, day)?'Three-player Ambrose team':'Virtual Player: '+esc(eventPlayer(a.virtualPlayer, day)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(eventPlayer(id, day)?.name||'Player')} ‚Äî two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(eventPlayer(a.ntpExtraPlayer, day)?.name||'Player')} ‚Äî two shots on each NTP hole</span>`:''}</div>`;})():''}
-   ${
-     !locked && !teamsSaved &&
-     store.event.swapPlayer &&
-     g.some((id) => String(id) === String(store.event.swapPlayer))
-       ? `<div class="manualHistory">${
-           playerHistoryAgainstGroup(store.event.swapPlayer, g)
-             .map(
-               (h) =>
-                 `<div><b>${esc(h.name)}</b><span>Played together ${h.played} time${h.played === 1 ? "" : "s"}${h.partners ? ` ¬∑ 4BBB partners ${h.partners} time${h.partners === 1 ? "" : "s"}` : ""}</span></div>`,
-             )
-             .join("") || "<span>No previous pairings in this group.</span>"
-         }</div>`
-       : ""
-   }
-   ${pairBlock(g,gi)}
- </div>`,
-   )
-   .join("")}</div>
- ${
-   !locked
-     ? `<div class="dailyHandicapPanel"><div class="dailyHandicapHead"><div><b>${store.event.days === 1 ? "Daily Handicaps" : `Daily Handicaps ‚Äî Day ${day}`}</b><span>Enter the playing handicap used for ${ambroseIsOn(store.event, day) ? "the Ambrose team handicap" : "Stableford"}. Tick Plus for a plus-handicap player.</span></div><span>${ids.filter((x) => String(x) !== NO_PARTNER_ID && playerDailyHandicap(x, day) == null).length ? "Complete before Lock Event" : "‚úì Complete"}</span></div><div class="dailyHandicapGrid">${ids
-         .filter((x) => String(x) !== NO_PARTNER_ID)
-         .map((id) => {
-           const h = playerDailyHandicap(id, day),
-             plus = Number(h) < 0;
-           return `<div class="dailyHcpRow"><span>${esc(eventPlayer(id, day)?.name || "")}</span><div class="teamHcpControls"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teamsigned="${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-dailyhcp="${id}" value="${esc(handicapMagnitude(h))}" placeholder="Hcp"></div><label class="teamPlusCheck"><input type="checkbox" data-dailyplus="${id}" ${plus ? "checked" : ""}> Plus</label></div></div>`;
-         })
-         .join("")}</div></div>`
-     : ""
- }
- ${shortTeamRuleLines(store.event,day).length?`<div class="virtualNotice"><h4>Short Team Arrangements</h4>${shortTeamRuleLines(store.event,day).map(line=>`<p>${esc(line)}</p>`).join('')}<p>Virtual scores do not create extra individual results or extra lottery contributions. Yellow Ball rotates through the real golfers only.</p></div>`:shortNotice}
- ${
-   !locked && !teamsSaved && store.event.swapPlayer
-     ? `<div class="swapAdvice"><b>Manual placement history ‚Äî ${esc(eventPlayer(store.event.swapPlayer, day)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
-         .map((g, gi) => {
-           let rows = playerHistoryAgainstGroup(
-               store.event.swapPlayer,
-               g.filter((x) => String(x) !== NO_PARTNER_ID),
-             ),
-             tot = rows.reduce((n, r) => n + r.played, 0),
-             pt = rows.reduce((n, r) => n + r.partners, 0);
-           return `<div><strong>Group ${gi + 1}</strong><span>Played with these players ${tot} time${tot === 1 ? "" : "s"}${pt ? ` ¬∑ 4BBB partnered ${pt} time${pt === 1 ? "" : "s"}` : ""}</span></div>`;
-         })
-         .join("")}</div></div>`
-     : ""
- }
- <div class="groupsFoot">
-   <div class="groupSaveState">${teamsSaved ? (store.event.days === 1 ? "üîí Teams locked" : "üîí Day " + day + " teams locked") : store.event.days === 1 ? "Teams not yet saved" : "Day " + day + " teams not yet saved"}</div>
-   ${locked ? "" : teamsSaved ? `<button class="soft unlockGroups" id="unlockGroups">${store.event.days === 1 ? "Unlock Teams" : `Unlock Day ${day} Teams`}</button>` : `<button class="primary saveGroups" id="saveGroups">${store.event.days === 1 ? "Save Teams" : `Save Day ${day} Teams`}</button>`}
- </div>
- ${teamsFinalCheckHtml()}
- ${locked ? "" : `<div class="lockEventPanel"><div><b>Final event control</b><span>Send the confirmed groups, tee times, tee and handicaps as the final update.</span></div><button class="lockEventBtn" id="lockEvent" ${lockReady ? "" : "disabled"}>ALL SET ‚Äî FINAL UPDATE</button></div>`}`;
-
-    $$("[data-groupday]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          store.event.activeGroupDay = +b.dataset.groupday;
-          delete store.event.teamOrderSwap;
-          store.event.swapPlayer = null;
-          writeLocalStore();
-          renderTeamsPage();
-        }),
-    );
-    $$("[data-eventtee]").forEach(
-      (button) =>
-        (button.onclick = () => {
-          if (teeSelectionIsFinal(day) || dayHasScoreEntries(day)) return;
-          const [category,tee]=button.dataset.eventtee.split("|");
-          selectEventTee(day, tee, store.event, category);
-          writeLocalStore();
-          renderTeamsPage();
-        }),
-    );
-    if ($("#finaliseEventTee"))
-      $("#finaliseEventTee").onclick = async () => {
-        if (dayHasScoreEntries(day))
-          return alert("The tee cannot be changed because scoring has begun.");
-        if (!selectedTeeComplete)
-          return alert(
-            "Complete every selected Men's and Women's tee handicap before finalising.",
-          );
-        if (
-          !confirm(
-            `Finalise the selected ${teeCategories.map(category=>`${category==="women"?"Women's":"Men's"} ${eventTeeMarkerColour(day,store.event,category)}`).join(" and ")} tee${teeCategories.length>1?"s":""} for ${store.event.days === 1 ? "this event" : `Day ${day}`}?\n\nEach player will use the handicap and scorecard for their category.`,
-          )
-        )
-          return;
-        store.event.teeSelectionFinalised["day" + day] = true;
-        teeCategories.forEach(category=>selectEventTee(day,selectedEventTee(day,store.event,category),store.event,category));
-        recordEventHandicapHistory(day);
-        writeLocalStore();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId)
-          await updateCloudEvent();
-        renderTeamsPage();
-        renderPlayerExperience();
-      };
-    if ($("#reopenEventTee"))
-      $("#reopenEventTee").onclick = async () => {
-        if (dayHasScoreEntries(day))
-          return alert("The tee cannot be changed because scoring has begun.");
-        if (!confirm("Reopen the playing tee selection before scoring? Players will be held at the start screen until you finalise it again.")) return;
-        store.event.teeSelectionFinalised["day" + day] = false;
-        writeLocalStore();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId)
-          await updateCloudEvent();
-        renderTeamsPage();
-        renderPlayerExperience();
-      };
-    if ($("#applyStartingHole"))
-      $("#applyStartingHole").onclick = async () => {
-        const blocker = firstDayScoreEntry(day);
-        if (blocker)
-          return alert(
-            `The starting hole cannot be changed. ${eventPlayer(blocker.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${blocker.hole}.`,
-          );
-        const nextHole = +$("#lockedStartHole").value;
-        if (nextHole === startingHole) return;
-        if (
-          !confirm(
-            `Change ${store.event.days === 1 ? "the event" : `Day ${day}`} starting hole from Hole ${startingHole} to Hole ${nextHole}?\n\nEvery connected scorecard will open at Hole ${nextHole}.`,
-          )
-        )
-          return;
-        store.event.startHoles = store.event.startHoles || {};
-        store.event.startHoles[key] = [nextHole];
-        setup.starts = setup.groups.map(() => nextHole);
-        store.event.startingHoleUpdate = {
-          day,
-          from: startingHole,
-          hole: nextHole,
-          changedAt: new Date().toISOString(),
-        };
-        if (store.event.ntpSelections?.[key])
-          store.event.ntpSelections[key] = ntpHolesInPlayingOrder(day);
-        writeLocalStore();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId)
-          await updateCloudEvent();
-        renderTeamsPage();
-        renderPlayerExperience();
-        renderHome();
-      };
-    const saveAmbroseRole = async (groupIndex, field, playerId) => {
-      if (ambroseTeamHasEntries(day, groupIndex))
-        return alert("These appointments cannot be changed because this team has started scoring.");
-      store.event.ambroseRoleAssignments ||= {};
-      store.event.ambroseRoleAssignments[key] ||= {};
-      const assignment = store.event.ambroseRoleAssignments[key][groupIndex] ||= {};
-      assignment[field] = String(playerId);
-      const team = ambroseTeam(day, groupIndex),
-        roles = ambroseRoles(day, groupIndex);
-      if (field === "scorerId" && assignment.markerId === assignment.scorerId)
-        assignment.markerId = team.find((id) => id !== assignment.scorerId) || "";
-      if (field === "markerId" && assignment.markerId === roles.scorerId)
-        assignment.markerId = team.find((id) => id !== roles.scorerId) || "";
-      writeLocalStore();
-      if (store.cloud?.role === "organiser" && store.cloud.eventId)
-        await updateCloudEvent();
-      renderTeamsPage();
-      renderPlayerExperience();
-    };
-    $$('[data-ambrosescorer]').forEach((select) => select.onchange = () =>
-      saveAmbroseRole(+select.dataset.ambrosescorer, "scorerId", select.value));
-    $$('[data-ambrosemarker]').forEach((select) => select.onchange = () =>
-      saveAmbroseRole(+select.dataset.ambrosemarker, "markerId", select.value));
-    if ($("#toggleAmbroseMarker"))
-      $("#toggleAmbroseMarker").onclick = async () => {
-        if (eventScoringStarted)
-          return alert("The score-marker setting cannot be changed because scoring has begun.");
-        store.event.ambroseScoringMode = markerIncluded
-          ? "scorerOnly"
-          : "scorerMarker";
-        writeLocalStore();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId)
-          await updateCloudEvent();
-        renderTeamsPage();
-        renderPlayerExperience();
-      };
-    if (locked) return;
-    $("#backToEventSetup").onclick = reopenEventPlan;
-    if ($("#unlockGroups"))
-      $("#unlockGroups").onclick = () => {
-        if (
-          !confirm(
-            `Unlock ${store.event.days === 1 ? "these teams" : `Day ${day} teams`} for editing?\n\nThey will stay in their current positions until you make a change.`,
-          )
-        )
-          return;
-        setup.saved = false;
-        store.event.swapPlayer = null;
-        save();
-        renderTeamsPage();
-      };
-    if ($("#lockAllEventTeams")) $("#lockAllEventTeams").onclick = lockAllEventTeams;
-    if ($("#maximumPlayerMixing")) $("#maximumPlayerMixing").onclick = applyMaximumPlayerMixing;
-    if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
-      delete store.event.teamOrderSwap;
-      store.event.drawMode = "history";
-      store.event.manualMode = false;
-      store.event.swapPlayer = null;
-      setup.groups = historyBalancedGroups(ids, day);
-      setup.starts = defaultStarts(setup.groups, method, day);
-      setup.saved = false;
-      ensureShortTeamSelections(setup, day);
-      writeLocalStore();
-      renderTeamsPage();
-    };
-    if ($("#randomiseGroups")) $("#randomiseGroups").onclick = () => {
-      delete store.event.teamOrderSwap;
-      store.event.drawMode = "random";
-      store.event.manualMode = false;
-      store.event.swapPlayer = null;
-      setup.groups = makeGroups(shuffleCopy(ids), day);
-      setup.starts = defaultStarts(setup.groups, method, day);
-      setup.saved = false;
-      ensureShortTeamSelections(setup, day);
-      writeLocalStore();
-      renderTeamsPage();
-    };
-    if ($("#manualMode")) $("#manualMode").onclick = () => {
-      delete store.event.teamOrderSwap;
-      store.event.drawMode = "manual";
-      store.event.manualMode = true;
-      store.event.swapPlayer = null;
-      writeLocalStore();
-      renderTeamsPage();
-    };
-    $$('[data-swapteam]').forEach(button => button.onclick = () => {
-      if (locked || teamsSaved || firstDayScoreEntry(day)) return;
-      const chosen = +button.dataset.swapteam;
-      const pending = store.event.teamOrderSwap;
-      store.event.swapPlayer = null;
-      if (!pending || pending.day !== day) store.event.teamOrderSwap = {day, index: chosen};
-      else {
-        swapWholeTeams(store.event, day, pending.index, chosen);
-        delete store.event.teamOrderSwap;
-      }
-      writeLocalStore();
-      renderTeamsPage();
-    });
-    $$("[data-swapplayer]").forEach(
-      (btn) =>
-        (btn.onclick = () => {
-          store.event.drawMode = "manual";
-          store.event.manualMode = true;
-          delete store.event.teamOrderSwap;
-          const id = String(btn.dataset.swapplayer);
-          if (!store.event.swapPlayer) {
-            store.event.swapPlayer = id;
-            writeLocalStore();
-            renderTeamsPage();
-            return;
-          }
-          if (String(store.event.swapPlayer) === id) {
-            store.event.swapPlayer = null;
-            writeLocalStore();
-            renderTeamsPage();
-            return;
-          }
-          const first = String(store.event.swapPlayer);
-          let a = null,
-            b = null;
-          for (let gi = 0; gi < groups.length; gi++)
-            for (let pi = 0; pi < groups[gi].length; pi++) {
-              const pid = String(groups[gi][pi]);
-              if (pid === first) a = { gi, pi };
-              if (pid === id) b = { gi, pi };
-            }
-          if (a && b) {
-            const tmp = groups[a.gi][a.pi];
-            groups[a.gi][a.pi] = groups[b.gi][b.pi];
-            groups[b.gi][b.pi] = tmp;
-            setup.saved = false;
-            ensureShortTeamSelections(setup, day);
-          }
-          store.event.swapPlayer = null;
-          writeLocalStore();
-          renderTeamsPage();
-        }),
-    );
-    $$("[data-groupstart]").forEach(
-      (s) =>
-        (s.onchange = () => {
-          if (teamsSaved) return;
-          setup.starts[+s.dataset.groupstart] = +s.value;
-          setup.saved = false;
-          save();
-          renderTeamsPage();
-        }),
-    );
-    $$("[data-dailyhcp]").forEach(
-      (inp) =>
-        (inp.onchange = () => {
-          const id = String(inp.dataset.dailyhcp),
-            h = eventDayHandicaps(day),
-            plus = $(`[data-dailyplus="${id}"]`)?.checked,
-            raw =
-              inp.value === ""
-                ? null
-                : Math.max(0, Math.min(54, +inp.value || 0)),
-            val = raw == null ? null : plus ? -raw : raw;
-          if (val == null) {
-            h[id] = "";
-            writeLocalStore();
-            renderTeamsPage();
-            return;
-          }
-          h[id] = val;
-          if (day === 1 && store.event.days === 2 && String(store.event.course1) === String(store.event.course2)) {
-            const d2 = eventDayHandicaps(2);
-            if (d2[id] === "" || d2[id] == null) d2[id] = val;
-          }
-          writeLocalStore();
-          renderTeamsPage();
-        }),
-    );
-    $$("[data-dailyplus]").forEach(
-      (cb) =>
-        (cb.onchange = () => {
-          const inp = $(`[data-dailyhcp="${cb.dataset.dailyplus}"]`);
-          if (inp) inp.onchange();
-        }),
-    );
-    if ($("#saveGroups")) $("#saveGroups").onclick = () => {
-      delete store.event.teamOrderSwap;
-      setup.saved = true;
-      store.event.swapPlayer = null;
-      ensureShortTeamSelections(setup, day);
-      save();
-      renderTeamsPage();
-    };
-    $("#lockEvent").onclick = async () => {
-      if (!lockReady) return;
-      if (awaitingIds.length) {
-        alert(
-          `The event cannot be locked yet. ${awaitingIds.length} player${awaitingIds.length === 1 ? " is" : "s are"} still awaiting a reply. Return to Event Setup and mark each confirmed player green.`,
-        );
-        return;
-      }
-      if (
-        confirm(
-          "Lock and send the final event setup?\n\nNormal planning details cannot be changed after this.\nBefore scoring starts, you can still modify handicaps, change the selected tees and add an emergency replacement if someone does not turn up.\nAfter scoring starts, Emergency Score Recovery remains available if a player's phone fails during play.",
-        )
-      ) {
-        ensureEventTeePlanning(store.event);
-        eventDays(store.event).forEach(eventDay => ["men", "women"].forEach(category =>
-          captureEventTeeNames(store.event, eventDay, category, authoritativeMasterCourse(store.event["course" + eventDay]), true),
-        ));
-        refreshEventCourseSnapshot(store.event);
-        store.event.locked = true;
-        store.event.status = "locked";
-        store.event.setupStage = "final";
-        store.event.lockedAt = new Date().toISOString();
-        store.event.finalUpdateAt = store.event.lockedAt;
-        for (let eventDay = 1; eventDay <= store.event.days; eventDay++) {
-          store.event.teeSelectionFinalised["day" + eventDay] = true;
-          recordEventHandicapHistory(eventDay);
-        }
-        save();
-        if (store.cloud?.role === "organiser" && store.cloud.eventId) await updateCloudEvent();
-        renderTeamsPage();
-      }
-    };
-    if ((store.event.competitions || []).includes("capTeams")) bindCapTeams(store.event, capRoster(), renderTeamsPage);
-  }
-
-  function formatEventDate(iso, day = 1) {
-    if (!iso) return "";
-    let d = new Date((iso === store.event?.date ? eventDate(day) : iso) + "T12:00:00");
-    if (iso !== store.event?.date) d.setDate(d.getDate() + day - 1);
-    return d.toLocaleDateString("en-AU", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-  }
-  function homeEventDate(event) {
-    if (!event?.date) return "Not set";
-    const start = new Date(event.date + "T12:00:00"),
-      days = Math.max(1, +event.days || 1),
-      shortPart = (date) =>
-        date.toLocaleDateString("en-AU", {
-          weekday: "short",
-          day: "numeric",
-        });
-    if (days === 1)
-      return start.toLocaleDateString("en-AU", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-    const end = new Date(eventDate(days, event) + "T12:00:00");
-    return `${shortPart(start)} ‚Äì ${end.toLocaleDateString("en-AU", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })}`;
-  }
-  function playerGroupContext(pid, day) {
-    const setup = store.event?.groupSetup?.["day" + day];
-    if (!setup) return null;
-    for (let gi = 0; gi < setup.groups.length; gi++) {
-      const g = setup.groups[gi].map(String),
-        pi = g.indexOf(String(pid));
-      if (pi >= 0) return { setup:setupForTeam(setup,gi), group: g, groupIndex: gi, playerIndex: pi };
-    }
-    return null;
-  }
-  function ambroseIsOn(event = store.event, day = event?.activeGroupDay || 1) {
-    return competitionIsOn("ambrose", day, event);
-  }
-  function ambroseTeam(day, groupIndex, event = store.event) {
-    return (event?.groupSetup?.["day" + day]?.groups?.[groupIndex] || [])
-      .map(String)
-      .filter((id) => id && id !== NO_PARTNER_ID);
-  }
-  function ambroseRoles(day, groupIndex) {
-    const team = ambroseTeam(day, groupIndex),
-      assigned = store.event?.ambroseRoleAssignments?.["day" + day]?.[groupIndex] || {},
-      assignedScorer = String(assigned.scorerId || ""),
-      scorerId = team.includes(assignedScorer) ? assignedScorer : team[0] || "",
-      assignedMarker = String(assigned.markerId || ""),
-      defaultMarker = team.find((id) => id !== scorerId) || "";
-    return {
-      scorerId,
-      markerId:
-        store.event?.ambroseScoringMode === "scorerOnly"
-          ? ""
-          : team.includes(assignedMarker) && assignedMarker !== scorerId
-            ? assignedMarker
-            : defaultMarker,
-      team,
-    };
-  }
-  function ambroseTeamHasEntries(day, groupIndex) {
-    return ambroseTeam(day, groupIndex).some((playerId) =>
-      Array.from({ length: 18 }, (_, index) => index + 1).some((hole) => {
-        const record = scorerStore(day, playerId)?.[String(hole)];
-        return scoreEntered(record?.self?.gross) || Boolean(record?.ambrose?.drivePlayerId);
-      }),
-    );
-  }
-  function ambroseEntry(day, scorerId, hole) {
-    const rec = scoreRecord(day, scorerId, hole);
-    rec.ambrose = rec.ambrose || { drivePlayerId: "" };
-    return rec;
-  }
-  function ambroseTeamHandicap(day, groupIndex) {
-    const team = ambroseTeam(day, groupIndex),
-      values = team.map((id) => playerDailyHandicap(id, day));
-    if (!team.length || values.some((value) => value == null)) return null;
-    return values.reduce((sum, value) => sum + +value, 0) / (team.length * 2);
-  }
-  function ambroseHoleAgreement(day, groupIndex, hole) {
-    const roles = ambroseRoles(day, groupIndex),
-      scorer = ambroseEntry(day, roles.scorerId, hole),
-      marker = roles.markerId
-        ? ambroseEntry(day, roles.markerId, hole)
-        : null,
-      scorerDone =
-        scoreEntered(scorer.self?.gross) &&
-        Boolean(scorer.ambrose?.drivePlayerId),
-      markerDone =
-        !marker ||
-        (scoreEntered(marker.self?.gross) &&
-          Boolean(marker.ambrose?.drivePlayerId));
-    return {
-      scorer,
-      marker,
-      scorerDone,
-      markerDone,
-      complete: Boolean(
-        scorerDone &&
-          markerDone &&
-          (!marker ||
-            (+scorer.self.gross === +marker.self.gross &&
-              String(scorer.ambrose.drivePlayerId) ===
-                String(marker.ambrose.drivePlayerId))),
-      ),
-      mismatch: Boolean(
-        marker &&
-          scorerDone &&
-          markerDone &&
-          (+scorer.self.gross !== +marker.self.gross ||
-            String(scorer.ambrose.drivePlayerId) !==
-              String(marker.ambrose.drivePlayerId)),
-      ),
-    };
-  }
-  function ambroseTeamComplete(day, groupIndex) {
-    return Array.from({ length: 18 }, (_, index) => index + 1).every(
-      (hole) => ambroseHoleAgreement(day, groupIndex, hole).complete,
-    );
-  }
-  function ambroseDriveCounts(day, groupIndex, scorerId) {
-    const counts = Object.fromEntries(
-      ambroseTeam(day, groupIndex).map((id) => [id, 0]),
-    );
-    for (let hole = 1; hole <= 18; hole++) {
-      const id = scorerStore(day, scorerId)?.[String(hole)]?.ambrose
-        ?.drivePlayerId;
-      if (id && counts[id] != null) counts[id]++;
-    }
-    return counts;
-  }
-  function yellowBallIsOn(day, event = store.event) {
-    if (!(event?.competitions || []).includes("yellowBall")) return false;
-    if ((event.days || 1) === 1) return +day === 1;
-    return competitionDays("yellowBall", event).includes(+day);
-  }
-  function yellowBallTeam(day, groupIndex, event = store.event) {
-    const setup = event?.groupSetup?.["day" + day],
-      group = setup?.groups?.[groupIndex] || [];
-    return group
-      .map(String)
-      .filter((id) => id && id !== NO_PARTNER_ID);
-  }
-  function yellowBallPlayerForHole(day, groupIndex, hole, event = store.event) {
-    const team = yellowBallTeam(day, groupIndex, event);
-    if (!team.length) return "";
-    const start = groupStartingHole(event, day, groupIndex),
-      position = scoreSequence(start).indexOf(+hole);
-    return position < 0 ? "" : team[position % team.length];
-  }
-  function yellowBallLoss(day, groupIndex, event = store.event) {
-    const paper = event?.manualScorecards?.['day' + day]?.groups?.[String(groupIndex)];
-    if (paper?.status === "submitted" && paper.team?.yellowBall?.lossHole) {
-      const result = paper.team.yellowBall;
-      if (result.lossHole === "NONE") return null;
-      const hole = +result.lossHole, position = scoreSequence(groupStartingHole(event, day, groupIndex)).indexOf(hole);
-      return position < 0 ? null : {hole, position, playerId: yellowBallPlayerForHole(day, groupIndex, hole, event), source: "paper-team-card"};
-    }
-    const team = yellowBallTeam(day, groupIndex, event),
-      start = groupStartingHole(event, day, groupIndex),
-      sequence = scoreSequence(start),
-      rounds = event?.scoring?.["day" + day] || {};
-    let loss = null;
-    for (const [scorerId, round] of Object.entries(rounds)) {
-      if (!team.includes(String(scorerId))) continue;
-      for (const [holeText, record] of Object.entries(round || {})) {
-        const hole = +holeText,
-          position = sequence.indexOf(hole);
-        if (
-          position < 0 ||
-          !record?.yellowBall?.lost ||
-          String(record.yellowBall.playerId || "") !==
-            yellowBallPlayerForHole(day, groupIndex, hole, event)
-        )
-          continue;
-        if (!loss || position < loss.position)
-          loss = {
-            hole,
-            position,
-            playerId: String(record.yellowBall.playerId),
-            scorerId: String(scorerId),
-          };
-      }
-    }
-    return loss;
-  }
-  function yellowBallHoleState(day, groupIndex, hole, record, event = store.event) {
-    const playerId = yellowBallIsOn(day, event) ? yellowBallPlayerForHole(day, groupIndex, hole, event) : "";
-    const position = scoreSequence(groupStartingHole(event, day, groupIndex)).indexOf(+hole);
-    const loss = playerId ? yellowBallLoss(day, groupIndex, event) : null;
-    return {
-      playerId,
-      active: Boolean(playerId && position >= 0 && (!loss || position < loss.position)),
-      canRecord: Boolean(playerId && position >= 0 && (!loss || position <= loss.position)),
-      lostHere: Boolean(record?.yellowBall?.lost && String(record.yellowBall.playerId || "") === String(playerId)),
-    };
-  }
-  function findOfficialForPlayer(day, playerId, hole) {
-    const correction = organiserCorrectionFor(day, playerId, hole);
-    if (correction) return { ...correction, authoritative: true };
-    const d = scoringDayStore(day),
-      pid = String(playerId);
-    for (const [scorerId, holes] of Object.entries(d)) {
-      const r = holes?.[String(hole)];
-      if (
-        String(r?.official?.playerId || "") === pid &&
-        r.official.gross !== "" &&
-        r.official.gross != null
-      )
-        return { ...r.official, scorerId };
-    }
-    return null;
-  }
-  function playerHoleEntry(day, playerId, hole) {
-    const own = scoringDayStore(day)?.[String(playerId)]?.[String(hole)]?.self;
-    if (
-      own &&
-      ((own.gross !== "" && own.gross != null) ||
-        (own.putts !== "" && own.putts != null))
-    )
-      return own;
-    return findOfficialForPlayer(day, playerId, hole);
-  }
-  function playerSurname(id) {
-    const n = String(player(id)?.name || "Player")
-      .trim()
-      .split(/\s+/);
-    return n[n.length - 1] || "Player";
-  }
-  function playerFirstName(id) {
-    return (
-      String(player(id)?.name || "Player")
-        .trim()
-        .split(/\s+/)[0] || "Player"
-    );
-  }
-  function welcomeKey(playerId) {
-    return `awayGolfWelcomeV1:${store.cloud?.eventId || store.event?.name || "event"}:${playerId}`;
-  }
-  function playerHasSeenWelcome(playerId) {
-    return localStorage.getItem(welcomeKey(playerId)) === "yes";
-  }
-  function rememberPlayerWelcome(playerId) {
-    localStorage.setItem(welcomeKey(playerId), "yes");
-  }
-  function openPlayerRulesFromWelcome(playerId) {
-    // The welcome screen is local to a player's phone. Do not use the broad
-    // save() path here: that also renders organiser pages and can interrupt
-    // the first player-only navigation on a joined device.
-    rememberPlayerWelcome(playerId);
-    store.event.playerRulesOpen = true;
-    store.event.playerRoundMode = "preview";
-    writeLocalStore();
-    renderPlayerExperience();
-  }
-  function renderCompletedScorecard(selected, day) {
-    const host = $("#playerExperience");
-    if (!roundFinalisedFor(day, selected)) {
-      store.event.playerRoundMode = "preview";
-      save();
-      return renderPlayerExperience();
-    }
-    const nextDay = eventDays().find(next => next > day && dayFieldIds(next).includes(String(selected)) && !eventDayComplete(next));
-    const p = eventPlayer(selected,day),
-      c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day,store.event,selected),
-      hcp = playerDailyHandicap(selected, day),
-      ctx = playerGroupContext(selected, day),
-      start = ctx?.setup?.starts?.[ctx.groupIndex] || 1,
-      seq = scoreSequence(start);
-    const rows = seq.map((h) => {
-      const i = h - 1,
-        e = playerHoleEntry(day, selected, h) || {},
-        gross = e.gross ?? "",
-        putts = e.putts ?? "",
-        par = +(v.par?.[i] || 0),
-        indexVal = v.index?.[i] ?? "",
-        adjustment = stablefordStrokeCount(indexVal, hcp),
-        points = stablefordPoints(gross, par, indexVal, hcp);
-      return { h, par, indexVal, gross, putts, adjustment, points };
-    });
-    const totals = (list) =>
-      list.reduce(
-        (t, r) => {
-          if (String(r.gross).toUpperCase() === "P")
-            t.gross += r.par + 2 + r.adjustment;
-          else if (scoreEntered(r.gross)) t.gross += +r.gross || 0;
-          if (scoreEntered(r.putts)) t.putts += +r.putts || 0;
-          if (r.points != null) t.points += r.points;
-          return t;
-        },
-        { gross: 0, putts: 0, points: 0 },
-      );
-    const front = totals(rows.filter((r) => r.h <= 9)),
-      back = totals(rows.filter((r) => r.h >= 10)),
-      all = totals(rows),
-      signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `‚àí${Math.abs(n)}` : "‚Äî");
-    host.innerHTML = `<div class="completedCardPage"><div class="roundTop"><button class="soft" id="backFromCompletedCard">‚Üê Back to Player View</button><div><h2>Completed Scorecard</h2><p>${esc(p?.name || "Player")}${store.event.days === 1 ? "" : ` ¬∑ Day ${day}`} ¬∑ ${esc(c?.name || "Course")}</p></div><img class="completedMascot" src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div>
-
- <div class="completedCardBanner"><div><small>DAILY HANDICAP</small><b>${esc(formatPlayingHandicap(hcp))}</b></div><div><small>STARTING TEE</small><b>Hole ${start}</b></div><div><small>STATUS</small><b>‚úì Finalised</b></div></div>
- ${recoveredRoundAccepted(day, selected) ? '<p class="completedCardHelp">Your organiser accepted this round after emergency recovery. Your scorecard is complete.</p>' : ""}<details class="completedCardHelp"><summary>About this scorecard</summary><p>Read-only card. <b>Hcp +/-</b> shows the handicap adjustment on each hole. A minus means a plus-handicap golfer gives a stroke back.</p></details>
- <div class="completedScoreTable"><div class="completedScoreHead"><span>Hole</span><span>Par</span><span>Index</span><span>Score</span><span>Hcp +/-</span><span>Points</span><span>Putts</span></div>${rows.map((r) => `<div class="completedScoreRow ${r.adjustment < 0 ? "givesStroke" : ""}"><b>${r.h}</b><span>${r.par || "‚Äî"}</span><span>${esc(r.indexVal || "‚Äî")}</span><span>${r.gross === "" ? "‚Äî" : esc(r.gross)}</span><strong>${signed(r.adjustment)}</strong><span>${r.points == null ? "‚Äî" : r.points}</span><span>${r.putts === "" ? "‚Äî" : r.putts}</span></div>`).join("")}</div>
- <div class="completedTotals"><div><small>FRONT 9</small><b>${front.gross} strokes ¬∑ ${front.points} pts ¬∑ ${front.putts} putts</b></div><div><small>BACK 9</small><b>${back.gross} strokes ¬∑ ${back.points} pts ¬∑ ${back.putts} putts</b></div><div class="grand"><small>18-HOLE TOTAL</small><b>${all.gross} strokes ¬∑ ${all.points} pts ¬∑ ${all.putts} putts</b></div></div>
- ${nextDay ? `<button class="startRoundBtn" id="nextFromCompletedCard">VIEW DAY ${nextDay}</button>` : ""}<button class="startRoundBtn" id="backFromCompletedCardBottom">BACK TO PLAYER VIEW</button></div>`;
-    const goBack = () => {
-      store.event.playerRoundMode = "preview";
-      save();
-      renderPlayerExperience();
-    };
-    $("#backFromCompletedCard").onclick = goBack;
-    $("#backFromCompletedCardBottom").onclick = goBack;
-    if (nextDay) $("#nextFromCompletedCard").onclick = () => {
-      store.event.playerPreviewDay = nextDay;
-      store.event.playerRoundMode = "preview";
-      store.event.playerHolePos = 0;
-      writeLocalStore();
-      renderPlayerExperience();
-    };
-  }
-  function scorecardVerificationRows(day, playerId) {
-    const c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day,store.event,playerId),
-      mine = scorerStore(day, playerId),
-      puttsRequired = competitionIsOn("teamPutts", day),
-      hcp = playerDailyHandicap(playerId, day);
-    return Array.from({ length: 18 }, (_, i) => i + 1).map((h) => {
-      const self = mine[String(h)]?.self || {},
-        off = findOfficialForPlayer(day, playerId, h),
-        selfGross = self.gross ?? "",
-        offGross = off?.gross ?? "",
-        selfPutts = self.putts ?? "",
-        offPutts = off?.putts ?? "",
-        bothEntered = scoreEntered(selfGross) && scoreEntered(offGross),
-        scoreMatch =
-          bothEntered &&
-          String(offGross).toUpperCase() === String(selfGross).toUpperCase(),
-        puttsMatch =
-          !puttsRequired ||
-          (scoreEntered(offPutts) &&
-            scoreEntered(selfPutts) &&
-            +offPutts === +selfPutts);
-      return {
-        h,
-        self: selfGross,
-        off: offGross,
-        selfPutts,
-        offPutts,
-        selfPts: bothEntered
-          ? stablefordPoints(selfGross, +(v.par?.[h - 1] || 0), v.index?.[h - 1] ?? "", hcp)
-          : null,
-        offPts: bothEntered
-          ? stablefordPoints(offGross, +(v.par?.[h - 1] || 0), v.index?.[h - 1] ?? "", hcp)
-          : null,
-        scoreMatch,
-        puttsMatch,
-        match: scoreMatch && puttsMatch,
-      };
-    });
-  }
-  function markedScorecardVerification(day, scorerId) {
-    const targetId = markerTargetFor(scorerId, day),
-      markerRound = scorerStore(day, scorerId),
-      playerRound = targetId ? scorerStore(day, targetId) : {},
-      puttsRequired = competitionIsOn("teamPutts", day);
-    const rows = Array.from({ length: 18 }, (_, i) => i + 1).map((h) => {
-      const marked = markerRound[String(h)]?.official || {},
-        checked = playerRound[String(h)]?.self || {},
-        markedGross = marked.gross ?? "",
-        checkedGross = checked.gross ?? "",
-        markedPutts = marked.putts ?? "",
-        checkedPutts = checked.putts ?? "",
-        scoreMatch =
-          scoreEntered(markedGross) &&
-          scoreEntered(checkedGross) &&
-          String(markedGross).toUpperCase() === String(checkedGross).toUpperCase(),
-        puttsMatch =
-          !puttsRequired ||
-          (scoreEntered(markedPutts) &&
-            scoreEntered(checkedPutts) &&
-            +markedPutts === +checkedPutts);
-      return {
-        h,
-        marked: markedGross,
-        checked: checkedGross,
-        markedPutts,
-        checkedPutts,
-        scoreMatch,
-        puttsMatch,
-        match: scoreMatch && puttsMatch,
-      };
-    });
-    return { targetId, rows, mismatches: rows.filter((r) => !r.match) };
-  }
-  function renderRoundVerification(selected, day) {
-    requestRoundWakeLock();
-    const host = $("#playerExperience"),
-      ctx = playerGroupContext(selected, day),
-      setup = ctx?.setup,
-      c = course(store.event["course" + day]);
-    if (!ctx) return renderPlayerExperience();
-    const start = groupStartingHole(store.event, day, ctx.groupIndex),
-      seq = scoreSequence(start),
-      puttsRequired = competitionIsOn("teamPutts", day),
-      ownRows = scorecardVerificationRows(day, selected),
-      ownMismatches = ownRows.filter((r) => !r.match),
-      stage = ownMismatches.length
-        ? "mine"
-        : store.event.playerVerificationStage === "marked"
-          ? "marked"
-          : "mine",
-      marked = markedScorecardVerification(day, selected),
-      targetName = eventPlayer(marked.targetId, day)?.name || "the player you marked";
-    const allCardsAgree =
-      ownMismatches.length === 0 &&
-      marked.mismatches.length === 0 &&
-      officialCardProgress(day, selected).complete;
-    const saveState = AwayCloud.roundSaveState?.(
-      store.cloud?.eventId,
-      day,
-      selected,
-    ) || {};
-    if (recoveredRoundAccepted(day, selected) || (
-      allCardsAgree &&
-      scorerStore(day, selected)?._meta?.finalisedAt &&
-      saveState.acknowledged &&
-      !saveState.pending &&
-      !saveState.conflict &&
-      !saveState.blocked
-    )) {
-      store.event.playerVerificationStage = "mine";
-      store.event.returnToMarkedVerification = false;
-      store.event.playerRoundMode = "completed";
-      const accepted=scorerStore(day,selected);
-      if(!accepted._meta?.finalisedAt) {
-        accepted._meta={...(accepted._meta||{}),finalisedAt:new Date().toISOString()};
-        writeLocalStore();queueCloudRound(day,selected);
-      }
-      releaseRoundWakeLock();
-      save();
-      return renderCompletedScorecard(selected, day);
-    }
-    if (allCardsAgree) {
-      const waiting = Boolean(scorerStore(day, selected)?._meta?.finalisedAt);
-      host.innerHTML = `<div class="roundTop"><button class="soft" id="backToAgreedRound">‚Üê Back to Round</button><div><h2>Cards Agree</h2><p>${esc(eventPlayer(selected, day)?.name || "")}${store.event.days === 1 ? "" : ` ¬∑ Day ${day}`} ¬∑ ${esc(c?.name || "Course")}</p></div></div><div class="verifyCard"><h3>‚úì Both 18-hole cards agree</h3><p>${waiting ? "Your complete agreed card is still protected on this phone and is waiting to be accepted online." : "The card will close only after this complete agreed copy has been accepted online."}</p>${saveState.conflict || saveState.blocked ? '<p class="verificationAdvice"><b>Organiser review required.</b> Ask the organiser to open Review Saved Copies. This scorecard remains accessible.</p>' : ""}<button class="startRoundBtn" id="finaliseAgreedRound">${waiting ? "RETRY FINAL UPLOAD" : "SAVE AND FINALISE AGREED CARDS"}</button></div>`;
-      $("#backToAgreedRound").onclick = () => {
-        store.event.playerRoundMode = "scoring";
-        save();
-        renderPlayerExperience();
-      };
-      $("#finaliseAgreedRound").onclick = async () => {
-        const button = $("#finaliseAgreedRound");
-        button.disabled = true;
-        button.textContent = "SAVING COMPLETE CARD‚Ä¶";
-        const accepted = scorerStore(day, selected);
-        accepted._meta = {
-          ...(accepted._meta || {}),
-          finalisedAt: accepted._meta?.finalisedAt || new Date().toISOString(),
-        };
-        if (writeLocalStore() === false) {
-          delete accepted._meta.finalisedAt;
-          alert("This phone could not protect the complete card. Keep the App open and free App Storage before trying again.");
-          return renderRoundVerification(selected, day);
-        }
-        const uploaded = await flushCloudRound(day, selected);
-        const current = AwayCloud.roundSaveState?.(store.cloud?.eventId, day, selected) || {};
-        if (uploaded && current.acknowledged && !current.pending && !current.conflict && !current.blocked) {
-          store.event.playerRoundMode = "completed";
-          store.event.playerVerificationStage = "mine";
-          store.event.returnToMarkedVerification = false;
-          releaseRoundWakeLock();
-          writeLocalStore();
-          return renderCompletedScorecard(selected, day);
-        }
-        renderRoundVerification(selected, day);
-      };
-      return;
-    }
-    const ownCard = `<div class="verifyCard"><h3>${ownMismatches.length ? `${ownMismatches.length} hole${ownMismatches.length === 1 ? "" : "s"} need attention` : puttsRequired ? "‚úì Your card: all 18 scores and putts agree" : "‚úì Your card: all 18 scores agree"}</h3><p>Your ${puttsRequired ? "scores and putts are" : "scores are"} compared with the official entries made by your marker.</p><div class="verifyRows">${ownRows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}"><b>Hole ${r.h}</b><span>Marker: ${r.off === "" ? "‚Äî" : r.off}${r.offPts != null ? ` (${r.offPts} pt${r.offPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.offPutts === "" ? "‚Äî" : r.offPutts}</small>` : ""}</span><span>You: ${r.self === "" ? "‚Äî" : r.self}${r.selfPts != null ? ` (${r.selfPts} pt${r.selfPts === 1 ? "" : "s"})` : ""}${puttsRequired ? `<small>Putts: ${r.selfPutts === "" ? "‚Äî" : r.selfPutts}</small>` : ""}</span><strong>${r.match ? "‚úì" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch ‚Äî Marker ${r.off === "" ? "‚Äî" : r.off}, You ${r.self === "" ? "‚Äî" : r.self}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch ‚Äî Marker ${r.offPutts === "" ? "‚Äî" : r.offPutts}, You ${r.selfPutts === "" ? "‚Äî" : r.selfPutts}</em>` : ""}</div>`).join("")}</div></div>`;
-    const markedCard = `<div class="verifyCard markedVerifyCard"><h3>${marked.mismatches.length ? `Card marked for ${esc(targetName)} ‚Äî ${marked.mismatches.length} hole${marked.mismatches.length === 1 ? "" : "s"} need attention` : `‚úì Card marked for ${esc(targetName)}: all 18 agree`}</h3><p>Your marker entries are compared with ${esc(playerFirstName(marked.targetId))}‚Äôs checking entries.</p><div class="verifyRows">${marked.rows.map((r) => `<div class="verifyRow ${r.match ? "match" : "mismatch"}" ${r.match ? "" : `data-fixmarked="${r.h}" role="button" tabindex="0"`}><b>Hole ${r.h}</b><span>You: ${r.marked === "" ? "‚Äî" : r.marked}${puttsRequired ? `<small>Putts: ${r.markedPutts === "" ? "‚Äî" : r.markedPutts}</small>` : ""}</span><span>${esc(playerFirstName(marked.targetId))}: ${r.checked === "" ? "‚Äî" : r.checked}${puttsRequired ? `<small>Putts: ${r.checkedPutts === "" ? "‚Äî" : r.checkedPutts}</small>` : ""}</span><strong>${r.match ? "‚úì" : "!"}</strong>${!r.scoreMatch ? `<em class="verifyIssue">Score mismatch ‚Äî You ${r.marked === "" ? "‚Äî" : r.marked}, ${esc(playerFirstName(marked.targetId))} ${r.checked === "" ? "‚Äî" : r.checked}</em>` : ""}${puttsRequired && !r.puttsMatch ? `<em class="verifyIssue">Putts mismatch ‚Äî You ${r.markedPutts === "" ? "‚Äî" : r.markedPutts}, ${esc(playerFirstName(marked.targetId))} ${r.checkedPutts === "" ? "‚Äî" : r.checkedPutts}</em>` : ""}</div>`).join("")}</div></div>`;
-    host.innerHTML = `<div class="roundTop"><button class="soft" id="backToRound">‚Üê Back to Round</button><div><h2>Round Verification</h2><p>${esc(eventPlayer(selected, day)?.name || "")}${store.event.days === 1 ? "" : ` ¬∑ Day ${day}`} ¬∑ ${esc(c?.name || "Course")}</p></div></div>${stage === "mine" ? ownCard : markedCard}
- ${stage === "mine" && ownMismatches.length ? `<div class="verificationAdvice">Return to the relevant hole or ask your marker to correct the official entry. All 18 holes must agree before continuing.</div>` : stage === "mine" ? `<button class="startRoundBtn" id="continueToMarkedCard">CONTINUE ‚Äî CHECK CARD I MARKED</button>` : `<div class="verificationAdvice"><b>Tap a red hole</b> to check the score you entered. If your entry is correct, wait for ${esc(playerFirstName(marked.targetId))} to correct their checking score, then press Refresh.</div><button class="soft verifyRefresh" id="refreshMarkedCard">Refresh</button>`}`;
-    $("#backToRound").onclick = () => {
-      store.event.playerVerificationStage = "mine";
-      store.event.playerRoundMode = "scoring";
-      save();
-      renderPlayerExperience();
-    };
-    if ($("#continueToMarkedCard"))
-      $("#continueToMarkedCard").onclick = () => {
-        store.event.playerVerificationStage = "marked";
-        save();
-        renderRoundVerification(selected, day);
-      };
-    $$('[data-fixmarked]').forEach((row) => {
-      const openHole = () => {
-        store.event.playerHolePos = seq.indexOf(+row.dataset.fixmarked);
-        store.event.returnToMarkedVerification = true;
-        store.event.playerRoundMode = "scoring";
-        save();
-        renderPlayerExperience();
-      };
-      row.onclick = openHole;
-      row.onkeydown = (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openHole();
-        }
-      };
-    });
-    if ($("#refreshMarkedCard"))
-      $("#refreshMarkedCard").onclick = async () => {
-        await syncCloudNow();
-        renderRoundVerification(selected, day);
-      };
-  }
-  function renderAmbroseScoring(selected, day) {
-    requestRoundWakeLock();
-    const host = $("#playerExperience"),
-      ctx = playerGroupContext(selected, day);
-    if (!ctx) return renderPlayerExperience();
-    const roles = ambroseRoles(day, ctx.groupIndex),
-      editable = [roles.scorerId, roles.markerId].includes(String(selected)),
-      entryScorerId = editable ? String(selected) : roles.scorerId,
-      isPrimary = String(selected) === roles.scorerId,
-      c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day),
-      start = groupStartingHole(store.event, day, ctx.groupIndex),
-      sequence = scoreSequence(start),
-      position = Math.max(0, Math.min(17, +(store.event.playerHolePos || 0))),
-      hole = sequence[position],
-      index = hole - 1,
-      par = +(v.par?.[index] || 4),
-      metres = courseHoleDistance(v, index) || "‚Äî",
-      agreement = ambroseHoleAgreement(day, ctx.groupIndex, hole),
-      record = ambroseEntry(day, entryScorerId, hole),
-      gross = record.self?.gross,
-      driveId = String(record.ambrose?.drivePlayerId || ""),
-      ntp = ntpHolesFor(day).includes(hole),
-      holder = ntp ? currentNtpHolder(day, hole) : null,
-      extraNtpPlayerId = roles.team.length === 3
-        ? String(
-            ctx.setup.ntpExtraPlayers?.[String(hole)] ||
-              ctx.setup.ntpExtraPlayer ||
-              "",
-          )
-        : "",
-      handicap = ambroseTeamHandicap(day, ctx.groupIndex),
-      counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId),
-      minimum = +store.event.ambroseMinimumDrives || 0,
-      completeCount = sequence.filter((h) =>
-        ambroseHoleAgreement(day, ctx.groupIndex, h).complete,
-      ).length;
-    const statusFor = (h) => {
-      const check = ambroseHoleAgreement(day, ctx.groupIndex, h);
-      return h === hole
-        ? "current"
-        : check.mismatch
-          ? "mismatch"
-          : check.complete
-            ? "complete"
-            : "upcoming";
-    };
-    const teamGross = Array.from({ length: 18 }, (_, i) => {
-      const value = scorerStore(day, roles.scorerId)?.[String(i + 1)]?.self?.gross;
-      return scoreEntered(value) ? +value : null;
-    });
-    const grossTotal = teamGross.reduce(
-      (sum, value) => sum + (value == null ? 0 : value),
-      0,
-    );
-    const roleLabel = !editable
-      ? `Viewing ${esc(eventPlayer(roles.scorerId, day)?.name || "the scorer")}'s team card`
-      : isPrimary
-        ? "TEAM SCORER"
-        : "TEAM MARKER ‚Äî CHECKING CARD";
-    host.innerHTML = `<div class="scoringPhone ambrosePhone">
-      <div class="ambroseRole"><div><small>AMBROSE ¬∑ TEAM ${ctx.groupIndex + 1}</small><h2>${roleLabel}</h2></div><span>${completeCount}/18 agreed</span></div>
-      <div class="holeTracker" aria-label="Ambrose hole status"><div class="holeTrackerKey"><span><i class="complete">‚úì</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${sequence.map((h, i) => { const state = statusFor(h); return `<button type="button" class="holeTrack ${state}" data-ambrosehole="${i}"><b>${h}</b>${state === "complete" ? "<small>‚úì</small>" : state === "mismatch" ? "<small>!</small>" : ""}</button>`; }).join("")}</div></div>
-      ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
-      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "‚Äî")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres}</b></div></div>
-      <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(eventPlayer(selected, day)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "‚Äî"}</b></span><span><em>Hcp</em><b>${handicap == null ? "‚Äî" : handicap.toFixed(1)}</b></span><span title="Final net appears after all 18 holes"><em>Final Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "‚Äî"}</b></span></div></div></div>
-        <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>‚àí</button><button type="button" class="stepValue" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
-        <div class="ambroseDrive"><div class="ambroseDriveHeading"><b>Drive taken?</b><small>Tap correct player to correct an error.</small></div><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(eventPlayer(id, day)?.name || "Player")}</span><small><b>+</b><strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong></small></button>`).join("")}</div></div>
-      </div>
-      ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin ‚Äî Hole ${hole}</b>${extraNtpPlayerId ? `<strong class="ambroseExtraShot">TWO SHOTS: ${esc(eventPlayer(extraNtpPlayerId, day)?.name || "One player")}</strong>` : ""}<span>${holder ? `Current holder: ${esc(eventPlayer(holder.id, day)?.name || "Player")}` : "No name recorded yet"}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(eventPlayer(id, day)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
-      <div class="holeNav"><button class="soft" id="prevHole" ${position === 0 ? "disabled" : ""}>‚Üê Previous</button><button class="primary" id="nextHole">${position === 17 ? "FINISH TEAM CARD" : "Next Hole ‚Üí"}</button></div>
-    </div>`;
-    const update = (nextGross = gross, nextDrive = driveId) => {
-      record.self = record.self || {};
-      record.self.playerId = entryScorerId;
-      record.self.gross = nextGross;
-      record.ambrose.drivePlayerId = nextDrive;
-      const entryRound = scorerStore(day, entryScorerId);
-      if (entryRound._meta?.finalisedAt) delete entryRound._meta.finalisedAt;
-      writeLocalStore();
-      queueCloudRound(day, entryScorerId);
-      renderAmbroseScoring(selected, day);
-    };
-    if ($("#ambroseMinus")) $("#ambroseMinus").onclick = () => update(Math.max(1, (scoreEntered(gross) ? +gross : par) - 1));
-    if ($("#ambrosePlus")) $("#ambrosePlus").onclick = () => update(Math.min(30, (scoreEntered(gross) ? +gross : par) + 1));
-    if ($("#ambroseGross")) $("#ambroseGross").onclick = () => { if (!scoreEntered(gross)) update(par); };
-    $$('[data-ambrosedrive]').forEach((button) => button.onclick = () => update(gross, button.dataset.ambrosedrive));
-    const currentEntryComplete = () =>
-      !editable || (scoreEntered(record.self?.gross) && Boolean(record.ambrose?.drivePlayerId));
-    const warnIncompleteEntry = () => {
-      if (currentEntryComplete()) return false;
-      const missing = [
-        !scoreEntered(record.self?.gross) ? "the team score" : "",
-        !record.ambrose?.drivePlayerId ? "whose drive was selected" : "",
-      ].filter(Boolean).join(" and ");
-      alert(`Hole ${hole} is incomplete. Please enter ${missing} before moving on.`);
-      return true;
-    };
-    $$('[data-ambrosehole]').forEach((button) => button.onclick = () => {
-      const targetPosition = +button.dataset.ambrosehole;
-      if (targetPosition > position && warnIncompleteEntry()) return;
-      store.event.playerHolePos = targetPosition;
-      save();
-      renderAmbroseScoring(selected, day);
-    });
-    $$('[data-ambrosentp]').forEach((button) => button.onclick = () => {
-      record.ntp = { entrantId: button.dataset.ambrosentp, confirmedAt: new Date().toISOString(), locked: false };
-      writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day);
-    });
-    if ($("#undoAmbroseNtp")) $("#undoAmbroseNtp").onclick = () => { record.ntp = {}; writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day); };
-    $("#prevHole").onclick = () => {
-      store.event.playerHolePos = Math.max(0, position - 1);
-      save();
-      renderAmbroseScoring(selected, day);
-    };
-    $("#nextHole").onclick = async () => {
-      if (warnIncompleteEntry()) return;
-      if (editable) { writeLocalStore(); queueCloudRound(day, entryScorerId); }
-      if (position < 17) { store.event.playerHolePos = position + 1; save(); return renderAmbroseScoring(selected, day); }
-      if (!editable) return alert("Only the team scorer or checking marker can complete the Ambrose team card.");
-      if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
-      const short = Object.entries(counts).filter(([, count]) => count < minimum);
-      if (short.length && !confirm(`REQUIRED DRIVES NOT RECORDED\n\n${short.map(([id, count]) => `${eventPlayer(id, day)?.name || "Player"}: ${count} of ${minimum} drives`).join("\n")}\n\nSubmit this card as non-compliant and exclude the team from the Ambrose result?`)) return;
-      const at = new Date().toISOString();
-      store.event.roundFinalised = store.event.roundFinalised || {};
-      store.event.roundFinalised["day" + day] ||= {};
-      roles.team.forEach((id) => store.event.roundFinalised["day" + day][id] = at);
-      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => { const round = scorerStore(day, id); round._meta = { ...(round._meta || {}), finalisedAt: at, ambroseTeam: ctx.groupIndex, ambroseDriveCompliant: !short.length }; queueCloudRound(day, id); });
-      store.event.playerRoundMode = "completed";
-      writeLocalStore();
-      if (store.cloud?.role === "organiser" && store.cloud?.eventId) await updateCloudEvent();
-      renderPlayerExperience(); renderHome();
-    };
-  }
-  function renderAmbroseCompleted(selected, day) {
-    const host = $("#playerExperience"),
-      ctx = playerGroupContext(selected, day);
-    if (!ctx) return renderPlayerExperience();
-    const roles = ambroseRoles(day, ctx.groupIndex),
-      handicap = ambroseTeamHandicap(day, ctx.groupIndex),
-      holes = Array.from({ length: 18 }, (_, index) => {
-        const value = scorerStore(day, roles.scorerId)?.[String(index + 1)]?.self?.gross;
-        return scoreEntered(value) ? +value : null;
-      }),
-      gross = leaderSum(holes),
-      counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId),
-      minimum = +store.event.ambroseMinimumDrives || 0,
-      compliant = roles.team.every((id) => (counts[id] || 0) >= minimum);
-    host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">‚Üê Back</button><div><h2>Ambrose Team Card Submitted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` ¬∑ Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "‚Äî" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "‚Äî" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives ‚Äî ${compliant ? "minimum satisfied ‚úì" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(eventPlayer(id, day)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been submitted${roles.markerId ? " and the scorer and marker cards agree" : ""}. ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
-    $("#backFromAmbroseComplete").onclick = () => { store.event.playerRoundMode = "preview"; save(); renderPlayerExperience(); };
-  }
-  function scoreEntryControls(puttingOn, section, entry, par, stepper, pickup) {
-    const gross = stepper(section + "Gross", "Score", entry.gross, par || 4, 1, 20);
-    if (puttingOn)
-      return `<div class="scoreSteppers">${gross}${stepper(section + "Putts", "Putts", entry.putts, 2, 0, 9)}</div>${pickup(section + "Gross", entry.gross)}`;
-    return `<div class="scoreSteppers noPutting">${gross}<div class="scoreStepperWrap pickupControl"><small>Pick-up</small>${pickup(section + "Gross", entry.gross, true)}</div></div>`;
-  }
-  function scoreEntriesMismatch(left, right, puttsRequired) {
-    if (!scoreEntered(left?.gross) || !scoreEntered(right?.gross)) return false;
-    if (puttsRequired && (!scoreEntered(left?.putts) || !scoreEntered(right?.putts))) return false;
-    return String(left.gross).toUpperCase() !== String(right.gross).toUpperCase() ||
-      (puttsRequired && Number(left.putts) !== Number(right.putts));
-  }
-  function renderHoleScoring(selected, day) {
-    requestRoundWakeLock();
-    const host = $("#playerExperience"),
-      p = eventPlayer(selected,day),
-      ctx = playerGroupContext(selected, day);
-    if (!p || !ctx) return renderPlayerExperience();
-    const setup = ctx.setup,
-      c = course(store.event["course" + day]),
-      v = eventCourseScorecard(day,store.event,selected),
-      start = groupStartingHole(store.event, day, ctx.groupIndex),
-      seq = scoreSequence(start);
-    let pos = Math.max(0, Math.min(17, store.event.playerHolePos || 0)),
-      hole = seq[pos],
-      idx = hole - 1,
-      rec = scoreRecord(day, selected, hole),
-      targetId = markerTargetFor(selected, day),
-      targetCard = eventCourseScorecard(day,store.event,targetId),
-      target = eventPlayer(targetId,day),
-      hcpSelf = playerDailyHandicap(selected, day),
-      hcpTarget = playerDailyHandicap(targetId, day);
-    rec.official.playerId = targetId;
-    rec.self.playerId = selected;
-    const par = +v.par?.[idx] || "",
-      indexVal = v.index?.[idx] ?? "",
-      metres = courseHoleDistance(v, idx) || "";
-    const ntp = ntpHolesFor(day).includes(hole),
-      holder = currentNtpHolder(day, hole),
-      holderName = holder ? eventPlayer(holder.id, day)?.name : "",
-      ntpState = ntp ? ntpJackpotState(day, hole) : null,
-      ntpPrize = ntp ? ntpPrizeText(day, hole) : "",
-      ntpPrizeStatus = ntpPrize
-        ? `${ntpPrize}${ntpState?.carried ? ` (${ntpState.base} + ${ntpState.carried} jackpot)` : ""}`
-        : "";
-    const targetHoleInfo=eventCourseCategory(day,store.event,selected)!==eventCourseCategory(day,store.event,targetId)?`<p class="scoringCategoryInfo">${esc(target?.name||"Marked player")} ¬∑ ${eventCourseCategory(day,store.event,targetId)==="women"?"Women":"Men"} ¬∑ Par ${targetCard.par?.[idx]||"‚Äî"} ¬∑ Index ${esc(targetCard.index?.[idx]||"‚Äî")} ¬∑ ${courseHoleDistance(targetCard,idx)||"‚Äî"} ${courseDistanceAbbrev(targetCard)}</p>`:"";
-    const sfOff = stablefordPoints(
-        rec.official.gross,
-        +targetCard.par?.[idx]||0,
-        targetCard.index?.[idx]??"",
-        hcpTarget,
-      ),
-      sfSelf = stablefordPoints(rec.self.gross, par, indexVal, hcpSelf);
-    const playedHoles = seq.slice(0, pos + 1),
-      round = scorerStore(day, selected);
-    const running = (section, hcp, playerId) =>
-      playedHoles.reduce(
-        (total, h) => {
-          const item = round[String(h)]?.[section] || {};
-          if (
-            section === "official" &&
-            String(item.playerId || "") !== String(playerId || "")
-          )
-            return total;
-          const i = h - 1,card=eventCourseScorecard(day,store.event,playerId),
-            pts = stablefordPoints(
-              item.gross,
-              +(card.par?.[i] || 0),
-              card.index?.[i] ?? "",
-              hcp,
-            ),
-            putts =
-              item.putts === "" || item.putts == null ? 0 : +item.putts || 0;
-          total.points += pts == null ? 0 : pts;
-          total.putts += putts;
-          return total;
-        },
-        { points: 0, putts: 0 },
-      );
-    const totalOff = running("official", hcpTarget, targetId),
-      totalSelf = running("self", hcpSelf, selected);
-    const eclecticGroup = (store.event.competitions || []).includes("eclectic")
-      ? selectedEclecticGroups(store.event).find((group) => group.days.includes(day) && day !== group.days[0])
-      : null,
-      eclecticOn = Boolean(eclecticGroup);
-    const eclecticData = (playerId) => {
-      if (!eclecticOn) return null;
-      const baseDay = eclecticGroup.days[0], completedDays = eclecticGroup.days.filter((roundDay) => roundDay <= day),
-        baseVersion = eventCourseScorecard(baseDay,store.event,playerId), baseHcp = playerDailyHandicap(playerId, baseDay);
-      const basePoints = (h) => {
-        const e = playerHoleEntry(baseDay, playerId, h),
-          i = h - 1;
-        return stablefordPoints(
-          e?.gross,
-          +(baseVersion.par?.[i] || 0),
-          baseVersion.index?.[i] ?? "",
-          baseHcp,
-        );
-      };
-      const baseHole = basePoints(hole),
-        values = playedHoles.map((h) => {
-          const roundValues = completedDays.map((roundDay) => {
-            const entry = playerHoleEntry(roundDay, playerId, h), card = eventCourseScorecard(roundDay,store.event,playerId), i = h - 1;
-            return stablefordPoints(entry?.gross, +(card.par?.[i] || 0), card.index?.[i] ?? "", playerDailyHandicap(playerId, roundDay));
-          }).filter((value) => value != null);
-          return roundValues.length ? Math.max(...roundValues) : null;
-        });
-      return {
-        baseDay,
-        baseHole,
-        total: values.every((x) => x != null)
-          ? values.reduce((a, b) => a + b, 0)
-          : null,
-      };
-    };
-    const scoreSummary = (current, total, playerId) => {
-      const ec = eclecticData(playerId),
-        shots = stablefordStrokeCount(
-          indexVal,
-          playerDailyHandicap(playerId, day),
-        );
-      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "‚Äî" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day ${ec.baseDay}</em><b>${ec.baseHole == null ? "‚Äî" : ec.baseHole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "‚Äî" : ec.total}</b></span>` : ""}</div></div>`;
-    };
-    const pairStart = ctx.playerIndex < 2 ? 0 : 2,
-      pairIds = ctx.group
-        .slice(pairStart, pairStart + 2)
-        .map(String)
-        .filter((id) => id !== NO_PARTNER_ID),
-      teamIds = ctx.group.map(String).filter((id) => id !== NO_PARTNER_ID);
-    if (
-      pairIds.length < 2 &&
-      setup.virtualPlayer &&
-      !pairIds.includes(String(setup.virtualPlayer))
-    )
-      pairIds.push(String(setup.virtualPlayer));
-    if (
-      teamIds.length < 4 &&
-      setup.virtualPlayer &&
-      !teamIds.includes(String(setup.virtualPlayer))
-    )
-      teamIds.push(String(setup.virtualPlayer));
-    const puttsThrough = (pid) => {
-      let sum = 0;
-      for (const h of playedHoles) {
-        const e = playerHoleEntry(day, pid, h),card=eventCourseScorecard(day,store.event,pid);
-        if (e?.putts === "" || e?.putts == null) return null;
-        sum += +e.putts || 0;
-      }
-      return sum;
-    };
-    const pairDisplay = [String(targetId), String(selected)].filter(
-        (id, i, a) => id && a.indexOf(id) === i,
-      ),
-      individualPutts = pairDisplay.map((id) => ({
-        id,
-        total: puttsThrough(id),
-      }));
-    const puttingOn = competitionIsOn("teamPutts", day),
-      puttingFormat = store.event.puttingFormat === "pairs" ? "pairs" : "team",
-      puttingIds = puttingFormat === "pairs" ? pairIds : teamIds,
-      puttingValues = puttingIds.map(puttsThrough),
-      puttingTotal = puttingValues.every((x) => x != null)
-        ? puttingValues.reduce((a, b) => a + b, 0)
-        : null;
-    const puttsLine = `<b>Putts:</b> ${individualPutts.map((x) => `<span>${esc(playerSurname(x.id))} <strong>${x.total == null ? "‚Äî" : x.total}</strong></span>`).join(" ")}${puttingOn ? `<span class="puttingAggregate">${puttingFormat === "pairs" ? "Pairs" : "Team"} Total <strong>${puttingTotal == null ? "‚Äî" : puttingTotal}</strong></span>` : ""}${ntp ? "<em>NTP</em>" : ""}`;
-    const best3Hole = (h) => {
-      const i = h - 1,
-        values = teamIds
-          .map((pid) => {
-            const e = playerHoleEntry(day, pid, h),card=eventCourseScorecard(day,store.event,pid);
-            return stablefordPoints(
-              e?.gross,
-              +(card.par?.[i] || 0),
-              card.index?.[i] ?? "",
-              playerDailyHandicap(pid, day),
-            );
-          })
-          .filter((x) => x != null)
-          .sort((a, b) => b - a);
-      return values.length >= 3
-        ? values.slice(0, 3).reduce((a, b) => a + b, 0)
-        : null;
-    };
-    const best3Current = best3Hole(hole),
-      best3Values = playedHoles.map(best3Hole),
-      best3Total = best3Values.every((x) => x != null)
-        ? best3Values.reduce((a, b) => a + b, 0)
-        : null,
-      best3On = competitionIsOn("best3of4", day),
-      yellowBallState = yellowBallHoleState(day, ctx.groupIndex, hole, rec),
-      yellowBallPlayerId = yellowBallState.playerId,
-      yellowBallActive = yellowBallState.active,
-      yellowBallLostHere = yellowBallState.lostHere,
-      yellowBallButton = (playerId) => yellowBallState.canRecord && String(playerId) === String(yellowBallPlayerId)
-        ? `<button type="button" class="yellowBallLostBtn ${yellowBallLostHere ? "lost" : ""}" id="yellowBallLost">${yellowBallLostHere ? "UNDO BALL LOST" : "BALL LOST"}</button>` : "",
-      yellowBallClass = (playerId) =>
-        yellowBallActive && String(playerId) === String(yellowBallPlayerId)
-          ? "yellowBallTurn"
-          : "";
-    const isExtra = String(setup.ntpExtraPlayers?.[String(hole)] || setup.ntpExtraPlayer || "") === String(selected);
-    const stepper = (id, label, value, base, min, max) => {
-      const has = value !== "" && value != null,
-        isGross = id.endsWith("Gross"),
-        picked = isGross && String(value).toUpperCase() === "P",
-        val = picked ? "P" : has ? +value : +base;
-      return `<div class="scoreStepperWrap ${isGross ? "grossControl" : "puttsControl"}"><small>${label}</small><div class="scoreStepper ${has ? "set" : "unset"}"><button type="button" data-step="${id}" data-delta="-1">‚àí</button><button type="button" class="stepValue" data-confirm="${id}" data-base="${base}">${val}</button><button type="button" data-step="${id}" data-delta="1">+</button></div></div>`;
-    };
-    const pickup = (id, value, compact = false) => {
-      const picked = String(value).toUpperCase() === "P";
-      return `<button type="button" class="pickupRow ${picked ? "picked" : ""}" data-pickup="${id}">${picked ? compact ? "‚úì PICK-UP (P)" : "‚úì PICK-UP RECORDED (P)" : "P ‚Äî PICK-UP"}</button>`;
-    };
-    const timeText = rec.ntp?.confirmedAt
-      ? new Date(rec.ntp.confirmedAt).toLocaleTimeString("en-AU", {
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : "";
-    const holeComplete = (h) => {
-      const r = round[String(h)] || {},
-        grossDone =
-          scoreEntered(r.official?.gross) && scoreEntered(r.self?.gross);
-      const puttsRequired = competitionIsOn("teamPutts", day);
-      return (
-        grossDone &&
-        (!puttsRequired ||
-          (scoreEntered(r.official?.putts) && scoreEntered(r.self?.putts)))
-      );
-    };
-    const liveMismatch = (h) => {
-      const own = round[String(h)]?.self || {},
-        ownOfficial = findOfficialForPlayer(day, selected, h),
-        marked = round[String(h)]?.official || {},
-        markedPlayer = String(marked.playerId || targetId || ""),
-        markedCheck = scoringDayStore(day)?.[markedPlayer]?.[String(h)]?.self || {},
-        puttsRequired = puttingOn;
-      return scoreEntriesMismatch(own, ownOfficial, puttsRequired) ||
-        Boolean(markedPlayer && scoreEntriesMismatch(marked, markedCheck, puttsRequired));
-    };
-    round._meta = round._meta || {};
-    const furthestPos = Math.max(pos, +round._meta.furthestPos || 0);
-    round._meta.furthestPos = furthestPos;
-    const missingHoles = seq
-      .slice(0, furthestPos)
-      .filter((h) => !holeComplete(h));
-    const mismatchHoles = seq.filter((h) => liveMismatch(h));
-    const holeStatus = (h) =>
-      h === hole
-        ? "current"
-        : liveMismatch(h)
-          ? "mismatch"
-          : holeComplete(h)
-          ? "complete"
-          : seq.indexOf(h) < furthestPos
-            ? "missing"
-            : "upcoming";
-    const holeTracker = `<div class="holeTracker" aria-label="Round hole status"><div class="holeTrackerKey"><span><i class="complete">‚úì</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="missing">!</i> Missing</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${seq
-      .map((h, i) => {
-        const state = holeStatus(h);
-        return `<button type="button" class="holeTrack ${state}" data-gotohole="${i}" aria-label="Hole ${h}, ${state}"><b>${h}</b>${state === "complete" ? "<small>‚úì</small>" : ["missing", "mismatch"].includes(state) ? "<small>!</small>" : ""}</button>`;
-      })
-      .join("")}</div></div>`;
-    const missingAlert = missingHoles.length
-      ? `<div class="missingHoleAlert"><div><strong>${missingHoles.length} missing hole${missingHoles.length === 1 ? "" : "s"}: ${missingHoles.join(", ")}</strong><span>These holes have been passed without complete scores.</span></div><button type="button" id="firstMissingHole">Go to first missing hole</button></div>`
-      : "";
-    const mismatchAlert = mismatchHoles.length
-      ? `<div class="mismatchHoleAlert"><div><strong>Hole${mismatchHoles.length === 1 ? "" : "s"} ${mismatchHoles.join(", ")} need${mismatchHoles.length === 1 ? "s" : ""} checking</strong><span>Your ${puttingOn ? "score or putts does" : "score does"} not agree with the other card. Please check it now.</span></div><button type="button" id="firstMismatchHole">Check now</button></div>`
-      : "";
-    const emergency = store.event.emergencyReplacements?.["day" + day],
-      showVirtualGlance = emergency && +emergency.groupIndex === +ctx.groupIndex,
-      virtualEntry = showVirtualGlance ? playerHoleEntry(day, emergency.virtualPlayerId, hole) : null,
-      virtualPoints = showVirtualGlance
-        ? stablefordPoints(virtualEntry?.gross, par, indexVal, playerDailyHandicap(emergency.virtualPlayerId, day))
-        : null,
-      virtualGlance = showVirtualGlance
-        ? `<details class="virtualGlance"><summary>${esc(eventPlayer(emergency.virtualPlayerId, day)?.name || "Virtual Player")} ‚Äî Virtual Player for ${esc(eventPlayer(emergency.missingPlayerId, day)?.name || "missing player")}</summary><div>${virtualEntry && scoreEntered(virtualEntry.gross) ? `<b>Hole ${hole} verified: ${virtualPoints ?? "‚Äî"} point${virtualPoints === 1 ? "" : "s"}${virtualEntry.putts == null || virtualEntry.putts === "" ? "" : ` ¬∑ ${virtualEntry.putts} putts`}</b><span>This borrowed score is now included automatically in the affected pair and team totals.</span>` : `<b>Waiting for ${esc(eventPlayer(emergency.virtualPlayerId, day)?.name || "the virtual player")}'s verified score on Hole ${hole}</b><span>The affected pair and team totals will update when that score arrives.</span>`}</div></details>`
-        : "";
-    const startingHoleNotice = store.event.playerStartingHoleNotice,
-      showStartingHoleNotice =
-        +startingHoleNotice?.day === +day &&
-        +startingHoleNotice?.hole === +start;
-    const startingHoleAlert = showStartingHoleNotice
-      ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
-      : "";
-    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">‚Üê Return to Checking</button></div>' : ""}<div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
- ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par || "‚Äî"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "‚Äî")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "‚Äî"}</b></div></div>
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}</div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}</div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
- ${ntp ? `<div class="ntpPlayCard"><div><b>Nearest the Pin ‚Äî Hole ${hole}</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` ¬∑ Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " ¬∑ You have the NTP extra shot today." : ""}</span><strong>Did ${esc(target?.name || "your marker partner")} record their name on the NTP marker?</strong></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">üîí ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>` : ""}
- <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>‚Üê Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole ‚Üí"}</button></div>${virtualGlance}</div>`;
-    if ($("#firstMismatchHole"))
-      $("#firstMismatchHole").onclick = () => {
-        store.event.playerHolePos = seq.indexOf(mismatchHoles[0]);
-        save();
-        renderHoleScoring(selected, day);
-      };
-    if ($("#dismissStartingHoleAlert"))
-      $("#dismissStartingHoleAlert").onclick = () => {
-        store.event.playerStartingHoleNotice = null;
-        save();
-        renderHoleScoring(selected, day);
-      };
-    const updateScoreControl = (id, val) => {
-      const valueButton = document.querySelector(`[data-confirm="${id}"]`),
-        stepperControl = valueButton?.closest(".scoreStepper"),
-        pickupButton = document.querySelector(`[data-pickup="${id}"]`),
-        picked = String(val).toUpperCase() === "P";
-      if (valueButton) valueButton.textContent = picked ? "P" : String(val);
-      if (stepperControl) {
-        stepperControl.classList.remove("unset");
-        stepperControl.classList.add("set");
-      }
-      if (pickupButton) {
-        pickupButton.classList.toggle("picked", picked);
-        pickupButton.textContent = picked
-          ? pickupButton.closest(".pickupControl")
-            ? "‚úì PICK-UP (P)"
-            : "‚úì PICK-UP RECORDED (P)"
-          : "P ‚Äî PICK-UP";
-      }
-    };
-    const setField = (id, val) => {
-      const [section, key] = id.startsWith("official")
-        ? ["official", id === "officialGross" ? "gross" : "putts"]
-        : ["self", id === "selfGross" ? "gross" : "putts"];
-      rec[section][key] = val;
-      const round = scorerStore(day, selected);
-      if (round._meta?.finalisedAt) delete round._meta.finalisedAt;
-      if (store.event.roundFinalised?.["day" + day])
-        delete store.event.roundFinalised["day" + day][selected];
-      writeLocalStore();
-      queueCloudRound(day, selected);
-      // Keep the actual score buttons in place until the player chooses the
-      // next hole. Replacing the whole scoring DOM after every value can remove
-      // the next button between touch-down and click on a fast phone entry.
-      updateScoreControl(id, val);
-    };
-    $$("[data-step]").forEach(
-      (btn) =>
-        (btn.onclick = () => {
-          const id = btn.dataset.step,
-            section = id.startsWith("official") ? "official" : "self",
-            key = id.endsWith("Gross") ? "gross" : "putts",
-            base = key === "gross" ? par || 4 : 2,
-            min = key === "gross" ? 1 : 0,
-            max = key === "gross" ? 20 : 9,
-            current =
-              rec[section][key] === "" ||
-              rec[section][key] == null ||
-              String(rec[section][key]).toUpperCase() === "P"
-                ? base
-                : +rec[section][key];
-          setField(
-            id,
-            Math.max(min, Math.min(max, current + +btn.dataset.delta)),
-          );
-        }),
-    );
-    $$("[data-pickup]").forEach(
-      (btn) =>
-        (btn.onclick = () => {
-          setField(btn.dataset.pickup, "P");
-        }),
-    );
-    $$("[data-confirm]").forEach(
-      (btn) =>
-        (btn.onclick = () => {
-          const id = btn.dataset.confirm,
-            section = id.startsWith("official") ? "official" : "self",
-            key = id.endsWith("Gross") ? "gross" : "putts";
-          if (rec[section][key] === "" || rec[section][key] == null)
-            setField(id, +btn.dataset.base);
-        }),
-    );
-    if ($("#yesNtp"))
-      $("#yesNtp").onclick = () => {
-        if (!ntpScoreSupportsClaim(day, rec)) {
-          alert(
-            `NTP cannot be recorded for ${target?.name || "this player"}. The score must show that the tee shot reached the green: putts must equal total strokes minus one (for example 2 strokes and 1 putt, or 4 strokes and 3 putts).`,
-          );
-          return;
-        }
-        if (!rec.ntp.pending) {
-          rec.ntp.pending = true;
-        } else {
-          rec.ntp.pending = false;
-          rec.ntp.entrantId = targetId;
-          rec.ntp.confirmedAt = new Date().toISOString();
-        }
-        save();
-        queueCloudRound(day, selected);
-        renderHoleScoring(selected, day);
-      };
-    if ($("#undoNtp"))
-      $("#undoNtp").onclick = () => {
-        rec.ntp.confirmedAt = null;
-        rec.ntp.entrantId = null;
-        rec.ntp.pending = false;
-        save();
-        queueCloudRound(day, selected);
-        renderHoleScoring(selected, day);
-      };
-    if ($("#yellowBallLost"))
-      $("#yellowBallLost").onclick = () => {
-        if (yellowBallLostHere) {
-          delete rec.yellowBall;
-        } else {
-          if (
-            !confirm(
-              `Confirm that ${eventPlayer(yellowBallPlayerId, day)?.name || "the nominated player"} lost the Yellow Ball on Hole ${hole}? Yellow Ball scoring for this team will stop before this hole.`,
-            )
-          )
-            return;
-          rec.yellowBall = {
-            lost: true,
-            playerId: String(yellowBallPlayerId),
-            at: new Date().toISOString(),
-          };
-        }
-        writeLocalStore();
-        queueCloudRound(day, selected);
-        renderHoleScoring(selected, day);
-      };
-    $$("[data-gotohole]").forEach(
-      (btn) =>
-        (btn.onclick = () => {
-          store.event.playerHolePos = +btn.dataset.gotohole;
-          save();
-          renderHoleScoring(selected, day);
-        }),
-    );
-    if ($("#firstMissingHole"))
-      $("#firstMissingHole").onclick = () => {
-        store.event.playerHolePos = seq.indexOf(missingHoles[0]);
-        save();
-        renderHoleScoring(selected, day);
-      };
-    if ($("#returnToMarkedVerification"))
-      $("#returnToMarkedVerification").onclick = () => {
-        store.event.returnToMarkedVerification = false;
-        store.event.playerVerificationStage = "marked";
-        store.event.playerRoundMode = "verify";
-        save();
-        renderRoundVerification(selected, day);
-      };
-    $("#prevHole").onclick = () => {
-      store.event.playerHolePos = Math.max(0, pos - 1);
-      save();
-      renderHoleScoring(selected, day);
-    };
-    $("#nextHole").onclick = () => {
-      $("#nextHole").disabled = true;
-      if (ntp && rec.ntp.confirmedAt) rec.ntp.locked = true;
-      writeLocalStore();
-      queueCloudRound(day, selected);
-      if (pos === 17) {
-        store.event.playerVerificationStage = "mine";
-        store.event.returnToMarkedVerification = false;
-        store.event.playerRoundMode = "verify";
-        save();
-        renderRoundVerification(selected, day);
-      } else {
-        store.event.playerHolePos = pos + 1;
-        round._meta = round._meta || {};
-        round._meta.furthestPos = Math.max(
-          +round._meta.furthestPos || 0,
-          pos + 1,
-        );
-        save();
-        renderHoleScoring(selected, day);
-      }
-    };
-  }
-  function leaderboardPlayerPoints(day, pid) {
-    const v = eventCourseScorecard(day,store.event,pid),
-      hcp = playerDailyHandicap(pid, day);
-    return Array.from({ length: 18 }, (_, i) => {
-      const e = findOfficialForPlayer(day, pid, i + 1);
-      return stablefordPoints(
-        e?.gross,
-        +(v.par?.[i] || 0),
-        v.index?.[i] ?? "",
-        hcp,
-      );
-    });
-  }
-  function leaderboardPlayerGross(day, pid) {
-    return Array.from({ length: 18 }, (_, i) => {
-      const g = findOfficialForPlayer(day, pid, i + 1)?.gross;
-      return String(g).toUpperCase() === "P" || g === "" || g == null
-        ? null
-        : +g;
-    });
-  }
-  function leaderboardUnits(day, type, aggregate = false) {
-    const setup = store.event.groupSetup?.["day" + day],
-      out = [];
-    if (!setup) return out;
-    (setup.groups || []).forEach((raw, gi) => {
-      const group = raw.map(id=>aggregate ? sharedPositionId(id) : String(id)),
-        replacementName = (id, originalId) =>
-          originalId === NO_PARTNER_ID
-            ? `${eventPlayer(id, day)?.name || "Virtual Player"} (VP for ${eventPlayer(setup.missingPlayerId, day)?.name || "missing player"})`
-            : eventPlayerName(id, aggregate ? null : day),
-        filled = ambroseIsOn(store.event, day)
-          ? group.filter((id) => id !== NO_PARTNER_ID)
-          : group
-              .map((id) =>
-                id === NO_PARTNER_ID ? String(setupForTeam(setup,gi).virtualPlayer || "") : id,
-              )
-              .filter(Boolean);
-      if (type === "team")
-        out.push({
-          id: `d${day}g${gi}`,
-          ids: [...new Set(filled)],
-          name: `Group ${gi + 1}`,
-          detail: filled
-            .map((id, index) => replacementName(id, group[index]))
-            .join(", "),
-        });
-      else
-        for (let n = 0; n < 4; n += 2) {
-          const ids = group
-            .slice(n, n + 2)
-            .map((id) =>
-              id === NO_PARTNER_ID ? String(setupForTeam(setup,gi).virtualPlayer || "") : id,
-            )
-            .filter(Boolean);
-          if (ids.length)
-            out.push({
-              id: `d${day}g${gi}p${n / 2}`,
-              ids: [...new Set(ids)],
-              name: ids
-                .map((id, index) =>
-                  replacementName(id, group.slice(n, n + 2)[index]),
-                )
-                .join(" & "),
-              detail:
-                store.event.days === 1
-                  ? `Group ${gi + 1}`
-                  : `Day ${day} ¬∑ Group ${gi + 1}`,
-            });
-        }
-    });
-    return out;
-  }
-  const leaderSum = (values) =>
-    values.reduce((n, x) => n + (x == null ? 0 : +x || 0), 0);
-  function leaderRow(id, name, detail, holes, target = 18) {
-    return {
-      id,
-      name,
-      detail,
-      holes,
-      total: leaderSum(holes),
-      thru: holes.filter((x) => x != null).length,
-      target,
-      cbHoles: holes,
-    };
-  }
-  function manualLeaderRow(id, name, detail, summary, target = 18) {
-    if (!summary || summary.total === "" || summary.total == null) return null;
-    const row = {
-      id,
-      name,
-      detail,
-      holes: [],
-      total: +summary.total,
-      thru: target,
-      target,
-      cbHoles: [],
-      manual: true,
-    };
-    if ([summary.back9, summary.last6, summary.last3].some((value) => value !== "" && value != null))
-      row.cbTotals = {
-        back9: +(summary.back9 || 0),
-        last6: +(summary.last6 || 0),
-        last3: +(summary.last3 || 0),
-      };
-    return row;
-  }
-  function finalEntryLeaderRow(day, id, kind) {
-    const entry = finalScoreEntry(day, id);
-    if (!entry || entry.kind !== kind || !Number.isFinite(+entry.total) || !entry.confirmedAt) return null;
-    return {id:String(id), name:eventPlayerName(id,day), detail:"Final score entered", holes:[], total:+entry.total, thru:18, target:18, cbHoles:[], finalEntry:true};
-  }
-  function strokeHoleScores(day, id) {
-    const raw = leaderboardPlayerGross(day,id), card = eventCourseScorecard(day,store.event,id), mode = store.event.strokeScoringMode || "allStrokes";
-    if (mode === "allStrokes") return raw;
-    const extra = mode === "maxTripleBogey" ? 3 : 2;
-    return raw.map((gross,index) => gross == null ? null : Math.min(gross,(+card.par?.[index]||0)+extra));
-  }
-  function leaderCountback(a, b, higher = true) {
-    if (a.tripCountback && b.tripCountback) {
-      for (let index=0;index<Math.min(a.tripCountback.length,b.tripCountback.length);index++) {
-        const diff=b.tripCountback[index]-a.tripCountback[index]; if(diff) return diff;
-      }
-      return 0;
-    }
-    if ((a.manual && !a.cbTotals) || (b.manual && !b.cbTotals)) return 0;
-    if (a.cbTotals || b.cbTotals) {
-      const totals = (row) => {
-          if (row.cbTotals) return row.cbTotals;
-          const values = row.cbHoles || row.holes || [];
-          return {
-            back9: leaderSum(values.slice(9, 18)),
-            last6: leaderSum(values.slice(12, 18)),
-            last3: leaderSum(values.slice(15, 18)),
-          };
-        },
-        at = totals(a),
-        bt = totals(b),
-        cmp = (x, y) => (higher ? y - x : x - y);
-      for (const key of ["back9", "last6", "last3"]) {
-        const c = cmp(+(at[key] || 0), +(bt[key] || 0));
-        if (c) return c;
-      }
-      return 0;
-    }
-    const av = a.cbHoles || a.holes,
-      bv = b.cbHoles || b.holes,
-      cmp = (x, y) => (higher ? y - x : x - y);
-    for (const [s, e] of [
-      [9, 18],
-      [12, 18],
-      [15, 18],
-    ]) {
-      const c = cmp(leaderSum(av.slice(s, e)), leaderSum(bv.slice(s, e)));
-      if (c) return c;
-    }
-    for (let i = 17; i >= 0; i--) {
-      const c = cmp(av[i] ?? 0, bv[i] ?? 0);
-      if (c) return c;
-    }
-    return 0;
-  }
-  function rankLeaderRows(rows, higher = true, useCountback = false) {
-    rows.sort((a, b) => {
-      const started = (b.thru > 0) - (a.thru > 0);
-      if (started) return started;
-      const c = higher ? b.total - a.total : a.total - b.total;
-      return (
-        c ||
-        (useCountback ? leaderCountback(a, b, higher) : 0) ||
-        a.name.localeCompare(b.name)
-      );
-    });
-    rows.forEach((r, i) => {
-      const prev = rows[i - 1],
-        next = rows[i + 1],
-        same =
-          prev &&
-          Boolean(prev.thru) === Boolean(r.thru) &&
-          prev.total === r.total &&
-          (!useCountback || leaderCountback(prev, r, higher) === 0);
-      r.rank = same ? prev.rank : i + 1;
-      r.tied = Boolean(
-        same ||
-          (next &&
-            Boolean(next.thru) === Boolean(r.thru) &&
-            next.total === r.total &&
-            (!useCountback || leaderCountback(r, next, higher) === 0)),
-      );
-      r.cb = Boolean(
-        useCountback &&
-          r.thru &&
-          i === 0 &&
-          rows[1]?.thru &&
-          rows[1].total === r.total &&
-          leaderCountback(r, rows[1], higher) !== 0,
-      );
-    });
-    return rows;
-  }
-  function leaderboardDefinitions() {
-    const selected = new Set(store.event.competitions || []),
-      days = store.event.days || 1,
-      defs = [],
-      add = (id, label, type, day = 0, opts = {}) =>
-        defs.push({ id, label, type, day, scope: day || "overall", ...opts });
-    if (
-      days === 1 &&
-      (selected.has("single") || selected.has("combined"))
-    )
-      add("single-d1", "Single Stableford", "single", 1, { countback: true });
-    if (days > 1 && (selected.has("combined") || selected.has("single"))) {
-      const id = selected.has("combined") ? "combined" : "single",
-        format = id === "combined" ? store.event.singleStablefordFormat || "aggregate" : "daily",
-        selectedDays = competitionDays(id), aggregateOnly = format === "aggregate";
-      for (const day of selectedDays) add(`combined-leg-d${day}`, `Single Stableford ‚Äî Day ${day}`, "single", day, {
-        countback: true, awardable: !aggregateOnly, aggregateLeg: aggregateOnly,
-      });
-      if (format !== "daily") add("combined", `Single Stableford ‚Äî Best ${countingRounds()} of ${selectedDays.length}`, "combined", 0, {
-        countback: true, aggregateResult: true, days: selectedDays,
-      });
-    }
-    for (let day = 1; day <= days; day++) {
-      const suffix = days === 1 ? "" : ` ‚Äî Day ${day}`;
-      if (competitionIsOn("stroke", day) && (typeof store.event.strokeDailyResults === "boolean" ? store.event.strokeDailyResults : (store.event.strokeCountingMode || "daily") === "daily")) {
-        const finalOnly = dayScoringMethod(day) === "finalGross";
-        add(`stroke-net-d${day}`, `Stroke Net${suffix}`, "strokeNet", day, {lower:true,countback:!finalOnly});
-      }
-      if (competitionIsOn("ambrose", day))
-        add(`ambrose-d${day}`, `Ambrose${suffix}`, "ambrose", day, {
-          lower: true,
-          countback: true,
-        });
-      if (competitionIsOn("fourball", day))
-        add(`fourball-d${day}`, `4BBB${suffix}`, "fourball", day, {
-          countback: true,
-        });
-      if (competitionIsOn("teamPutts", day))
-        add(
-          `putts-d${day}`,
-          `${store.event.puttingFormat === "pairs" ? "Pairs" : "Team"} Putting${suffix}`,
-          "putts",
-          day,
-          { lower: true, countback: true },
-        );
-      if (competitionIsOn("best3of4", day))
-        add(`best3-d${day}`, `Best 3 of 4${suffix}`, "best3", day, { countback: true });
-      if (selected.has("yellowBall") && yellowBallIsOn(day))
-        add(`yellow-ball-d${day}`, `Yellow Ball${suffix}`, "yellowBall", day);
-      if (competitionIsOn("scratch", day) && !["aggregate", "bestAggregate"].includes(store.event.scratchFormat))
-        add(`scratch-d${day}`, `Scratch${suffix}`, "scratch", day, {
-          lower: true,
-          countback: true,
-        });
-      if (competitionIsOn("ntp", day))
-        add(`ntp-d${day}`, `Nearest the Pin${suffix}`, "ntp", day);
-    }
-    if (selected.has("stroke") && (typeof store.event.strokeAggregateEnabled === "boolean" ? store.event.strokeAggregateEnabled : (store.event.strokeCountingMode || "daily") !== "daily")) {
-      const strokeDays = competitionDays("stroke"), best = (store.event.strokeAggregateMode || store.event.strokeCountingMode) === "bestAggregate",
-        count = best ? Math.max(1, strokeDays.length - 1) : strokeDays.length,
-        label = best ? `Best ${count} of ${strokeDays.length}` : `All ${strokeDays.length} rounds`;
-      add("stroke-net-agg", `Stroke Net ‚Äî ${label}`, "strokeAggregateNet", 0, { lower: true, countback: true, days: strokeDays, count });
-    }
-    if (selected.has("scratch") && ["aggregate", "bestAggregate"].includes(store.event.scratchFormat)) add("scratch-agg", store.event.scratchFormat === "bestAggregate" ? `Scratch ‚Äî Best ${Math.max(1, days - 1)} of ${days} rounds` : "Scratch ‚Äî Aggregate over all days", "scratchaggregate", 0, {lower:true, countback:true, days:eventDays()});
-    if (selected.has("capTeams")) add("cap-teams", "Black Cap ‚Äì White Cap", "capTeams", 0, {days:eventDays()});
-    if (selected.has("par3")) {
-      const mode = par3Mode();
-      if (["overallPlayers", "overallPairs"].includes(mode)) add("par3-agg", mode === "overallPairs" ? `Par 3 Pairs ‚Äî ${days} Days (Day ${days} partners)` : `Par 3 Individual ‚Äî ${days} Days`, mode === "overallPairs" ? "par3aggregate" : "par3individualaggregate", 0, {countback:true, days:eventDays()});
-      else for (const day of competitionDays("par3")) add(`par3-d${day}`, `Par 3 ${mode === "dailyTeams" ? "Teams" : "Pairs"}${days === 1 ? "" : ` ‚Äî Day ${day}`}`, mode === "dailyTeams" ? "par3team" : "par3", day, {countback:true});
-    }
-    if (selected.has("eclectic"))
-      selectedEclecticGroups(store.event).forEach((group) =>
-        add(`eclectic-${group.key.replace(/[^a-z0-9]+/gi, "-")}`, `Eclectic ‚Äî ${group.courseName} ¬∑ Days ${group.days.join(" and ")}`, "eclectic", 0, { countback: true, days: group.days, courseKey: group.key }),
-      );
-    return defs;
-  }
-  function calculateLeaderboard(def) {
-    const field = (day) =>
-        dayFieldIds(day)
-          .filter((id) => String(id) !== NO_PARTNER_ID)
-          .map(id=>def.day ? String(id) : sharedPositionId(id)),
-      points = (day, id) => leaderboardPlayerPoints(day, sharedActualId(id,day)),
-      gross = (day, id) => leaderboardPlayerGross(day, sharedActualId(id,day)), finalEntry = (day,id) => store.event?.finalScores?.["day"+day]?.[String(id)] || store.event?.scoring?.["day"+day]?.[String(id)]?._finalScore || null;
-    let rows = [];
-    if (def.type === "single")
-      rows = field(def.day).map((id) => {
-        const saved=finalEntry(def.day,id);if(saved?.kind==="stableford"&&saved.confirmedAt&&Number.isFinite(+saved.total))return {id:String(id),name:eventPlayerName(id,def.day),detail:"Final score entered",holes:[],total:+saved.total,thru:18,target:18,cbHoles:[],finalEntry:true};
-        const manual = manualPlayerSummary(def.day, id, "single");
-        return (
-          manualLeaderRow(id, eventPlayerName(id, def.day || null), "", manual) ||
-          leaderRow(id, eventPlayerName(id, def.day || null), "", points(def.day, id))
-        );
-      });
-    if (["strokeGross","strokeNet"].includes(def.type))
-      rows = field(def.day).map(id => {
-        const saved=finalEntry(def.day,id);let row;
-        if (saved?.kind==="gross"&&saved.confirmedAt&&Number.isFinite(+saved.total)) row={id:String(id),name:eventPlayerName(id,def.day),detail:"Final score entered",holes:[],total:+saved.total,thru:18,target:18,cbHoles:[],finalEntry:true};
-        else row = leaderRow(id,eventPlayerName(id,def.day),"",strokeHoleScores(def.day,sharedActualId(id,def.day)));
-        row.grossTotal = row.total;
-        row.handicap = playerDailyHandicap(sharedActualId(id,def.day),def.day) || 0;
-        if (def.type === "strokeNet") row.total = row.grossTotal - row.handicap;
-        row.detail = `${def.type === "strokeNet" ? `Gross ${row.grossTotal} ¬∑ Hcp ${formatPlayingHandicap(row.handicap)}` : "Gross strokes"}${row.finalEntry ? " ¬∑ final score entry" : ""}`;
-        return row;
-      });
-    if (["strokeAggregateGross", "strokeAggregateNet"].includes(def.type)) {
-      const selectedDays = def.days || competitionDays("stroke"), count = def.count || selectedDays.length,
-        net = def.type === "strokeAggregateNet", finished = selectedDays.every(eventDayComplete);
-      rows = [...new Set(selectedDays.flatMap(field))].map((id) => {
-        const rounds = selectedDays.filter((day) => field(day).includes(id)).map((day) => {
-          const actual = sharedActualId(id, day), saved = finalEntry(day, actual), finalGross = saved?.kind === "gross" && saved.confirmedAt && Number.isFinite(+saved.total),
-            holes = finalGross ? [] : strokeHoleScores(day, actual), grossTotal = finalGross ? +saved.total : leaderSum(holes),
-            handicap = playerDailyHandicap(actual, day) || 0, complete = finalGross || holes.every((value) => value != null),
-            total = grossTotal - (net ? handicap : 0);
-          return { day, holes, grossTotal, handicap, total, complete, thru: finalGross ? 18 : holes.filter((value) => value != null).length, finalGross };
-        }), ranked = [...rounds].sort((a, b) => Number(b.complete) - Number(a.complete) || a.total - b.total || b.day - a.day),
-          counted = ranked.filter((round) => round.complete || round.thru > 0).slice(0, count), completed = rounds.filter((round) => round.complete).length,
-          latest = [...counted].sort((a, b) => b.day - a.day)[0],
-          row = leaderRow(id, eventPlayerName(id), `${count === selectedDays.length ? "All rounds" : `Best ${count} of ${selectedDays.length}`} ¬∑ ${completed} complete ¬∑ Counting days ${counted.map((round) => round.day).sort((a, b) => a - b).join(", ") || "‚Äî"}`, [], count * 18);
-        row.total = leaderSum(counted.map((round) => round.total));
-        row.grossTotal = leaderSum(counted.map((round) => round.grossTotal));
-        row.handicap = leaderSum(counted.map((round) => round.handicap));
-        row.thru = leaderSum(counted.map((round) => round.thru));
-        row.cbHoles = latest?.holes || [];
-        row.manual = counted.some((round) => round.finalGross);
-        row.insufficientRounds = completed < count;
-        if (finished && completed < count) {
-          row.disqualified = true;
-          row.disqualificationReason = `${completed} completed rounds; ${count} required`;
-        }
-        return row;
-      });
-    }
-    if (def.type === "combined") {
-      const selectedDays = def.days || competitionDays("combined"), count = countingRounds();
-      rows = [...new Set(selectedDays.flatMap(field))].map(id => {
-        const rounds = selectedDays.filter(day => field(day).includes(id)).map(day => {
-          const actual=sharedActualId(id,day), final=finalEntry(day,actual), manual = manualPlayerSummary(day, actual, "single"), holes = points(day, id), finalStableford=final?.kind==="stableford"&&final.confirmedAt;
-          return {day, manual, final:finalStableford, holes, total: finalStableford ? +final.total : manual ? +manual.total : leaderSum(holes),
-            complete: Boolean(finalStableford||manual) || holes.every(value => value != null),
-            thru: finalStableford||manual ? 18 : holes.filter(value => value != null).length};
-        });
-        const ranked = [...rounds].sort((a,b) => Number(b.complete)-Number(a.complete) || b.total-a.total || b.day-a.day),
-          counted = ranked.filter(round => round.complete || round.thru > 0).slice(0,count), completed = rounds.filter(round => round.complete).length,
-          last = [...counted].sort((a,b) => b.day-a.day)[0],
-          row = leaderRow(id, eventPlayerName(id, def.day || null), `Best ${count} of ${selectedDays.length} ¬∑ ${completed} complete ¬∑ Counting days ${counted.map(r=>r.day).sort((a,b)=>a-b).join(", ") || "‚Äî"}`, [], count*18);
-        row.total = counted.reduce((total,round) => total+round.total,0);
-        row.thru = counted.reduce((total,round) => total+round.thru,0);
-        row.cbHoles = last?.holes || [];
-        if (last?.manual) row.cbTotals = {back9:+last.manual.back9||0,last6:+last.manual.last6||0,last3:+last.manual.last3||0};
-        if (eventDays().length > 2) row.tripCountback = counted.filter(round=>round.complete).map(round=>round.total).sort((a,b)=>a-b);
-        row.manual = counted.some(round=>round.manual||round.final);
-        row.insufficientRounds = completed < count;
-        // A golfer who sat out too many days remains visible, but is ineligible for the overall prize.
-        if (selectedDays.every(eventDayComplete) && completed < count) {
-          row.disqualified = true; row.disqualificationReason = `${completed} completed rounds; ${count} required`;
-        }
-        return row;
-      });
-    }
-    if (def.type === "ambrose")
-      rows = leaderboardUnits(def.day, "team").map((unit) => {
-        const groupIndex = +String(unit.id).replace(/^d\d+g/, ""),
-          roles = ambroseRoles(def.day, groupIndex),
-          holes = Array.from({ length: 18 }, (_, index) => {
-            const value = scorerStore(def.day, roles.scorerId)?.[
-              String(index + 1)
-            ]?.self?.gross;
-            return scoreEntered(value) ? +value : null;
-          }),
-          row = leaderRow(unit.id, unit.name, unit.detail, holes),
-          handicap = ambroseTeamHandicap(def.day, groupIndex),
-          minimum = +store.event.ambroseMinimumDrives || 0,
-          driveCounts = ambroseDriveCounts(def.day, groupIndex, roles.scorerId),
-          shortDrives = roles.team.filter((id) => (driveCounts[id] || 0) < minimum);
-        row.grossTotal = row.total;
-        row.handicap = handicap;
-        row.disqualified = row.thru === 18 && shortDrives.length > 0;
-        row.disqualificationReason = shortDrives
-          .map((id) => `${eventPlayerName(id, def.day || null)} ${driveCounts[id] || 0}/${minimum}`)
-          .join(" ¬∑ ");
-        row.total =
-          row.thru === 18 && handicap != null
-            ? row.grossTotal - handicap
-            : row.grossTotal;
-        return row;
-      });
-    if (def.type === "capTeams") rows = capTeamRows();
-    if (def.type === "scratchaggregate") {
-      const days = def.days || eventDays(), max = scratchHandicapLimit(),
-        best = store.event.scratchFormat === "bestAggregate",
-        count = best ? Math.max(1, days.length - 1) : days.length,
-        finished = days.every(eventDayComplete);
-      rows = [...new Set(days.flatMap(field))].filter(id => days.some(day => {
-        const hcp = playerDailyHandicap(sharedActualId(id,day), day);
-        return field(day).includes(id) && (max == null || (hcp != null && hcp <= max));
-      })).map(id => {
-        const rounds = days.map(day => {
-          const card = eventCourseScorecard(day,store.event,id), hcp = playerDailyHandicap(sharedActualId(id,day), day),
-            eligible = field(day).includes(id) && (max == null || (hcp != null && hcp <= max)),
-            pickup = store.event.scratchScoringMode === "maxDoubleBogey" ? null : scratchPickupHole(day, sharedActualId(id,day)),
-            holes = eligible && !pickup ? scratchGrossScores(day, sharedActualId(id,day), card) : Array(18).fill(null),
-            toParHoles = holes.map((gross, i) => gross == null ? null : gross - (+card.par?.[i] || 0));
-          return { day, eligible, pickup, holes, toParHoles,
-            complete: holes.every(gross => gross != null),
-            thru: holes.filter(gross => gross != null).length,
-            gross: leaderSum(holes), total: leaderSum(toParHoles) };
-        });
-        const available = rounds.filter(round => round.eligible && !round.pickup),
-          completed = available.filter(round => round.complete).length,
-          ranked = best ? [...available].sort((a,b) => Number(b.complete) - Number(a.complete) || a.total - b.total || b.day - a.day) : available,
-          counted = ranked.filter(round => round.thru > 0).slice(0, count).sort((a,b) => a.day - b.day),
-          row = leaderRow(id, eventPlayerName(id, def.day || null), best
-            ? `Best ${count} of ${days.length} ¬∑ ${completed} complete ¬∑ Counting days ${counted.map(round => round.day).join(", ") || "‚Äî"}`
-            : "All days ¬∑ every round required", counted.flatMap(round => round.holes), count * 18);
-        row.grossTotal = leaderSum(counted.map(round => round.gross));
-        row.total = leaderSum(counted.map(round => round.total));
-        row.scratchToPar = row.total;
-        row.insufficientRounds = completed < count;
-        // Count back on the latest counting round, using scores relative to par
-        // so different course pars do not change the tie-break comparison.
-        if (best || !retainedLegacyScoringRules()) row.cbHoles = counted.at(-1)?.toParHoles || [];
-        const potential = available.filter(round => round.complete || !eventDayComplete(round.day)).length,
-          failed = best ? potential < count || (finished && completed < count) : available.length < count;
-        if (failed) {
-          const pickupRound = rounds.find(round => round.pickup);
-          row.disqualified = true;
-          row.pickupHole = pickupRound?.pickup || null;
-          row.disqualificationReason = best
-            ? `${completed} qualifying completed rounds; ${count} required`
-            : pickupRound ? `Pick-up on Day ${pickupRound.day}, Hole ${pickupRound.pickup}` : "A qualifying Scratch round is required on every day";
-        }
-        return row;
-      });
-    }
-    if (def.type === "scratch") {
-      const v = eventCourseScorecard(def.day),
-        max = scratchHandicapLimit();
-      rows = field(def.day)
-        .filter((id) => {
-          const hcp = playerDailyHandicap(id, def.day);
-          return max == null || (hcp != null && hcp <= max);
-        })
-        .map((id) => {
-          const card=eventCourseScorecard(def.day,store.event,id),scores = scratchGrossScores(def.day, id, card),
-            r = leaderRow(id, eventPlayerName(id, def.day || null), "", scores),
-            pickup =
-              store.event?.scratchScoringMode === "maxDoubleBogey"
-                ? null
-                : scratchPickupHole(def.day, id);
-          r.grossTotal = r.total;
-          r.total = scores.reduce(
-            (n, g, i) => n + (g == null ? 0 : g - (+card.par?.[i] || 0)),
-            0,
-          );
-          r.scratchToPar = r.total;
-          if (pickup) {
-            r.disqualified = true;
-            r.pickupHole = pickup;
-          }
-          return r;
-        });
-    }
-    if (def.type === "fourball")
-      rows = leaderboardUnits(def.day, "pair").map((u) => {
-        const manual = manualPairSummary(def.day, u.id, "fourball");
-        return (
-          manualLeaderRow(u.id, u.name, u.detail, manual) ||
-          leaderRow(
-            u.id,
-            u.name,
-            u.detail,
-            Array.from({ length: 18 }, (_, i) => {
-              const vals = u.ids
-                .map((id) => points(def.day, id)[i])
-                .filter((x) => x != null);
-              return vals.length ? Math.max(...vals) : null;
-            }),
-          )
-        );
-      });
-    if (def.type === "putts") {
-      const kind = store.event.puttingFormat === "pairs" ? "pair" : "team";
-      rows = leaderboardUnits(def.day, kind).map((u) => {
-        let manual = null;
-        const finalPutts=u.ids.map(id=>finalScoreEntry(def.day,id)?.putts);
-        if(finalPutts.length&&finalPutts.every(value=>value!==""&&value!=null&&Number.isFinite(+value))) manual={total:leaderSum(finalPutts)};
-        if (kind === "team")
-          manual = manual || manualTeamSummary(def.day, u.id, "putts");
-        else {
-          const summaries = u.ids.map((id) =>
-            manualPlayerSummary(def.day, id, "putts"),
-          );
-          if (!manual && summaries.every(Boolean))
-            manual = {
-              total: leaderSum(summaries.map((x) => +x.total)),
-              back9: leaderSum(summaries.map((x) => +x.back9)),
-              last6: leaderSum(summaries.map((x) => +x.last6)),
-              last3: leaderSum(summaries.map((x) => +x.last3)),
-            };
-        }
-        return (
-          manualLeaderRow(u.id, u.name, u.detail, manual) ||
-          leaderRow(
-            u.id,
-            u.name,
-            u.detail,
-            Array.from({ length: 18 }, (_, i) => {
-              const vals = u.ids
-                .map((id) => findOfficialForPlayer(def.day, id, i + 1)?.putts)
-                .map((x) => (x === "" || x == null ? null : +x));
-              return vals.every((x) => x != null) ? leaderSum(vals) : null;
-            }),
-          )
-        );
-      });
-    }
-    if (def.type === "best3")
-      rows = leaderboardUnits(def.day, "team").map((u) => {
-        const manual = manualTeamSummary(def.day, u.id, "best3");
-        return (
-          manualLeaderRow(u.id, u.name, u.detail, manual) ||
-          leaderRow(
-            u.id,
-            u.name,
-            u.detail,
-            Array.from({ length: 18 }, (_, i) => {
-              const vals = u.ids
-                .map((id) => points(def.day, id)[i])
-                .filter((x) => x != null)
-                .sort((a, b) => b - a);
-              return vals.length >= 3 ? leaderSum(vals.slice(0, 3)) : null;
-            }),
-          )
-        );
-      });
-    if (def.type === "yellowBall") {
-      rows = leaderboardUnits(def.day, "team").map((u, groupIndex) => {
-        const team = yellowBallTeam(def.day, groupIndex),
-          start = groupStartingHole(store.event, def.day, groupIndex),
-          sequence = scoreSequence(start),
-          loss = yellowBallLoss(def.day, groupIndex),
-          holes = sequence.map((hole, position) => {
-            if (loss && position >= loss.position) return null;
-            const nominated = yellowBallPlayerForHole(
-              def.day,
-              groupIndex,
-              hole,
-            );
-            return leaderboardPlayerPoints(def.day, nominated)[hole - 1];
-          }),
-          row = leaderRow(
-            u.id,
-            `Team ${groupIndex + 1}`,
-            team.map((id) => eventPlayerName(id, def.day)).join(", "),
-            holes,
-          );
-        const manual = submittedManualCard(def.day, groupIndex)?.team?.yellowBall;
-        if (manual?.lossHole && manual.total !== "" && manual.total != null) {
-          row.total = +manual.total;
-          row.thru = loss ? loss.position : 18;
-          row.pending = 0;
-          row.manual = true;
-        }
-        row.loss = loss;
-        row.survived = loss ? loss.position : row.thru;
-        return row;
-      });
-      rows.sort(
-        (a, b) =>
-          b.survived - a.survived ||
-          b.total - a.total ||
-          a.name.localeCompare(b.name),
-      );
-      rows.forEach((row, index) => {
-        const previous = rows[index - 1],
-          next = rows[index + 1],
-          same =
-            previous &&
-            previous.survived === row.survived &&
-            previous.total === row.total;
-        row.rank = same ? previous.rank : index + 1;
-        row.tied = Boolean(
-          same ||
-            (next &&
-              next.survived === row.survived &&
-              next.total === row.total),
-        );
-      });
-      return rows;
-    }
-    if (["par3", "par3team"].includes(def.type)) {
-      const ix=manualPar3Holes(def.day).map(h=>h-1);
-      rows = leaderboardUnits(def.day, def.type === "par3team" ? "team" : "pair").map((u) =>
-        leaderRow(
-          u.id,
-          u.name,
-          u.detail,
-          ix.map((i) => {
-            const vals = u.ids.map((id) => {
-              if(+eventCourseScorecard(def.day,store.event,id).par?.[i]!==3)return 0;
-              const manual = manualPar3Point(def.day, id, i + 1);
-              return manual == null ? points(def.day, id)[i] : manual;
-            });
-            return vals.every((x) => x != null) ? leaderSum(vals) : null;
-          }),
-          ix.length,
-        ),
-      );
-    }
-    if (["par3aggregate", "par3individualaggregate"].includes(def.type)) {
-      const effectivePlayer = (day, id) => {
-        id=sharedActualId(id,day);
-        const emergency = store.event.emergencyReplacements?.["day" + day];
-        return emergency && String(emergency.missingPlayerId) === String(id)
-          ? String(emergency.virtualPlayerId || id)
-          : String(id);
-      };
-      const ix = (d) => {
-        return manualPar3Holes(d).map(h=>h-1);
-      };
-      const units = def.type === "par3aggregate" ? leaderboardUnits(store.event.days, "pair", true) : [...new Set(eventDays().flatMap(field))].map(id => ({id, name:eventPlayerName(id, def.day || null), ids:[id]}));
-      rows = units.map((u) => {
-        const holes = [];
-        for (const d of eventDays()) {
-          const effectiveIds = u.ids.map((id) => effectivePlayer(d, id)),
-            conflictingVirtualPair =
-              new Set(effectiveIds).size !== effectiveIds.length;
-          ix(d).forEach((i) => {
-            if (conflictingVirtualPair) {
-              holes.push(null);
-              return;
-            }
-            const vals = effectiveIds.map((effectiveId) => {
-              if(+eventCourseScorecard(d,store.event,effectiveId).par?.[i]!==3)return 0;
-              if (!field(d).includes(sharedPositionId(effectiveId))) return 0; // A scheduled rest day has no score; pending playing-day scores remain null.
-              const manual = manualPar3Point(d, effectiveId, i + 1);
-              return manual == null ? points(d, effectiveId)[i] : manual;
-            });
-            holes.push(vals.every((x) => x != null) ? leaderSum(vals) : null);
-          });
-        }
-        return leaderRow(
-          u.id,
-          u.name,
-          def.type === "par3aggregate" ? `Day ${store.event.days} partnership ¬∑ all rounds` : "Individual ¬∑ all rounds",
-          holes,
-          holes.length,
-        );
-      });
-    }
-    if (def.type === "eclectic") {
-      const eclecticDays = def.days || [1, 2], firstDay = eclecticDays[0], lastDay = eclecticDays.at(-1);
-      rows = field(firstDay)
-        .filter((id) => eclecticDays.every((day) => field(day).includes(id)))
-        .map((id) => {
-          const rounds = eclecticDays.map((day) => points(day, id)), baseline = rounds[0], latest = rounds.at(-1),
-            r = leaderRow(
-            id,
-            eventPlayerName(id, def.day || null),
-            `${def.days?.length || 2} rounds ¬∑ Days ${eclecticDays.join(" and ")}`,
-            Array.from({ length: 18 }, (_, i) => {
-              const vals = rounds.map((round) => round[i]).filter((x) => x != null);
-              return vals.length ? Math.max(...vals) : null;
-            }),
-          );
-          r.pointsGained = r.holes.reduce(
-            (total, value, i) =>
-              total +
-              (value == null || baseline[i] == null
-                ? 0
-                : Math.max(0, value - baseline[i])),
-            0,
-          );
-          r.thru = latest.filter((value) => value != null).length;
-          r.lastDay = lastDay;
-          return r;
-        });
-    }
-    if (["scratch", "scratchaggregate", "ambrose", "combined", "strokeAggregateGross", "strokeAggregateNet"].includes(def.type)) {
-      const active = rankLeaderRows(
-        rows.filter((r) => !r.disqualified),
-        !def.lower,
-        Boolean(def.countback),
-      );
-      const disqualified = rows
-        .filter((r) => r.disqualified)
-        .sort(
-          (a, b) => ["scratch", "scratchaggregate"].includes(def.type)
-            ? a.pickupHole - b.pickupHole || a.name.localeCompare(b.name)
-            : a.name.localeCompare(b.name),
-        );
-      disqualified.forEach((r) => {
-        r.rank = "";
-        r.tied = false;
-      });
-      return [...active, ...disqualified];
-    }
-    return rankLeaderRows(rows, !def.lower, Boolean(def.countback));
-  }
-  function eventDayComplete(day) {
-    if (manualDayFinalised(day)) return true;
-    const field = dayFieldIds(day).filter(
-      (id) => String(id) !== NO_PARTNER_ID,
-    );
-    if (dayScoringMethod(day) === "fullCardPlayer")
-      return Boolean(
-        field.length && field.every((id) => roundFinalisedFor(day, id)),
-      );
-    if (dayScoringMethod(day) !== "holeByHole")
-      return Boolean(field.length && field.every(id=>finalScoreComplete(day,id)));
-    return Boolean(
-      field.length && field.every((id) => livePlayerStatus(day, id).finalised),
-    );
-  }
-  function yellowBallResultsReady(day) {
-    if (eventDayComplete(day)) return true;
-    if (dayScoringMethod(day) !== "holeByHole") return false;
-    const field = dayFieldIds(day).filter(
-      (id) => String(id) !== NO_PARTNER_ID,
-    );
-    return Boolean(
-      field.length &&
-        field.every(
-          (id) =>
-            officialCardProgress(day, id).complete &&
-            verificationIssueHoles(day, id).length === 0,
-        ),
-    );
-  }
-  function leaderboardComplete(def, rows) {
-    const finalised = def.day
-      ? eventDayComplete(def.day)
-      : (def.days || eventDays()).every(eventDayComplete);
-    if (def.type === "ntp")
-      return (
-        finalised &&
-        (manualDayStore(def.day, false)?.ntpFinalised ||
-          dayFieldIds(def.day)
-            .filter((id) => String(id) !== NO_PARTNER_ID)
-            .every((id) =>
-              leaderboardPlayerPoints(def.day, id).every((x) => x != null),
-            ))
-      );
-    if (["scratch", "scratchaggregate"].includes(def.type)) {
-      const active = rows.filter((r) => !r.disqualified);
-      return Boolean(
-        finalised && active.length && active.every((r) => r.thru === r.target),
-      );
-    }
-    if (def.type === "yellowBall")
-      return Boolean(yellowBallResultsReady(def.day) && rows.length);
-    const eligible = rows.filter(row => !row.disqualified);
-    if (def.type === "combined" && finalised && rows.length && !eligible.length) return true;
-    return Boolean(finalised && eligible.length && eligible.every(row => row.thru === row.target));
-  }
-  function summaryCompetitionResult(def) {
-    if (def.type === "ntp") {
-      const holders = ntpHolesInPlayingOrder(def.day).map((h) => ({
-          hole: h,
-          holder: currentNtpHolder(def.day, h),
-        })),
-        complete = leaderboardComplete(def, []),
-        hasWinner = holders.some((x) => Boolean(x.holder));
-      return {
-        complete,
-        status: complete ? "Completed" : "In Progress",
-        text: holders.length
-          ? holders.map((x) => ntpSummaryLine(def.day, x.hole, complete)).join(" ¬∑ ")
-          : "Pending",
-        awardable: hasWinner,
-      };
-    }
-    const rows = calculateLeaderboard(def),
-      top = rows.find((r) => !r.disqualified),
-      complete = leaderboardComplete(def, rows);
-    if (def.type === "yellowBall" && !complete)
-      return {
-        complete: false,
-        status: "In Progress",
-        text: "Result announced at the end of play",
-        awardable: def.awardable !== false,
-      };
-    if (def.type === "combined" && complete && !top) return {complete:true,status:"Completed",text:"No golfer completed the required number of rounds",awardable:false};
-    if (!top || (!top.thru && def.type !== "yellowBall"))
-      return {
-        complete: false,
-        status: "Not Started",
-        text:
-          def.type === "scratch" && rows.some((r) => r.disqualified)
-            ? "No eligible competitor remains"
-            : "Not started",
-        awardable: def.awardable !== false,
-      };
-    const teamMembers =
-      (def.type === "best3" ||
-        def.type === "ambrose" ||
-        def.type === "yellowBall" ||
-        (def.type === "putts" && store.event.puttingFormat !== "pairs")) &&
-      top.detail
-        ? ` (${top.detail})`
-        : "";
-    const scratchScore =
-      top.scratchToPar === 0
-        ? "E"
-        : top.scratchToPar > 0
-          ? `+${top.scratchToPar}`
-          : `‚àí${Math.abs(top.scratchToPar)}`;
-    const result =
-      ["scratch", "scratchaggregate"].includes(def.type)
-        ? complete
-          ? `${top.grossTotal} strokes (${scratchScore})`
-          : `${scratchScore} ¬∑ Thru ${top.thru}`
-        : def.type === "ambrose"
-          ? top.thru === top.target && top.handicap != null
-            ? `${complete ? "" : "Provisional leader ‚Äî "}${top.grossTotal} gross ¬∑ ${top.handicap.toFixed(1)} hcp ¬∑ ${top.total.toFixed(1)} net`
-            : `${top.grossTotal} gross ¬∑ Thru ${top.thru}`
-        : def.type === "yellowBall"
-          ? top.loss
-            ? `${top.total} pts ¬∑ ball lost on Hole ${top.loss.hole}`
-            : `${top.total} pts ¬∑ all 18 holes completed`
-          : `${top.total} ${def.type === "putts" ? "putts" : ["strokeGross","strokeNet"].includes(def.type) ? "strokes" : "pts"}`;
-    const resultText = def.aggregateLeg
-      ? `${top.name} led Day ${def.day} of the Event ‚Äî ${result}${top.cb ? " CB" : ""}`
-      : def.aggregateResult
-        ? `${top.name} ‚Äî Aggregate ${result}${top.cb ? " CB" : ""}`
-        : `${top.name}${teamMembers} ‚Äî ${result}${top.cb ? " CB" : ""}`;
-    return {
-      complete,
-      status: complete ? "Completed" : "In Progress",
-      text: resultText,
-      awardable: def.awardable !== false,
-    };
-  }
-  function competitionWinnerIds(def) {
-    if (def.type === "ntp")
-      return [
-        ...new Set(
-          ntpHolesFor(def.day)
-            .map((hole) => currentNtpHolder(def.day, hole)?.id)
-            .filter(Boolean)
-            .map(String),
-        ),
-      ];
-    const rows = calculateLeaderboard(def).filter((row) => !row.disqualified);
-    if (!leaderboardComplete(def, rows) || !rows.length) return [];
-    const winners = rows.filter((row) => row.rank === 1);
-    if (["single", "combined", "scratch", "scratchaggregate", "par3individualaggregate", "eclectic"].includes(def.type))
-      return winners.flatMap(row=>!def.day && GolfSharedPositions.members(store.event,sharedPositionId(row.id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(row.id)) : [String(row.id)]);
-    if (def.type === "capTeams") return winners.flatMap(row => (store.event.capTeams?.[row.id] || []).flatMap(id=>GolfSharedPositions.members(store.event,sharedPositionId(id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(id)) : [id])).map(String);
-    if (def.type === "yellowBall")
-      return [
-        ...new Set(
-          winners.flatMap((row) => {
-            const groupIndex = +String(row.id).replace(/^d\d+g/, "");
-            return yellowBallTeam(def.day, groupIndex);
-          }),
-        ),
-      ].map(String);
-    const kind =
-      def.type === "best3" || def.type === "par3team" ||
-      def.type === "ambrose" ||
-      def.type === "yellowBall" ||
-      (def.type === "putts" && store.event.puttingFormat !== "pairs")
-        ? "team"
-        : "pair";
-    const day = def.day || (def.type === "par3aggregate" ? store.event.days : 1);
-    const units = leaderboardUnits(day, kind, !def.day);
-    return [
-      ...new Set(
-        winners.flatMap(
-          (row) => units.find((unit) => unit.id === row.id)?.ids || [],
-        ),
-      ),
-    ].flatMap(id=>!def.day && GolfSharedPositions.members(store.event,sharedPositionId(id)).length ? GolfSharedPositions.members(store.event,sharedPositionId(id)) : [String(id)]);
-  }
-  function buildFinalPlayerMessages(defs) {
-    const outcomes = {};
-    [...new Set(eventDays().flatMap(dayFieldIds))]
-      .filter(id=>String(id)!==NO_PARTNER_ID).forEach(id=>outcomes[String(id)]=[]);
-    defs.forEach((def) =>
-      competitionWinnerIds(def).forEach((id) => {
-        if (outcomes[id] && !outcomes[id].includes(def.label))
-          outcomes[id].push(def.label);
-      }),
-    );
-    return outcomes;
-  }
-  function finalMessageForPlayer(id) {
-    const first = playerFirstName(id);
-    return {
-      heading: `Thanks for joining this Golf Event, ${first}. It is hoped you can join other events in the future.`,
-      message: "",
-      scoringCredit: "Scoring run on Away Golf Scorer",
-    };
-  }
-  async function confirmResultsAndCloseEvent() {
-    const guestClosingEvent = isGuestOrganiser();
-    if (store.cloud?.eventId) {
-      const refreshed = await syncCloudNow();
-      if (!refreshed) {
-        alert("The event cannot be closed until the latest online scorecards have been reloaded successfully.");
-        return;
-      }
-    }
-    const requiredDays = Array.from(
-      { length: store.event.days || 1 },
-      (_, index) => index + 1,
-    );
-    const unfinishedDays = requiredDays.filter(
-      (day) => !eventDayComplete(day),
-    );
-    if (unfinishedDays.length) {
-      alert(
-        `The event cannot be closed yet. ${unfinishedDays.map((day) => `Day ${day}`).join(" and ")} scoring is still incomplete.`,
-      );
-      return;
-    }
-    const defs = leaderboardDefinitions(),
-      incomplete = defs.filter(
-        (def) => !summaryCompetitionResult(def).complete,
-      );
-    if (incomplete.length) {
-      alert(
-        `Results cannot be confirmed yet. Still in progress: ${incomplete.map((d) => d.label).join(", ")}.`,
-      );
-      return;
-    }
-    if (
-      !confirm(
-        "Confirm all results and close this event? Personal finishing messages will then appear on players' phones.",
-      )
-    )
-      return;
-    store.event.finalResults = {
-      scoringRulesVersion: 2,
-      confirmedAt: new Date().toISOString(),
-      outcomes: buildFinalPlayerMessages(defs),
-    };
-    store.event.status = "complete";
-    recordCompletedEventHistory(store.event);
-    persistStore();
-    const closedOnline = await updateCloudEvent();
-    if (guestClosingEvent && closedOnline) {
-      endGuestOrganiserSession(
-        "The event has been closed successfully. Your single-event Guest Organiser access has now ended.",
-      );
-      return;
-    }
-    renderLeaderboard();
-    renderHome();
-  }
-  async function archiveCompletedEvent() {
-    if (!store.event?.finalResults?.confirmedAt) return alert("Confirm the final results before archiving this event.");
-    const eventName=store.event.name||"this completed event",cloudEventId=String(store.cloud?.eventId||"");
-    if(!confirm(`Close and archive ${eventName}?\n\nFinal results will remain in Past Events. The published event will close and connected player phones will be released for their next event.`))return;
-    const button=$("#archiveCompletedEvent");
-    if(button){button.disabled=true;button.textContent="ARCHIVING‚Ä¶";}
-    try {
-      if(cloudEventId){
-        const latest=await cloudTimeout(AwayCloud.loadEvent(cloudEventId));
-        const cloudResultsConfirmed=Boolean(latest?.event?.event_data?.event?.finalResults?.confirmedAt);
-        if(!cloudResultsConfirmed){
-          const saved=await updateCloudEvent();
-          if(!saved)throw new Error("The final results could not be confirmed online. Use Retry Sync and try again.");
-        }
-        await AwayCloud.archiveEvent(cloudEventId);
-        await AwayCloud.saveWorkspace({activePublishedEvent:null});
-        forgetPublishedEvent(cloudEventId);
-      }
-      store.event.archivedAt=new Date().toISOString();
-      captureCurrentEvent();
-      const workspaceId=String(store.event.workspaceId||store.activeEventId||"");
-      const record=store.eventWorkspace?.find(item=>String(item.id)===workspaceId);
-      if(record){record.archived=true;record.updatedAt=new Date().toISOString();}
-      closeCloudConnection();
-      forgetOrganiserEvent();
-      workspaceShrinkAuthorised=true;
-      store.event=null;
-      store.activeEventId=null;
-      delete store.cloud;
-      store.cloudPlayers=[];
-      persistStore();
-      applyDeviceRole();
-      renderHome();
-      renderPlayerExperience();
-      renderLeaderboard();
-      nav("home");
-      setCloudMessage("Completed event archived ¬∑ results retained in Past Events");
-      alert(`${eventName} is now archived. Final results remain available in Past Events and connected phones will return to player entry.`);
-    } catch(error) {
-      if(button){button.disabled=false;button.textContent="CLOSE AND ARCHIVE COMPLETED EVENT";}
-      alert("The event was not archived. "+(error.message||error));
-    }
-  }
-  function leaderboardBenefitId(def) {
-    if (def.type === "single") return "dailyStableford";
-    return (
-      {
-        combined: "overallStableford",
-        fourball: "fourball",
-        putts: "teamPutts",
-        best3: "best3of4",
-        ambrose: "ambrose",
-        yellowBall: "yellowBall",
-        scratch: "scratch",
-        ntp: "ntp",
-        par3: "par3",
-        par3aggregate: "par3",
-        par3individualaggregate: "par3",
-        par3team: "par3",
-        scratchaggregate: "scratch",
-        capTeams: "capTeams",
-        eclectic: "eclectic",
-      }[def.type] || def.type
-    );
-  }
-  function summaryPrizeDetails(def) {
-    if (def.awardable === false) return {id:leaderboardBenefitId(def),text:"Not Applicable",configured:false,awarded:false};
-    const id = leaderboardBenefitId(def),
-      text = competitionBenefitText(id, store.event.benefits),
-      configured = text !== "Prize not set",
-      displayText =
-        def.type === "ntp" && store.event?.ntpJackpot && configured
-          ? "Shown by NTP hole above"
-          : text;
-    return {
-      id,
-      text: displayText,
-      configured,
-      awarded: Boolean(store.event.prizesAwarded?.[def.id]),
-    };
-  }
-  async function setPrizeAwarded(defId, awarded) {
-    store.event.prizesAwarded = store.event.prizesAwarded || {};
-    if (awarded)
-      store.event.prizesAwarded[defId] = {
-        awardedAt: new Date().toISOString(),
-      };
-    else delete store.event.prizesAwarded[defId];
-    writeLocalStore();
-    renderLeaderboard();
-    if (store.cloud?.role === "organiser" && store.cloud?.eventId)
-      await updateCloudEvent();
-  }
-  function renderLeaderboardSummary(host, defs, viewTabs) {
-    const groups = [
-      ...eventDays().map(day => ({title: `${store.event.days===1?"Event Results":`Day ${day} Results`}${course(store.event["course"+day])?.name ? ` ‚Äî ${course(store.event["course"+day]).name}` : ""}`, defs:defs.filter(d=>d.scope===day)})),
-      {title:"Overall Event Results",defs:defs.filter(d=>d.scope==="overall")},
-    ].filter(group=>group.defs.length);
-    const organiser = !store.event.pastEventReadOnly && !["player","spectator"].includes(store.cloud?.role),
-      eventComplete = eventDays().every(eventDayComplete),
-      eventClosed = Boolean(store.event.finalResults?.confirmedAt);
-    let eventControl = "";
-    if (organiser && eventClosed) {
-      eventControl = `<section class="finishControl"><h3>Event Closed ‚Äî Messages Ready</h3><p>The confirmed results and personal finishing messages are now available on every connected player phone.</p><div class="finishMessagePreview">${dayFieldIds(1)
-        .filter((id) => String(id) !== NO_PARTNER_ID)
-        .map((id) => {
-          const m = finalMessageForPlayer(id);
-          return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)}${m.message ? ` ${esc(m.message)}` : ""}<small class="scoringCredit">${esc(m.scoringCredit)}</small></span></div>`;
-        })
-        .join("")}</div><button class="finishEventBtn" id="archiveCompletedEvent">CLOSE AND ARCHIVE COMPLETED EVENT</button><p>Final results remain available in Past Events. Connected phones are released for their next event.</p></section>`;
-    } else if (organiser && !eventComplete && eventDays().some(eventDayComplete)) {
-      const next = eventDays().find(day=>!eventDayComplete(day));
-      eventControl = `<section class="finishControl dayCompleteControl"><h3>Completed days can be awarded ‚Äî Event Remains Open</h3><p>Complete the remaining days before closing the trip.</p><button class="finishEventBtn" id="openNextDayBtn" data-nextday="${next}">OPEN DAY ${next}</button></section>`;
-    } else if (organiser && !eventComplete) {
-      eventControl = `<section class="finishControl eventInProgress"><h3>Event In Progress</h3><p>Complete the remaining scoring before closing the event. Prizes for a completed day can still be awarded above.</p></section>`;
-    } else if (organiser) {
-      eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">CONFIRM RESULTS &amp; CLOSE EVENT</button></section>`;
-    }
-    const pastEventNotice = store.event.pastEventReadOnly
-      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
-      : "";
-    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} ¬∑ ${store.event.pastEventReadOnly ? "retained final results" : "winners and prize giving"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}<div class="summaryGroups">${groups
-      .map(
-        (g) =>
-          `<section class="summaryCard"><h3>${g.title}</h3>${g.defs
-            .map((d) => {
-              const r = summaryCompetitionResult(d),
-                p = summaryPrizeDetails(d),
-                awardable = r.awardable !== false;
-              return `<div class="summaryResult ${awardable && p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${["scratch", "scratchaggregate"].includes(d.type) ? esc(r.text).replace(/‚àí(?=\d)/g, '<span class="scratchMinus">‚àí</span>') : esc(r.text)}</strong>${awardable ? `<small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small>` : ""}</span><span class="summaryActions">${awardable && p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">‚úì Awarded</button>` : organiser && awardable && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">‚úì Award Prize</button>` : ""}<em>‚Ä∫</em></span></div>`;
-            })
-            .join("")}</section>`,
-      )
-      .join("")}</div>${eventControl}<p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
-    $$("[data-summaryopen]").forEach((b) => {
-      const open = () => {
-        const d = defs.find((x) => x.id === b.dataset.summaryopen);
-        store.event.leaderboardView =
-          d?.scope === "overall"
-            ? eventDays().length
-            : d?.scope || 1;
-        store.event.leaderboardTab = b.dataset.summaryopen;
-        writeLocalStore();
-        renderLeaderboard();
-      };
-      b.onclick = (e) => {
-        if (!e.target.closest("[data-prizeaward]")) open();
-      };
-      b.onkeydown = (e) => {
-        if (
-          (e.key === "Enter" || e.key === " ") &&
-          !e.target.closest("[data-prizeaward]")
-        ) {
-          e.preventDefault();
-          open();
-        }
-      };
-    });
-    $$("[data-prizeaward]").forEach(
-      (b) =>
-        (b.onclick = async (e) => {
-          e.stopPropagation();
-          const wasAwarded = b.dataset.awarded === "1";
-          if (
-            wasAwarded &&
-            !confirm("Change this prize back to not yet awarded?")
-          )
-            return;
-          await setPrizeAwarded(b.dataset.prizeaward, !wasAwarded);
-        }),
-    );
-    if ($("#leaderRefresh"))
-      $("#leaderRefresh").onclick = async () => {
-        await syncCloudNow();
-        renderLeaderboard();
-      };
-    if ($("#finishEventBtn"))
-      $("#finishEventBtn").onclick = confirmResultsAndCloseEvent;
-    if ($("#archiveCompletedEvent"))
-      $("#archiveCompletedEvent").onclick = archiveCompletedEvent;
-    if ($("#openNextDayBtn"))
-      $("#openNextDayBtn").onclick = () => {
-        store.event.leaderboardView = +$("#openNextDayBtn").dataset.nextday;
-        writeLocalStore();
-        renderLeaderboard();
-      };
-  }
-  function renderLeaderboard() {
-    const host = $("#leaderboardExperience");
-    const previousTabScroll = host?.querySelector(".leaderTabs")?.scrollLeft ?? +(store.event?.leaderboardScrollLeft || 0);
-    if (!host) return;
-    if (!store.event) {
-      host.innerHTML =
-        '<div class="card"><h2>Leaderboard</h2><p>Create an event first.</p></div>';
-      return;
-    }
-    const defs = leaderboardDefinitions();
-    if (!defs.length) {
-      host.innerHTML =
-        '<div class="card"><h2>Leaderboard</h2><p>No scored competitions were selected for this event.</p></div>';
-      return;
-    }
-    const days = store.event.days || 1;
-    let view =
-      store.event.leaderboardView ||
-      Math.min(
-        days,
-        store.event.playerPreviewDay || store.event.activeGroupDay || 1,
-      );
-    if (days === 1 && view !== "summary") view = 1;
-    store.event.leaderboardView = view;
-    const viewTabs = `<div class="leaderViewTabs multiDayTabs">${eventDays().map(day=>`<button data-leaderview="${day}" class="${+view===day?"active":""}">${days===1?"Today":`Day ${day}`}</button>`).join("")}<button data-leaderview="summary" class="${view==="summary"?"active":""}">Summary</button></div>`;
-    if (view === "summary") {
-      renderLeaderboardSummary(host, defs, viewTabs);
-      $$("[data-leaderview]").forEach(
-        (b) =>
-          (b.onclick = () => {
-            store.event.leaderboardView =
-              b.dataset.leaderview === "summary"
-                ? "summary"
-                : +b.dataset.leaderview;
-            writeLocalStore();
-            renderLeaderboard();
-          }),
-      );
-      return;
-    }
-    const visible = defs.filter(
-      (d) =>
-        d.scope === +view ||
-        (d.scope === "overall"),
-    );
-    let active = store.event.leaderboardTab || visible[0]?.id;
-    if (!visible.some((d) => d.id === active)) active = visible[0]?.id;
-    store.event.leaderboardTab = active;
-    const def = visible.find((d) => d.id === active);
-    const tabs = `<div class="leaderTabs">${visible.map((d) => `<button data-leadertab="${d.id}" class="${d.id === active ? "active" : ""}">${esc(d.label)}</button>`).join("")}</div>`;
-    let body = "";
-    if (def.type === "ntp") {
-      const ntpComplete = leaderboardComplete(def, []);
-      body =
-        ntpHolesInPlayingOrder(def.day)
-          .map((h) => {
-            const history = ntpHistory(def.day, h);
-            return `<section class="ntpHistoryBlock"><h4>Hole ${h}</h4>${
-              history.length
-                ? history
-                    .map((entry, i) => {
-                      const winner = i === history.length - 1,
-                        time = new Date(entry.at).toLocaleTimeString("en-AU", {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        });
-                      return `<div class="ntpHistoryEntry ${winner ? "winner" : ""}"><span>${winner ? "<b>Winner:</b> " : ""}${esc(eventPlayerName(entry.id,def.day))}</span><time>${esc(time)}</time></div>`;
-                    })
-                    .join("")
-                : manualDayStore(def.day, false)?.ntp?.[String(h)]
-                  ? "<p>Winner input manually</p>"
-                  : "<p>No confirmed holder yet</p>"
-            }<p class="ntpPrizeResult">${esc(ntpSummaryLine(def.day, h, ntpComplete))}</p></section>`;
-          })
-          .join("") || '<div class="leaderEmpty">No NTP holes selected.</div>';
-    } else {
-      const rows = calculateLeaderboard(def),
-        competitionComplete = leaderboardComplete(def, rows),
-        unit = def.type === "putts" ? "putts" : ["strokeGross","strokeNet"].includes(def.type) ? "strokes" : def.type === "ambrose" ? "net" : "pts",
-        toPar = (n) => (n === 0 ? "E" : n > 0 ? `+${n}` : `<span class="scratchMinus">‚àí</span>${Math.abs(n)}`);
-      body =
-        def.type === "yellowBall" && !competitionComplete
-          ? '<div class="leaderEmpty yellowBallHidden"><b>Result announced at the end of play</b><span>Yellow Ball standings remain hidden until every scorecard for the day is complete and agreed.</span></div>'
-          : rows
-          .map((r, i) => {
-            const waiting =
-                (def.type === "putts" || def.type === "best3") && !r.thru,
-              rowComplete = r.thru === r.target,
-              isFinal =
-                competitionComplete &&
-                (def.type === "yellowBall" || rowComplete),
-              score =
-                ["scratch", "scratchaggregate"].includes(def.type)
-                  ? isFinal
-                    ? `${r.grossTotal} <small>strokes (${toPar(r.scratchToPar)})</small>`
-                    : toPar(r.scratchToPar)
-                  : def.type === "ambrose"
-                    ? rowComplete && r.handicap != null
-                      ? `${r.total.toFixed(1)} <small>net</small>`
-                      : `${r.grossTotal} <small>gross</small>`
-                    : `${r.total} <small>${unit}</small>`;
-            if (r.disqualified)
-              return `<div class="leaderRow scratchDisqualified"><span class="leaderRank">‚Äî</span><span class="leaderName">${esc(r.name)}<small>${def.type === "combined" ? "Not eligible for overall prize" : def.type === "ambrose" ? "Required Drives Not Recorded" : "Withdrawn from this Competition"}</small></span><span class="leaderScore">‚Äî</span><span class="leaderThru">${["ambrose","combined","scratchaggregate"].includes(def.type) ? esc(r.disqualificationReason || "Requirements not satisfied") : `Pick-up on Hole ${r.pickupHole}`}</span></div>`;
-            const progress =
-              def.type === "yellowBall"
-                ? r.loss
-                  ? `Ball lost ¬∑ Hole ${r.loss.hole} ¬∑ ${r.survived} survived`
-                  : isFinal
-                    ? "Final ¬∑ Ball completed 18 holes"
-                    : `Ball alive ¬∑ Thru ${r.thru}`
-                : def.type === "ambrose" && rowComplete && !competitionComplete
-                  ? `${r.grossTotal} gross ¬∑ ${r.handicap == null ? "no handicap" : `${r.handicap.toFixed(1)} hcp`} ¬∑ Provisional`
-                : isFinal
-                  ? "Final"
-                  : `Thru ${r.thru}`;
-            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${i === 0 && competitionComplete && (r.thru || def.type === "yellowBall") ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "‚Äî" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : progress}</span></div>`;
-          })
-          .join("") ||
-        '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
-    }
-    const par3Day = Math.min(eventDays().length, Math.max(1, +view || 1)),
-      par3Version = eventCourseScorecard(par3Day),
-      par3Count = (par3Version.par || []).filter((par) => +par === 3).length,
-      par3Total = ["par3", "par3team", "par3aggregate", "par3individualaggregate"].includes(def.type)
-        ? `<span class="par3Total">Total Par 3 Holes <b>${def.day ? par3Count : eventDays().reduce((n,day) => n + (eventCourseScorecard(day).par || []).filter(p => +p === 3).length,0)}</b></span>`
-        : "";
-    const pastEventNotice = store.event.pastEventReadOnly
-      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
-      : "";
-    host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " ¬∑ retained event record" : " ¬∑ official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}${def.day && course(store.event["course"+def.day])?.name ? ` ‚Äî ${esc(course(store.event["course"+def.day]).name)}` : ""}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>‚ÄúThru‚Äù</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player‚Äôs checking scores to agree. CB means countback.</p>`;
-    const tabStrip = host.querySelector(".leaderTabs");
-    if (tabStrip) tabStrip.scrollLeft = previousTabScroll;
-    $$("[data-leaderview]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          store.event.leaderboardView =
-            b.dataset.leaderview === "summary"
-              ? "summary"
-              : +b.dataset.leaderview;
-          store.event.leaderboardTab = "";
-          writeLocalStore();
-          renderLeaderboard();
-        }),
-    );
-    $$("[data-leadertab]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          store.event.leaderboardScrollLeft = b.parentElement?.scrollLeft || 0;
-          store.event.leaderboardTab = b.dataset.leadertab;
-          writeLocalStore();
-          renderLeaderboard();
-        }),
-    );
-    if ($("#leaderRefresh"))
-      $("#leaderRefresh").onclick = async () => {
-        await syncCloudNow();
-        renderLeaderboard();
-      };
-  }
-  function renderFullCardPlayerEntry(selected, day) {
-    const host = $("#playerExperience"),
-      person = eventPlayer(selected, day),
-      c = course(store.event["course" + day]),
-      card = eventCourseScorecard(day, store.event, selected),
-      puttsRequired = competitionIsOn("teamPutts", day),
-      dayKey = "day" + day,
-      playerKey = String(selected);
-    store.event.fullCardDrafts = store.event.fullCardDrafts || {};
-    store.event.fullCardDrafts[dayKey] =
-      store.event.fullCardDrafts[dayKey] || {};
-    const draft = (store.event.fullCardDrafts[dayKey][playerKey] =
-      store.event.fullCardDrafts[dayKey][playerKey] || { holes: {} });
-    const rows = Array.from({ length: 18 }, (_, index) => {
-      const hole = index + 1,
-        saved = draft.holes[hole] || {};
-      return `<div class="fullCardEntryRow"><b>${hole}</b><span>${esc(card.par?.[index] || "‚Äî")}</span><span>${esc(card.index?.[index] || "‚Äî")}</span><input data-fullgross="${hole}" inputmode="text" maxlength="2" value="${esc(saved.gross ?? "")}" placeholder="‚Äì" aria-label="Hole ${hole} gross strokes">${puttsRequired ? `<input data-fullputts="${hole}" inputmode="numeric" maxlength="1" value="${esc(saved.putts ?? "")}" placeholder="‚Äì" aria-label="Hole ${hole} putts">` : ""}</div>`;
-    }).join("");
-    host.innerHTML = `<div class="fullCardPlayerEntry"><div class="playerEventHero"><span>AFTER-ROUND SCORECARD</span><h1>${esc(store.event.name)}</h1>${store.event.days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p></div><div class="playerCard"><div class="playerCardTitle">FULL CARD ENTRY</div><h2>${esc(person?.name || "Player")}</h2><p>After completing the round, copy the gross score from your separate score card for every hole. Enter <b>P</b> or <b>‚Äì</b> for a pickup.${puttsRequired ? " Putts are required for today‚Äôs Putting Competition." : ""}</p><div class="fullCardEntryGrid ${puttsRequired ? "withPutts" : ""}"><div class="fullCardEntryHead"><span>Hole</span><span>Par</span><span>Index</span><span>Gross</span>${puttsRequired ? "<span>Putts</span>" : ""}</div>${rows}</div><p class="fullCardDraftNote">Entries are saved on this device while you work. Results appear after you confirm the completed card.</p><button class="startRoundBtn" id="confirmFullPlayerCard">CONFIRM COMPLETED SCORECARD</button><button class="soft" id="backFromFullPlayerCard">Back to Round</button></div></div>`;
-    const normaliseGross = (value) => {
-      const text = String(value ?? "").trim().toUpperCase();
-      return text === "-" || text === "‚Äì" ? "P" : text;
-    };
-    const fields = $$('[data-fullgross], [data-fullputts]');
-    fields.forEach((input, index) => {
-      input.oninput = () => {
-        const hole = +(input.dataset.fullgross || input.dataset.fullputts),
-          row = (draft.holes[hole] = draft.holes[hole] || {});
-        if (input.dataset.fullgross)
-          row.gross = normaliseGross(input.value);
-        else row.putts = input.value.trim();
-        persistStore();
-      };
-      input.onkeydown = (event) => {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        fields[index + 1]?.focus();
-        fields[index + 1]?.select();
-      };
-    });
-    $("#backFromFullPlayerCard").onclick = () => {
-      store.event.playerRoundMode = "preview";
-      save();
-      renderPlayerExperience();
-    };
-    $("#confirmFullPlayerCard").onclick = () => {
-      const invalid = [];
-      for (let hole = 1; hole <= 18; hole++) {
-        const row = draft.holes[hole] || {},
-          gross = normaliseGross(row.gross),
-          putts = String(row.putts ?? "").trim(),
-          validGross =
-            gross === "P" ||
-            (Number.isInteger(+gross) && +gross >= 1 && +gross <= 20),
-          validPutts =
-            !puttsRequired ||
-            (putts !== "" &&
-              Number.isInteger(+putts) &&
-              +putts >= 0 &&
-              +putts <= 9 &&
-              (gross === "P" || +putts <= +gross));
-        if (!validGross || !validPutts) invalid.push(hole);
-      }
-      if (invalid.length)
-        return alert(
-          `Complete and check Hole${invalid.length === 1 ? "" : "s"} ${invalid.join(", ")} before confirming the card.`,
-        );
-      const grossTotal = Array.from({ length: 18 }, (_, index) => {
-        const gross = normaliseGross(draft.holes[index + 1].gross);
-        return gross === "P" ? +(card.par?.[index] || 0) + 2 : +gross;
-      }).reduce((total, value) => total + value, 0);
-      if (
-        !confirm(
-          `Confirm the complete 18-hole card for ${person?.name || "this player"}?\n\nGross total: ${grossTotal}\n\nThe card will be sent to the leaderboard and cannot be edited by the player after confirmation.`,
-        )
-      )
-        return;
-      const confirmedAt = new Date().toISOString();
-      for (let hole = 1; hole <= 18; hole++) {
-        const saved = draft.holes[hole],
-          gross = normaliseGross(saved.gross),
-          putts = puttsRequired ? +saved.putts : "",
-          record = scoreRecord(day, selected, hole);
-        record.self = { playerId: playerKey, gross, putts };
-        record.official = { playerId: playerKey, gross, putts };
-      }
-      const round = scorerStore(day, selected);
-      round._meta = {
-        ...(round._meta || {}),
-        finalisedAt: confirmedAt,
-        fullCardEnteredByPlayer: true,
-      };
-      store.event.roundFinalised = store.event.roundFinalised || {};
-      store.event.roundFinalised[dayKey] =
-        store.event.roundFinalised[dayKey] || {};
-      store.event.roundFinalised[dayKey][playerKey] = confirmedAt;
-      delete store.event.fullCardDrafts[dayKey][playerKey];
-      store.event.playerRoundMode = "completed";
-      queueCloudRound(day, selected);
-      persistStore();
-      if (store.cloud?.role === "organiser") void updateCloudEvent();
-      renderPlayerExperience();
-    };
-  }
-  function renderFinalScoreEntry(selected, day) {
-    const host=$("#playerExperience"), method=dayScoringMethod(day), kind=method==="finalStableford"?"stableford":"gross",
-      entry=finalScoreEntry(day,selected)||{}, c=course(store.event["course"+day]), complete=finalScoreComplete(day,selected),
-      rule=kind==="gross" ? ({allStrokes:"All Strokes Count",maxDoubleBogey:"Maximum Double Bogey",maxTripleBogey:"Maximum Triple Bogey"}[store.event.strokeScoringMode||"allStrokes"]) : "Stableford points";
-    host.innerHTML=`<div class="finalScoreEntry"><div class="playerEventHero"><span>FINAL SCORE</span><h1>${esc(store.event.name)}</h1>${store.event.days>1?`<h3>DAY ${day}</h3>`:""}<p>${esc(c?.name||"Course")}</p></div><div class="playerCard"><div class="playerCardTitle">FINAL SCORE ENTRY</div><h2>${esc(eventPlayerName(selected,day))}</h2><p>Golf Scorer is not in use for hole-by-hole scoring today. Enter the final score supplied by the caddie or official card after completing the round.</p><div class="finalScoreRule"><b>${kind==="stableford"?"Stableford Points":"Gross Stroke Total"}</b><span>${esc(rule)}</span></div><label>${kind==="stableford"?"Final Stableford points":"Final gross strokes"}<input id="finalScoreTotal" inputmode="numeric" type="number" min="0" max="400" value="${entry.total??""}" ${complete?"disabled":""}></label>${competitionIsOn("teamPutts",day)?`<label>Total putts (optional)<input id="finalScorePutts" inputmode="numeric" type="number" min="0" max="100" value="${entry.putts??""}" ${complete?"disabled":""}></label>`:""}${complete?`<div class="finalScoreSaved"><b>‚úì Final score saved</b><span>${entry.total} ${kind==="stableford"?"points":"strokes"}${entry.putts!==""&&entry.putts!=null?` ¬∑ ${entry.putts} putts`:""}</span></div>`:`<button class="startRoundBtn" id="saveFinalScore">CONFIRM FINAL SCORE</button>`}<button class="soft" id="backFromFinalScore">Back to Round</button></div></div>`;
-    $("#backFromFinalScore").onclick=()=>{store.event.playerRoundMode="preview";save();renderPlayerExperience();};
-    if($("#saveFinalScore")) $("#saveFinalScore").onclick=()=>{
-      const total=Number($("#finalScoreTotal").value), putts=$("#finalScorePutts")?.value??"";
-      if(!Number.isFinite(total)||total<0)return alert("Enter the final score from the caddie or official card.");
-      if(!confirm(`Confirm ${total} ${kind==="stableford"?"Stableford points":"gross strokes"}? This final result has no hole-by-hole countback.`))return;
-      store.event.finalScores||={};store.event.finalScores["day"+day]||={};
-      const saved={kind,total,putts:putts===""?"":+putts,rule:store.event.strokeScoringMode||"allStrokes",confirmedAt:new Date().toISOString()};
-      store.event.finalScores["day"+day][String(selected)]=saved;scorerStore(day,selected)._finalScore=saved;
-      persistStore(); if(store.cloud?.eventId) queueCloudRound(day,selected); if(store.cloud?.role==="organiser") void updateCloudEvent();
-      renderFinalScoreEntry(selected,day);
-    };
-  }
-  function renderPlayerExperience() {
-    const host = $("#playerExperience");
-    if (!host) return;
-    if (!store.event) {
-      host.innerHTML =
-        '<div class="card"><h2>Player View</h2><p>Create an event plan first.</p></div>';
-      return;
-    }
-    if (store.event.status === "cancelled") {
-      host.innerHTML = `<div class="card cancelledEventCard"><h2>Event Cancelled</h2><p><b>${esc(store.event.name || "This event")}</b> has been cancelled by the organiser. Scoring is closed.</p></div>`;
-      return;
-    }
-    initialiseGroups();
-    const days = store.event.days || 1;
-    let day = Math.min(store.event.playerPreviewDay || 1, days);
-    if(isPlayerDevice() && Object.keys(store.event.sharedPositions || {}).length && !dayFieldIds(day).includes(String(store.cloud?.playerId))) {
-      day=eventDays().find(d=>dayFieldIds(d).includes(String(store.cloud.playerId))) || day;
-      store.event.playerRoundMode="preview";store.event.playerHolePos=0;
-    }
-    if (store.cloud?.role === "player" && manualDayFinalised(day)) {
-      const next = eventDays().find(next => next > day && dayFieldIds(next).includes(String(store.cloud.playerId)) && !eventDayComplete(next));
-      if (next) {
-        day = next; store.event.playerPreviewDay = next;
-        store.event.playerRoundMode = "preview"; store.event.playerHolePos = 0; writeLocalStore();
-      }
-    }
-    let field = dayFieldIds(day).filter((id) => String(id) !== NO_PARTNER_ID);
-    if (store.cloud?.role === "player")
-      field = field.filter((id) => String(id) === String(store.cloud.playerId));
-    let selected = String(store.event.playerPreviewId || field[0] || "");
-    if (!field.includes(selected)) selected = String(field[0] || "");
-    store.event.playerPreviewDay = day;
-    store.event.playerPreviewId = selected;
-    if (store.cloud?.role === "player") syncRecoveredPlayerRound(day, selected);
-    scheduleScoringOpening(day);
-    if (store.event.playerRoundMode === "scoring" && !scoringIsOpen(day)) {
-      store.event.playerRoundMode = "preview";
-      persistStore();
-    }
-    if (isPlayerDevice() && store.event.finalResults?.confirmedAt) {
-      const message = finalMessageForPlayer(selected);
-      host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot-finish.png" alt="Away Golf golfer"><div><h1>${esc(message.heading)}</h1>${message.message ? `<h2>${esc(message.message)}</h2>` : ""}<p class="scoringCredit">${esc(message.scoringCredit)}</p></div></div>`;
-      return;
-    }
-    if (store.event.playerRoundMode === "finalEntry")
-      return renderFinalScoreEntry(selected, day);
-    if (store.event.playerRoundMode === "fullCardEntry")
-      return renderFullCardPlayerEntry(selected, day);
-    if (store.event.playerRoundMode === "scoring")
-      return ambroseIsOn(store.event, day)
-        ? renderAmbroseScoring(selected, day)
-        : renderHoleScoring(selected, day);
-    if (store.event.playerRoundMode === "verify")
-      return renderRoundVerification(selected, day);
-    if (store.event.playerRoundMode === "completed")
-      return ambroseIsOn(store.event, day)
-        ? renderAmbroseCompleted(selected, day)
-        : renderCompletedScorecard(selected, day);
-    const p = eventPlayer(selected,day),
-      ctx = playerGroupContext(selected, day);
-    if (!p || !ctx) {
-      host.innerHTML = `${dayTabs("previewday",day)}<div class="card"><h2>Day ${day}</h2><p>You are not playing on this day. Select another day to view your round.</p></div>`;
-      $$("[data-previewday]").forEach(button=>button.onclick=()=>{store.event.playerPreviewDay=+button.dataset.previewday;store.event.playerRoundMode="preview";save();renderPlayerExperience();});
-      return;
-    }
-    if (isPlayerDevice() && !playerHasSeenWelcome(selected)) {
-      host.innerHTML = `<div class="playerWelcome"><div class="welcomeMascotWrap"><img src="away-golf-mascot-mini.png" alt="Away Golf golfer"></div><div class="welcomeWords"><small>AWAY GOLF</small><h1>Welcome, ${esc(playerFirstName(selected))}.</h1><h2>Glad you could join us!</h2><p>You‚Äôre playing in <b>${esc(store.event.name || "today‚Äôs Away Golf event")}</b>.</p><button class="startRoundBtn" id="continueFromWelcome">VIEW TODAY‚ÄôS RULES</button></div></div>`;
-      $("#continueFromWelcome").onclick = () =>
-        openPlayerRulesFromWelcome(selected);
-      return;
-    }
-    const g = ctx.group,
-      setup = ctx.setup,
-      c = course(store.event["course" + day]),
-      start = groupStartingHole(store.event, day, ctx.groupIndex),
-      startText = `Hole ${start}`,
-      teeTime = groupTeeTime(day, ctx.groupIndex),
-      previewStage = !store.event.locked;
-    let partner = null;
-    if (competitionIsOn("fourball", day)) {
-      const pairStart = ctx.playerIndex < 2 ? 0 : 2;
-      let other = g
-        .slice(pairStart, pairStart + 2)
-        .find((id) => id !== selected);
-      if (other === NO_PARTNER_ID && setup.virtualPlayer)
-        partner = eventPlayer(setup.virtualPlayer,day);
-      else partner = eventPlayer(other,day);
-    }
-    const isAffected = (() => {
-      const np = noPartnerContext(setup.groups, day, ctx.groupIndex);
-      return np && String(np.affected) === selected ? np : null;
-    })();
-    const extraNtpHoles = Object.entries(setup.ntpExtraPlayers || {})
-        .filter(([, id]) => String(id) === selected)
-        .map(([hole]) => hole),
-      isExtra = extraNtpHoles.length > 0 || String(setup.ntpExtraPlayer || "") === selected,
-      ruleSections = eventRuleSections(store.event, day),
-      yellowBallOn = yellowBallIsOn(day),
-      openingYellowBallPlayer = yellowBallOn
-        ? yellowBallPlayerForHole(day, ctx.groupIndex, start)
-        : "";
-    const selectedPairStart = ctx.playerIndex < 2 ? 0 : 2,
-      selectedPair = g
-        .slice(selectedPairStart, selectedPairStart + 2)
-        .map(String),
-      otherPair = g
-        .filter((_, index) => index < selectedPairStart || index >= selectedPairStart + 2)
-        .map(String);
-    let displayIds = [selected, ...selectedPair.filter((id) => id !== selected)];
-    otherPair.forEach((id) => {
-      if (!displayIds.includes(id)) displayIds.push(id);
-    });
-    displayIds = displayIds.slice(0, 4);
-    const groupNames = displayIds.map((id) => ({
-      id,
-      name: id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown",
-    })),
-      completeDraw = `<details class="completeDraw"><summary>View Complete Draw</summary><div><strong>${days === 1 ? "Event Teams" : `Day ${day} Teams`}</strong>${(setup.groups || []).map((team, index) => `<section><b>Team ${index + 1}</b><span>${esc(team.map((id) => id === NO_PARTNER_ID ? "No Partner" : eventPlayer(id, day)?.name || "Unknown").join(" ¬∑ "))}</span></section>`).join("")}</div></details>`;
-    const ack = Boolean(store.event.playerPreviewAck?.[day]?.[selected]),
-      hcp = playerDailyHandicap(selected, day),
-      finalised = dayScoringMethod(day) === "fullCardPlayer"
-        ? roundFinalisedFor(day, selected)
-        : dayScoringMethod(day) !== "holeByHole"
-          ? finalScoreComplete(day,selected)
-          : ambroseIsOn(store.event, day)
-        ? ambroseTeamComplete(day, ctx.groupIndex)
-        : roundFinalisedFor(day, selected),
-      scoringOpen = scoringIsOpen(day),
-      canStart = Boolean(
-        store.event.locked && teeSelectionIsFinal(day) && ack && hcp != null && scoringOpen,
-      ),
-      rulesOpen = Boolean(store.event.playerRulesOpen);
-    host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview ‚Äî select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
- <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview ‚Äî details may change." : finalised ? "All Set ‚úì ‚Äî your scores are recorded. Time to play the 19th." : "All Set ‚úì ‚Äî Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
- <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "‚Äî"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
- <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> ‚Äî GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
- ${completeDraw}
- ${isAffected || isExtra || yellowBallOn || ambroseIsOn(store.event, day) ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn(store.event, day) ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = eventPlayer(roles.scorerId, day)?.name || "the first listed player", markerName = eventPlayer(roles.markerId, day)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(eventPlayer(openingYellowBallPlayer, day)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn(store.event, day) ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
- <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "‚åÉ" : "‚Ä∫"}</span></button>${
-   rulesOpen
-     ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(
-         store.event.competitions || []
-       )
-         .filter(id => competitionIsOn(id,day))
-         .map((id) => {
-           if (["single","combined"].includes(id)) return stablefordPlayerPrizesHtml(store.event);
-           const singleFormat =
-               store.event.singleStablefordFormat ||
-               (store.event.testMode ? "aggregate" : "both"),
-             label =
-               id === "combined"
-                 ? `Single Stableford (${singleFormat === "daily" ? "Each Day" : singleFormat === "both" ? "Daily + Event Total" : `Best ${countingRounds()} Event Total`})`
-                 : id === "teamPutts"
-                   ? `Putting Competition (${store.event.puttingFormat === "pairs" ? "2 Player" : "4 Player"})`
-                   : competitionNames[id] || id;
-           return `<div data-competition="${id}"><span>${esc(label)}</span><b>${esc(competitionBenefitText(id, store.event.benefits))}</b></div>`;
-         })
-         .join(
-           "",
-         )}</div><h4>Event Rules</h4>${ruleSections.length ? ruleSections.map((section) => `<div class="playerRuleSection"><b>${esc(section.title)}</b>${eventRuleBodyHtml(section)}</div>`).join("") : "<p>No additional rules apply to this event.</p>"}</div>`
-     : ""
- }<div class="playerAck"><div><b>Rules acknowledgement</b><small>Read today's rules before starting.</small></div><button id="playerGotIt" class="${ack ? "done" : ""}">${ack ? "‚úì Rules acknowledged" : "GOT IT"}</button></div>
- <button class="startRoundBtn ${finalised ? "completedCardBtn" : ""}" id="startRoundPreview" ${finalised || canStart ? "" : "disabled"}>${finalised ? (["holeByHole","fullCardPlayer"].includes(dayScoringMethod(day))?"VIEW COMPLETED SCORECARD":"VIEW FINAL SCORE") : !store.event.locked ? "EVENT NOT YET LOCKED" : !teeSelectionIsFinal(day) ? "WAITING FOR ORGANISER TO FINALISE TEE" : hcp == null ? "DAILY HANDICAP NOT SET" : !ack ? "TAP GOT IT TO OPEN THE SCORECARD" : !scoringOpen ? "SCORING OPENS 15 MINUTES BEFORE THE FIRST TEE TIME" : dayScoringMethod(day)==="holeByHole" ? "OPEN SCORECARD" : dayScoringMethod(day)==="fullCardPlayer" ? "ENTER FULL SCORECARD" : "ENTER FINAL SCORE"}</button>${!finalised && !canStart ? `<p class="lockHint">${!scoringOpen && store.event.locked && teeSelectionIsFinal(day) && hcp != null && ack ? `Scoring opens at ${esc(scoringOpeningLabel(day))} ‚Äî 15 minutes before the first tee time.` : "The round opens when the event is locked, the playing tee is finalised, your Daily Handicap is set and you have acknowledged the rules."}</p>` : ""}</div></div>`;
-    $("#previewPlayer").onchange = (e) => {
-      store.event.playerPreviewId = e.target.value;
-      store.event.playerRoundMode = "preview";
-      save();
-      renderPlayerExperience();
-    };
-    $$("[data-previewday]").forEach(
-      (b) =>
-        (b.onclick = () => {
-          store.event.playerPreviewDay = +b.dataset.previewday;
-          store.event.playerPreviewId = null;
-          store.event.playerRoundMode = "preview";
-          save();
-          renderPlayerExperience();
-        }),
-    );
-    $("#playerRulesBtn").onclick = () => {
-      const oldTop = $("#playerRulesBtn").getBoundingClientRect().top;
-      store.event.playerRulesOpen = !rulesOpen;
-      save();
-      renderPlayerExperience();
-      const newButton = $("#playerRulesBtn");
-      if (newButton)
-        window.scrollBy(0, newButton.getBoundingClientRect().top - oldTop);
-    };
-    $("#playerGotIt").onclick = () => {
-      store.event.playerPreviewAck = store.event.playerPreviewAck || {};
-      store.event.playerPreviewAck[day] =
-        store.event.playerPreviewAck[day] || {};
-      store.event.playerPreviewAck[day][selected] = true;
-      save();
-      renderPlayerExperience();
-    };
-    $("#startRoundPreview").onclick = () => {
-      if (finalised) {
-        store.event.playerRoundMode = ["holeByHole", "fullCardPlayer"].includes(dayScoringMethod(day)) ? "completed" : "finalEntry";
-        save();
-        return renderPlayerExperience();
-      }
-      if (!canStart) return;
-      store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : dayScoringMethod(day) === "fullCardPlayer" ? "fullCardEntry" : "finalEntry";
-      store.event.playerHolePos = 0;
-      requestRoundWakeLock();
-      save();
-      renderPlayerExperience();
-    };
-  }
-  if (installFederalRidgeHistoryBaseline()) writeLocalStore();
-  removeRecordedTestEventHistory();
-  backfillCompletedEventHistory();
-  applyDeviceRole();
-  renderHome();
-  renderPlayersAdmin();
-  renderCoursesAdmin();
-  initialiseCloud();
-  if (
-    !isPlayerDevice() &&
-    !isFreshMobileDevice() &&
-    !sessionStorage.getItem("awayGolfMyEventsShown1562")
-  ) {
-    sessionStorage.setItem("awayGolfMyEventsShown1562", "1");
-    setTimeout(openMyEvents, 120);
-  }
-  if ($("#quickJoinEvent"))
-    $("#quickJoinEvent").onclick = () =>
-      lookupCloudEvent($("#quickJoinCode")?.value || "");
-  updateDeviceClearRecoveryButton();
-  if ($("#restoreClearedOrganiserEvents"))
-    $("#restoreClearedOrganiserEvents").onclick = restoreClearedOrganiserEvents;
-  if ($("#quickJoinCode")) {
-    $("#quickJoinCode").oninput = (e) => {
-      e.target.value = e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase();
-      setQuickJoinStatus(
-        e.target.value.length === 6
-          ? "Ready to find your event."
-          : "Enter the six-character event code.",
-      );
-    };
-    $("#quickJoinCode").onkeydown = (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        lookupCloudEvent($("#quickJoinCode")?.value || "");
-      }
-    };
-  }
-  window.addEventListener("online", () => { if (!$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
-  if ("serviceWorker" in navigator) {
-    let reloadingForUpdate = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (reloadingForUpdate || !navigator.serviceWorker.controller) return;
-      reloadingForUpdate = true;
-      location.reload();
-    });
-    navigator.serviceWorker
-      .register("sw.js")
-      .then((registration) => registration.update())
-      .catch(() => {});
-  }
-})();
+          const source = $(`[data-hcpsource="${tee}|${id}"]`„≠uŸº≠z &ä€^u∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâç°ïç≠âΩ‡àÅπÖµîÙâÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïêàÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïê¸âç°ïç≠ïêàËàâÙ¯Å=Ÿï…Ö±∞ÅïŸïπ–Å¡…•ÈîΩ±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâÕ—…Ω≠ïùù…ïùÖ—ï°Ω•çïÃÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïê¸ààËâ•πÖç—•ŸîâÙà¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîàÅŸÖ±’îÙâÖùù…ïùÖ—îàÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîÑÙÙââïÕ—ùù…ïùÖ—îà¸âç°ïç≠ïêàËàâÙÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïê¸ààËâë•ÕÖâ±ïêâÙ¯Å±∞ÄëÌ—Ω—Ö±ÙÅ…Ω’πëÃÅçΩ’π–Ω±Öâï∞¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîàÅŸÖ±’îÙââïÕ—ùù…ïùÖ—îàÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîÙÙÙââïÕ—ùù…ïùÖ—îà¸âç°ïç≠ïêàËàâÙÄëÌ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïê¸ààËâë•ÕÖâ±ïêâÙ¯Å	ïÕ–ÄëÌâïÕ—ÙÅΩòÄëÌ—Ω—Ö±ÙÅ…Ω’πëÃΩ±Öâï∞¯Ωë•ÿ˘ÄÄËÄàâÙΩÕïç—•Ω∏¯ÒÕµÖ±∞˘Ö•±‰ÅÖπêÅΩŸï…Ö±∞ÅM—…Ω≠îÅ¡…•ÈïÃÅçÖ∏Å…’∏Å—Ωùï—°ï»∏Å]•—†Å•πÖ∞µÕçΩ…îÅïπ—…‰∞Å—°îÅçÖëë•îÅΩ»ÅΩôô•ç•Ö∞ÅçÖ…êÅµ’Õ–ÅÕ’¡¡±‰Å—°îÅÖ±…ïÖë‰µçÖ¡¡ïêÅçΩµ¡ï—•—•Ω∏Å—Ω—Ö∞∏ΩÕµÖ±∞¯Ωë•ÿ˘Ä§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õç…Ö—ç°Ωµ¿ÄòòÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âÕç…Ö—ç†à§§(ÄÄÄÄÄÅÕç…Ö—ç°Ωµ¿π•πÕï…—ë©Öçïπ—!Q50†(ÄÄÄÄÄÄÄÄââïôΩ…ïïπêà∞(ÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡	Ω‡ÅÕç…Ö—ç°1•µ•—	Ω‡à¯Ò±Öâï∞¯Òà˘Mï–Å5Ö‡ÅMç…Ö—ç†Å!ç¿Ωà¯Ò•π¡’–Å•êÙâÕç…Ö—ç°5Ö·!ç¿àÅ—Â¡îÙâπ’µâï»àÅÕ—ï¿ÙàƒàÅŸÖ±’îÙàëÌ\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¡Ùà¯Ω±Öâï∞¯ÒÕµÖ±∞˘A±ÖÂï…ÃÅ›•—†ÅÑÅëÖ•±‰Å°Öπë•çÖ¿ÅΩòÄëÌ\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¡ÙÅΩ»Å±ïÕÃÅÖ…îÅ•πç±’ëïêÅÖ’—ΩµÖ—•çÖ±±‰∏ÅA±ÖÂï…ÃÅÖâΩŸîÄëÌ\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¡ÙÅÖ…îÅπΩ–Å•πç±’ëïê∏ΩÕµÖ±∞¯Òë•ÿÅç±ÖÕÃÙâÕç…Ö—ç°MçΩ…•πù5Ωëîà¯Òà˘Mç…Ö—ç†ÅMçΩ…•πúΩà¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕç…Ö—ç°MçΩ…•πù5ΩëîàÅŸÖ±’îÙâÕ—…Ω≠îàÄëÌ\πïŸïπ–πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÑÙÙÄâµÖ·Ω’â±ï	Ωùï‰àÄ¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅA’…îÅM—…Ω≠îÉäPÅïŸï…‰ÅÕ—…Ω≠îÅçΩ’π—ÃÏÅÑÅ@Å›•—°ë…Ö›ÃÅ—°îÅ¡±ÖÂï»Åô…Ω¥ÅMç…Ö—ç†Ω±Öâï∞¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕç…Ö—ç°MçΩ…•πù5ΩëîàÅŸÖ±’îÙâµÖ·Ω’â±ï	Ωùï‰àÄëÌ\πïŸïπ–πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰àÄ¸Äâç°ïç≠ïêàÄËÄàâÙ¯Å5Ö·•µ’¥ÅΩ’â±îÅ	Ωùï‰ÉäPÅ—°îÅ°•ù°ïÕ–ÅÕçΩ…îÅ•ÃÄ»ÅΩŸï»Å¡Ö»ÏÅÑÅ@Å…ïçΩ…ëÃÄ»ÅΩŸï»Å¡Ö»Ω±Öâï∞¯Ωë•ÿ¯Ωë•ÿ˘Ä∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åπ—¡Ωµ¿ÄÙÄê†ùmëÖ—ÑµçΩµ¿Ùâπ—¿âtú§¸πç±ΩÕïÕ–†àπçΩµ¿à§Ï(ÄÄÄÅ•òÄ°π—¡Ωµ¿ÄòòÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âπ—¿à§ÄòòÅ\πïŸïπ–πëÖÂÃÄÙÙÙÄƒ§(ÄÄÄÄÄÅπ—¡Ωµ¿π•πÕï…—ë©Öçïπ—!Q50†(ÄÄÄÄÄÄÄÄââïôΩ…ïïπêà∞(ÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡	Ω‡à¯Òà˘9’µâï»ÅΩòÅ9QAÃΩà¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâ∏ƒàÅŸÖ±’îÙàƒàÄëÌ\πïŸïπ–ππ—¡Ö‰≈Ω’π–ÄÑÙÄ»Ä¸Äâç°ïç≠ïêàÄËÄàâÙ¯Å=πîΩ±Öâï∞¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâ∏ƒàÅŸÖ±’îÙà»àÄëÌ\πïŸïπ–ππ—¡Ö‰≈Ω’π–ÄÙÙÄ»Ä¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅQ›ºΩ±Öâï∞¯Ωë•ÿ˘Ä∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âçÖ¡QïÖµÃà§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•ëÃÄÙÅl∏∏ππï‹ÅMï–°ïŸïπ—ÖÂÃ°\πïŸïπ–§πô±Ö—5Ö¿°›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã§•tπô•±—ï»°•êÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÄÄÄê†ùmëÖ—ÑµçΩµ¿ÙâçÖ¡QïÖµÃâtú§¸πç±ΩÕïÕ–†àπçΩµ¿à§¸π•πÕï…—ë©Öçïπ—!Q50†ââïôΩ…ïïπêà∞ÅçÖ¡QïÖµÕ!—µ∞°\πïŸïπ–∞Å•ëÃ§§Ï(ÄÄÄÄÄÅâ•πëÖ¡QïÖµÃ°\πïŸïπ–∞Å•ëÃ∞Å…ïπëï…M—ï¿Ã§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õç…Ö—ç°Ωµ¿ÄòòÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âÕç…Ö—ç†à§§ÅÕç…Ö—ç°Ωµ¿π•πÕï…—ë©Öçïπ—!Q50†ââïôΩ…ïïπêà∞ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡	Ω‡à¯Òà˘Mç…Ö—ç†ÅΩ…µÖ–Ωà¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕç…Ö—ç°Ω…µÖ–àÅŸÖ±’îÙâëÖ•±‰àÄëÏÖlâÖùù…ïùÖ—îà∞ÄââïÕ—ùù…ïùÖ—îâtπ•πç±’ëïÃ°\πïŸïπ–πÕç…Ö—ç°Ω…µÖ–§Ä¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅÖ•±‰Ω±Öâï∞¯ëÌ\πïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÄÒ±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕç…Ö—ç°Ω…µÖ–àÅŸÖ±’îÙâÖùù…ïùÖ—îàÄëÌ\πïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÄÙÙÙÄâÖùù…ïùÖ—îàÄ¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅMçΩ…îÅΩŸï»Åô’±∞ÅïŸïπ–ÉäPÅÖ±∞ÄëÌ\πïŸïπ–πëÖÂÕÙÅ…Ω’πëÃΩ±Öâï∞¯Ò±Öâï∞¯Ò•π¡’–ÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºàÅ—Â¡îÙâ…Öë•ºàÅπÖµîÙâÕç…Ö—ç°Ω…µÖ–àÅŸÖ±’îÙââïÕ—ùù…ïùÖ—îàÄëÌ\πïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÄÙÙÙÄââïÕ—ùù…ïùÖ—îàÄ¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅMçΩ…îÅâïÕ–ÄëÌ5Ö—†πµÖ‡†ƒ∞Å\πïŸïπ–πëÖÂÃÄ¥Äƒ•ÙÅΩòÄëÌ\πïŸïπ–πëÖÂÕÙÅ…Ω’πëÃΩ±Öâï∞¯Ò¿Åç±ÖÕÃÙâ°•π–à˘	ïÕ–Å…Ω’πëÃÅë…Ω¡ÃÅΩπîÅ…Ω’πê∏ÅÅµ•ÕÕïêÅ…Ω’πêÅΩ»Å¡•ç¨µ’¿ÅçÖ∏ÅâîÅë…Ω¡¡ïêÏÅ—°îÅ…ï≈’•…ïêÅπ’µâï»ÅΩòÅ≈’Ö±•ôÂ•πúÅçΩµ¡±ï—ïêÅ…Ω’πëÃÅµ’Õ–ÅÕ—•±∞ÅâîÅ¡±ÖÂïê∏Ω¿˘ÄÄËÄàâÙΩë•ÿ˘Ä§Ï(ÄÄÄÅ•òÄ°π—¡Ωµ¿ÄòòÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âπ—¿à§ÄòòÅ\πïŸïπ–πëÖÂÃÄ¯Äƒ§Åπ—¡Ωµ¿π•πÕï…—ë©Öçïπ—!Q50†ââïôΩ…ïïπêà∞Å±ÖÕ—ÖÂ9—¡!—µ∞°\πïŸïπ–§§Ï(ÄÄÄÄê†àç›•ÈÖ…ë	Ωë‰à§πΩπç°ÖπùîÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–Å–ÄÙÅîπ—Ö…ùï–∞(ÄÄÄÄÄÄÄÅ•êÄÙ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πâ…ï›Ö…êÅÒ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πâµΩëîÅÒ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πââÖ±±ÃÅÒ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πâçΩπ—…•àÅÒ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πâ¡±’ÃÅÒ(ÄÄÄÄÄÄÄÄÄÅ–πëÖ—ÖÕï–πâï·—…ÑÏ(ÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πçΩµ¡ëÖ‰ÅÒÅ–πëÖ—ÖÕï–πçΩµ¡Ö±±ëÖÂÃ§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åm•ê∞Å…Ö›ÖÂtÄÙÄ°–πëÖ—ÖÕï–πçΩµ¡ëÖ‰ÅÒÅ–πëÖ—ÖÕï–πçΩµ¡Ö±±ëÖÂÃ§πÕ¡±•–†âà§Ï(ÄÄÄÄÄÄÄÅ\πïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÃÅÒÙÅÌÙÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕï±ïç—ïêÄÙÅπï‹ÅMï–°çΩµ¡ï—•—•ΩπÖÂÃ°•ê∞Å\πïŸïπ–§§Ï(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πçΩµ¡Ö±±ëÖÂÃ§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†Ö–πç°ïç≠ïê§ÅÏÅ–πç°ïç≠ïêÄÙÅ—…’îÏÅ…ï—’…∏ÏÅÙ(ÄÄÄÄÄÄÄÄÄÅ\πïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÕm•ëtÄÙÅïŸïπ—ÖÂÃ°\πïŸïπ–§Ï(ÄÄÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÄÄÅ–πç°ïç≠ïêÄ¸ÅÕï±ïç—ïêπÖëê†≠…Ö›Ö‰§ÄËÅÕï±ïç—ïêπëï±ï—î†≠…Ö›Ö‰§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ†ÖÕï±ïç—ïêπÕ•Èî§ÅÏÅ–πç°ïç≠ïêı—…’îÏÅ…ï—’…∏ÅÖ±ï…–†âMï±ïç–ÅÖ–Å±ïÖÕ–ÅΩπîÅ¡±ÖÂ•πúÅëÖ‰∞ÅΩ»Å’π—•ç¨Å—°îÅçΩµ¡ï—•—•Ω∏ÅÖâΩŸî∏à§ÏÅÙ(ÄÄÄÄÄÄÄÄÄÅ\πïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÕm•ëtÄÙÅl∏∏πÕï±ïç—ïëtπÕΩ…–†°Ñ±à§Ù˘Ñµà§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ•òÄ°•êÄÙÙÙÄâÂï±±Ω›	Ö±∞à§Å\πïŸïπ–πÂï±±Ω›	Ö±±ÖÂÃÄÙÅl∏∏π\πïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÕm•ëutÏ(ÄÄÄÄÄÄÄÅ•òÄ°•êÄÙÙÙÄâçΩµâ•πïêà§Å\πïŸïπ–πÕ—Öâ±ïôΩ…ëΩ’π—•πùIΩ’πëÃÄÙÅ5Ö—†πµ•∏†≠\πïŸïπ–πÕ—Öâ±ïôΩ…ëΩ’π—•πùIΩ’πëÃÅÒÅÕï±ïç—ïêπÕ•Èî∞Å\πïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÕm•ëtπ±ïπù—†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–π•êÄÙÙÙÄâÕ—Öâ±ïôΩ…ëΩ’π—•πùIΩ’πëÃà§Å\πïŸïπ–πÕ—Öâ±ïôΩ…ëΩ’π—•πùIΩ’πëÃÄÙÄ≠–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕ•πù±ïΩ…µÖ–à§ÅÏÅ\πïŸïπ–πÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ÄÙÅ–πŸÖ±’îÏÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏ÏÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâ¡’——•πùΩ…µÖ–à§Å\πïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕç…Ö—ç°MçΩ…•πù5Ωëîà§(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕ—…Ω≠ïMçΩ…•πù5Ωëîà§ÅÏÅ\πïŸïπ–πÕ—…Ω≠ïMçΩ…•πù5ΩëîÄÙÅ–πŸÖ±’îÏÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏ÏÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕ—…Ω≠ïÖ•±ÂIïÕ’±—Ãà§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö–πç°ïç≠ïêÄòòÄÖ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïê§ÅÏÅ–πç°ïç≠ïêÄÙÅ—…’îÏÅ…ï—’…∏ÅÖ±ï…–†â-ïï¿ÅÖ–Å±ïÖÕ–ÅΩπîÅM—…Ω≠îÅ¡…•ÈîÅÕï±ïç—ïê∏à§ÏÅÙ(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÕ—…Ω≠ïÖ•±ÂIïÕ’±—ÃÄÙÅ–πç°ïç≠ïêÏÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïêà§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö–πç°ïç≠ïêÄòòÄÖ\πïŸïπ–πÕ—…Ω≠ïÖ•±ÂIïÕ’±—Ã§ÅÏÅ–πç°ïç≠ïêÄÙÅ—…’îÏÅ…ï—’…∏ÅÖ±ï…–†â-ïï¿ÅÖ–Å±ïÖÕ–ÅΩπîÅM—…Ω≠îÅ¡…•ÈîÅÕï±ïç—ïê∏à§ÏÅÙ(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïêÄÙÅ–πç°ïç≠ïêÏÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕ—…Ω≠ïùù…ïùÖ—ï5Ωëîà§ÅÏÅ\πïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîÄÙÅ–πŸÖ±’îÏÅ…ïπëï…M—ï¿Ã†§ÏÅ…ï—’…∏ÏÅÙ(ÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πïç±ïç—•ççΩ’…Õî§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕï±ïç—ïêÄÙÅπï‹ÅMï–°Õï±ïç—ïëç±ïç—•ç…Ω’¡Ã°\πïŸïπ–§πµÖ¿†°ù…Ω’¿§ÄÙ¯Åù…Ω’¿π≠ï‰§§Ï(ÄÄÄÄÄÄÄÅ–πç°ïç≠ïêÄ¸ÅÕï±ïç—ïêπÖëê°–πëÖ—ÖÕï–πïç±ïç—•ççΩ’…Õî§ÄËÅÕï±ïç—ïêπëï±ï—î°–πëÖ—ÖÕï–πïç±ïç—•ççΩ’…Õî§Ï(ÄÄÄÄÄÄÄÅ•òÄ†ÖÕï±ïç—ïêπÕ•Èî§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕï±ïç—ïêπÖëê°–πëÖ—ÖÕï–πïç±ïç—•ççΩ’…Õî§Ï(ÄÄÄÄÄÄÄÄÄÅ–πç°ïç≠ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âMï±ïç–ÅÖ–Å±ïÖÕ–ÅΩπîÅ…ï¡ïÖ—ïêÅçΩ’…ÕîÅôΩ»Åç±ïç—•å∞ÅΩ»Å’π—•ç¨Åç±ïç—•åÅÖâΩŸî∏à§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ\πïŸïπ–πïç±ïç—•çΩ’…Õï%ëÃÄÙÅl∏∏πÕï±ïç—ïëtÏ(ÄÄÄÄÄÄÄÅÕÂπçç±ïç—•çΩµ¡ï—•—•ΩπÖÂÃ°\πïŸïπ–§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÖµâ…ΩÕïMçΩ…•πù5Ωëîà§Å\πïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–π•êÄÙÙÙÄâÖµâ…ΩÕï5•π•µ’µ…•ŸïÃà§(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃÄÙÄ≠–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÖµâ…ΩÕï9—¡Ω’π–à§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅçΩ’π–ÄÙÄ≠–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°çΩ’π–§Å\πçΩµ¡ï—•—•ΩπÃπÖëê†âπ—¿à§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅ\πçΩµ¡ï—•—•ΩπÃπëï±ï—î†âπ—¿à§Ï(ÄÄÄÄÄÄÄÅ\πïŸïπ–ππ—¡Ö‰≈Ω’π–ÄÙÅçΩ’π–Ï(ÄÄÄÄÄÄÄÅ\πïŸïπ–ππ—¡Ö‰…Ω’π–ÄÙÅçΩ’π–Ï(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâ¿Õ5Ωëîà§ÅÏÅ\πïŸïπ–π¡Ö»Õ5ΩëîÄÙÅ–πŸÖ±’îÏÅ\πïŸïπ–π¡Ö»ÕΩ…µÖ–ÄÙÅ–πŸÖ±’îÄÙÙÙÄâΩŸï…Ö±±AÖ•…ÃàÄ¸ÄâÖùù…ïùÖ—îàÄËÄâëÖ•±‰àÏÅ…ïπëï…M—ï¿Ã†§ÏÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâÕç…Ö—ç°Ω…µÖ–à§ÅÏÅ\πïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÄÙÅ–πŸÖ±’îÏÅ…ïπëï…M—ï¿Ã†§ÏÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâ±ÖÕ—ÖÂ9—¡Ω’π–à§ÅÏÅ•òÄ†ÖçΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à±\πïŸïπ–§π•πç±’ëïÃ†≠\πïŸïπ–πëÖÂÃ§ÅÒÄÖlƒ∞…tπ•πç±’ëïÃ†≠–πŸÖ±’î§§Å…ï—’…∏ÏÅ\πïŸïπ–ππ—¡Ω’π—ÃÅÒÙÅÌÙÏÅ\πïŸïπ–ππ—¡Ω’π—ÕlâëÖ‰àÄ¨Å\πïŸïπ–πëÖÂÕtÄÙÄ≠–πŸÖ±’îÏÅ•òÄ°\πïŸïπ–πëÖÂÃÄÙÄ»§Å\πïŸïπ—lâπ—¡Ö‰àÄ¨Å\πïŸïπ–πëÖÂÃÄ¨ÄâΩ’π–âtÄÙÄ≠–πŸÖ±’îÏÅÙ(ÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πÂï±±Ω›âÖ±±ëÖ‰§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÄ≠–πëÖ—ÖÕï–πÂï±±Ω›âÖ±±ëÖ‰∞(ÄÄÄÄÄÄÄÄÄÅÕï±ïç—ïëÖÂÃÄÙÅπï‹ÅMï–†(ÄÄÄÄÄÄÄÄÄÄÄÄ°\πïŸïπ–πÂï±±Ω›	Ö±±ÖÂÃÅÒÅlƒ∞Ä…t§πµÖ¿°9’µâï»§∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ–πç°ïç≠ïêÄ¸ÅÕï±ïç—ïëÖÂÃπÖëê°ëÖ‰§ÄËÅÕï±ïç—ïëÖÂÃπëï±ï—î°ëÖ‰§Ï(ÄÄÄÄÄÄÄÅ•òÄ†ÖÕï±ïç—ïëÖÂÃπÕ•Èî§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕï±ïç—ïëÖÂÃπÖëê°ëÖ‰§Ï(ÄÄÄÄÄÄÄÄÄÅ–πç°ïç≠ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅÖ±ï…–†âeï±±Ω‹Å	Ö±∞Åµ’Õ–ÅâîÅ¡±ÖÂïêÅΩ∏ÅÖ–Å±ïÖÕ–ÅΩπîÅëÖ‰∏à§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÂï±±Ω›	Ö±±ÖÂÃÄÙÅl∏∏πÕï±ïç—ïëÖÂÕtπÕΩ…–†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâ∏ƒà§Å\πïŸïπ–ππ—¡Ö‰≈Ω’π–ÄÙÄ≠–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâ∏»à§Å\πïŸïπ–ππ—¡Ö‰…Ω’π–ÄÙÄ≠–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–π•êÄÙÙÙÄâπ—¡)Öç≠¡Ω–à§ÅÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–ππ—¡)Öç≠¡Ω–ÄÙÅ–πç°ïç≠ïêÏ(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°–ππÖµîÄÙÙÙÄâπ—¡)Öç≠¡Ω—5Ωëîà§Å\πïŸïπ–ππ—¡)Öç≠¡Ω—5ΩëîÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÅ•òÄ°–π•êÄÙÙÙÄâÕç…Ö—ç°5Ö·!ç¿à§ÅÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¿ÄÙÅ9’µâï»π•Õ•π•—î†≠–πŸÖ±’î§Ä¸Ä≠–πŸÖ±’îÄËÄƒ¿Ï(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°•ê§ÅÏ(ÄÄÄÄÄÄÄÅ\πâïπïô•—Õm•ëtÄÙÅ\πâïπïô•—Õm•ëtÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πâ…ï›Ö…ê§Å\πâïπïô•—Õm•ëtπ…ï›Ö…ë°Ω•çîÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πâµΩëî§Å\πâïπïô•—Õm•ëtπµΩëîÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πââÖ±±Ã§Å\πâïπïô•—Õm•ëtπâÖ±±ÃÄÙÄ≠–πŸÖ±’îÅÒÄààÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πâçΩπ—…•à§Å\πâïπïô•—Õm•ëtπçΩπ—…•â’—•Ω∏ÄÙÄ≠–πŸÖ±’îÅÒÄààÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πâ¡±’Ã§Å\πâïπïô•—Õm•ëtπ¡±’ÃÄÙÅ–πç°ïç≠ïêÏ(ÄÄÄÄÄÄÄÅ•òÄ°–πëÖ—ÖÕï–πâï·—…Ñ§Å\πâïπïô•—Õm•ëtπï·—…ÑÄÙÅ–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ\πâïπïô•—=¡ï∏πÖëê°•ê§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿Ã†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…M—ï¿–†§ÅÏ(ÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖ‰ÄÙÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖ‰ÅÒÅÏ(ÄÄÄÄÄÅëÖ‰ƒËÅ	ΩΩ±ïÖ∏°\πïŸïπ–π¡…ïôï……ïë1•ïÃ§∞(ÄÄÄÄÄÅëÖ‰»ËÅ	ΩΩ±ïÖ∏°\πïŸïπ–π¡…ïôï……ïë1•ïÃ§∞(ÄÄÄÅÙÏ(ÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖ‰ÄÙÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖ‰ÅÒÅÏ(ÄÄÄÄÄÅëÖ‰ƒËÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÑÅÒÄâùïπï…Ö∞à∞(ÄÄÄÄÄÅëÖ‰»ËÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÑÅÒÄâùïπï…Ö∞à∞(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡’——•πúÄÙÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†â—ïÖµA’——Ãà§∞(ÄÄÄÄÄÅëïôÖ’±—I’±ïÃÄÙÅ¡’——•πùI’±ïÕQï·–°\πïŸïπ–§Ï(ÄÄÄÅçΩπÕ–Å—·–ÄÙÅ\πïŸïπ–π¡’——•πùI’±ïÕ’Õ—Ω¥ÅÒÅëïôÖ’±—I’±ïÃ∞(ÄÄÄÄÄÅïë•—•πúÄÙÅ	ΩΩ±ïÖ∏°\πïë•—A’——•πùI’±ïÃ§Ï(ÄÄÄÅçΩπÕ–Å¡…ïôï……ïëÖ…êÄÙÄ°ëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅÅëÖ‰ëÌëÖÂıÄ∞(ÄÄÄÄÄÄÄÅ¡…ïòÄÙÅ	ΩΩ±ïÖ∏°\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖÂm≠ïÂt§∞(ÄÄÄÄÄÄÄÅçΩ’…Õï9ÖµîÄÙÅçΩ’…Õî°\πïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§¸ππÖµîÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êÅ¡…ïôï……ïëÖ…êà¯Ò†–¯ëÌ\πïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÅÖ‰ÄëÌëÖÂÙÉäPÄëÌïÕå°çΩ’…Õï9ÖµîÅÒÄâΩ’…Õîà•ıÄÄËÄâA…ïôï……ïêÅ1•ïÃâÙΩ†–¯Òë•ÿÅç±ÖÕÃÙâ¡…ïôï……ïë1•πîà¯Òë•ÿÅç±ÖÕÃÙâ¡…ïôï……ïëM—Ö—’ÃÄëÌ¡…ïòÄ¸ÄâÂïÃàÄËÄàâÙà¯ëÌ¡…ïòÄ¸ÄâeïÃàÄËÄâ9ºâÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡…ïôï……ïëïôÖ’±–à¯ëÌ¡…ïòÄ¸ÅÅA…ïôï……ïêÅ±•ïÃÅÖ…îÅ•∏Å’ÕîÄëÌ\πïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÅΩ∏ÅÖ‰ÄëÌëÖÂıÄÄËÄâôΩ»Å—°•ÃÅïŸïπ–âÙπÄÄËÄâA±Ö‰Å—°îÅâÖ±∞ÅÖÃÅ•–Å±•ïÃ∏âÙΩë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅëÖ—Ñµç°Öπùîµ¡…ïôï……ïêÙàëÌëÖÂÙà˘°ÖπùîΩâ’——Ω∏¯Ωë•ÿ¯ëÌ¡…ïòÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâ¡…ïô…ïÑà¯Ò±Öâï∞˘A…ïôï……ïêÅ1•ïÃÅ¡¡±‰ÒÕï±ïç–ÅëÖ—Ñµ¡…ïòµÖ…ïÑÙàëÌëÖÂÙà¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙâùïπï…Ö∞àÄëÌ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖÂm≠ïÂtÄÙÙÙÄâùïπï…Ö∞àÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘%∏Å—°îÅïπï…Ö∞Å…ïÑΩΩ¡—•Ω∏¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙâôÖ•…›Ö‰àÄëÌ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖÂm≠ïÂtÄÙÙÙÄâôÖ•…›Ö‰àÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘=∏Å—°îÅç±ΩÕï±‰ÅµΩ›∏Å¡Ö…–ÅΩòÅ—°îÅçΩ’…ÕîΩΩ¡—•Ω∏¯ΩÕï±ïç–¯Ω±Öâï∞¯Ωë•ÿ˘ÄÄËÄàâÙΩë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÄê†àç›•ÈÖ…ë	Ωë‰à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÕ!ïÖêà¯Òë•ÿ¯Ò†Ã˘I’±ïÃΩ†Ã¯Ò¿Åç±ÖÕÃÙâ°•π–à˘Mï–ÅÖπ‰ÅçΩπë•—•ΩπÃÅ—°Ö–Åë•ôôï»Åô…Ω¥ÅπΩ…µÖ∞Å¡±Ö‰∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ…’±ïÕ	Öëùîà˘Y9PÅIU1LΩÕ¡Ö∏¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâ¡…ïôï……ïëÖÂ…•êÄëÌ\πïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸Äâ—›ΩÖÂÃàÄËÄàâÙà¯ëÌïŸïπ—ÖÂÃ°\πïŸïπ–§πµÖ¿°¡…ïôï……ïëÖ…ê§π©Ω•∏†àà•ÙΩë•ÿ¯(ÄëÌ¡’——•πúÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êÅ¡’——•πùI’±ïÃà¯Òë•ÿÅç±ÖÕÃÙâÖ’—ΩI’±ï!ïÖêà¯Òë•ÿ¯Ò†–˘A’——•πúÅΩµ¡ï—•—•Ω∏ÅI’±ïÃΩ†–¯Ò¿Åç±ÖÕÃÙâ°•π–à˘%πç±’ëïêÅÖ’—ΩµÖ—•çÖ±±‰ÅâïçÖ’ÕîÅA’——•πúÅΩµ¡ï—•—•Ω∏Å•ÃÅÕï±ïç—ïê∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ…’±ï!ïÖë	—πÃà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÖ’—ΩQÖúà˘UQ=5Q%ΩÕ¡Ö∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–Åµ•π•I’±ï	—∏àÅ•êÙâïë•—A’——•πúà¯ëÌïë•—•πúÄ¸ÄâΩπîàÄËÄâë•–âÙΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ¯ëÌïë•—•πúÄ¸ÅÄÒ—ï·—Ö…ïÑÅ•êÙâ¡’——•πùI’±ïÕë•–àÅ…Ω›ÃÙàƒÃà¯ëÌïÕå°—·–•ÙΩ—ï·—Ö…ïÑ˘ÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâ¡’——•πùI’±ïQï·–à¯ëÌïÕå°—·–•ÙΩë•ÿ˘ÅÙΩë•ÿ˘ÄÄËÄàâÙ(ÄëÌ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âÕç…Ö—ç†à§Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êÅÕç…Ö—ç°I’±ïÃà¯Òë•ÿÅç±ÖÕÃÙâÖ’—ΩI’±ï!ïÖêà¯Òë•ÿ¯Ò†–˘Mç…Ö—ç†ÅΩµ¡ï—•—•Ω∏ÅI’±ïÃΩ†–¯Ò¿Åç±ÖÕÃÙâ°•π–à˘%πç±’ëïêÅÖ’—ΩµÖ—•çÖ±±‰ÅâïçÖ’ÕîÅMç…Ö—ç†Å•ÃÅÕï±ïç—ïê∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÖ’—ΩQÖúà˘UQ=5Q%ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡’——•πùI’±ïQï·–à¯ëÌïÕå°Õç…Ö—ç°I’±ïÕQï·–°\πïŸïπ–§•ÙΩë•ÿ¯Ωë•ÿ˘ÄÄËÄàâÙ(ÄëÌ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âÖµâ…ΩÕîà§Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êÅÖµâ…ΩÕïI’±ïÃà¯Òë•ÿÅç±ÖÕÃÙâÖ’—ΩI’±ï!ïÖêà¯Òë•ÿ¯Ò†–˘µâ…ΩÕîÅI’±ïÃΩ†–¯Ò¿Åç±ÖÕÃÙâ°•π–à˘%πç±’ëïêÅÖ’—ΩµÖ—•çÖ±±‰ÅâïçÖ’ÕîÅµâ…ΩÕîÅ•ÃÅÕï±ïç—ïê∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÖ’—ΩQÖúà˘UQ=5Q%ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡’——•πùI’±ïQï·–à¯ëÌïÕå°Öµâ…ΩÕïI’±ïÕQï·–°\πïŸïπ–§•ÙΩë•ÿ¯Ωë•ÿ˘ÄÄËÄàâÙ(ÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êà¯Òë•ÿÅç±ÖÕÃÙâ…’±ïMïç—•Ωπ!ïÖêà¯Òë•ÿ¯Ò†–˘M¡ïç•Ö∞ÅI’±ïÃΩ†–¯Ò¿Åç±ÖÕÃÙâ°•π–à˘ëêÅïÖç†ÅÕï¡Ö…Ö—îÅ•πÕ—…’ç—•Ω∏ÅÖÃÅÑÅâ’±±ï–Å¡Ω•π–∏ÅA…ïÕÃÅπ—ï»ÅôΩ»Å—°îÅπï·–Åâ’±±ï–∏Ω¿¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–Åµ•π•I’±ï	—∏àÅ•êÙâç±ïÖ…M¡ïç•Ö∞à˘±ïÖ»Ωâ’——Ω∏¯Ωë•ÿ¯Ò’∞Å•êÙâÕ¡ïç•Ö±I’±ïÃàÅç±ÖÕÃÙâÕ¡ïç•Ö±I’±ïÕë•—Ω»àÅçΩπ—ïπ—ïë•—Öâ±îÙâ—…’îàÅ…Ω±îÙâ—ï·—âΩ‡àÅÖ…•Ñµ±Öâï∞ÙâM¡ïç•Ö∞ÅI’±ïÃà¯ëÌÕ¡ïç•Ö±I’±ïÕë•—Ω…!—µ∞°\πïŸïπ–πÕ¡ïç•Ö±I’±ïÃ•ÙΩ’∞¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâ…’±ïÕA…ïŸ•ï‹ÄëÌ\π…’±ïÕA…ïŸ•ï›ç¨Ä¸ÄâÖç≠πΩ›±ïëùïêàÄËÄàâÙà¯Òë•ÿ¯Òà˘A±ÖÂï»ÅÖç≠πΩ›±ïëùïµïπ–Ωà¯ÒÕ¡Ö∏¯ëÌ\π…’±ïÕA…ïŸ•ï›ç¨Ä¸Äâç≠πΩ›±ïëùïµïπ–Å…ïçΩ…ëïêÅôΩ»Å—°•ÃÅ¡…ïŸ•ï‹∏àÄËÄâA±ÖÂï…ÃÅÕïîÅ—°îÅïŸïπ–Å…’±ïÃÅâïôΩ…îÅÕçΩ…•πúÅâïù•πÃ∏âÙΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâùΩ—%—A…ïŸ•ï‹àÅ•êÙâùΩ—%—A…ïŸ•ï‹à¯ëÌ\π…’±ïÕA…ïŸ•ï›ç¨Ä¸ÄãärLÅΩ–Å%–àÄËÄâΩ–Å%–âÙΩâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄêê†ùmëÖ—Ñµç°Öπùîµ¡…ïôï……ïëtú§πôΩ…Öç††°â’——Ω∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅâ’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÄ≠â’——Ω∏πëÖ—ÖÕï–πç°ÖπùïA…ïôï……ïê∞(ÄÄÄÄÄÄÄÄÄÅ≠ï‰ÄÙÅÅëÖ‰ëÌëÖÂıÄÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖÂm≠ïÂtÄÙ(ÄÄÄÄÄÄÄÄÄÄÖ\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖÂm≠ïÂtÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖÂm≠ïÂt§(ÄÄÄÄÄÄÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖÂm≠ïÂtÄÙÄâùïπï…Ö∞àÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÃÄÙÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ	ÂÖ‰πëÖ‰ƒÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÑÄÙÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖ‰πëÖ‰ƒÏ(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿–†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄêê†ùmëÖ—Ñµ¡…ïòµÖ…ïÖtú§πôΩ…Öç††°Õï±ïç–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕï±ïç–πΩπç°ÖπùîÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅÅëÖ‰ëÌÕï±ïç–πëÖ—ÖÕï–π¡…ïô…ïÖıÄÏ(ÄÄÄÄÄÄÄÅ\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÖ	ÂÖÂm≠ïÂtÄÙÅÕï±ïç–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°≠ï‰ÄÙÙÙÄâëÖ‰ƒà§Å\πïŸïπ–π¡…ïôï……ïë1•ïÕ…ïÑÄÙÅÕï±ïç–πŸÖ±’îÏ(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†ê†àçïë•—A’——•πúà§§(ÄÄÄÄÄÄê†àçïë•—A’——•πúà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ\πïë•—A’——•πùI’±ïÃÄÙÄÖ\πïë•—A’——•πùI’±ïÃÏ(ÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿–†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç¡’——•πùI’±ïÕë•–à§§(ÄÄÄÄÄÄê†àç¡’——•πùI’±ïÕë•–à§πΩπ•π¡’–ÄÙÄ°î§ÄÙ¯(ÄÄÄÄÄÄÄÄ°\πïŸïπ–π¡’——•πùI’±ïÕ’Õ—Ω¥ÄÙÅîπ—Ö…ùï–πŸÖ±’î§Ï(ÄÄÄÅçΩπÕ–ÅÕ¡ïç•Ö±I’±ïÕë•—Ω»ÄÙÄê†àçÕ¡ïç•Ö±I’±ïÃà§Ï(ÄÄÄÅÕ¡ïç•Ö±I’±ïÕë•—Ω»πΩπ•π¡’–ÄÙÄ°î§ÄÙ¯(ÄÄÄÄÄÄ°\πïŸïπ–πÕ¡ïç•Ö±I’±ïÃÄÙÅÕ¡ïç•Ö±I’±ï1•πïÃ°îπ—Ö…ùï–π•ππï…Qï·–§π©Ω•∏†âq∏à§§Ï(ÄÄÄÄê†àçç±ïÖ…M¡ïç•Ö∞à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ\πïŸïπ–πÕ¡ïç•Ö±I’±ïÃÄÙÄààÏ(ÄÄÄÄÄÅ…ïπëï…M—ï¿–†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçùΩ—%—A…ïŸ•ï‹à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ\π…’±ïÕA…ïŸ•ï›ç¨ÄÙÄÖ\π…’±ïÕA…ïŸ•ï›ç¨Ï(ÄÄÄÄÄÅ…ïπëï…M—ï¿–†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…M—ï¿‘†§ÅÏ(ÄÄÄÅçΩπÕ–Åπ—¡=∏ÄÙÅ\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âπ—¿à§Ï(ÄÄÄÅ•òÄ†Öπ—¡=∏§ÅÏ(ÄÄÄÄÄÄê†àç›•ÈÖ…ë	Ωë‰à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡!ïÖêà¯Òë•ÿ¯Ò†Ã˘9ïÖ…ïÕ–Å—°îÅA•∏Ω†Ã¯Ò¿Åç±ÖÕÃÙâ°•π–à˘9Q@Å°Ω±îÅÕï±ïç—•Ω∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ…’±ïÕ	Öëùîà˘9Q@ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ…’±ïÖ…êà¯Ò†–˘9ïÖ…ïÕ–Å—°îÅA•∏Å•ÃÅπΩ–Å•πç±’ëïêÅ•∏Å—°•ÃÅïŸïπ–∏Ω†–¯Ò¿Åç±ÖÕÃÙâ°•π–à˘Q°ï…îÅ•ÃÅπΩ—°•πúÅ—ºÅÕï–Å’¿ÅΩ∏Å—°•ÃÅ¡Öùî∏Ω¿¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÃÄÙÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÃÅÒÅÌÙÏ(ÄÄÄÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπMΩ’…çïÃÄÙÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπMΩ’…çïÃÅÒÅÌÙÏ(ÄÄÄÅçΩπÕ–Å¡Ö»ÕÃÄÙÄ°•ê∞ÅëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–ÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰∞Å\πïŸïπ–§∞(ÄÄÄÄÄÄÄÅ»ÄÙÅmtÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÄƒ‡ÏÅ§¨¨§(ÄÄÄÄÄÄÄÅ•òÄ†≠ÿπ¡Ö»¸πm•tÄÙÙÙÄÃ§(ÄÄÄÄÄÄÄÄÄÅ»π¡’Õ†°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÅ§Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ•πëï‡ËÅM—…•πú°ÿπ•πëï‡¸πm•tÄ¸¸Äàà§∞(ÄÄÄÄÄÄÄÄÄÄÄÅµï—…ïÃËÅçΩ’…Õï!Ω±ï•Õ—Öπçî°ÿ∞Å§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅë•Õ—ÖπçïUπ•–ËÅçΩ’…Õï•Õ—Öπçïââ…ïÿ°ÿ§∞(ÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ±ï–Å…Öπ¨ÄÙÄ°‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ±ï–Å∏ÄÙÅ¡Ö…Õï%π–°‡π•πëï‡πÕ¡±•–†àºà•l¡t∞Äƒ¿§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å9’µâï»π•Õ•π•—î°∏§Ä¸Å∏ÄËÄ¥ƒÏ(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ…ï—’…∏Å»πÕΩ…–†°‡∞Å‰§ÄÙ¯Å…Öπ¨°‰§Ä¥Å…Öπ¨°‡§ÅÒÅ‡π°Ω±îÄ¥Å‰π°Ω±î§Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅïπÕ’…îÄÙÄ°≠ï‰∞Å•ê∞ÅçΩ’π–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–Åç†ÄÙÅ¡Ö»ÕÃ°•ê∞Ä≠≠ï‰π…ï¡±Öçî†âëÖ‰à∞Äàà§§∞(ÄÄÄÄÄÄÄÅÿÄÙÅ……Ö‰π•Õ……Ö‰°\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂt§(ÄÄÄÄÄÄÄÄÄÄ¸Å\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtπµÖ¿°9’µâï»§(ÄÄÄÄÄÄÄÄÄÄËÅmtÏ(ÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÄ≠≠ï‰π…ï¡±Öçî†âëÖ‰à∞Äàà§∞(ÄÄÄÄÄÄÄÅÕΩ’…çîÄÙÅÄëÌM—…•πú°•êÅÒÄàà•ıëÌÕï±ïç—ïëŸïπ—Qïî°ëÖ‰∞Å\πïŸïπ–•ıÄÏ(ÄÄÄÄÄÅ•òÄ°\πïŸïπ–ππ—¡Mï±ïç—•ΩπMΩ’…çïÕm≠ïÂtÄÑÙÙÅÕΩ’…çî§ÅÿÄÙÅmtÏ(ÄÄÄÄÄÅÿÄÙÅÿ(ÄÄÄÄÄÄÄÄπô•±—ï»†°†∞Å§§ÄÙ¯Åç†πÕΩµî†°‡§ÄÙ¯Å‡π°Ω±îÄÙÙÙÅ†§ÄòòÅÿπ•πëï·=ò°†§ÄÙÙÙÅ§§(ÄÄÄÄÄÄÄÄπÕ±•çî†¿∞ÅçΩ’π–§Ï(ÄÄÄÄÄÅôΩ»Ä°±ï–Å‡ÅΩòÅç†§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ÿπ±ïπù—†Ä¯ÙÅçΩ’π–§Åâ…ïÖ¨Ï(ÄÄÄÄÄÄÄÅ•òÄ†Öÿπ•πç±’ëïÃ°‡π°Ω±î§§Åÿπ¡’Õ†°‡π°Ω±î§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtÄÙÅÿÏ(ÄÄÄÄÄÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπMΩ’…çïÕm≠ïÂtÄÙÅÕΩ’…çîÏ(ÄÄÄÄÄÅ…ï—’…∏Åç†Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—1Öâï∞ÄÙÄ°ëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åµï—°ΩêÄÙÅÕ—Ö…—5ï—°ΩëΩ»°\πïŸïπ–∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÅ°Ω±ïÃÄÙÅÕ—Ö…—!Ω±ïÕΩ»°\πïŸïπ–∞ÅëÖ‰§Ï(ÄÄÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâÕ°Ω—ù’∏à§Å…ï—’…∏ÄâQΩëÖ‰Å•ÃÅÑÅM°Ω—ù’∏ÅÕ—Ö…–àÏ(ÄÄÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâ—›ºà§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÅM—Ö…—•πúÅ—ïïÃÅ—ΩëÖ‰ÅÖ…îÅ!Ω±ïÃÄëÌ°Ω±ïÕl¡uÙÅÖπêÄëÌ°Ω±ïÕl≈uıÄÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÅM—Ö…—•πúÅ—ïîÅ—ΩëÖ‰Å•ÃÅ!Ω±îÄëÌ°Ω±ïÕl¡uıÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÄ°ëÖ‰∞Å≠ï‰∞ÅÕ±Ω–∞Åç†∞Åç•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–ÅÕï∞ÄÙÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂumÕ±Ω—t∞(ÄÄÄÄÄÄÄÅΩ¡ï∏ÄÙÅ\ππ—¡°ÖπùîÄÙÙÙÅÄëÌ≠ïÂÙËëÌÕ±Ω—ıÄ∞(ÄÄÄÄÄÄÄÅ’ÕïêÄÙÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtπô•±—ï»†°|∞Å§§ÄÙ¯Å§ÄÑÙÙÅÕ±Ω–§∞(ÄÄÄÄÄÄÄÅ‡ÄÙÅç†πô•πê†°ƒ§ÄÙ¯Åƒπ°Ω±îÄÙÙÙÅÕï∞§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡Mï±ïç—Ö…êà¯Òë•ÿÅç±ÖÕÃÙâπ—¡Ö‰à¯Òà¯ëÌëÖÂÙëÌ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtπ±ïπù—†Ä¯ÄƒÄ¸ÅÄÉäPÅ9Q@ÄëÌÕ±Ω–Ä¨Ä≈ıÄÄËÄàâÙΩà¯ÒÕ¡Ö∏¯ëÌïÕå°çΩ’…Õî°ç•ê§¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâπ—¡Mï±ïç—ïêà¯Òë•ÿ¯ÒÕµÖ±∞˘M1QΩÕµÖ±∞¯ÒÕ—…Ωπú˘!Ω±îÄëÌÕï∞ÅÒÄãäPâÙΩÕ—…Ωπú¯ÒÕ¡Ö∏¯ëÌ‡Ä¸ÅÅAÖ»ÄÃëÌ‡πµï—…ïÃÄ¸ÅÄÉ
+‹ÄëÌ‡πµï—…ïÕÙÄëÌ‡πë•Õ—ÖπçïUπ•—ıÄÄËÄàâÙëÌ‡π•πëï‡Ä¸ÅÄÉ
+‹Å%πëï‡ÄëÌïÕå°‡π•πëï‡•ıÄÄËÄàâıÄÄËÄàâÙΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅëÖ—Ñµπ—¡ç°ÖπùîÙàëÌ≠ïÂÙËëÌÕ±Ω—Ùà¯ëÌΩ¡ï∏Ä¸Äâ±ΩÕîàÄËÄâ°ÖπùîâÙΩâ’——Ω∏¯Ωë•ÿ¯ëÌΩ¡ï∏Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡°Ω•çïÃà¯Òà˘°ΩΩÕîÅÖπΩ—°ï»ÅAÖ»ÄÃΩà¯ëÌç†πµÖ¿†°ƒ§ÄÙ¯ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâπ—¡°Ω•çîÄëÌƒπ°Ω±îÄÙÙÙÅÕï∞Ä¸ÄâÕï±ïç—ïêàÄËÄàâÙÄëÌ’Õïêπ•πç±’ëïÃ°ƒπ°Ω±î§Ä¸Äâ’ÕïêàÄËÄàâÙàÄëÌ’Õïêπ•πç±’ëïÃ°ƒπ°Ω±î§Ä¸Äâë•ÕÖâ±ïêàÄËÄàâÙÅëÖ—Ñµπ—¡¡•ç¨ÙàëÌ≠ïÂÙËëÌÕ±Ω—ÙËëÌƒπ°Ω±ïÙà¯ÒÕ¡Ö∏˘!Ω±îÄëÌƒπ°Ω±ïÙΩÕ¡Ö∏¯ÒÕµÖ±∞¯ëÌƒπµï—…ïÃÄ¸Åƒπµï—…ïÃÄ¨ÄàÄàÄ¨Åƒπë•Õ—ÖπçïUπ•–Ä¨ÄàÉ
+‹ÄàÄËÄàâÙëÌƒπ•πëï‡Ä¸Äâ%πëï‡ÄàÄ¨ÅïÕå°ƒπ•πëï‡§ÄËÄàâÙëÌƒπ°Ω±îÄÙÙÙÅÕï∞Ä¸ÄàÉ
+‹ÅMï±ïç—ïêàÄËÄàâÙΩÕµÖ±∞¯Ωâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ˘ÄÄËÄàâÙΩë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅëÖÂ!ïÖêÄÙÄ°ëÖ‰∞Å≠ï‰§ÄÙ¯(ÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡ÖÂ!ïÖë•πúà¯Ò†–¯ëÌ\πïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äâ9Q@Å!Ω±îàÄËÅÅÖ‰ÄëÌëÖÂıÅÙΩ†–¯ÒÕ—…Ωπú¯ëÌïÕå°Õ—Ö…—1Öâï∞°ëÖ‰§•ÙΩÕ—…Ωπú¯ëÌ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtπ±ïπù—†ÄÙÙÙÄ»Ä¸ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅëÖ—Ñµπ—¡Õ›Ö¿ÙàëÌ≠ïÂÙà˚äÅM›Ö¿Å9Q@Å=…ëï»Ωâ’——Ω∏˘ÄÄËÄàâÙΩë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–Å¡…•π—Öâ±ï9—¡Ö…ëÃÄÙÅçΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à∞Å\πïŸïπ–§πô±Ö—5Ö¿†°ëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç•êÄÙÅ\πïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂtÏ(ÄÄÄÄÄÅ…ï—’…∏Ä°\πïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅmt§πµÖ¿†°°Ω±î§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅçΩ’…Õï9ÖµîËÅçΩ’…Õî°ç•ê§¸ππÖµîÅÒÄâΩ’…Õîà∞(ÄÄÄÄÄÄÄÅ°Ω±îËÄ≠°Ω±î∞(ÄÄÄÄÄÅÙ§§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Åπ—¡A…•π—!—µ∞ÄÙÅ¡…•π—Öâ±ï9—¡Ö…ëÃπ±ïπù—†(ÄÄÄÄÄÄ¸ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâπ—¡A…•π—Mïç—•Ω∏à¯Òë•ÿÅç±ÖÕÃÙâπ—¡A…•π—!ïÖë•πúà¯Òë•ÿ¯Ò†–˘A…•π—Öâ±îÅ9Q@ÅÖ…ëÃΩ†–¯Ò¿˘A…•π–∞Åç’–ÅΩ’–ÅÖπêÅ¡±ÖçîÅ—°îÅµÖ—ç°•πúÅçÖ…êÅ›•—†Å—°îÅΩ∏µù…ïï∏Å9Q@ÅµÖ…≠ï»∏Ω¿¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅ•êÙâ¡…•π—9—¡Ö…ëÃà˘A…•π–Å9Q@ÅÖ…ëÃΩâ’——Ω∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâπ—¡A…•π—Ö…ëÃà¯ëÌ¡…•π—Öâ±ï9—¡Ö…ëÃπµÖ¿†°çÖ…ê§ÄÙ¯ÅÄÒÖ…—•ç±îÅç±ÖÕÃÙâπ—¡A…•π—Ö…êà¯Ò°ïÖëï»¯Òë•ÿ¯ÒÕµÖ±∞˘]dÅ=1ÅM=IHΩÕµÖ±∞¯ÒÕ—…Ωπú˘9Q@ΩÕ—…Ωπú¯Ωë•ÿ¯Ò•µúÅÕ…åÙâÖ›Ö‰µùΩ±òµµÖÕçΩ–µµ•π§π¡πúàÅÖ±–Ùàà¯Ω°ïÖëï»¯Ò†‘¯ëÌïÕå°çÖ…êπçΩ’…Õï9Öµî•ÙΩ†‘¯Ò†ÿ˘!Ω±îÄëÌçÖ…êπ°Ω±îÅÒÄãäPâÙΩ†ÿ¯Òë•ÿÅç±ÖÕÃÙâπ—¡A…•π—1•πïÃà¯ÒÕ¡Ö∏¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ΩÕ¡Ö∏¯Ωë•ÿ¯ΩÖ…—•ç±î˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯ΩÕïç—•Ω∏˘Ä(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÄê†àç›•ÈÖ…ë	Ωë‰à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡!ïÖêà¯Òë•ÿ¯Ò†Ã˘9ïÖ…ïÕ–Å—°îÅA•∏Ω†Ã¯Ò¿Åç±ÖÕÃÙâ°•π–à˘Q°îÅïÖÕ•ïÕ–µ…Ö—ïêÅAÖ»ÄÃÅ°Ω±ïÃÅ°ÖŸîÅâïï∏ÅÕï±ïç—ïêÅÖ’—ΩµÖ—•çÖ±±‰∏ÅUÕîÅ°ÖπùîÅΩπ±‰Å•òÅÂΩ‘Å›Öπ–ÅÑÅë•ôôï…ïπ–Å°Ω±î∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ…’±ïÕ	Öëùîà˘9Q@ΩÕ¡Ö∏¯Ωë•ÿ¯ëÌçΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à∞Å\πïŸïπ–§πµÖ¿°ëÖ‰Ù˘Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÙâëÖ‰à≠ëÖ‰∞Åç•êı\πïŸïπ—lâçΩ’…Õîà≠ëÖÂt∞ÅçΩ’π–ıπ—¡Ω’π–°ëÖ‰±\πïŸïπ–§∞Åç°Ω•çïÃıïπÕ’…î°≠ï‰±ç•ê±çΩ’π–§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡ÖÂ…Ω’¿à¯ëÌëÖÂ!ïÖê°ëÖ‰±≠ï‰•ÙÒ±Öâï∞˘9’µâï»ÅΩòÅ9Q@Å°Ω±ïÃÒÕï±ïç–ÅëÖ—Ñµπ—¡çΩ’π–ÙàëÌëÖÂÙà¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙàƒàÄëÌçΩ’π–ÙÙÙƒ¸âÕï±ïç—ïêàËàâÙ˘=πîΩΩ¡—•Ω∏¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙà»àÄëÌçΩ’π–ÙÙÙ»¸âÕï±ïç—ïêàËàâÙ˘Q›ºΩΩ¡—•Ω∏¯ΩÕï±ïç–¯Ω±Öâï∞¯ëÌ……Ö‰πô…Ω¥°Ì±ïπù—†ÈçΩ’π—Ù∞°|±§§Ù˘…Ω‹°ÅÖ‰ÄëÌëÖÂıÄ±≠ï‰±§±ç°Ω•çïÃ±ç•ê§§π©Ω•∏†àà•ÙΩë•ÿ˘ÄÏ(ÄÄÄÄÄÅÙ§π©Ω•∏†àà•ÙëÌπ—¡A…•π—!—µ±ÙÒë•ÿÅç±ÖÕÃÙâπ—¡%πôºà¯Òà˘’…•πúÅ¡±Ö‰Ωà¯ÒÕ¡Ö∏˘=∏ÅïÖç†Å9Q@Å°Ω±î∞Å¡±ÖÂï…ÃÅçÖ∏ÅçΩπô•…¥Å—°Ö–Å—°ï‰Å¡’–Å—°ï•»ÅπÖµîÅΩ∏Å—°îÅ9Q@ÅµÖ…≠ï»∏ÅQ°îÅ±Ö—ïÕ–ÅçΩπô•…µïêÅïπ—…‰ÅΩ∏ÅïÖç†Å°Ω±îÅâïçΩµïÃÅ—°îÅç’……ïπ–Å9Q@Å°Ω±ëï»∏ΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÅ•òÄ†ê†àç¡…•π—9—¡Ö…ëÃà§§Äê†àç¡…•π—9—¡Ö…ëÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å›•πëΩ‹π¡…•π–†§Ï(ÄÄÄÄêê†âmëÖ—Ñµπ—¡çΩ’π—tà§πôΩ…Öç†°•π¡’–Ù˘•π¡’–πΩπç°ÖπùîÙ†§Ù˘Ï(ÄÄÄÄÄÅ\πïŸïπ–ππ—¡Ω’π—ÃÅÒÙÅÌÙÏÅ\πïŸïπ–ππ—¡Ω’π—ÕlâëÖ‰à≠•π¡’–πëÖ—ÖÕï–ππ—¡çΩ’π—tÙ≠•π¡’–πŸÖ±’îÏÅ…ïπëï…M—ï¿‘†§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÄêê†âmëÖ—Ñµπ—¡ç°Öπùïtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ\ππ—¡°ÖπùîÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÅ\ππ—¡°ÖπùîÄÙÙÙÅàπëÖ—ÖÕï–ππ—¡ç°ÖπùîÄ¸ÄààÄËÅàπëÖ—ÖÕï–ππ—¡ç°ÖπùîÏ(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿‘†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—Ñµπ—¡¡•ç≠tà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ±ï–Åm¨∞ÅÃ∞Å°tÄÙÅàπëÖ—ÖÕï–ππ—¡¡•ç¨πÕ¡±•–†àËà§Ï(ÄÄÄÄÄÄÄÄÄÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ul≠ÕtÄÙÄ≠†Ï(ÄÄÄÄÄÄÄÄÄÅ\ππ—¡°ÖπùîÄÙÄààÏ(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿‘†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—Ñµπ—¡Õ›Ö¡tà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¨ÄÙÅàπëÖ—ÖÕï–ππ—¡Õ›Ö¿∞(ÄÄÄÄÄÄÄÄÄÄÄÅÿÄÙÅ\πïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠tÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ÿ¸π±ïπù—†ÄÙÙÙÄ»§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅmŸl¡t∞ÅŸl≈utÄÙÅmŸl≈t∞ÅŸl¡utÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ\ππ—¡°ÖπùîÄÙÄààÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïπëï…M—ï¿‘†§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…M—ï¿ÿ†§ÅÏ(ÄÄÄÅïπÕ’…ïŸïπ—QïïA±Öππ•πú°\πïŸïπ–§Ï(ÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅïŸïπ—ÖÂÃ°\πïŸïπ–§∞ÅÕï±ïç—ïêÄÙÅçΩµ¡ïô•π•—•ΩπÃ†§πô•±—ï»°çΩµ¿Ù˘\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ°çΩµ¿π•ê§òòÖçΩµ¿π’πÖŸÖ•±Öâ±î§∞(ÄÄÄÄÄÅÕ’µµÖ…ÂŸïπ–ÄÙÅÏ∏∏π\πïŸïπ–∞ÅçΩµ¡ï—•—•ΩπÃÈÕï±ïç—ïêπµÖ¿°çΩµ¿Ù˘çΩµ¿π•ê•Ù∞(ÄÄÄÄÄÅµ’±—•ÖÂΩµ¡ï—•—•ΩπÃÄÙÅµ’±—•ÖÂΩµ¡ï—•—•ΩπM’µµÖ…‰°Õ’µµÖ…ÂŸïπ–§∞(ÄÄÄÄÄÅçÖ…ëIïÕ’±—ÃÄÙÅëÖÂÃπô±Ö—5Ö¿°ëÖ‰Ù˘ïŸïπ—Ö…ë°ïç≠Ã°ëÖ‰±\πïŸïπ–§§∞(ÄÄÄÄÄÅçÖ…ëÕYÖ±•êÄÙÅçÖ…ëIïÕ’±—ÃπïŸï…‰°…ïÕ’±–Ù˘…ïÕ’±–¸πΩ¨§∞(ÄÄÄÄÄÅç°ïç≠ÃÄÙÅl(ÄÄÄÄÄÄÄÅÌΩ¨È	ΩΩ±ïÖ∏°\πïŸïπ–ππÖµî¸π—…•¥†§§±±Öâï∞ÈÅŸïπ–Å9ÖµîËÄëÌ\πïŸïπ–ππÖµïÒâ9Ω–Åïπ—ï…ïêâıÅÙ∞(ÄÄÄÄÄÄÄÅÌΩ¨È	ΩΩ±ïÖ∏°\πïŸïπ–πëÖ—î§±±Öâï∞ÈÅM—Ö…–ÅÖ—îËÄëÌ\πïŸïπ–πëÖ—î˝Ö’Õ—…Ö±•ÖπÖ—î°\πïŸïπ–πëÖ—î§Ëâ9Ω–Åïπ—ï…ïêâıÅÙ∞(ÄÄÄÄÄÄÄÄ∏∏πëÖÂÃπµÖ¿°ëÖ‰Ù¯°ÌΩ¨È	ΩΩ±ïÖ∏°çΩ’…Õî°\πïŸïπ—lâçΩ’…Õîà≠ëÖÂt§§±±Öâï∞ÈÅÖ‰ÄëÌëÖÂÙËÄëÌçΩ’…Õî°\πïŸïπ—lâçΩ’…Õîà≠ëÖÂt§¸ππÖµïÒâ9Ω–ÅÕï±ïç—ïêâÙÉ
+‹ÄëÌÖ’Õ—…Ö±•ÖπÖ—î°ïŸïπ—Ö—î°ëÖ‰±\πïŸïπ–§•ÙÉ
+‹Å•…Õ–ÅQïîÅQ•µîËÄëÌô•…Õ—Ÿïπ—QïïQ•µî°ëÖ‰±\πïŸïπ–•ıÅÙ§§∞(ÄÄÄÄÄÄÄÅÌΩ¨ÈçÖ…ëÕYÖ±•êòô	ΩΩ±ïÖ∏°\πïŸïπ–πÕçΩ…ïçÖ…ëÕ°ïç≠ïê§±±Öâï∞ÈÅ=ôô•ç•Ö∞ÅΩ’…ÕîÅMçΩ…ïçÖ…ëÃËÄëÌçÖ…ëÕYÖ±•ê¸°\πïŸïπ–πÕçΩ…ïçÖ…ëÕ°ïç≠ïê¸âΩπô•…µïêàËâΩπô•…µÖ—•Ω∏Å…ï≈’•…ïêà§ËâΩ’…ÕîÅëÖ—ÑÅπïïëÃÅçΩ……ïç—•Ω∏âıÅÙ∞(ÄÄÄÄÄÄÄÄ∏∏πëÖÂÃπµÖ¿°ëÖ‰Ù¯°ÌΩ¨È›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§π±ïπù—†¯Ù–òô›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§π±ïπù—†ÑÙÙ‘±±Öâï∞ÈÅÖ‰ÄëÌëÖÂÙÅ•ï±êËÄëÌ›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§π±ïπù—°ÙÅ¡±ÖÂ•πúÅ¡ΩÕ•—•ΩπÕÅÙ§§∞(ÄÄÄÄÄÄÄÄ∏∏πëÖÂÃπµÖ¿°ëÖ‰Ù˘ÌçΩπÕ–ÅçÖ—ïùΩ…•ïÃıïŸïπ—A±ÖÂï…Ö—ïùΩ…•ïÃ°ëÖ‰±\πïŸïπ–§±çΩµ¡±ï—îıçÖ—ïùΩ…•ïÃπïŸï…‰°çÖ—ïùΩ…‰Ù˘ïπÖâ±ïëŸïπ—QïïÕΩ…Ö—ïùΩ…‰°\πïŸïπ–±ëÖ‰±çÖ—ïùΩ…‰§πïŸï…‰°—ïîÙ˘—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°ëÖ‰±—ïî±\πïŸïπ–±çÖ—ïùΩ…‰§§§Ì…ï—’…∏ÅÌΩ¨ÈçΩµ¡±ï—î±±Öâï∞ÈÅÖ‰ÄëÌëÖÂÙÅQïîÅ!Öπë•çÖ¡ÃËÄëÌçΩµ¡±ï—î¸âΩµ¡±ï—îàËâ%πçΩµ¡±ï—îâıÅÙÌÙ§∞(ÄÄÄÄÄÄÄÄ∏∏πëÖ•±ÂΩµ¡ï—•—•Ωπ°ïç≠Ã°Õ’µµÖ…ÂŸïπ–§∞(ÄÄÄÄÄÄÄÄ∏∏∏°µ’±—•ÖÂΩµ¡ï—•—•ΩπÃπ±ïπù—†˝mÌΩ¨È—…’î±±Öâï∞ÈÅ5’±—§µëÖ‰ÅΩµ¡ï—•—•ΩπÃËÄëÌµ’±—•ÖÂΩµ¡ï—•—•ΩπÃπ±ïπù—°ıÅıtÈmt§∞(ÄÄÄÄÄÄÄÄ∏∏∏°\πçΩµ¡ï—•—•ΩπÃπ°ÖÃ†âπ—¿à§˝çΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à±\πïŸïπ–§πµÖ¿°ëÖ‰Ù¯°ÌΩ¨Ë°\πïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰à≠ëÖÂuÒÒmt§π±ïπù—†ÙÙıπ—¡Ω’π–°ëÖ‰±\πïŸïπ–§±±Öâï∞ÈÅÖ‰ÄëÌëÖÂÙÅ9Q@ËÄëÏ°\πïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰à≠ëÖÂuÒÒmt§πµÖ¿°†Ù¯â!Ω±îÄà≠†§π©Ω•∏†à∞Äà•Òâ9Ω–ÅÕï±ïç—ïêâıÅÙ§§Èmt§∞(ÄÄÄÄÄÅt∞ÅÖ±±IïÖë‰ıç°ïç≠ÃπïŸï…‰°ç°ïç¨Ù˘ç°ïç¨πΩ¨§Ï(ÄÄÄÄê†àç›•ÈÖ…ë	Ωë‰à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâÕ—Ö…—!ïÖêà¯Òë•ÿ¯Ò†Ã˘Ÿïπ–ÅA±Ö∏ÅIïÖë‰Ω†Ã¯Ò¿˘IïŸ•ï‹ÅÖ±∞ÄëÌëÖÂÃπ±ïπù—°ÙÅ¡±ÖÂ•πúÅëÖ‰ëÌëÖÂÃπ±ïπù—†¯ƒ¸âÃàËàâÙÅâïôΩ…îÅ¡…Ωçïïë•πúÅ—ºÅÕçΩ…•πúÅÕï—’¿∏Ω¿¯Ωë•ÿ¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÕ—Ö…—	ÖëùîÄëÌÖ±±IïÖë‰¸â…ïÖë‰àËâç°ïç¨âÙà¯ëÌÖ±±IïÖë‰¸âIdàËâ!,âÙΩÕ¡Ö∏¯Ωë•ÿ¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÕ—Ö…—M’µµÖ…Â…•êà¯Òë•ÿÅç±ÖÕÃÙâÕ—Ö…—Ö…êà¯Ò†–˘Ÿïπ–Ω†–¯Òà¯ëÌïÕå°\πïŸïπ–ππÖµî•ÙΩà¯Ò¿¯ëÌëÖÂÃπ±ïπù—°ÙÅ¡±ÖÂ•πúÅëÖ‰ëÌëÖÂÃπ±ïπù—†¯ƒ¸âÃàËàâÙÉ
+‹ÅQ…•¿Åô•ï±êËÄëÌ\πïŸïπ–πô•ï±ëM•ÈïÙΩ¿¯Ò¿˘M—Ö…–ËÄëÌïÕå°Ö’Õ—…Ö±•ÖπÖ—î°ïŸïπ—Ö—î°ëÖÂÕl¡t±\πïŸïπ–§§•ÙÉ
+‹Å•π•Õ†ËÄëÌïÕå°Ö’Õ—…Ö±•ÖπÖ—î°ïŸïπ—Ö—î°ëÖÂÕmëÖÂÃπ±ïπù—†¥≈t±\πïŸïπ–§§•ÙΩ¿¯Ωë•ÿ¯(ÄÄÄÄÄÄëÌëÖÂÃπµÖ¿°ëÖ‰Ù˘ÌçΩπÕ–ÅëÖ•±‰ıëÖ•±ÂΩµ¡ï—•—•ΩπM’µµÖ…‰°ëÖ‰±Õ’µµÖ…ÂŸïπ–§πô•±—ï»°çΩµ¿Ù¯ÖçΩµ¿πÖùù…ïùÖ—î§Ì…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕ—Ö…—Ö…êà¯Ò†–˘Ö‰ÄëÌëÖÂÙΩ†–¯Ò¿¯ëÌïÕå°çΩ’…Õî°\πïŸïπ—lâçΩ’…Õîà≠ëÖÂt§¸ππÖµïÒâ9ºÅçΩ’…Õîà•ÙÉ
+‹ÄëÌ›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§π±ïπù—°ÙÅ¡±ÖÂï…ÃÉ
+‹ÄëÌô•…Õ—Ÿïπ—QïïQ•µî°ëÖ‰±\πïŸïπ–•ÙΩ¿¯Ò¿¯Òà˘Ö•±‰ÅΩµ¡ï—•—•ΩπÃΩà¯Òâ»¯ëÌëÖ•±‰π±ïπù—†˝ëÖ•±‰πµÖ¿°çΩµ¿Ù˘ïÕå°çΩµ¿ππÖµî§§π©Ω•∏†àÉ
+‹Äà§Ëâ9ΩπîâÙΩ¿¯Ωë•ÿ˘ÄÌÙ§π©Ω•∏†àà•Ù(ÄÄÄÄÄÄëÌëÖÂÃπ±ïπù—†¯ƒ˝ÄÒë•ÿÅç±ÖÕÃÙâÕ—Ö…—Ö…êà¯Ò†–˘5’±—§µëÖ‰ÅΩµ¡ï—•—•ΩπÃΩ†–¯ëÌµ’±—•ÖÂΩµ¡ï—•—•ΩπÃπ±ïπù—†˝µ’±—•ÖÂΩµ¡ï—•—•ΩπÃπµÖ¿°çΩµ¿Ù˘ÄÒ¿¯Òà¯ëÌïÕå°çΩµ¿ππÖµî•ÙΩà¯ëÌçΩµ¿πëï—Ö•∞˝ÄÒâ»¯ëÌïÕå°çΩµ¿πëï—Ö•∞•ıÄËàâÙΩ¿˘Ä§π©Ω•∏†àà§ËàÒ¿˘9ΩπîΩ¿¯âÙΩë•ÿ˘ÄËàâÙΩë•ÿ¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâô•πÖ±°ïç¨à¯Ò†–˘•πÖ∞Å°ïç¨Ω†–¯Òë•ÿÅç±ÖÕÃÙâç°ïç≠1•Õ–à¯ëÌç°ïç≠ÃπµÖ¿°ç°ïç¨Ù˘ÄÒë•ÿÅç±ÖÕÃÙàëÌç°ïç¨πΩ¨¸âΩ¨àËâ›Ö…∏âÙà¯ÒÕ¡Ö∏¯ëÌç°ïç¨πΩ¨¸ãärLàËàÑâÙΩÕ¡Ö∏¯ëÌïÕå°ç°ïç¨π±Öâï∞•ÙΩë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄÒ±Öâï∞Åç±ÖÕÃÙâçÖ…ë°ïç≠ïëΩπô•…¥à¯Ò•π¡’–Å—Â¡îÙâç°ïç≠âΩ‡àÅ•êÙâÕçΩ…ïçÖ…ëÕ°ïç≠ïêàÄëÌ\πïŸïπ–πÕçΩ…ïçÖ…ëÕ°ïç≠ïê¸âç°ïç≠ïêàËàâÙÄëÌçÖ…ëÕYÖ±•ê¸ààËâë•ÕÖâ±ïêâÙ¯ÒÕ¡Ö∏¯Òà˘Ö…êÅç°ïç≠ïêΩà¯ÉäPÅ$Å°ÖŸîÅç°ïç≠ïêÅïŸï…‰ÅçΩ’…ÕîÅÕçΩ…ïçÖ…êÅÖùÖ•πÕ–Å—°îÅΩôô•ç•Ö∞ÅçÖ…ê∏ΩÕ¡Ö∏¯Ω±Öâï∞¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖπQïïMï±ïç—•Ω∏à¯Òà˘A…ΩŸ•Õ•ΩπÖ∞ÅA±ÖÂ•πúÅQïïÃΩà¯ëÌëÖÂÃπµÖ¿°ëÖ‰Ù˘ïŸïπ—A±ÖÂï…Ö—ïùΩ…•ïÃ°ëÖ‰±\πïŸïπ–§πµÖ¿°çÖ—ïùΩ…‰Ù˘ÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖπQïïÖ‰à¯ÒÕ—…Ωπú˘Ö‰ÄëÌëÖÂÙÉ
+‹ÄëÌçÖ—ïùΩ…‰ÙÙÙâ›Ωµï∏à¸â]Ωµï∏àËâ5ï∏âÙΩÕ—…Ωπú¯ëÌïπÖâ±ïëŸïπ—QïïÕΩ…Ö—ïùΩ…‰°\πïŸïπ–±ëÖ‰±çÖ—ïùΩ…‰§πµÖ¿°—ïîÙ˘ÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—Ñµ›•ÈÖ…ë¡±ÖÂ•πù—ïîÙàëÌëÖÂıëÌçÖ—ïùΩ…ÂıëÌ—ïïÙàÅç±ÖÕÃÙàëÌÕï±ïç—ïëŸïπ—Qïî°ëÖ‰±\πïŸïπ–±çÖ—ïùΩ…‰§ÙÙı—ïî¸âÖç—•ŸîàËàâÙà¯ëÌïÕå°ïŸïπ—Qïï•Õ¡±ÖÂ9Öµî°ëÖ‰±—ïî±\πïŸïπ–±çÖ—ïùΩ…‰§•ÙΩâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ˘Ä§π©Ω•∏†àà§§π©Ω•∏†àà•ÙΩë•ÿ¯(ÄÄÄÄÄÄÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâç°ÖπùïM—Ö…—•πùQïîà˘°ÖπùîÅΩ’…ÕîÄºÅM—Ö…—•πúÅ……Öπùïµïπ–Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—Ÿïπ—	•úàÅ•êÙâÕ—Ö…—Ÿïπ—	•úàÄëÌÖ±±IïÖë‰¸ààËâë•ÕÖâ±ïêâÙ˘MYÅY9PÅA18ÉäLÅAI=ÅQ<ÅMPÅU@ÅM=I%9Ωâ’——Ω∏˘ÄÏ(ÄÄÄÄê†àçÕçΩ…ïçÖ…ëÕ°ïç≠ïêà§πΩπç°ÖπùîıîÙ˘Ì\πïŸïπ–πÕçΩ…ïçÖ…ëÕ°ïç≠ïêıîπ—Ö…ùï–πç°ïç≠ïêÌ…ïπëï…M—ï¿ÿ†§ÌÙÏ(ÄÄÄÄê†àçç°ÖπùïM—Ö…—•πùQïîà§πΩπç±•ç¨Ù†§Ù˘Ì\πÕ—ï¿ÙƒÌ…ïπëï…]•ÈÖ…ê†§ÌÙÏ(ÄÄÄÄêê†âmëÖ—Ñµ›•ÈÖ…ë¡±ÖÂ•πù—ïïtà§πôΩ…Öç†°â’——Ω∏Ù˘â’——Ω∏πΩπç±•ç¨Ù†§Ù˘ÌçΩπÕ–ÅmëÖ‰±çÖ—ïùΩ…‰±—ïïtıâ’——Ω∏πëÖ—ÖÕï–π›•ÈÖ…ë¡±ÖÂ•πù—ïîπÕ¡±•–†âà§ÌÕï±ïç—Ÿïπ—Qïî†≠ëÖ‰±—ïî±\πïŸïπ–±çÖ—ïùΩ…‰§Ì…ïπëï…M—ï¿ÿ†§ÌÙ§Ï(ÄÄÄÄê†àçÕ—Ö…—Ÿïπ—	•úà§πΩπç±•ç¨Ù†§Ù˘Ì•ò°Ö±±IïÖë‰•ô•π•Õ°Ÿïπ–†§ÌÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åô•π•Õ°Ÿïπ–†§ÅÏ(ÄÄÄÅ•òÄ°\ππï›Ÿïπ–§ÅçÖ¡—’…ï’……ïπ—Ÿïπ–†§Ï(ÄÄÄÅ±ï–ÅçΩπô•…µïêÄÙÅl∏∏π\π•πŸ•—ïÕt(ÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯Å·l≈tÄÙÙÙÄâÖççï¡—ïêà§(ÄÄÄÄÄÄπµÖ¿†°‡§ÄÙ¯ÅM—…•πú°·l¡t§§Ï(ÄÄÄÅ±ï–Å•πŸ•—Ö—•ΩπM—Ö—’ÃÄÙÅ=â©ïç–πô…Ωµπ—…•ïÃ†(ÄÄÄÄÄÅl∏∏π\π•πŸ•—ïÕtπµÖ¿†°m•ê∞ÅÕ—Ö—’Õt§ÄÙ¯ÅmM—…•πú°•ê§∞ÅÕ—Ö—’Õt§∞(ÄÄÄÄ§Ï(ÄÄÄÅ=â©ïç–πïπ—…•ïÃ°\πïŸïπ–πÕ°Ö…ïëAΩÕ•—•ΩπÃÅÒÅÌÙ§πôΩ…Öç††°mÕ±Ω–±ëÖÂÕt§Ù˘=â©ïç–πŸÖ±’ïÃ°ëÖÂÃ§πôΩ…Öç†°•êÙ˘•πŸ•—Ö—•ΩπM—Ö—’ÕmM—…•πú°•ê•tı•πŸ•—Ö—•ΩπM—Ö—’ÕmÕ±Ω—t§§Ï(ÄÄÄÅ±ï–ÅëÖÂŸÖ•±Öâ•±•—‰ÄÙÅ)M=8π¡Ö…Õî†(ÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°\πïŸïπ–πëÖÂŸÖ•±Öâ•±•—‰ÅÒÅÌÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅëÖÂ•ï±ëÃÄÙÅÌÙÏ(ÄÄÄÅïŸïπ—ÖÂÃ°\πïŸïπ–§πôΩ…Öç†°ëÖ‰ÄÙ¯ÅëÖÂ•ï±ëÕlâëÖ‰àÄ¨ÅëÖÂtÄÙÅ›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§§Ï(ÄÄÄÅçΩπÕ–ÅΩ±ë…Ω’¡ÃÄÙÅ\ππï›Ÿïπ–Ä¸Åπ’±∞ÄËÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿Ï(ÄÄÄÅ•òÄ°\ππï›Ÿïπ–§ÅÏ(ÄÄÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅmtÏ(ÄÄÄÄÄÅôΩ…ùï—=…ùÖπ•Õï…Ÿïπ–†§Ï(ÄÄÄÅÙ(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅÏ(ÄÄÄÄÄÄ∏∏π\πïŸïπ–∞(ÄÄÄÄÄÅ›Ω…≠Õ¡Öçï%êËÅ\πïŸïπ–π›Ω…≠Õ¡Öçï%êÅÒÅ’•ê†§∞(ÄÄÄÄÄÅçΩπô•…µïê∞(ÄÄÄÄÄÅ•πŸ•—Ö—•ΩπM—Ö—’Ã∞(ÄÄÄÄÄÅëÖÂŸÖ•±Öâ•±•—‰∞(ÄÄÄÄÄÅëÖÂ•ï±ëÃ∞(ÄÄÄÄÄÅçΩµ¡ï—•—•ΩπÃËÅl∏∏π\πçΩµ¡ï—•—•ΩπÕt∞(ÄÄÄÄÄÅâïπïô•—ÃËÅ\πâïπïô•—Ã∞(ÄÄÄÄÄÅÕ—Ö—’ÃËÄâ¡±Öππïêà∞(ÄÄÄÄÄÅ±Ωç≠ïêËÅôÖ±Õî∞(ÄÄÄÄÄÅù…Ω’¡Mï—’¿ËÅΩ±ë…Ω’¡ÃÅÒÅÌÙ∞(ÄÄÄÄÄÅÕï—’¡M—ÖùîËÄâ¡±Öππïêà∞(ÄÄÄÅÙÏ(ÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–πë…Öô—M—ï¿Ï(ÄÄÄÅ•òÄ°\ππï›Ÿïπ–§Å…ïÕï—’¡±•çÖ—ïëŸïπ—I’π—•µî°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅπΩ…µÖ±•ÕïQ›ΩÖÂM•πù±ïM—Öâ±ïôΩ…ê°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅÕ—Ω…îπ—ïµ¡±Ö—îÄÙÅÏ(ÄÄÄÄÄÅçΩµ¡ï—•—•ΩπÃËÅl∏∏π\πçΩµ¡ï—•—•ΩπÕtπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÙÄâïç±ïç—•åà§∞(ÄÄÄÄÄÅâïπïô•—ÃËÅ\πâïπïô•—Ã∞(ÄÄÄÄÄÅ¡’——•πùΩ…µÖ–ËÅ\πïŸïπ–π¡’——•πùΩ…µÖ–ÅÒÄâ—ïÖ¥à∞(ÄÄÄÄÄÅÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ËÅ\πïŸïπ–πÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ÅÒÄâÖùù…ïùÖ—îà∞(ÄÄÄÄÄÅÕç…Ö—ç°5Ö·!ç¿ËÅ9’µâï»π•Õ•π•—î†≠\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¿§(ÄÄÄÄÄÄÄÄ¸Ä≠\πïŸïπ–πÕç…Ö—ç°5Ö·!ç¿(ÄÄÄÄÄÄÄÄËÄƒ¿∞(ÄÄÄÄÄÅÕç…Ö—ç°MçΩ…•πù5ΩëîË(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰à(ÄÄÄÄÄÄÄÄÄÄ¸ÄâµÖ·Ω’â±ï	Ωùï‰à(ÄÄÄÄÄÄÄÄÄÄËÄâÕ—…Ω≠îà∞(ÄÄÄÄÄÅÖµâ…ΩÕïMçΩ…•πù5ΩëîË(ÄÄÄÄÄÄÄÅ\πïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÙÙÄâÕçΩ…ï…=π±‰à(ÄÄÄÄÄÄÄÄÄÄ¸ÄâÕçΩ…ï…=π±‰à(ÄÄÄÄÄÄÄÄÄÄËÄâÕçΩ…ï…5Ö…≠ï»à∞(ÄÄÄÄÄÅÖµâ…ΩÕï5•π•µ’µ…•ŸïÃËÅl»∞ÄÃ∞Ä—tπ•πç±’ëïÃ†≠\πïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃ§(ÄÄÄÄÄÄÄÄ¸Ä≠\πïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃ(ÄÄÄÄÄÄÄÄËÄÃ∞(ÄÄÄÄÄÅ¡Ö»ÕΩ…µÖ–ËÅ\πïŸïπ–π¡Ö»ÕΩ…µÖ–ÅÒÄâëÖ•±‰à∞(ÄÄÄÄÄÅ¡Ö»Õ5ΩëîËÅ¡Ö»Õ5Ωëî°\πïŸïπ–§∞(ÄÄÄÄÄÅÕç…Ö—ç°Ω…µÖ–ËÅ\πïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÅÒÄâëÖ•±‰à∞(ÄÄÄÄÄÅπ—¡Ö‰≈Ω’π–ËÅ\πïŸïπ–ππ—¡Ö‰≈Ω’π–ÅÒÄƒ∞(ÄÄÄÄÄÅπ—¡Ö‰…Ω’π–ËÅπ—¡Ω’π–†»∞Å\πïŸïπ–§∞(ÄÄÄÄÄÅπ—¡Ω’π—ÃËÅ)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°\πïŸïπ–ππ—¡Ω’π—ÃÅÒÅÌÙ§§∞(ÄÄÄÄÄÅπ—¡)Öç≠¡Ω–ËÅ	ΩΩ±ïÖ∏°\πïŸïπ–ππ—¡)Öç≠¡Ω–§∞(ÄÄÄÄÄÅπ—¡)Öç≠¡Ω—5ΩëîËÅ\πïŸïπ–ππ—¡)Öç≠¡Ω—5ΩëîÄÙÙÙÄâ…Ω±±•πúàÄ¸Äâ…Ω±±•πúàÄËÄâô•πÖ∞à∞(ÄÄÄÅÙÏ(ÄÄÄÅ±ΩçÖ±M—Ω…ÖùîπÕï—%—ï¥†(ÄÄÄÄÄÄâÖ›ÖÂΩ±ô=…ùÖπ•Õï…Qïµ¡±Ö—ïXƒà∞(ÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Õ—Ω…îπ—ïµ¡±Ö—î§∞(ÄÄÄÄ§Ï(ÄÄÄÄººÅA…ïÕï…ŸîÅÕÖŸïêÅù…Ω’¿ÅÖ……Öπùïµïπ—Ã∏Å•π•—•Ö±•Õï…Ω’¡ÃÅΩπ±‰Å…ïâ’•±ëÃÅÑÅëÖ‰(ÄÄÄÄººÅ›°ï∏Å—°Ö–ÅëÖ‰ùÃÅÖç—’Ö∞Å¡±ÖÂï»Åµïµâï…Õ°•¿Å°ÖÃÅç°Öπùïê∏(ÄÄÄÅ•π•—•Ö±•Õï…Ω’¡Ã†§Ï(ÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄê†àç›•ÈÖ…ëM°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅπÖÿ†â—ïÖµÕAÖùîà§Ï(ÄÅÙ((ÄÅô’πç—•Ω∏Å¡Ö•…-ï‰°Ñ∞Åà§ÅÏ(ÄÄÄÅ…ï—’…∏ÅmM—…•πú°Ñ§∞ÅM—…•πú°à•tπÕΩ…–†§π©Ω•∏†âà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å•ÕQïÕ—Ÿïπ–°ïŸïπ–§ÅÏ(ÄÄÄÅ…ï—’…∏ÄΩyQMQqàΩ§π—ïÕ–°M—…•πú°ïŸïπ–¸ππÖµîÅÒÄàà§π—…•¥†§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂïëQΩùï—°ï…Ω’π–°Ñ∞Åà§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°Ñ§ÄÙÙÙÅ9=}AIQ9I}%ÅÒÅM—…•πú°à§ÄÙÙÙÅ9=}AIQ9I}%§Å…ï—’…∏Ä¿Ï(ÄÄÄÅ…ï—’…∏Ä¨°Õ—Ω…îπ¡Ö•…!•Õ—Ω…‰¸πm¡Ö•…-ï‰°Ñ∞Åà•tÅÒÄ¿§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡Ö…—πï…ïëΩ’π–°Ñ∞Åà§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°Ñ§ÄÙÙÙÅ9=}AIQ9I}%ÅÒÅM—…•πú°à§ÄÙÙÙÅ9=}AIQ9I}%§Å…ï—’…∏Ä¿Ï(ÄÄÄÅ…ï—’…∏Ä¨°Õ—Ω…îπ¡Ö…—πï…!•Õ—Ω…‰¸πm¡Ö•…-ï‰°Ñ∞Åà•tÅÒÄ¿§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åù…Ω’¡Iï¡ïÖ—MçΩ…î°ú∞ÅëÖ‰§ÅÏ(ÄÄÄÅ±ï–ÅÕçΩ…îÄÙÄ¿Ï(ÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅúπ±ïπù—†ÏÅ§¨¨§(ÄÄÄÄÄÅôΩ»Ä°±ï–Å®ÄÙÅ§Ä¨ÄƒÏÅ®ÄÅúπ±ïπù—†ÏÅ®¨¨§ÅÏ(ÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÅ¡±ÖÂïëQΩùï—°ï…Ω’π–°ùm•t∞Åùm©t§Ï(ÄÄÄÄÄÄÄÄººÅM—…Ωπù±‰Åë•ÕçΩ’…ÖùîÅ…ï¡ïÖ—•πúÅÖ‰ÄƒÅù…Ω’¿µµÖ—ïÃÅΩ∏ÅÖ‰Ä»∏(ÄÄÄÄÄÄÄÅ•òÄ°ëÖ‰Ä¯Äƒ§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅêƒÄÙÅïŸïπ—ÖÂÃ†§πô•±—ï»°¡…ïŸ•Ω’ÃÙ˘¡…ïŸ•Ω’ÃÒëÖ‰§πô±Ö—5Ö¿°¡…ïŸ•Ω’ÃÙ˘Õ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠¡…ïŸ•Ω’Õt¸πù…Ω’¡ÕÒÒmt§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅêƒπÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°Ω±ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅM—…•πú°ùm•t§§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅM—…•πú°ùm©t§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄƒ»Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄººÅIï¡ïÖ—ïêÄ—		Å¡Ö…—πï…Õ°•¡ÃÅÖ…îÅµΩ…îÅ•µ¡Ω…—Öπ–Å—°Ö∏ÅÕ•µ¡±‰ÅÕ°Ö…•πúÅ—°îÅôΩ’»∏(ÄÄÄÅ•òÄ°úπ±ïπù—†Ä¯ÙÄ»§ÅÏ(ÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»Ä®Å¡Ö…—πï…ïëΩ’π–°ùl¡t∞Åùl≈t§Ï(ÄÄÄÄÄÅ•òÄ°ëÖ‰Ä¯Äƒ§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅêƒÄÙÅïŸïπ—ÖÂÃ†§πô•±—ï»°¡…ïŸ•Ω’ÃÙ˘¡…ïŸ•Ω’ÃÒëÖ‰§πô±Ö—5Ö¿°¡…ïŸ•Ω’ÃÙ˘Õ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠¡…ïŸ•Ω’Õt¸πù…Ω’¡ÕÒÒmt§Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅêƒπÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ω±ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπ±ïπù—†Ä¯ÙÄ»Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…-ï‰°Ω±ël¡t∞ÅΩ±ël≈t§ÄÙÙÙÅ¡Ö•…-ï‰°ùl¡t∞Åùl≈t§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»‘Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅêƒπÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ω±ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπ±ïπù—†Ä¯ÙÄ–Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…-ï‰°Ω±ël…t∞ÅΩ±ëlÕt§ÄÙÙÙÅ¡Ö•…-ï‰°ùl¡t∞Åùl≈t§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»‘Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°úπ±ïπù—†Ä¯ÙÄ–§ÅÏ(ÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»Ä®Å¡Ö…—πï…ïëΩ’π–°ùl…t∞ÅùlÕt§Ï(ÄÄÄÄÄÅ•òÄ°ëÖ‰Ä¯Äƒ§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅêƒÄÙÅïŸïπ—ÖÂÃ†§πô•±—ï»°¡…ïŸ•Ω’ÃÙ˘¡…ïŸ•Ω’ÃÒëÖ‰§πô±Ö—5Ö¿°¡…ïŸ•Ω’ÃÙ˘Õ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠¡…ïŸ•Ω’Õt¸πù…Ω’¡ÕÒÒmt§Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅêƒπÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ω±ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπ±ïπù—†Ä¯ÙÄ»Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…-ï‰°Ω±ël¡t∞ÅΩ±ël≈t§ÄÙÙÙÅ¡Ö•…-ï‰°ùl…t∞ÅùlÕt§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»‘Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅêƒπÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ω±ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ±êπ±ïπù—†Ä¯ÙÄ–Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…-ï‰°Ω±ël…t∞ÅΩ±ëlÕt§ÄÙÙÙÅ¡Ö•…-ï‰°ùl…t∞ÅùlÕt§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄ¨ÙÄ»‘Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÕçΩ…îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åë…Ö›Iï¡ïÖ—MçΩ…î°ù…Ω’¡Ã∞ÅëÖ‰§ÅÏ(ÄÄÄÅ…ï—’…∏Åù…Ω’¡Ãπ…ïë’çî†°∏∞Åú§ÄÙ¯Å∏Ä¨Åù…Ω’¡Iï¡ïÖ—MçΩ…î°ú∞ÅëÖ‰§∞Ä¿§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅôΩ’…âÖ±±…Ö›M•ùπÖ—’…î°ù…Ω’¡Ã§ÅÏ(ÄÄÄÅ…ï—’…∏Åù…Ω’¡Ã(ÄÄÄÄÄÄπµÖ¿†°ú§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ö•…ÃÄÙÅmtÏ(ÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅúπ±ïπù—†ÏÅ§Ä¨ÙÄ»§(ÄÄÄÄÄÄÄÄÄÅ¡Ö•…Ãπ¡’Õ††(ÄÄÄÄÄÄÄÄÄÄÄÅú(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπÕ±•çî°§∞Å§Ä¨Ä»§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπÕΩ…–†§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†à∞à§∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å¡Ö•…ÃπÕΩ…–†§π©Ω•∏†àºà§Ï(ÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄπÕΩ…–†§(ÄÄÄÄÄÄπ©Ω•∏†âà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ï¡ïÖ—ÕÖ‰≈Ω’…âÖ±∞°ù…Ω’¡Ã∞ÅëÖ‰ÄÙÄ»§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ±ëAÖ•…ÃÄÙÅπï‹ÅMï–†(ÄÄÄÄÄÅïŸïπ—ÖÂÃ†§πô•±—ï»°¡…ïŸ•Ω’ÃÙ˘¡…ïŸ•Ω’ÃÒëÖ‰§πô±Ö—5Ö¿°¡…ïŸ•Ω’ÃÙ˘Õ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠¡…ïŸ•Ω’Õt¸πù…Ω’¡ÕÒÒmt§(ÄÄÄÄÄÄÄÄπô±Ö—5Ö¿†°ú§ÄÙ¯ÅmúπÕ±•çî†¿∞Ä»§∞ÅúπÕ±•çî†»∞Ä–•t§(ÄÄÄÄÄÄÄÄπô•±—ï»†(ÄÄÄÄÄÄÄÄÄÄ°¿§ÄÙ¯Å¿π±ïπù—†ÄÙÙÙÄ»ÄòòÄÖ¿πÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄπµÖ¿†°¿§ÄÙ¯Å¡Ö•…-ï‰°¡l¡t∞Å¡l≈t§§∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Åù…Ω’¡ÃπÕΩµî†°ú§ÄÙ¯(ÄÄÄÄÄÅmúπÕ±•çî†¿∞Ä»§∞ÅúπÕ±•çî†»∞Ä–•tπÕΩµî†(ÄÄÄÄÄÄÄÄ°¿§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅ¿π±ïπù—†ÄÙÙÙÄ»Äòò(ÄÄÄÄÄÄÄÄÄÄÖ¿πÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅ9=}AIQ9I}%§Äòò(ÄÄÄÄÄÄÄÄÄÅΩ±ëAÖ•…Ãπ°ÖÃ°¡Ö•…-ï‰°¡l¡t∞Å¡l≈t§§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å°•Õ—Ω…Â	Ö±Öπçïë…Ω’¡Ã°•ëÃ∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕïï∏ÄÙÅπï‹ÅMï–†§∞(ÄÄÄÄÄÅçÖπë•ëÖ—ïÃÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°±ï–Å∏ÄÙÄ¿ÏÅ∏ÄÄƒ‡¿¿ÏÅ∏¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅçÖπêÄÙÅµÖ≠ï…Ω’¡Ã°Õ°’ôô±ïΩ¡‰°•ëÃ§∞ÅëÖ‰§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ•ùπÖ—’…îÄÙÅôΩ’…âÖ±±…Ö›M•ùπÖ—’…î°çÖπê§Ï(ÄÄÄÄÄÅ•òÄ°Õïï∏π°ÖÃ°Õ•ùπÖ—’…î§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅÕïï∏πÖëê°Õ•ùπÖ—’…î§Ï(ÄÄÄÄÄÅçÖπë•ëÖ—ïÃπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÅù…Ω’¡ÃËÅçÖπê∞(ÄÄÄÄÄÄÄÅÕçΩ…îËÅë…Ö›Iï¡ïÖ—MçΩ…î°çÖπê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÅ…ï¡ïÖ—ÕAÖ…—πï»ËÅëÖ‰Ä¯ÄƒÄòòÅ…ï¡ïÖ—ÕÖ‰≈Ω’…âÖ±∞°çÖπê∞ÅëÖ‰§∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖçÖπë•ëÖ—ïÃπ±ïπù—†§Å…ï—’…∏ÅµÖ≠ï…Ω’¡Ã°•ëÃ∞ÅëÖ‰§Ï(ÄÄÄÅçΩπÕ–Åï±•ù•â±îÄÙ(ÄÄÄÄÄÅëÖ‰Ä¯ÄƒÄòòÅçÖπë•ëÖ—ïÃπÕΩµî†°‡§ÄÙ¯ÄÖ‡π…ï¡ïÖ—ÕAÖ…—πï»§(ÄÄÄÄÄÄÄÄ¸ÅçÖπë•ëÖ—ïÃπô•±—ï»†°‡§ÄÙ¯ÄÖ‡π…ï¡ïÖ—ÕAÖ…—πï»§(ÄÄÄÄÄÄÄÄËÅçÖπë•ëÖ—ïÃÏ(ÄÄÄÅï±•ù•â±îπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÑπÕçΩ…îÄ¥ÅàπÕçΩ…î§Ï(ÄÄÄÅçΩπÕ–ÅâïÕ–ÄÙÅï±•ù•â±ïl¡tπÕçΩ…îÏ(ÄÄÄÄººÅ±±Ω‹ÅÑÅôï‹ÅπïÖ»µï≈’Ö∞ÅùΩΩêÅÕΩ±’—•ΩπÃÅÕºÅ…ï¡ïÖ—ïêÅç±•ç≠ÃÅçÖ∏ÅÕ°Ω‹ÅÖπΩ—°ï»ÅÕïπÕ•â±îÅë…Ö‹∏(ÄÄÄÅçΩπÕ–ÅÕ°Ω…—±•Õ–ÄÙÅï±•ù•â±îπô•±—ï»†°‡§ÄÙ¯Å‡πÕçΩ…îÄÙÅâïÕ–Ä¨Ä»§πÕ±•çî†¿∞Äƒ»§Ï(ÄÄÄÅ…ï—’…∏ÅÕ°Ω…—±•Õ—m5Ö—†πô±ΩΩ»°5Ö—†π…ÖπëΩ¥†§Ä®ÅÕ°Ω…—±•Õ–π±ïπù—†•tπù…Ω’¡ÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åë…Ö›5•·•πùM—Ö—Ã°ë…Ö‹§ÅÏ(ÄÄÄÅçΩπÕ–Åù…Ω’¡ÃÄÙÅπï‹Å5Ö¿†§∞Å¡Ö…—πï…ÃÄÙÅπï‹Å5Ö¿†§∞ÅµÖ—ïÃÄÙÅπï‹Å5Ö¿†§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmëÖ‰∞Å—ïÖµÕtÅΩòÅ=â©ïç–πïπ—…•ïÃ°ë…Ö‹§§ÅôΩ»Ä°çΩπÕ–Å—ïÖ¥ÅΩòÅ—ïÖµÃ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïÖ∞ÄÙÅ—ïÖ¥πô•±—ï»°•êÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§πµÖ¿°M—…•πú§Ï(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å•êÅΩòÅ…ïÖ∞§Å•òÄ†ÖµÖ—ïÃπ°ÖÃ°•ê§§ÅµÖ—ïÃπÕï–°•ê∞Åπï‹ÅMï–†§§Ï(ÄÄÄÄÄÅôΩ»Ä°±ï–Å§Ù¿Ì§Ò…ïÖ∞π±ïπù—†Ì§¨¨§ÅôΩ»Ä°±ï–Å®ı§¨ƒÌ®Ò…ïÖ∞π±ïπù—†Ì®¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ı¡Ö•…-ï‰°…ïÖ±m•t±…ïÖ±m©t§Ï(ÄÄÄÄÄÄÄÅù…Ω’¡ÃπÕï–°≠ï‰±l∏∏∏°ù…Ω’¡Ãπùï–°≠ï‰•ÒÒmt§∞≠ëÖÂt§Ï(ÄÄÄÄÄÄÄÅµÖ—ïÃπùï–°…ïÖ±m•t§πÖëê°…ïÖ±m©t§ÌµÖ—ïÃπùï–°…ïÖ±m©t§πÖëê°…ïÖ±m•t§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å¡Ö•»ÅΩòÅm—ïÖ¥πÕ±•çî†¿∞»§±—ïÖ¥πÕ±•çî†»∞–•t§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°¡Ö•»π±ïπù—†ÑÙÙ»ÅÒÅ¡Ö•»πÕΩµî°•êÙ˘M—…•πú°•ê§ÙÙı9=}AIQ9I}%§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ı¡Ö•…-ï‰†∏∏π¡Ö•»§Ì¡Ö…—πï…ÃπÕï–°≠ï‰±l∏∏∏°¡Ö…—πï…Ãπùï–°≠ï‰•ÒÒmt§∞≠ëÖÂt§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…ï¡ïÖ—ïêÄÙÅµÖ¿ÄÙ¯Ål∏∏πµÖ¡tπô•±—ï»†°l±ëÖÂÕt§Ù˘ëÖÂÃπ±ïπù—†¯ƒ§πµÖ¿†°m≠ï‰±ëÖÂÕt§Ù¯°Ì•ëÃÈ≠ï‰πÕ¡±•–†ùú§±ëÖÂÕÙ§§Ï(ÄÄÄÅ…ï—’…∏ÅÌù…Ω’¡Iï¡ïÖ—ÃÈ…ï¡ïÖ—ïê°ù…Ω’¡Ã§±¡Ö…—πï…Iï¡ïÖ—ÃÈ…ï¡ïÖ—ïê°¡Ö…—πï…Ã§∞(ÄÄÄÄÄÅù…Ω’¡Iï¡ïÖ—πçΩ’π—ï…ÃÈl∏∏πù…Ω’¡ÃπŸÖ±’ïÃ†•tπ…ïë’çî†°∏±ëÃ§Ù˘∏≠5Ö—†πµÖ‡†¿±ëÃπ±ïπù—†¥ƒ§∞¿§∞(ÄÄÄÄÄÅ¡Ö…—πï…Iï¡ïÖ—πçΩ’π—ï…ÃÈl∏∏π¡Ö…—πï…ÃπŸÖ±’ïÃ†•tπ…ïë’çî†°∏±ëÃ§Ù˘∏≠5Ö—†πµÖ‡†¿±ëÃπ±ïπù—†¥ƒ§∞¿§∞(ÄÄÄÄÄÅë•Õ—•πç—5Ö—ïÃÈ=â©ïç–πô…Ωµπ—…•ïÃ°l∏∏πµÖ—ïÕtπµÖ¿†°m•ê±Õïïπt§Ù˘m•ê±Õïï∏πÕ•Èït§•ÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖ·•µ’µ5•·•πù…Ö‹°ô•ï±ëÃ§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂÃı=â©ïç–π≠ïÂÃ°ô•ï±ëÃ§πµÖ¿°9’µâï»§πÕΩ…–†°Ñ±à§Ù˘Ñµà§∞Åô•…Õ–ıô•ï±ëÕmëÖÂÕl¡utÅÒÅmtÏ(ÄÄÄÅçΩπÕ–Åï·Öç–ıô•…Õ–π±ïπù—†ÙÙÙƒÿÄòòÅëÖÂÃπ±ïπù—†Ù‘ÄòòÅëÖÂÃπïŸï…‰°ëÖ‰Ù¯(ÄÄÄÄÄÅô•ï±ëÕmëÖÂtπ±ïπù—†ÙÙÙƒÿÄòòÅl∏∏πô•ï±ëÕmëÖÂutπµÖ¿°M—…•πú§πÕΩ…–†§π©Ω•∏†ùú§ÙÙıl∏∏πô•…Õ—tπµÖ¿°M—…•πú§πÕΩ…–†§π©Ω•∏†ùú§§Ï(ÄÄÄÅ•òÄ°ï·Öç–§ÅÏ(ÄÄÄÄÄÄººÅ1•πïÃÅΩòÅ—°îÅÖôô•πîÅ¡±ÖπîÅΩŸï»Å†–§ËÅô•ŸîÅ¡Ö…—•—•ΩπÃÅΩòÅÕ•·—ïï∏(ÄÄÄÄÄÄººÅ¡Ω•π—ÃÅ•π—ºÅôΩ’…Ã∏ÅŸï…‰Å¡Ö•»ÅΩòÅ¡Ω•π—ÃÅ±•ïÃÅΩ∏Åï·Öç—±‰ÅΩπîÅ±•πî∏(ÄÄÄÄÄÅçΩπÕ–Å•ëÃıÕ°’ôô±ïΩ¡‰°ô•…Õ–§∞ÅÕ±Ω¡ïÃıÕ°’ôô±ïΩ¡‰°l¿∞ƒ∞»∞Ã∞—t§Ï(ÄÄÄÄÄÅçΩπÕ–Åµ’±—•¡±‰Ù°Ñ±à§Ù˘Ì±ï–Å…ïÕ’±–Ù¿ÌôΩ»°±ï–Å§Ù¿Ì§»Ì§¨¨•Ì•ò°àòƒ•…ïÕ’±—xıÑÌà¯¯ÙƒÌÑÙƒÌ•ò°Ñò–•ÖxÙ‹Ìı…ï—’…∏Å…ïÕ’±–ÌÙÏ(ÄÄÄÄÄÅ…ï—’…∏Å=â©ïç–πô…Ωµπ—…•ïÃ°ëÖÂÃπµÖ¿†°ëÖ‰±•πëï‡§Ù˘Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕ±Ω¡îıÕ±Ω¡ïÕm•πëï·t∞Å—ïÖµÃımtÏ(ÄÄÄÄÄÄÄÅôΩ»°±ï–Å•π—ï…çï¡–Ù¿Ì•π—ï…çï¡––Ì•π—ï…çï¡–¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åù…Ω’¿ımtÏ(ÄÄÄÄÄÄÄÄÄÅôΩ»°±ï–Å‡Ù¿Ì‡–Ì‡¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å‰ıÕ±Ω¡îÙÙÙ–˝‡Èµ’±—•¡±‰°Õ±Ω¡î±‡•y•π—ï…çï¡–Ï(ÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¿π¡’Õ†°•ëÕmÕ±Ω¡îÙÙÙ–˝•π—ï…çï¡–®–≠‰È‡®–≠Ât§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ—ïÖµÃπ¡’Õ†°Õ°’ôô±ïΩ¡‰°ù…Ω’¿§§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅmëÖ‰±Õ°’ôô±ïΩ¡‰°—ïÖµÃ•tÏ(ÄÄÄÄÄÅÙ§§Ï(ÄÄÄÅÙ(ÄÄÄÄººÅΩ»ÅΩ—°ï»Åô•ï±êÅÕ•ÈïÃΩÖ——ïπëÖπçî∞ÅÕïÖ…ç†ÅçΩµ¡±ï—îÅÕç°ïë’±ïÃÅ…Ö—°ï»(ÄÄÄÄººÅ—°Ö∏ÅçΩµµ•——•πúÅΩπîÅëÖ‰ÅÖ–ÅÑÅ—•µî∏ÅIï¡ïÖ—ïêÅ¡Ö…—πï…ÃÅ—Ö≠îÅ¡…•Ω…•—‰∏(ÄÄÄÅ±ï–ÅâïÕ–ıπ’±∞±âïÕ—MçΩ…îı%πô•π•—‰Ï(ÄÄÄÅôΩ»°±ï–ÅÖ——ïµ¡–Ù¿ÌÖ——ïµ¡–Ã¿ÌÖ——ïµ¡–¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åë…Ö‹ıÌÙ±ù…Ω’¡Ω’π—Ãıπï‹Å5Ö¿†§±¡Ö…—πï…Ω’π—Ãıπï‹Å5Ö¿†§Ï(ÄÄÄÄÄÅôΩ»°çΩπÕ–ÅëÖ‰ÅΩòÅëÖÂÃ§ÅÏ(ÄÄÄÄÄÄÄÅ±ï–Åç°ΩÕï∏ıπ’±∞±ç°ΩÕïπMçΩ…îı%πô•π•—‰Ï(ÄÄÄÄÄÄÄÅôΩ»°±ï–Å—…•Ö∞Ù¿Ì—…•Ö∞–‘Ì—…•Ö∞¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å—ïÖµÃıµÖ≠ï…Ω’¡Ã°Õ°’ôô±ïΩ¡‰°ô•ï±ëÕmëÖÂt§±ëÖ‰§Ì±ï–ÅÕçΩ…îÙ¿Ï(ÄÄÄÄÄÄÄÄÄÅôΩ»°çΩπÕ–Å—ïÖ¥ÅΩòÅ—ïÖµÃ§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…ïÖ∞ı—ïÖ¥πô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»°±ï–Å§Ù¿Ì§Ò…ïÖ∞π±ïπù—†Ì§¨¨•ôΩ»°±ï–Å®ı§¨ƒÌ®Ò…ïÖ∞π±ïπù—†Ì®¨¨•ÕçΩ…î¨Ùƒ¿®°ù…Ω’¡Ω’π—Ãπùï–°¡Ö•…-ï‰°…ïÖ±m•t±…ïÖ±m©t§•Ò¿§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»°çΩπÕ–Å¡Ö•»ÅΩòÅm—ïÖ¥πÕ±•çî†¿∞»§±—ïÖ¥πÕ±•çî†»∞–•t••ò°¡Ö•»π±ïπù—†ÙÙÙ»òòÖ¡Ö•»π•πç±’ëïÃ°9=}AIQ9I}%§•ÕçΩ…î¨Ùƒ¿¿®°¡Ö…—πï…Ω’π—Ãπùï–°¡Ö•…-ï‰†∏∏π¡Ö•»§•Ò¿§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ•ò°ÕçΩ…îÒç°ΩÕïπMçΩ…î•Ìç°ΩÕï∏ı—ïÖµÃÌç°ΩÕïπMçΩ…îıÕçΩ…îÌÙ(ÄÄÄÄÄÄÄÄÄÅ•ò°ÕçΩ…îÙÙÙ¿•â…ïÖ¨Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅë…Ö›mëÖÂtıç°ΩÕï∏Ï(ÄÄÄÄÄÄÄÅôΩ»°çΩπÕ–Å—ïÖ¥ÅΩòÅç°ΩÕï∏§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…ïÖ∞ı—ïÖ¥πô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§Ï(ÄÄÄÄÄÄÄÄÄÅôΩ»°±ï–Å§Ù¿Ì§Ò…ïÖ∞π±ïπù—†Ì§¨¨•ôΩ»°±ï–Å®ı§¨ƒÌ®Ò…ïÖ∞π±ïπù—†Ì®¨¨•ÌçΩπÕ–Å¨ı¡Ö•…-ï‰°…ïÖ±m•t±…ïÖ±m©t§Ìù…Ω’¡Ω’π—ÃπÕï–°¨∞°ù…Ω’¡Ω’π—Ãπùï–°¨•Ò¿§¨ƒ§ÌÙ(ÄÄÄÄÄÄÄÄÄÅôΩ»°çΩπÕ–Å¡Ö•»ÅΩòÅm—ïÖ¥πÕ±•çî†¿∞»§±—ïÖ¥πÕ±•çî†»∞–•t••ò°¡Ö•»π±ïπù—†ÙÙÙ»òòÖ¡Ö•»π•πç±’ëïÃ°9=}AIQ9I}%§•ÌçΩπÕ–Å¨ı¡Ö•…-ï‰†∏∏π¡Ö•»§Ì¡Ö…—πï…Ω’π—ÃπÕï–°¨∞°¡Ö…—πï…Ω’π—Ãπùï–°¨•Ò¿§¨ƒ§ÌÙ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—Ãıë…Ö›5•·•πùM—Ö—Ã°ë…Ö‹§∞ÅçΩ’π—Ãı=â©ïç–πŸÖ±’ïÃ°Õ—Ö—Ãπë•Õ—•πç—5Ö—ïÃ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕçΩ…îÙƒ¿¿¿¿©Õ—Ö—Ãπ¡Ö…—πï…Iï¡ïÖ—πçΩ’π—ï…Ã¨ƒ¿¿©Õ—Ö—Ãπù…Ω’¡Iï¡ïÖ—πçΩ’π—ï…Ã¨°5Ö—†πµÖ‡†∏∏πçΩ’π—Ã∞¿§µ5Ö—†πµ•∏†∏∏πçΩ’π—Ã§§Ï(ÄÄÄÄÄÅ•ò°ÕçΩ…îÒâïÕ—MçΩ…î•ÌâïÕ–ıë…Ö‹ÌâïÕ—MçΩ…îıÕçΩ…îÌÙ(ÄÄÄÄÄÅ•ò°ÕçΩ…îÙÙÙ¿•â…ïÖ¨Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅâïÕ–Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åµ•·•πùM’µµÖ…Â!—µ∞°ïŸïπ–ıÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Åë…Ö‹ı=â©ïç–πô…Ωµπ—…•ïÃ°ïŸïπ—ÖÂÃ°ïŸïπ–§πµÖ¿°ëÖ‰Ù˘mëÖ‰±ïŸïπ–πù…Ω’¡Mï—’¿¸πlùëÖ‰ú≠ëÖÂt¸πù…Ω’¡ÕÒÒmut§§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—Ãıë…Ö›5•·•πùM—Ö—Ã°ë…Ö‹§∞ÅçΩ’π—Ãı=â©ïç–πŸÖ±’ïÃ°Õ—Ö—Ãπë•Õ—•πç—5Ö—ïÃ§Ï(ÄÄÄÅ•ò†ÖçΩ’π—Ãπ±ïπù—†•…ï—’…∏ÄúúÏ(ÄÄÄÅçΩπÕ–Å…ï¡ïÖ—ÃÙ°…Ω›Ã§Ù˘…Ω›ÃπµÖ¿°…Ω‹Ù˘ÄÒ±§¯ëÌ…Ω‹π•ëÃπµÖ¿°•êÙ˘ïÕå°¡±ÖÂï»°•ê§¸ππÖµïÒùA±ÖÂï»ú§§π©Ω•∏†úÄôÖµ¿ÏÄú•ÙÉäPÅÖÂÃÄëÌ…Ω‹πëÖÂÃπ©Ω•∏†ú∞Äú•ÙΩ±§˘Ä§π©Ω•∏†úú§Ï(ÄÄÄÅçΩπÕ–Å±Ω‹ı5Ö—†πµ•∏†∏∏πçΩ’π—Ã§±°•ù†ı5Ö—†πµÖ‡†∏∏πçΩ’π—Ã§Ï(ÄÄÄÅ…ï—’…∏ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâπ—¡	Ω‡Åµ•·•πùM’µµÖ…‰à¯Òà˘A±ÖÂï»Å5•·•πúÉäPÅ›°Ω±îÅïŸïπ–Ωà¯Ò¿˘Iï¡ïÖ—ïêÄ—		Å¡Ö…—πï…Õ°•¡ÃËÄÒÕ—…Ωπú¯ëÌÕ—Ö—Ãπ¡Ö…—πï…Iï¡ïÖ—Ãπ±ïπù—°ÙΩÕ—…Ωπú¯É
+‹ÅIï¡ïÖ—ïêÅù…Ω’¡µÖ—îÅçΩµâ•πÖ—•ΩπÃËÄÒÕ—…Ωπú¯ëÌÕ—Ö—Ãπù…Ω’¡Iï¡ïÖ—Ãπ±ïπù—°ÙΩÕ—…Ωπú¯∏Ω¿¯Ò¿˘•ôôï…ïπ–Åù…Ω’¡µÖ—ïÃÅ¡ï»ÅùΩ±ôï»ËÄÒÕ—…Ωπú¯ëÌ±Ω‹ÙÙı°•ù†˝±Ω‹È±Ω‹¨üäLú≠°•ù°ÙΩÕ—…Ωπú¯∏ÅΩ’π—ÃÅçΩŸï»Å—°îÅç’……ïπ–Åë…Ö‹ÅÖç…ΩÕÃÅÖ±∞Å¡±ÖÂ•πúÅëÖÂÃ∞Å•πç±’ë•πúÅÕÖŸïêÅ—ïÖµÃ∏Ω¿¯ëÌÕ—Ö—Ãπ¡Ö…—πï…Iï¡ïÖ—Ãπ±ïπù—°ÒÒÕ—Ö—Ãπù…Ω’¡Iï¡ïÖ—Ãπ±ïπù—†˝ÄÒëï—Ö•±Ã¯ÒÕ’µµÖ…‰˘IïŸ•ï‹Å…ï¡ïÖ—ïêÅçΩµâ•πÖ—•ΩπÃΩÕ’µµÖ…‰¯Ò†–˘Iï¡ïÖ—ïêÄ—		Å¡Ö…—πï…ÃΩ†–¯ëÌÕ—Ö—Ãπ¡Ö…—πï…Iï¡ïÖ—Ãπ±ïπù—†˝ÄÒ’∞¯ëÌ…ï¡ïÖ—Ã°Õ—Ö—Ãπ¡Ö…—πï…Iï¡ïÖ—Ã•ÙΩ’∞˘ÄËúÒ¿˘9Ωπî∏Ω¿¯ùÙÒ†–˘Iï¡ïÖ—ïêÅù…Ω’¡µÖ—ïÃÄ°•πç±’ë•πúÅ¡Ö…—πï…Ã§Ω†–¯Ò’∞¯ëÌ…ï¡ïÖ—Ã°Õ—Ö—Ãπù…Ω’¡Iï¡ïÖ—Ã•ÙΩ’∞¯Ωëï—Ö•±Ã˘ÄËúùÙΩÕïç—•Ω∏˘ÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å±Ωç≠±±Ÿïπ—QïÖµÃ†§ÅÏ(ÄÄÄÅçΩπÕ–ÅïŸïπ–ıÕ—Ω…îπïŸïπ–Ï(ÄÄÄÅ•ò†ÖïŸïπ–ÅÒÅïŸïπ–π±Ωç≠ïêÅÒÅïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰•…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅëÖÂÃıïŸïπ—ÖÂÃ°ïŸïπ–§Ï(ÄÄÄÅçΩπÕ–Å•πçΩµ¡±ï—îıëÖÂÃπô•±—ï»°ëÖ‰Ù˘Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕï—’¿ıïŸïπ–πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠ëÖÂt±•ëÃıëÖÂ•ï±ë%ëÃ°ëÖ‰§πµÖ¿°M—…•πú§πÕΩ…–†§Ï(ÄÄÄÄÄÅçΩπÕ–Åë…Ö›∏Ù°Õï—’¿¸πù…Ω’¡ÕÒÒmt§πô±Ö–†§πµÖ¿°M—…•πú§πô•±—ï»°•êÙ˘•êÑÙı9=}AIQ9I}%§πÕΩ…–†§Ï(ÄÄÄÄÄÅ…ï—’…∏Å•ëÃπ±ïπù—†–ÅÒÅ•ëÃπ©Ω•∏†âà§ÑÙıë…Ö›∏π©Ω•∏†âà§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ•ò°•πçΩµ¡±ï—îπ±ïπù—†•…ï—’…∏ÅÖ±ï…–°ÅIïŸ•ï‹Å—°îÅ¡±ÖÂï»Å±•Õ—ÃÅÖπêÅ—ïÖµÃÅôΩ»ÅÖ‰ÄëÌ•πçΩµ¡±ï—îπ©Ω•∏†à∞ÅÖ‰Äà•ÙÅâïôΩ…îÅ±Ωç≠•πúÅÖ±∞Å—ïÖµÃπÄ§Ï(ÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’Ãı)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°ïŸïπ–πù…Ω’¡Mï—’¿§§Ï(ÄÄÄÅçΩπÕ–ÅΩ±ëM›Ö¿ıïŸïπ–πÕ›Ö¡A±ÖÂï»±Ω±ë=…ëï»ıïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅôΩ»°çΩπÕ–ÅëÖ‰ÅΩòÅëÖÂÃ•ÌçΩπÕ–ÅÕï—’¿ıïŸïπ–πù…Ω’¡Mï—’¡lâëÖ‰à≠ëÖÂtÌïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿±ëÖ‰§ÌÕï—’¿πÕÖŸïêı—…’îÌÙ(ÄÄÄÄÄÅïŸïπ–πÕ›Ö¡A±ÖÂï»ıπ’±∞Ìëï±ï—îÅïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅ•ò°ÕÖŸî†§ÙÙıôÖ±Õî•—°…Ω‹Åπï‹Å……Ω»†âMÖŸ•πúÅë•êÅπΩ–ÅçΩµ¡±ï—î∏ÅA±ïÖÕîÅ—…‰ÅÖùÖ•∏∏à§Ï(ÄÄÄÅÙÅçÖ—ç†°ï……Ω»§ÅÏ(ÄÄÄÄÄÅïŸïπ–πù…Ω’¡Mï—’¿ı¡…ïŸ•Ω’ÃÌïŸïπ–πÕ›Ö¡A±ÖÂï»ıΩ±ëM›Ö¿ÌïŸïπ–π—ïÖµ=…ëï…M›Ö¿ıΩ±ë=…ëï»Ï(ÄÄÄÄÄÅÖ±ï…–†âQïÖµÃÅçΩ’±êÅπΩ–ÅâîÅ±Ωç≠ïêËÄà≠ï……Ω»πµïÕÕÖùî§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖ¡¡±Â5Ö·•µ’µA±ÖÂï…5•·•πú†§ÅÏ(ÄÄÄÅçΩπÕ–ÅïŸïπ–ıÕ—Ω…îπïŸïπ–±ëÖÂÃıïŸïπ—ÖÂÃ°ïŸïπ–§Ï(ÄÄÄÅ•ò°ïŸïπ–π±Ωç≠ïêÅÒÅïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰ÅÒÅëÖÂÃπÕΩµî°ëÖ‰Ù˘ô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§ÅÒÅ=â©ïç–π≠ïÂÃ°ïŸïπ–πµÖπ’Ö±MçΩ…ïçÖ…ëÃ¸πlâëÖ‰à≠ëÖÂt¸πù…Ω’¡ÃÅÒÅÌÙ§π±ïπù—†§•…ï—’…∏ÅÖ±ï…–†ù5Ö·•µ’¥ÅA±ÖÂï»Å5•·•πúÅ•ÃÅÖŸÖ•±Öâ±îÅâïôΩ…îÅ—°îÅïŸïπ–Å•ÃÅ±Ωç≠ïêÅΩ»ÅÕçΩ…•πúÅÕ—Ö…—Ã∏ú§Ï(ÄÄÄÅ•ò°ïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—ÃÄòòÅ=â©ïç–π≠ïÂÃ°ïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã§π±ïπù—†•…ï—’…∏ÅÖ±ï…–†ù∏Åïµï…ùïπç‰Å…ï¡±Öçïµïπ–Å•ÃÅÖ±…ïÖë‰ÅÖÕÕ•ùπïê∏Å-ïï¿Å—°îÅï·•Õ—•πúÅ—ïÖµÃÅΩ»Å…ïÕΩ±ŸîÅ—°îÅ…ï¡±Öçïµïπ–ÅâïôΩ…îÅë…Ö›•πúÅ—°îÅ›°Ω±îÅïŸïπ–ÅÖùÖ•∏∏ú§Ï(ÄÄÄÅçΩπÕ–Åô•ï±ëÃı=â©ïç–πô…Ωµπ—…•ïÃ°ëÖÂÃπµÖ¿°ëÖ‰Ù˘mëÖ‰±ëÖÂ•ï±ë%ëÃ°ëÖ‰•t§§Ï(ÄÄÄÅ•ò°ëÖÂÃπÕΩµî°ëÖ‰Ù˘ô•ï±ëÕmëÖÂtπ±ïπù—†–§•…ï—’…∏ÅÖ±ï…–†ùMï±ïç–ÅÖ–Å±ïÖÕ–ÅôΩ’»Å¡±ÖÂï…ÃÅΩ∏ÅïŸï…‰Å¡±ÖÂ•πúÅëÖ‰ÅâïôΩ…îÅë…Ö›•πúÅ—°îÅ›°Ω±îÅïŸïπ–∏ú§Ï(ÄÄÄÅ•ò†ÖçΩπô•…¥†ù…Ö‹ÅÖ±∞Å¡±ÖÂ•πúÅëÖÂÃÅ’Õ•πúÅ5Ö·•µ’¥ÅA±ÖÂï»Å5•·•πú¸ÅQ°•ÃÅ…ï¡±ÖçïÃÅ—°îÅç’……ïπ–Å—ïÖµÃÅÖπêÄ—		Å¡Ö…—πï…Õ°•¡Ã∞Å•πç±’ë•πúÅÕÖŸïêÅëÖÂÃ∏Å°ïç¨ÅÖπêÅÕÖŸîÅïÖç†ÅëÖ‰ÅÖô—ï…›Ö…ëÃ∏ú§•…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Åë…Ö‹ıµÖ·•µ’µ5•·•πù…Ö‹°ô•ï±ëÃ§Ï(ÄÄÄÅôΩ»°çΩπÕ–ÅëÖ‰ÅΩòÅëÖÂÃ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÙùëÖ‰ú≠ëÖ‰±Õï—’¿ıïŸïπ–πù…Ω’¡Mï—’¡m≠ïÂtÏ(ÄÄÄÄÄÅÕï—’¿πù…Ω’¡Ãıë…Ö›mëÖÂtÌÕï—’¿πÕ—Ö…—ÃıëïôÖ’±—M—Ö…—Ã°Õï—’¿πù…Ω’¡Ã±Õ—Ö…—5ï—°ΩëΩ»°ïŸïπ–±ëÖ‰§±ëÖ‰§ÌÕï—’¿πÕÖŸïêıôÖ±ÕîÏ(ÄÄÄÄÄÅëï±ï—îÅÕï—’¿πÕ°Ω…—QïÖµÃÌëï±ï—îÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»Ìëï±ï—îÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»Ìëï±ï—îÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÏ(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿±ëÖ‰§Ï(ÄÄÄÅÙ(ÄÄÄÅïŸïπ–πë…Ö›5ΩëîÙùµ•·•πúúÌïŸïπ–πµÖπ’Ö±5ΩëîıôÖ±ÕîÌïŸïπ–πÕ›Ö¡A±ÖÂï»ıπ’±∞Ìëï±ï—îÅïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ì…ïπëï…QïÖµÕAÖùî†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…!•Õ—Ω…ÂùÖ•πÕ—…Ω’¿°¡•ê∞Åú§ÅÏ(ÄÄÄÅ…ï—’…∏Åú(ÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅM—…•πú°¡•ê§§(ÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅπÖµîËÅ¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâUπ≠πΩ›∏à∞(ÄÄÄÄÄÄÄÅ¡±ÖÂïêËÅ¡±ÖÂïëQΩùï—°ï…Ω’π–°¡•ê∞Å•ê§∞(ÄÄÄÄÄÄÄÅ¡Ö…—πï…ÃËÅ¡Ö…—πï…ïëΩ’π–°¡•ê∞Å•ê§∞(ÄÄÄÄÄÅÙ§§(ÄÄÄÄÄÄπÕΩ…–†°Ñ∞Åà§ÄÙ¯Åàπ¡Ö…—πï…ÃÄ¥ÅÑπ¡Ö…—πï…ÃÅÒÅàπ¡±ÖÂïêÄ¥ÅÑπ¡±ÖÂïê§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖ›ÖÂΩ±ôŸïπ—Ω’…Õï9ÖµïÃ°ïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕπÖ¡Õ°Ω—ÃÄÙÅl(ÄÄÄÄÄÄ∏∏∏°ïŸïπ–¸πçΩ’…ÕïMπÖ¡Õ°Ω–ÅÒÅmt§∞(ÄÄÄÄÄÄ∏∏∏°Õ—Ω…îπç±Ω’ê¸πçΩ’…ÕïÖ…ëÃÅÒÅmt§∞(ÄÄÄÄÄÄ∏∏∏°Õ—Ω…îπçΩ’…ÕïÃÅÒÅmt§∞(ÄÄÄÅtÏ(ÄÄÄÅçΩπÕ–ÅπÖµïÃÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÅ5Ö—†πµÖ‡†ƒ∞Ä≠ïŸïπ–¸πëÖÂÃÅÒÄƒ§ÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±ïç—ïêÄÙÅïŸïπ–¸πlâçΩ’…ÕîàÄ¨ÅëÖÂtÏ(ÄÄÄÄÄÅçΩπÕ–ÅµÖ—ç†ÄÙÅÕπÖ¡Õ°Ω—Ãπô•πê†(ÄÄÄÄÄÄÄÄ°çÖπë•ëÖ—î§ÄÙ¯ÅM—…•πú°çÖπë•ëÖ—î¸π•ê§ÄÙÙÙÅM—…•πú°Õï±ïç—ïê§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–ÅπÖµîÄÙÅµÖ—ç†¸ππÖµîÅÒÄààÏ(ÄÄÄÄÄÅ•òÄ°πÖµîÄòòÄÖπÖµïÃπ•πç±’ëïÃ°πÖµî§§ÅπÖµïÃπ¡’Õ†°πÖµî§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅπÖµïÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖ›ÖÂΩ±ôŸïπ—A±ÖÂï…%ëÃ°ïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅπï‹ÅMï–†§Ï(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÅ5Ö—†πµÖ‡†ƒ∞Ä≠ïŸïπ–¸πëÖÂÃÅÒÄƒ§ÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰Ï(ÄÄÄÄÄÅ±ï–ÅÕ±Ω—ÃÄÙÄ°ïŸïπ–¸πù…Ω’¡Mï—’¿¸πm≠ïÂt¸πù…Ω’¡ÃÅÒÅmt§πô±Ö–†§Ï(ÄÄÄÄÄÅ•òÄ†ÖÕ±Ω—Ãπ±ïπù—†§ÅÕ±Ω—ÃÄÙÅïŸïπ–¸πëÖÂ•ï±ëÃ¸πm≠ïÂtÅÒÅïŸïπ–¸πçΩπô•…µïêÅÒÅmtÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–ÅÕ±Ω–ÅΩòÅÕ±Ω—Ã§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°Õ±Ω–ÄÙÙÅπ’±∞ÅÒÅM—…•πú°Õ±Ω–§ÄÙÙÙÅ9=}AIQ9I}%§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅÕ—Ω…îπ¡±ÖÂï…Ãπô•πê†(ÄÄÄÄÄÄÄÄÄÄ°¡ï…ÕΩ∏§ÄÙ¯ÅM—…•πú°¡ï…ÕΩ∏π•ê§ÄÙÙÙÅM—…•πú°Õ±Ω–§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅΩçç’¡Öπ–ÄÙÅ›•πëΩ‹πΩ±ôA±ÖÂï…M’âÕ—•—’—•Ω∏¸πΩçç’¡Öπ–†(ÄÄÄÄÄÄÄÄÄÅïŸïπ–∞(ÄÄÄÄÄÄÄÄÄÅÕ±Ω–∞(ÄÄÄÄÄÄÄÄÄÅâÖÕî∞(ÄÄÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ•ëÃπÖëê°M—…•πú°Ωçç’¡Öπ–¸π¡…Ωô•±ï%êÅÒÅΩçç’¡Öπ–¸π•êÅÒÅÕ±Ω–§§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Ål∏∏π•ëÕtÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïçΩ…ë›ÖÂΩ±ôŸïπ—A±ÖÂïê°ïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅïŸïπ—9ÖµîÄÙÅM—…•πú°ïŸïπ–¸ππÖµîÅÒÄàà§π—…•¥†§Ï(ÄÄÄÅ•òÄ†ÑΩy›Ö‰ÅΩ±ôqàΩ§π—ïÕ–°ïŸïπ—9Öµî§ÅÒÅ•ÕQïÕ—Ÿïπ–°ïŸïπ–§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–ÅçΩ’…ÕïÃÄÙÅÖ›ÖÂΩ±ôŸïπ—Ω’…Õï9ÖµïÃ°ïŸïπ–§∞(ÄÄÄÄÄÅëÖ—îÄÙÅM—…•πú°ïŸïπ–¸πëÖ—îÅÒÄàà§∞(ÄÄÄÄÄÅëÖ—ï1Öâï∞ÄÙÅëÖ—î(ÄÄÄÄÄÄÄÄ¸Åπï‹ÅÖ—î°ëÖ—îÄ¨ÄâPƒ»Ë¿¿Ë¿¿à§π—Ω1ΩçÖ±ïÖ—ïM—…•πú†âï∏µTà§(ÄÄÄÄÄÄÄÄËÄàà∞(ÄÄÄÄÄÅ≠ï‰ÄÙÅM—…•πú†(ÄÄÄÄÄÄÄÅïŸïπ–¸π›Ω…≠Õ¡Öçï%êÅÒ(ÄÄÄÄÄÄÄÄÄÅïŸïπ–¸πç±Ω’ëŸïπ—%êÅÒ(ÄÄÄÄÄÄÄÄÄÅïŸïπ–¸π•êÅÒ(ÄÄÄÄÄÄÄÄÄÅÄëÌïŸïπ—9ÖµïıëÌëÖ—ïıëÌçΩ’…ÕïÃπ©Ω•∏†âà•ıÄ∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅïπ—…‰ÄÙÅÏ(ÄÄÄÄÄÄÄÅ≠ï‰∞(ÄÄÄÄÄÄÄÅïŸïπ—9Öµî∞(ÄÄÄÄÄÄÄÅëÖ—î∞(ÄÄÄÄÄÄÄÅëÖ—ï1Öâï∞∞(ÄÄÄÄÄÄÄÅçΩ’…ÕïÃËÅçΩ’…ÕïÃπ©Ω•∏†àÉ
+‹Äà§∞(ÄÄÄÄÄÄÄÅ…ïçΩ…ëïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ±ï–Åç°ÖπùïêÄÙÅôÖ±ÕîÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å•êÅΩòÅÖ›ÖÂΩ±ôŸïπ—A±ÖÂï…%ëÃ°ïŸïπ–§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡ï…ÕΩ∏ÄÙÅÕ—Ω…îπ¡±ÖÂï…Ãπô•πê†(ÄÄÄÄÄÄÄÄ°çÖπë•ëÖ—î§ÄÙ¯ÅM—…•πú°çÖπë•ëÖ—îπ•ê§ÄÙÙÙÅM—…•πú°•ê§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†Ö¡ï…ÕΩ∏§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅ¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêÄÙÅ……Ö‰π•Õ……Ö‰°¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïê§(ÄÄÄÄÄÄÄÄ¸Å¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïê(ÄÄÄÄÄÄÄÄËÅmtÏ(ÄÄÄÄÄÅ•òÄ°¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêπÕΩµî†°•—ï¥§ÄÙ¯Å•—ï¥π≠ï‰ÄÙÙÙÅ≠ï‰§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅ¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêπ¡’Õ†°ÏÄ∏∏πïπ—…‰ÅÙ§Ï(ÄÄÄÄÄÅç°ÖπùïêÄÙÅ—…’îÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åç°ÖπùïêÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïçΩ…ëΩµ¡±ï—ïëŸïπ—!•Õ—Ω…‰°ïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖ›ÖÂΩ±ô!•Õ—Ω…Â°ÖπùïêÄÙÅ…ïçΩ…ë›ÖÂΩ±ôŸïπ—A±ÖÂïê°ïŸïπ–§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖïŸïπ–¸πù…Ω’¡Mï—’¿ÅÒ(ÄÄÄÄÄÅïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–ÅÒ(ÄÄÄÄÄÅ•ÕQïÕ—Ÿïπ–°ïŸïπ–§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏ÅÖ›ÖÂΩ±ô!•Õ—Ω…Â°ÖπùïêÏ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÄ°ïŸïπ–πëÖÂÃÅÒÄƒ§ÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅùÃÄÙÅïŸïπ–πù…Ω’¡Mï—’¡lâëÖ‰àÄ¨ÅëÖÂt¸πù…Ω’¡ÃÅÒÅmtÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–ÅúÅΩòÅùÃ§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…ïÖ±A±ÖÂï…ÃÄÙÅúπô•±—ï»†(ÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯Å•êÄÑÙÅπ’±∞ÄòòÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅ…ïÖ±A±ÖÂï…Ãπ±ïπù—†ÏÅ§¨¨§(ÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å®ÄÙÅ§Ä¨ÄƒÏÅ®ÄÅ…ïÖ±A±ÖÂï…Ãπ±ïπù—†ÏÅ®¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ±ï–Å¨ÄÙÅ¡Ö•…-ï‰°…ïÖ±A±ÖÂï…Õm•t∞Å…ïÖ±A±ÖÂï…Õm©t§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ¡Ö•…!•Õ—Ω…Âm≠tÄÙÄ°Õ—Ω…îπ¡Ö•…!•Õ—Ω…Âm≠tÅÒÄ¿§Ä¨ÄƒÏ(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ö•…ÃÄÙÅmúπÕ±•çî†¿∞Ä»§∞ÅúπÕ±•çî†»∞Ä–•tÏ(ÄÄÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å¡Ö•»ÅΩòÅ¡Ö•…Ã§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•»π±ïπù—†ÄÑÙÙÄ»ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•»πÕΩµî†°•ê§ÄÙ¯Å•êÄÙÙÅπ’±∞ÅÒÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÄÄÅ±ï–Å¨ÄÙÅ¡Ö•…-ï‰°¡Ö•…l¡t∞Å¡Ö•…l≈t§Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ¡Ö…—πï…!•Õ—Ω…Âm≠tÄÙÄ°Õ—Ω…îπ¡Ö…—πï…!•Õ—Ω…Âm≠tÅÒÄ¿§Ä¨ÄƒÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïµΩŸïIïçΩ…ëïëQïÕ—Ÿïπ—!•Õ—Ω…‰†§ÅÏ(ÄÄÄÅ±ï–Åç°ÖπùïêÄÙÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–Å…ïë’çïΩ’π–ÄÙÄ°°•Õ—Ω…‰∞Å≠ï‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åπï·–ÄÙÅ5Ö—†πµÖ‡†¿∞Ä¨°°•Õ—Ω…Âm≠ïÂtÅÒÄ¿§Ä¥Äƒ§Ï(ÄÄÄÄÄÅ•òÄ°πï·–§Å°•Õ—Ω…Âm≠ïÂtÄÙÅπï·–Ï(ÄÄÄÄÄÅï±ÕîÅëï±ï—îÅ°•Õ—Ω…Âm≠ïÂtÏ(ÄÄÄÅÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…ïçΩ…êÅΩòÅÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅïŸïπ–ÄÙÅ…ïçΩ…ê¸πïŸïπ–Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖïŸïπ–¸π°•Õ—Ω…ÂIïçΩ…ëïë–ÅÒ(ÄÄÄÄÄÄÄÅïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÅÒ(ÄÄÄÄÄÄÄÄÖ•ÕQïÕ—Ÿïπ–°ïŸïπ–§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÄ°ïŸïπ–πëÖÂÃÅÒÄƒ§ÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åù…Ω’¡ÃÄÙÅïŸïπ–πù…Ω’¡Mï—’¿¸πmÅëÖ‰ëÌëÖÂıÅt¸πù…Ω’¡ÃÅÒÅmtÏ(ÄÄÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åù…Ω’¿ÅΩòÅù…Ω’¡Ã§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…ïÖ±A±ÖÂï…ÃÄÙÅù…Ω’¿πô•±—ï»†(ÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯Å•êÄÑÙÅπ’±∞ÄòòÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅ…ïÖ±A±ÖÂï…Ãπ±ïπù—†ÏÅ§¨¨§(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å®ÄÙÅ§Ä¨ÄƒÏÅ®ÄÅ…ïÖ±A±ÖÂï…Ãπ±ïπù—†ÏÅ®¨¨§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïë’çïΩ’π–†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ¡Ö•…!•Õ—Ω…‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•…-ï‰°…ïÖ±A±ÖÂï…Õm•t∞Å…ïÖ±A±ÖÂï…Õm©t§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å¡Ö•»ÅΩòÅmù…Ω’¿πÕ±•çî†¿∞Ä»§∞Åù…Ω’¿πÕ±•çî†»∞Ä–•t§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡Ö•»π±ïπù—†ÄÙÙÙÄ»Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÖ¡Ö•»πÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯Å•êÄÙÙÅπ’±∞ÅÒÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïë’çïΩ’π–°Õ—Ω…îπ¡Ö…—πï…!•Õ—Ω…‰∞Å¡Ö•…-ï‰°¡Ö•…l¡t∞Å¡Ö•…l≈t§§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅç°ÖπùïêÄÙÅ—…’îÏ(ÄÄÄÅÙ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å¡ï…ÕΩ∏ÅΩòÅÕ—Ω…îπ¡±ÖÂï…ÃÅÒÅmt§ÅÏ(ÄÄÄÄÄÅ•òÄ°……Ö‰π•Õ……Ö‰°¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïê§§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï¡–ÄÙÅ¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêπô•±—ï»†(ÄÄÄÄÄÄÄÄÄÄ°ïπ—…‰§ÄÙ¯ÄÖ•ÕQïÕ—Ÿïπ–°ÏÅπÖµîËÅïπ—…‰¸πïŸïπ—9ÖµîÅÙ§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ•òÄ°≠ï¡–π±ïπù—†ÄÑÙÙÅ¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêπ±ïπù—†§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ¡ï…ÕΩ∏πÖ›ÖÂΩ±ôŸïπ—ÕA±ÖÂïêÄÙÅ≠ï¡–Ï(ÄÄÄÄÄÄÄÄÄÅç°ÖπùïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–ÅmçΩ’…Õï%ê∞Åïπ—…ÂtÅΩòÅ=â©ïç–πïπ—…•ïÃ†(ÄÄÄÄÄÄÄÅ¡ï…ÕΩ∏πçΩ’…Õï!Öπë•çÖ¡ÃÅÒÅÌÙ∞(ÄÄÄÄÄÄ§§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö•ÕQïÕ—Ÿïπ–°ÏÅπÖµîËÅïπ—…‰¸πïŸïπ—9ÖµîÅÙ§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅëï±ï—îÅ¡ï…ÕΩ∏πçΩ’…Õï!Öπë•çÖ¡ÕmçΩ’…Õï%ëtÏ(ÄÄÄÄÄÄÄÅç°ÖπùïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖç—•ŸîÄÙÄ°Õ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§πô•πê†(ÄÄÄÄÄÄ°…ïçΩ…ê§ÄÙ¯(ÄÄÄÄÄÄÄÅM—…•πú°…ïçΩ…êπ•ê§ÄÙÙÙ(ÄÄÄÄÄÄÄÅM—…•πú°Õ—Ω…îπïŸïπ–¸π›Ω…≠Õ¡Öçï%êÅÒÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÅÒÄàà§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°Öç—•Ÿî¸πïŸïπ–¸π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄòòÅÕ—Ω…îπïŸïπ–§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄÙ(ÄÄÄÄÄÄÄÅÖç—•ŸîπïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–Ï(ÄÄÄÅ•òÄ°ç°Öπùïê§Å›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÅ…ï—’…∏Åç°ÖπùïêÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å•πÕ—Ö±±ïëï…Ö±I•ëùï!•Õ—Ω…Â	ÖÕï±•πî†§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖÕï±•πï%êÄÙÄâôïëï…Ö∞µ…•ëùî¥»¿»ÿµÿƒàÏ(ÄÄÄÅ•òÄ°Õ—Ω…îπ°•Õ—Ω…Â	ÖÕï±•πî¸π•êÄÙÙÙÅâÖÕï±•πï%ê§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–Å…•ëùï…Ω’¡ÃÄÙÅl(ÄÄÄÄÄÄÄÅlâ)ï…ïµ‰Å]Ö…êà∞Äâ…ÖïµîÅ!ïππïÕÕ‰à∞Äâ	ï∏Å5ïïÃà∞ÄâIΩêÅI’Õ—Ω∏ât∞(ÄÄÄÄÄÄÄÅlâMÖ¥ÅIïïçîà∞Äâ)ï……‰Å5Ö°ï»à∞Äâ%Ö∏ÅA…•ïÕ–à∞Äâ5Ö’…•çîÅ5ï±Ö∏ât∞(ÄÄÄÄÄÄÄÅlâ…Öπ–Å1ΩµÖÃà∞Äâ1’≠îÅ	…ÖëÕ°Ö‹à∞Äâ	ΩàÅYÖ±¨à∞ÄâÖŸ•êÅÖ•…›ïÖ—°ï»ât∞(ÄÄÄÄÄÄÄÅlâ°…•Õ—•Ö∏ÅΩπúà∞ÄâAï—ï»ÅIΩ±ôîà∞ÄâIΩàÅ	±Ö•∏à∞ÄâIΩÕÃÅMµ•—†ât∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅôïëï…Ö±Ö‰≈…Ω’¡ÃÄÙÅl(ÄÄÄÄÄÄÄÅlâIΩêÅ	Ω›Âï»à∞Äâ)ï……‰Å5Ö°ï»à∞Äâ…ÖïµîÅ!ïππïÕÕ‰à∞ÄâIΩÕÃÅMµ•—†ât∞(ÄÄÄÄÄÄÄÅlâÖŸ•êÅÖ•…›ïÖ—°ï»à∞ÄâIΩêÅI’Õ—Ω∏à∞ÄâÖŸ•êÅÖôôÖπï‰à∞Äâ	ï∏Å5ïïÃât∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅôïëï…Ö±Ö‰……Ω’¡ÃÄÙÅl(ÄÄÄÄÄÄÄÅlâIΩêÅI’Õ—Ω∏à∞Äâ	ï∏Å5ïïÃà∞Äâ…ÖïµîÅ!ïππïÕÕ‰à∞Äâ)ï……‰Å5Ö°ï»ât∞(ÄÄÄÄÄÄÄÅlâIΩêÅ	Ω›Âï»à∞ÄâIΩÕÃÅMµ•—†à∞ÄâÖŸ•êÅÖôôÖπï‰à∞ÄâÖŸ•êÅÖ•…›ïÖ—°ï»ât∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅ¡±ÖÂï…%ë	Â9ÖµîÄÙÅπï‹Å5Ö¿†(ÄÄÄÄÄÄÄÄ°Õ—Ω…îπ¡±ÖÂï…ÃÅÒÅmt§πµÖ¿†°¡ï…ÕΩ∏§ÄÙ¯Åm¡ï…ÕΩ∏ππÖµî∞ÅM—…•πú°¡ï…ÕΩ∏π•ê•t§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅπÖµïëIΩ’πëÃÄÙÅm…•ëùï…Ω’¡Ã∞Åôïëï…Ö±Ö‰≈…Ω’¡Ã∞Åôïëï…Ö±Ö‰……Ω’¡Õt∞(ÄÄÄÄÄÅ…Ω’πëÃÄÙÅπÖµïëIΩ’πëÃπµÖ¿†°…Ω’πê§ÄÙ¯(ÄÄÄÄÄÄÄÅ…Ω’πêπµÖ¿†°πÖµïÃ§ÄÙ¯ÅπÖµïÃπµÖ¿†°πÖµî§ÄÙ¯Å¡±ÖÂï…%ë	Â9Öµîπùï–°πÖµî§§§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°…Ω’πëÃπÕΩµî†°…Ω’πê§ÄÙ¯Å…Ω’πêπÕΩµî†°ù…Ω’¿§ÄÙ¯Åù…Ω’¿πÕΩµî†°•ê§ÄÙ¯ÄÖ•ê§§§§(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ((ÄÄÄÄººÅï±•âï…Ö—ï±‰Å…ï¡±Öçî∞Å…Ö—°ï»Å—°Ö∏ÅÖëêÅ—º∞Å—°îÅëïŸ•çîùÃÅΩ±êÅçΩ’π—ï…Ã∏(ÄÄÄÅÕ—Ω…îπ¡Ö•…!•Õ—Ω…‰ÄÙÅÌÙÏ(ÄÄÄÅÕ—Ω…îπ¡Ö…—πï…!•Õ—Ω…‰ÄÙÅÌÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…Ω’πêÅΩòÅ…Ω’πëÃ§ÅÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åù…Ω’¿ÅΩòÅ…Ω’πê§ÅÏ(ÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅù…Ω’¿π±ïπù—†ÏÅ§¨¨§(ÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å®ÄÙÅ§Ä¨ÄƒÏÅ®ÄÅù…Ω’¿π±ïπù—†ÏÅ®¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅ¡Ö•…-ï‰°ù…Ω’¡m•t∞Åù…Ω’¡m©t§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ¡Ö•…!•Õ—Ω…Âm≠ïÂtÄÙÄ°Õ—Ω…îπ¡Ö•…!•Õ—Ω…Âm≠ïÂtÅÒÄ¿§Ä¨ÄƒÏ(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å¡Ö•»ÅΩòÅmù…Ω’¿πÕ±•çî†¿∞Ä»§∞Åù…Ω’¿πÕ±•çî†»∞Ä–•t§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅ¡Ö•…-ï‰°¡Ö•…l¡t∞Å¡Ö•…l≈t§Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπ¡Ö…—πï…!•Õ—Ω…Âm≠ïÂtÄÙÄ°Õ—Ω…îπ¡Ö…—πï…!•Õ—Ω…Âm≠ïÂtÅÒÄ¿§Ä¨ÄƒÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ((ÄÄÄÅçΩπÕ–Å•πÕ—Ö±±ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÅÕ—Ω…îπ°•Õ—Ω…Â	ÖÕï±•πîÄÙÅÏ(ÄÄÄÄÄÅ•êËÅâÖÕï±•πï%ê∞(ÄÄÄÄÄÅ•πÕ—Ö±±ïë–∞(ÄÄÄÄÄÅïŸïπ—ÃËÅl(ÄÄÄÄÄÄÄÄâ›Ö‰ÅΩ±òÄ¥ÅQ°îÅI•ëùîà∞(ÄÄÄÄÄÄÄÄâ›Ö‰ÅΩ±òÄ¥Åïëï…Ö∞ÅÅÖ‰Äƒà∞(ÄÄÄÄÄÄÄÄâ›Ö‰ÅΩ±òÄ¥Åïëï…Ö∞ÅÅÖ‰Ä»à∞(ÄÄÄÄÄÅt∞(ÄÄÄÅÙÏ(ÄÄÄÄººÅA…ïŸïπ–ÅΩ±êÅ±ΩçÖ∞ÅïŸïπ–ÅçΩ¡•ïÃÅô…Ω¥Åâï•πúÅ…îµÖëëïêÅâ‰Å—°îÅ±ïùÖç‰(ÄÄÄÄººÅçΩµ¡±ï—ïêµïŸïπ–ÅâÖç≠ô•±∞∏Åïπ’•πîÅïŸïπ—ÃÅçΩµ¡±ï—ïêÅÖô—ï»Å—°•ÃÅ…ïÕï–ÅÖ…î(ÄÄÄÄººÅÕ—•±∞Å…ïçΩ…ëïêÅπΩ…µÖ±±‰Å›°ï∏Å—°ï‰Åç±ΩÕî∏(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…ïçΩ…êÅΩòÅÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅïŸïπ–ÄÙÅ…ïçΩ…ê¸πïŸïπ–Ï(ÄÄÄÄÄÅ•òÄ†ÖïŸïπ–§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅçΩπÕ–Å°ÖÕA±ÖÂïëMçΩ…îÄÙÅ=â©ïç–πŸÖ±’ïÃ°ïŸïπ–πÕçΩ…•πúÅÒÅÌÙ§πÕΩµî†(ÄÄÄÄÄÄÄÄ°…Ω’πëÖ—Ñ§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅ=â©ïç–πŸÖ±’ïÃ°…Ω’πëÖ—ÑÅÒÅÌÙ§πÕΩµî†°…Ω’πê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅ=â©ïç–πïπ—…•ïÃ°…Ω’πêÅÒÅÌÙ§πÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°m°Ω±î∞Åïπ—…Ât§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩyqê¨êºπ—ïÕ–°°Ω±î§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°ïπ—…‰¸πΩôô•ç•Ö∞¸πù…ΩÕÃ§ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ïπ—…‰¸πÕï±ò¸πù…ΩÕÃ§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—îàÅÒ(ÄÄÄÄÄÄÄÅïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—ïêàÅÒ(ÄÄÄÄÄÄÄÅïŸïπ–πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–ÅÒ(ÄÄÄÄÄÄÄÅ°ÖÕA±ÖÂïëMçΩ…î(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–ÄÙÅ•πÕ—Ö±±ïë–Ï(ÄÄÄÄÄÅ•òÄ°•ÕQïÕ—Ÿïπ–°ïŸïπ–§§ÅïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄÙÅ•πÕ—Ö±±ïë–Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖç—•ŸîÄÙÄ°Õ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§πô•πê†(ÄÄÄÄÄÄ°…ïçΩ…ê§ÄÙ¯(ÄÄÄÄÄÄÄÅM—…•πú°…ïçΩ…êπ•ê§ÄÙÙÙ(ÄÄÄÄÄÄÄÅM—…•πú°Õ—Ω…îπïŸïπ–¸π›Ω…≠Õ¡Öçï%êÅÒÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÅÒÄàà§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°Öç—•Ÿî¸πïŸïπ–¸π°•Õ—Ω…ÂIïçΩ…ëïë–ÄòòÅÕ—Ω…îπïŸïπ–§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–ÄÙÅÖç—•ŸîπïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–Ï(ÄÄÄÅ•òÄ°Öç—•Ÿî¸πïŸïπ–¸π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄòòÅÕ—Ω…îπïŸïπ–§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–ÄÙÅÖç—•ŸîπïŸïπ–π—ïÕ—!•Õ—Ω…Â·ç±’ëïë–Ï(ÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅâÖç≠ô•±±Ωµ¡±ï—ïëŸïπ—!•Õ—Ω…‰†§ÅÏ(ÄÄÄÅ±ï–Åç°ÖπùïêÄÙÅôÖ±ÕîÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–Å…ïçΩ…êÅΩòÅÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅïŸïπ–ÄÙÅ…ïçΩ…ê¸πïŸïπ–∞(ÄÄÄÄÄÄÄÅ°ÖÕA±ÖÂïëMçΩ…îÄÙÅ=â©ïç–πŸÖ±’ïÃ°ïŸïπ–¸πÕçΩ…•πúÅÒÅÌÙ§πÕΩµî†°…Ω’πëÃ§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅ=â©ïç–πŸÖ±’ïÃ°…Ω’πëÃÅÒÅÌÙ§πÕΩµî†°…Ω’πê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅ=â©ïç–πïπ—…•ïÃ°…Ω’πêÅÒÅÌÙ§πÕΩµî†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°m°Ω±î∞Åïπ—…Ât§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄΩyqê¨êºπ—ïÕ–°°Ω±î§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°ïπ—…‰¸πΩôô•ç•Ö∞¸πù…ΩÕÃ§ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ïπ—…‰¸πÕï±ò¸πù…ΩÕÃ§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅïŸïπ–Äòò(ÄÄÄÄÄÄÄÄ°ïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—îàÅÒ(ÄÄÄÄÄÄÄÄÄÅïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—ïêàÅÒ(ÄÄÄÄÄÄÄÄÄÅïŸïπ–πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–ÅÒ(ÄÄÄÄÄÄÄÄÄÅ°ÖÕA±ÖÂïëMçΩ…î§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅç°ÖπùïêÄÙÅ…ïçΩ…ëΩµ¡±ï—ïëŸïπ—!•Õ—Ω…‰°ïŸïπ–§ÅÒÅç°ÖπùïêÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖç—•ŸîÄÙÄ°Õ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§πô•πê†(ÄÄÄÄÄÄ°…ïçΩ…ê§ÄÙ¯(ÄÄÄÄÄÄÄÅM—…•πú°…ïçΩ…êπ•ê§ÄÙÙÙ(ÄÄÄÄÄÄÄÅM—…•πú°Õ—Ω…îπïŸïπ–¸π›Ω…≠Õ¡Öçï%êÅÒÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÅÒÄàà§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°Öç—•Ÿî¸πïŸïπ–¸π°•Õ—Ω…ÂIïçΩ…ëïë–ÄòòÅÕ—Ω…îπïŸïπ–§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–ÄÙÅÖç—•ŸîπïŸïπ–π°•Õ—Ω…ÂIïçΩ…ëïë–Ï(ÄÄÄÅ•òÄ°ç°Öπùïê§Å›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ°’ôô±ïΩ¡‰°Ö…»§ÅÏ(ÄÄÄÅ±ï–ÅÑÄÙÅl∏∏πÖ……tÏ(ÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÅÑπ±ïπù—†Ä¥ÄƒÏÅ§Ä¯Ä¿ÏÅ§¥¥§ÅÏ(ÄÄÄÄÄÅ±ï–Å®ÄÙÅ5Ö—†πô±ΩΩ»°5Ö—†π…ÖπëΩ¥†§Ä®Ä°§Ä¨Äƒ§§Ï(ÄÄÄÄÄÅmÖm•t∞ÅÖm©utÄÙÅmÖm©t∞ÅÖm•utÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÑÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖ≠ï…Ω’¡Ã°•ëÃ∞ÅëÖ‰ÄÙÅÕ—Ω…îπïŸïπ–¸πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïÖ∞ÄÙÅ•ëÃπô•±—ï»°•êÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅ•òÄ°…ïÖ∞π±ïπù—†ÄÄÿ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩ’–ÄÙÅmtÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å§Ù¿ÏÅ§Ò•ëÃπ±ïπù—†ÏÅ§¨Ù–§ÅΩ’–π¡’Õ†°•ëÃπÕ±•çî°§±§¨–§§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅΩ’–Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅçΩ’π–ÄÙÅ5Ö—†πçï•∞°…ïÖ∞π±ïπù—†º–§∞ÅâÖÕîÄÙÅ5Ö—†πô±ΩΩ»°…ïÖ∞π±ïπù—†ΩçΩ’π–§∞Åï·—…ÑÄÙÅ…ïÖ∞π±ïπù—†ïçΩ’π–Ï(ÄÄÄÅ±ï–ÅΩôôÕï–Ù¿Ï(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°Ì±ïπù—†ÈçΩ’π—Ù∞°|±•πëï‡§Ù˘Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ•ÈîıâÖÕî¨°•πëï‡Òï·—…Ñ¸ƒË¿§∞Åù…Ω’¿ı…ïÖ∞πÕ±•çî°ΩôôÕï–±ΩôôÕï–≠Õ•Èî§ÌΩôôÕï–¨ıÕ•ÈîÏ(ÄÄÄÄÄÅ•ò°Õ•ÈîÙÙÙÃòòÖÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§•ù…Ω’¿π¡’Õ†°9=}AIQ9I}%§Ï(ÄÄÄÄÄÅ…ï—’…∏Åù…Ω’¿Ï(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅëïôÖ’±—M—Ö…—Ã°ù…Ω’¡Ã∞Åµï—°Ωê∞ÅëÖ‰ÄÙÄƒ§ÅÏ(ÄÄÄÅµï—°ΩêÄÙÅµï—°ΩêÅÒÅÕ—Ö…—5ï—°ΩëΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâÕ°Ω—ù’∏à§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅçΩµµΩ∏ÄÙÅlƒ∞ÄÃ∞Ä‘∞Ä‹∞Ä‰∞Äƒ¿∞Äƒ»∞Äƒ–∞Äƒÿ∞Äƒ·tÏ(ÄÄÄÄÄÅ…ï—’…∏Åù…Ω’¡ÃπµÖ¿†°|∞Å§§ÄÙ¯ÅçΩµµΩπm•tÅÒÄ†°§Ä®Ä»§ÄîÄƒ‡§Ä¨Äƒ§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å°Ω±ïÃÄÙÅÕ—Ö…—!Ω±ïÕΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâ—›ºà§Å…ï—’…∏Åù…Ω’¡ÃπµÖ¿†°|∞Å§§ÄÙ¯Ä¨°°Ω±ïÕm§ÄîÄ…tÅÒÄƒ§§Ï(ÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâÕ•πù±îà§Å…ï—’…∏Åù…Ω’¡ÃπµÖ¿††§ÄÙ¯Ä¨°°Ω±ïÕl¡tÅÒÄƒ§§Ï(ÄÄÄÅ…ï—’…∏Åù…Ω’¡ÃπµÖ¿†°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅëÖÂ•ï±ë%ëÃ°ëÖ‰§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§Å…ï—’…∏ÅmtÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰Ï(ÄÄÄÅçΩπÕ–Åµ•ÕÕ•πúÄÙÅM—…•πú°Õ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πm≠ïÂt¸πµ•ÕÕ•πùA±ÖÂï…%êÅÒÄàà§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–πëÖÂ•ï±ëÃ¸πm≠ïÂt§(ÄÄÄÄÄÅ…ï—’…∏ÅÕ—Ω…îπïŸïπ–πëÖÂ•ï±ëÕm≠ïÂtπµÖ¿°M—…•πú§πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅµ•ÕÕ•πú§Ï(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÄ°Õ—Ω…îπïŸïπ–πçΩπô•…µïêÅÒÅmt§πµÖ¿°M—…•πú§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒ§Å…ï—’…∏Å•ëÃπô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅµ•ÕÕ•πú§Ï(ÄÄÄÅ…ï—’…∏Å•ëÃπô•±—ï»†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅÕ—Ω…îπïŸïπ–πëÖÂŸÖ•±Öâ•±•—‰¸πm•ët¸πmëÖÂtÄÑÙÙÅôÖ±Õî∞(ÄÄÄÄ§πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅµ•ÕÕ•πú§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖùù…ïùÖ—ïAÖ»ÕAÖ…—πï»°¡±ÖÂï…%ê∞ÅëÖ‰ÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃ§ÅÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅ¡Ö»Õ5Ωëî°Õ—Ω…îπïŸïπ–§ÄÑÙÙÄâΩŸï…Ö±±AÖ•…ÃàÅÒ(ÄÄÄÄÄÄÑ°Õ—Ω…îπïŸïπ–¸πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†â¡Ö»Ãà§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏ÄààÏ(ÄÄÄÅçΩπÕ–Åù…Ω’¡ÃÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅÕ—Ω…îπïŸïπ–πëÖÂÕt¸πù…Ω’¡ÃÅÒÅmt∞(ÄÄÄÄÄÅ•êÄÙÅÕ°Ö…ïëç—’Ö±%ê°¡±ÖÂï…%ê±Õ—Ω…îπïŸïπ–πëÖÂÃ§∞(ÄÄÄÄÄÅù…Ω’¿ÄÙÅù…Ω’¡Ãπô•πê†°—ïÖ¥§ÄÙ¯Å—ïÖ¥πµÖ¿°M—…•πú§π•πç±’ëïÃ°•ê§§Ï(ÄÄÄÅ•òÄ†Öù…Ω’¿§Å…ï—’…∏ÄààÏ(ÄÄÄÅçΩπÕ–Å•πëï‡ÄÙÅù…Ω’¿πµÖ¿°M—…•πú§π•πëï·=ò°•ê§∞(ÄÄÄÄÄÅ¡Ö•…M—Ö…–ÄÙÅ•πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»Ï(ÄÄÄÅ…ï—’…∏ÅÕ°Ö…ïëç—’Ö±%ê°M—…•πú†(ÄÄÄÄÄÅù…Ω’¿(ÄÄÄÄÄÄÄÄπÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄπô•πê†°çÖπë•ëÖ—î§ÄÙ¯ÅçÖπë•ëÖ—îÄÑÙÙÅ•êÄòòÅçÖπë•ëÖ—îÄÑÙÙÅ9=}AIQ9I}%§ÅÒ(ÄÄÄÄÄÄÄÄàà∞(ÄÄÄÄ§±ëÖ‰§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅπΩAÖ…—πï…Ωπ—ï·–°ù…Ω’¡Ã∞ÅëÖ‰∞Åù…Ω’¡%πëï‡ÄÙÅπ’±∞§ÅÏ(ÄÄÄÅçΩπÕ–ÅÖ±∞ÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§∞(ÄÄÄÄÄÅÕ°Ω…—%πëï‡ÄÙÅù…Ω’¡%πëï‡ÄÙÙÙÅπ’±∞Ä¸Åù…Ω’¡Ãπô•πë%πëï‡†°ú§ÄÙ¯(ÄÄÄÄÄÄÄÅúπÕΩµî†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÄ§ÄËÅù…Ω’¡Õmù…Ω’¡%πëï·t¸πÕΩµî°•êÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§Ä¸Åù…Ω’¡%πëï‡ÄËÄ¥ƒÏ(ÄÄÄÅ•òÄ°Õ°Ω…—%πëï‡ÄÄ¿§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅúÄÙÅù…Ω’¡ÕmÕ°Ω…—%πëï·t∞(ÄÄÄÄÄÅπ¡%πëï‡ÄÙÅúπô•πë%πëï‡†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅçΩπÕ–Å¡Ö•…M—Ö…–ÄÙÅπ¡%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»Ï(ÄÄÄÅçΩπÕ–ÅÖôôïç—ïêÄÙÅú(ÄÄÄÄÄÄπÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄπô•πê†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅçΩπÕ–Å…ïÖ±%π…Ω’¿ÄÙÅúπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅçΩπÕ–Å•πM°Ω…—…Ω’¿ÄÙÅπï‹ÅMï–°…ïÖ±%π…Ω’¿πµÖ¿°M—…•πú§§Ï(ÄÄÄÅçΩπÕ–ÅçÖπë•ëÖ—ïÃÄÙÅÖ±∞πô•±—ï»†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%ÄòòÄÖ•πM°Ω…—…Ω’¿π°ÖÃ°M—…•πú°•ê§§∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅù…Ω’¡%πëï‡ËÅÕ°Ω…—%πëï‡∞(ÄÄÄÄÄÅπΩAÖ…—πï…%πëï‡ËÅπ¡%πëï‡∞(ÄÄÄÄÄÅÖôôïç—ïêËÅM—…•πú°Öôôïç—ïêÅÒÄàà§∞(ÄÄÄÄÄÅ…ïÖ±%π…Ω’¿∞(ÄÄÄÄÄÅçÖπë•ëÖ—ïÃ∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïQ°…ïïA±ÖÂï…Ωπ—ï·–°ù…Ω’¡Ã∞Åù…Ω’¡%πëï‡ÄÙÅπ’±∞§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ°Ω…—%πëï‡ÄÙÅù…Ω’¡%πëï‡ÄÙÙÙÅπ’±∞Ä¸Åù…Ω’¡Ãπô•πë%πëï‡†(ÄÄÄÄÄÄ°ù…Ω’¿§ÄÙ¯Åù…Ω’¿πô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§π±ïπù—†ÄÙÙÙÄÃ∞(ÄÄÄÄ§ÄËÅù…Ω’¡Õmù…Ω’¡%πëï·t¸πô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§π±ïπù—†ÙÙÙÃÄ¸Åù…Ω’¡%πëï‡ÄËÄ¥ƒÏ(ÄÄÄÅ•òÄ°Õ°Ω…—%πëï‡ÄÄ¿§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅù…Ω’¡%πëï‡ËÅÕ°Ω…—%πëï‡∞(ÄÄÄÄÄÅπΩAÖ…—πï…%πëï‡ËÄ¥ƒ∞(ÄÄÄÄÄÅÖôôïç—ïêËÄàà∞(ÄÄÄÄÄÅ…ïÖ±%π…Ω’¿ËÅù…Ω’¡ÕmÕ°Ω…—%πëï·t(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅçÖπë•ëÖ—ïÃËÅmt∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åç°ΩΩÕïIÖπëΩ¥°Ö…»∞Åï·ç±’ëîÄÙÅmt§ÅÏ(ÄÄÄÅçΩπÕ–Åï‡ÄÙÅπï‹ÅMï–°ï·ç±’ëîπµÖ¿°M—…•πú§§∞(ÄÄÄÄÄÅÑÄÙÅÖ…»πô•±—ï»†°‡§ÄÙ¯ÄÖï‡π°ÖÃ°M—…•πú°‡§§§Ï(ÄÄÄÅ…ï—’…∏ÅÑπ±ïπù—†Ä¸ÅÖm5Ö—†πô±ΩΩ»°5Ö—†π…ÖπëΩ¥†§Ä®ÅÑπ±ïπù—†•tÄËÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïπÕ’…ï=πïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Åç—‡ÄÙÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄ¸ÅÖµâ…ΩÕïQ°…ïïA±ÖÂï…Ωπ—ï·–°Õï—’¿πù…Ω’¡Ã∞ÅÕï—’¿πÕ°Ω…—QïÖµ%πëï‡Ä¸¸Åπ’±∞§(ÄÄÄÄÄÄËÅπΩAÖ…—πï…Ωπ—ï·–°Õï—’¿πù…Ω’¡Ã∞ÅëÖ‰∞ÅÕï—’¿πÕ°Ω…—QïÖµ%πëï‡Ä¸¸Åπ’±∞§Ï(ÄÄÄÅ•òÄ†Öç—‡§ÅÏ(ÄÄÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÄÙÅÌÙÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Öµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§§ÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÅï±ÕîÅ•òÄ†(ÄÄÄÄÄÄÖÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÅÒ(ÄÄÄÄÄÄÖç—‡πçÖπë•ëÖ—ïÃπµÖ¿°M—…•πú§π•πç±’ëïÃ°M—…•πú°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§§(ÄÄÄÄ§(ÄÄÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÄÙÅç°ΩΩÕïIÖπëΩ¥°ç—‡πçÖπë•ëÖ—ïÃ§Ï(ÄÄÄÅçΩπÕ–Åïµï…ùïπç‰ÄÙÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πlâëÖ‰àÄ¨ÅëÖÂtÏ(ÄÄÄÅ•òÄ°ïµï…ùïπç‰ÄòòÅïµï…ùïπç‰πù…Ω’¡%πëï‡ÄÙÙÙÅç—‡πù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÄÙÅïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%êÏ(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÄÙÅïµï…ùïπç‰ππ—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙÏ(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÅÙÅï±ÕîÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âπ—¿à∞ÅëÖ‰§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åï±•ù•â±îÄÙÅç—‡π…ïÖ±%π…Ω’¿πµÖ¿°M—…•πú§Ï(ÄÄÄÄÄÄººÅA…ïÕï…ŸîÅï·•Õ—•πúÅ±Ωç≠ïêÅÕ•πù±îµY@ÅïŸïπ—ÃÏÅπï‹Åë…Ö›ÃÅ…Ω—Ö—îÅÖ——ïµ¡—ÃÅâ‰Å°Ω±î∏(ÄÄÄÄÄÅ•òÄ°Õï—’¿ππ—¡·—…ÖA±ÖÂï»ÄòòÄ°Õï—’¿πÕÖŸïêÅÒÅÕ—Ω…îπïŸïπ–π±Ωç≠ïê§ÄòòÄÖ=â©ïç–π≠ïÂÃ°Õï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙ§π±ïπù—†§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–ÅΩ…ëï»ÄÙÄ°Õï—’¿ππ—¡IΩ—Ö—•Ω∏ÅÒÅmt§πô•±—ï»°•êÄÙ¯Åï±•ù•â±îπ•πç±’ëïÃ°•ê§§Ï(ÄÄÄÄÄÅ•òÄ°Ω…ëï»π±ïπù—†ÄÑÙÙÅï±•ù•â±îπ±ïπù—†ÅÒÅπï‹ÅMï–°Ω…ëï»§πÕ•ÈîÄÑÙÙÅï±•ù•â±îπ±ïπù—†§ÅÕï—’¿ππ—¡IΩ—Ö—•Ω∏ÄÙÅÕ°’ôô±ïΩ¡‰°ï±•ù•â±î§Ï(ÄÄÄÄÄÅï±ÕîÅÕï—’¿ππ—¡IΩ—Ö—•Ω∏ÄÙÅΩ…ëï»Ï(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÄÙÅ=â©ïç–πô…Ωµπ—…•ïÃ°π—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§πµÖ¿†°°Ω±î±•πëï‡§Ù˘mM—…•πú°°Ω±î§±Õï—’¿ππ—¡IΩ—Ö—•Ωπm•πëï‡ïï±•ù•â±îπ±ïπù—°ut§§Ï(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÄÙÅÌÙÏ(ÄÄÄÅÙ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ›Ö¡]°Ω±ïQïÖµÃ°ïŸïπ–∞ÅëÖ‰∞Åô•…Õ–∞ÅÕïçΩπê§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅïŸïπ–¸πù…Ω’¡Mï—’¿¸πlùëÖ‰úÄ¨ÅëÖÂtÏ(ÄÄÄÅ•òÄ†ÖÕï—’¿ÅÒÅïŸïπ–π±Ωç≠ïêÅÒÅÕï—’¿πÕÖŸïêÅÒÅô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§ÅÒ(ÄÄÄÄÄÄÄÄÖ9’µâï»π•Õ%π—ïùï»°ô•…Õ–§ÅÒÄÖ9’µâï»π•Õ%π—ïùï»°ÕïçΩπê§ÅÒÅô•…Õ–ÄÙÙÙÅÕïçΩπêÅÒ(ÄÄÄÄÄÄÄÅô•…Õ–ÄÄ¿ÅÒÅÕïçΩπêÄÄ¿ÅÒÄÖÕï—’¿πù…Ω’¡Õmô•…Õ—tÅÒÄÖÕï—’¿πù…Ω’¡ÕmÕïçΩπët§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–Åï·ç°ÖπùîÄÙÄ°µÖ¿§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖµÖ¿§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–ÅÑÄÙÅµÖ¡mô•…Õ—t∞ÅàÄÙÅµÖ¡mÕïçΩπëtÏ(ÄÄÄÄÄÅ•òÄ°àÄÙÙÙÅ’πëïô•πïê§Åëï±ï—îÅµÖ¡mô•…Õ—tÏÅï±ÕîÅµÖ¡mô•…Õ—tÄÙÅàÏ(ÄÄÄÄÄÅ•òÄ°ÑÄÙÙÙÅ’πëïô•πïê§Åëï±ï—îÅµÖ¡mÕïçΩπëtÏÅï±ÕîÅµÖ¡mÕïçΩπëtÄÙÅÑÏ(ÄÄÄÅÙÏ(ÄÄÄÅï·ç°Öπùî°Õï—’¿πù…Ω’¡Ã§Ï(ÄÄÄÅï·ç°Öπùî°Õï—’¿πÕ°Ω…—QïÖµÃ§Ï(ÄÄÄÅï·ç°Öπùî°ïŸïπ–πÖµâ…ΩÕïIΩ±ïÕÕ•ùπµïπ—Ã¸πlùëÖ‰úÄ¨ÅëÖÂt§Ï(ÄÄÄÅçΩπÕ–Åïµï…ùïπç‰ÄÙÅïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πlùëÖ‰úÄ¨ÅëÖÂtÏ(ÄÄÄÅ•òÄ°ïµï…ùïπç‰¸πù…Ω’¡%πëï‡ÄÙÙÙÅô•…Õ–§Åïµï…ùïπç‰πù…Ω’¡%πëï‡ÄÙÅÕïçΩπêÏ(ÄÄÄÅï±ÕîÅ•òÄ°ïµï…ùïπç‰¸πù…Ω’¡%πëï‡ÄÙÙÙÅÕïçΩπê§Åïµï…ùïπç‰πù…Ω’¡%πëï‡ÄÙÅô•…Õ–Ï(ÄÄÄÄººÅM—Ö…—•πúÅ°Ω±ïÃÅÖπêÅ—ïîÅ—•µïÃÅâï±ΩπúÅ—ºÅ—°îÅ—ïîÅÕ±Ω—Ã∞ÅπΩ–Å—°îÅùΩ±ôï…Ã∏(ÄÄÄÅçΩπÕ–Åô•…Õ—M°Ω…–ÄÙÅÕï—’¿πù…Ω’¡Ãπô•πë%πëï‡°úÄÙ¯Åúπô•±—ï»°•êÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§π±ïπù—†ÄÙÙÙÄÃ§Ï(ÄÄÄÅçΩπÕ–ÅÖÕÕ•ùπµïπ–ÄÙÅÕï—’¿πÕ°Ω…—QïÖµÃ¸πmô•…Õ—M°Ω…—tÅÒÅÌÙÏ(ÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ÄÙÅÖÕÕ•ùπµïπ–πŸ•…—’Ö±A±ÖÂï»ÅÒÅπ’±∞Ï(ÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÄÙÅÖÕÕ•ùπµïπ–ππ—¡·—…ÖA±ÖÂï»ÅÒÅπ’±∞Ï(ÄÄÄÅÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÄÙÅÖÕÕ•ùπµïπ–ππ—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙÏ(ÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÅïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕï—’¡Ω…QïÖ¥°Õï—’¿∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅ•òÄ†ÖÕï—’¿§Å…ï—’…∏ÅÕï—’¿Ï(ÄÄÄÅ•òÄ°Õï—’¿πÕ°Ω…—QïÖµÃ§Å…ï—’…∏ÅÏ∏∏πÕï—’¿∞ÅŸ•…—’Ö±A±ÖÂï»Èπ’±∞∞Åπ—¡·—…ÖA±ÖÂï»Èπ’±∞∞Åπ—¡·—…ÖA±ÖÂï…ÃÈÌÙ∞Ä∏∏πÕï—’¿πÕ°Ω…—QïÖµÕmM—…•πú°ù…Ω’¡%πëï‡•t∞ÅÕ°Ω…—QïÖµ%πëï‡Èù…Ω’¡%πëï·ÙÏ(ÄÄÄÅçΩπÕ–Åô•…Õ–ÄÙÅÕï—’¿πù…Ω’¡Ãπô•πë%πëï‡°úÄÙ¯ÅúπÕΩµî°•êÄÙ¯ÅM—…•πú°•ê§ÙÙı9=}AIQ9I}%§ÅÒÄ°Öµâ…ΩÕï%Õ=∏†§ÄòòÅúπ±ïπù—†ÙÙÙÃ§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ∏∏πÕï—’¿∞Ä∏∏∏°ô•…Õ–ÙÙıù…Ω’¡%πëï‡˝ÌÙÈÌŸ•…—’Ö±A±ÖÂï»Èπ’±∞±π—¡·—…ÖA±ÖÂï»Èπ’±∞±π—¡·—…ÖA±ÖÂï…ÃÈÌıÙ§±Õ°Ω…—QïÖµ%πëï‡Èù…Ω’¡%πëï·ÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’ÃıÕï—’¿πÕ°Ω…—QïÖµÃÅÒÅÌÙ∞Åπï·–ıÌÙ∞Å’Õïêıπï‹ÅMï–†§Ï(ÄÄÄÅçΩπÕ–Åïµï…ùïπç‰ıÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πlùëÖ‰ú≠ëÖÂtÏ(ÄÄÄÅ•ò°ïµï…ùïπç‰¸πŸ•…—’Ö±A±ÖÂï…%ê•’ÕïêπÖëê°M—…•πú°ïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%ê§§Ï(ÄÄÄÅçΩπÕ–ÅÕ°Ω…—%πëï·ïÃıÕï—’¿πù…Ω’¡ÃπµÖ¿†°ú±§§Ù˘úπô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§π±ïπù—†ÙÙÙÃ˝§Ë¥ƒ§πô•±—ï»°§Ù˘§¯Ù¿§Ï(ÄÄÄÅçΩπÕ–Å±ïùÖçÂ%πëï‡ıÕï—’¿πù…Ω’¡Ãπô•πë%πëï‡°úÙ˘úπÕΩµî°•êÙ˘M—…•πú°•ê§ÙÙı9=}AIQ9I}%§ÅÒÄ°Öµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§òôúπ±ïπù—†ÙÙÙÃ§§Ï(ÄÄÄÅôΩ»°çΩπÕ–Åù§ÅΩòÅÕ°Ω…—%πëï·ïÃ•Ï(ÄÄÄÄÄÅ•ò†ÖÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§òòÖÕï—’¿πù…Ω’¡Õmù•tπÕΩµî°•êÙ˘M—…•πú°•ê§ÙÙı9=}AIQ9I}%§•Õï—’¿πù…Ω’¡Õmù•tπ¡’Õ†°9=}AIQ9I}%§Ï(ÄÄÄÄÄÅçΩπÕ–Å±ïùÖç‰ÙÖÕï—’¿πÕ°Ω…—QïÖµÃòôù§ÙÙı±ïùÖçÂ%πëï‡Ä¸ÅÌŸ•…—’Ö±A±ÖÂï»ÈÕï—’¿πŸ•…—’Ö±A±ÖÂï»±π—¡·—…ÖA±ÖÂï»ÈÕï—’¿ππ—¡·—…ÖA±ÖÂï»±π—¡·—…ÖA±ÖÂï…ÃÈÕï—’¿ππ—¡·—…ÖA±ÖÂï…ÕÙÄËÅÌÙÏ(ÄÄÄÄÄÅçΩπÕ–Å±ΩçÖ∞ıÏ∏∏πÕï—’¿∞∏∏π±ïùÖç‰∞∏∏π¡…ïŸ•Ω’ÕmM—…•πú°ù§•t±Õ°Ω…—QïÖµ%πëï‡Èù•ÙÏ(ÄÄÄÄÄÅ•ò†Ö¡…ïŸ•Ω’ÕmM—…•πú°ù§•tòòÖ=â©ïç–π≠ïÂÃ°±ïùÖç‰§π±ïπù—†•Ì±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï»ıπ’±∞Ì±ΩçÖ∞ππ—¡·—…ÖA±ÖÂï»ıπ’±∞Ì±ΩçÖ∞ππ—¡·—…ÖA±ÖÂï…ÃıÌÙÌ±ΩçÖ∞ππ—¡IΩ—Ö—•Ω∏ımtÌÙ(ÄÄÄÄÄÅïπÕ’…ï=πïM°Ω…—QïÖµMï±ïç—•ΩπÃ°±ΩçÖ∞±ëÖ‰§Ï(ÄÄÄÄÄÅ•ò†ÖÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§•Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åç—‡ıπΩAÖ…—πï…Ωπ—ï·–°Õï—’¿πù…Ω’¡Ã±ëÖ‰±ù§§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å…ïÕï…Ÿïêıïµï…ùïπç‰¸πù…Ω’¡%πëï‡ÙÙıù§Ï(ÄÄÄÄÄÄÄÅ•ò†Ö…ïÕï…ŸïêÄòòÅ’Õïêπ°ÖÃ°M—…•πú°±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï»§§§Å±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï»ıç°ΩΩÕïIÖπëΩ¥°ç—‡πçÖπë•ëÖ—ïÃ±l∏∏π’Õïët§Ï(ÄÄÄÄÄÄÄÅ•ò†Ö±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï»•—°…Ω‹Åπï‹Å……Ω»†ù9ºÅë•Õ—•πç–ÅY•…—’Ö∞ÅA±ÖÂï»Å•ÃÅÖŸÖ•±Öâ±îÅôΩ»ÅQïÖ¥Äú¨°ù§¨ƒ§¨ú∏ÅIïŸ•ï‹Å—°îÅë…Ö‹∏ú§Ï(ÄÄÄÄÄÄÄÅ’ÕïêπÖëê°M—…•πú°±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï»§§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅπï·—mM—…•πú°ù§•tıÌŸ•…—’Ö±A±ÖÂï»È±ΩçÖ∞πŸ•…—’Ö±A±ÖÂï…ÒÒπ’±∞±π—¡·—…ÖA±ÖÂï»È±ΩçÖ∞ππ—¡·—…ÖA±ÖÂï…ÒÒπ’±∞±π—¡·—…ÖA±ÖÂï…ÃÈ±ΩçÖ∞ππ—¡·—…ÖA±ÖÂï…ÕÒÒÌÙ±π—¡IΩ—Ö—•Ω∏È±ΩçÖ∞ππ—¡IΩ—Ö—•ΩπÒÒmuÙÏ(ÄÄÄÅÙ(ÄÄÄÅÕï—’¿πÕ°Ω…—QïÖµÃıπï·–Ï(ÄÄÄÅçΩπÕ–Åô•…Õ–ıπï·—mM—…•πú°Õ°Ω…—%πëï·ïÕl¡t•tÅÒÅÌÙÏ(ÄÄÄÄººÅ1ïùÖç‰Åô•ï±ëÃÅ…ïµÖ•∏Å…ïÖëÖâ±îÅâ‰ÅΩ±êÅâÖç≠’¡Ã∏Å’……ïπ–ÅÕçΩ…•πúÅ’ÕïÃÅ—°îÅ—ïÖ¥ÅµÖ¿∏(ÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»ıô•…Õ–πŸ•…—’Ö±A±ÖÂï…ÒÒπ’±∞ÌÕï—’¿ππ—¡·—…ÖA±ÖÂï»ıô•…Õ–ππ—¡·—…ÖA±ÖÂï…ÒÒπ’±∞ÌÕï—’¿ππ—¡·—…ÖA±ÖÂï…Ãıô•…Õ–ππ—¡·—…ÖA±ÖÂï…ÕÒÒÌÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ°Ω…—QïÖµI’±ï1•πïÃ°ïŸïπ–∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ıïŸïπ–πù…Ω’¡Mï—’¿¸πlùëÖ‰ú≠ëÖÂtÌ•ò†ÖÕï—’¿•…ï—’…∏ÅmtÏ(ÄÄÄÅ…ï—’…∏Å=â©ïç–πïπ—…•ïÃ°Õï—’¿πÕ°Ω…—QïÖµÕÒÒÌÙ§πô±Ö—5Ö¿†°mù§±Öt§Ù˘Ï(ÄÄÄÄÄÅçΩπÕ–Å±•πïÃımÅQïÖ¥ÄëÏ≠ù§¨≈ÙËÅ—°…ïîÅ…ïÖ∞ÅùΩ±ôï…ÃëÌÑπŸ•…—’Ö±A±ÖÂï»˝ÄÏÄëÌ¡±ÖÂï»°ÑπŸ•…—’Ö±A±ÖÂï»§¸ππÖµîÅÒÄù—°îÅÖÕÕ•ùπïêÅùΩ±ôï»ùÙÅÕ’¡¡±•ïÃÅ—°îÅY•…—’Ö∞ÅA±ÖÂï»ÅÕçΩ…îÅôΩ»Åµ’±—•¡±ÖÂï»ÅçΩµ¡ï—•—•ΩπÕÄËú∏Å9ºÅâΩ……Ω›ïêÅÕçΩ…îÅ•ÃÅ’ÕïêÅôΩ»Åµâ…ΩÕîùÙπÅtÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖ——ïµ¡—Ãı=â©ïç–πïπ—…•ïÃ°Ñππ—¡·—…ÖA±ÖÂï…ÕÒÒÌÙ§πµÖ¿†°m°Ω±î±•ët§Ù˘Å!Ω±îÄëÌ°Ω±ïÙËÄëÌ¡±ÖÂï»°•ê§¸ππÖµïÒù—°îÅÖÕÕ•ùπïêÅùΩ±ôï»ùÙÅ—Ö≠ïÃÅ—›ºÅ—ïîÅÕ°Ω—ÃÏÅï•—°ï»ÅµÖ‰Å›•∏Å9QAÄ§Ï(ÄÄÄÄÄÅ•ò°Ñππ—¡·—…ÖA±ÖÂï»•Ö——ïµ¡—Ãπ¡’Õ†°ÄëÌ¡±ÖÂï»°Ñππ—¡·—…ÖA±ÖÂï»§¸ππÖµïÒù—°îÅÖÕÕ•ùπïêÅùΩ±ôï»ùÙÅ—Ö≠ïÃÅ—›ºÅÕ°Ω—ÃÅΩ∏ÅïÖç†Å9Q@Å°Ω±ïÄ§Ï(ÄÄÄÄÄÅ•ò°Ö——ïµ¡—Ãπ±ïπù—†•±•πïÃπ¡’Õ†°ÅQïÖ¥ÄëÏ≠ù§¨≈ÙÅ9Q@Åï·—…ÑÅÖ——ïµ¡—ÃÉäPÄëÌÖ——ïµ¡—Ãπ©Ω•∏†úÏÄú•ÙπÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Å±•πïÃÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å•π•—•Ö±•Õï…Ω’¡Ã†§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§Å…ï—’…∏Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿ÅÒÅÌÙÏ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞(ÄÄÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§∞(ÄÄÄÄÄÄÄÅïµï…ùïπç‰ÄÙÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πm≠ïÂt∞(ÄÄÄÄÄÄÄÅï·¡ïç—ïë%ëÃÄÙÅïµï…ùïπç‰Ä¸Ål∏∏π•ëÃ∞Å9=}AIQ9I}%tÄËÅ•ëÃÏ(ÄÄÄÄÄÅçΩπÕ–Åç’……ïπ–ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¡m≠ïÂtÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕÖµîÄÙ(ÄÄÄÄÄÄÄÅç’……ïπ–Äòò(ÄÄÄÄÄÄÄÅç’……ïπ–πù…Ω’¡ÃÄòò(ÄÄÄÄÄÄÄÅç’……ïπ–πù…Ω’¡Ãπô±Ö–†§πµÖ¿°M—…•πú§πô•±—ï»°•êÙ˘•êÑÙı9=}AIQ9I}%§πÕΩ…–†§π©Ω•∏†âà§ÄÙÙÙ(ÄÄÄÄÄÄÄÄÄÅï·¡ïç—ïë%ëÃπµÖ¿°M—…•πú§πô•±—ï»°•êÙ˘•êÑÙı9=}AIQ9I}%§πÕΩ…–†§π©Ω•∏†âà§Äòò(ÄÄÄÄÄÄÄÅç’……ïπ–πù…Ω’¡ÃπïŸï…‰°ù…Ω’¿Ù˘Öµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–±ëÖ‰§Ä¸ÄÖù…Ω’¿π•πç±’ëïÃ°9=}AIQ9I}%§ÄËÅù…Ω’¿πô•±—ï»°•êÙ˘•êÑÙı9=}AIQ9I}%§π±ïπù—†ÑÙÙÃÅÒÅù…Ω’¿π•πç±’ëïÃ°9=}AIQ9I}%§§Ï(ÄÄÄÄÄÅ•òÄ†ÖÕÖµî§ÅÏ(ÄÄÄÄÄÄÄÄººÅ	’•±êÅ—°îÅô•…Õ–ÅŸ•ï‹Å›•—†Å—°îÅÕÖµîÅ!•Õ—Ω…‰Å	Ö±ÖπçïêÅ±Ωù•åÅ—°îÅΩ…ùÖπ•Õï»Åùï—ÃÅâ‰Å¡…ïÕÕ•πúÅ—°îÅâ’——Ω∏∏(ÄÄÄÄÄÄÄÄººÅÖ‰Ä»Å—°ï…ïôΩ…îÅÕïïÃÅ—°îÅπï›±‰µç…ïÖ—ïêÅÖ‰ÄƒÅÖπêÅÖŸΩ•ëÃÅ’ππïçïÕÕÖ…‰Å…ï¡ïÖ—ÃÅ•µµïë•Ö—ï±‰∏(ÄÄÄÄÄÄÄÅ±ï–Åù…Ω’¡ÃÄÙÅ°•Õ—Ω…Â	Ö±Öπçïë…Ω’¡Ã°•ëÃ∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÄººÅ·—…ÑÅÕÖôïù’Ö…êËÅ•òÅ9ºÅAÖ…—πï»Åï·•Õ—ÃÅΩ∏ÅâΩ—†ÅëÖÂÃ∞ÅÖŸΩ•êÅÖ±±ΩçÖ—•πúÅ•–Å—ºÅ—°îÅÕÖµîÅùΩ±ôï»Å›°ï…îÅÖ±—ï…πÖ—•ŸïÃÅï·•Õ–∏(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅëÖ‰ÄÙÙÙÄ»Äòò(ÄÄÄÄÄÄÄÄÄÅù…Ω’¡ÃπÕΩµî†°ú§ÄÙ¯ÅúπÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅ9=}AIQ9I}%§§(ÄÄÄÄÄÄÄÄ§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅêƒÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿πëÖ‰ƒ∞(ÄÄÄÄÄÄÄÄÄÄÄÅç—‡ƒÄÙÅêƒÄ¸ÅπΩAÖ…—πï…Ωπ—ï·–°êƒπù…Ω’¡Ã∞Äƒ§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅ±ï–Åç—‡»ÄÙÅπΩAÖ…—πï…Ωπ—ï·–°ù…Ω’¡Ã∞Ä»§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ç—‡ƒÄòòÅç—‡»ÄòòÅM—…•πú°ç—‡ƒπÖôôïç—ïê§ÄÙÙÙÅM—…•πú°ç—‡»πÖôôïç—ïê§§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åπ¡ÄÙÅç—‡»πù…Ω’¡%πëï‡∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπ¡$ÄÙÅç—‡»ππΩAÖ…—πï…%πëï‡Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ±ï–ÅÕ›Ö¡¡ïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Åù§ÄÙÄ¿ÏÅù§ÄÅù…Ω’¡Ãπ±ïπù—†ÄòòÄÖÕ›Ö¡¡ïêÏÅù§¨¨§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å¡§ÄÙÄ¿ÏÅ¡§ÄÅù…Ω’¡Õmù•tπ±ïπù—†ÄòòÄÖÕ›Ö¡¡ïêÏÅ¡§¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅçÖπë•ëÖ—îÄÙÅM—…•πú°ù…Ω’¡Õmù•um¡•t§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖπë•ëÖ—îÄÑÙÙÅ9=}AIQ9I}%Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖπë•ëÖ—îÄÑÙÙÅM—…•πú°ç—‡ƒπÖôôïç—ïê§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å—ïµ¿ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡Õmπ¡umπ¡$ÄÙÙÙÄ¿Ä¸ÄƒÄËÅπ¡$ÄÙÙÙÄ»Ä¸ÄÃÄËÅπ¡$Ä¥Ä≈tÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ö…—πï…%πëï‡ÄÙÅπ¡$ÄÙÙÙÄ¿Ä¸ÄƒÄËÅπ¡$ÄÙÙÙÄ»Ä¸ÄÃÄËÅπ¡$Ä¥ÄƒÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡Õmπ¡um¡Ö…—πï…%πëï·tÄÙÅù…Ω’¡Õmù•um¡•tÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡Õmù•um¡•tÄÙÅ—ïµ¿Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ›Ö¡¡ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¡m≠ïÂtÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅù…Ω’¡Ã∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ö…—ÃËÅëïôÖ’±—M—Ö…—Ã°ù…Ω’¡Ã∞ÅÕ—Ö…—5ï—°ΩëΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÅÕÖŸïêËÅôÖ±Õî∞(ÄÄÄÄÄÄÄÄÄÅŸ•…—’Ö±A±ÖÂï»ËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅπ—¡·—…ÖA±ÖÂï»ËÅπ’±∞∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¡m≠ïÂt∞ÅëÖ‰§Ï(ÄÄÄÅÙ(ÄÄÄÅÕÂπç°…Ωπ•ÕïM•πù±ïQïï…Ω’¡M—Ö…—Ã°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÄÙÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÅÒÄâ°•Õ—Ω…‰àÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄÙÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâµÖπ’Ö∞àÏ(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÙÙÅ’πëïô•πïê§ÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åù…Ω’¡Ωµ¡ï—•—•ΩπQï·–†§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§Å…ï—’…∏ÄààÏ(ÄÄÄÅ±ï–ÅåÄÙÅµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°Õ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ§∞(ÄÄÄÄÄÅ¡Ö…—ÃÄÙÅmtÏ(ÄÄÄÅ•òÄ°åπ°ÖÃ†âôΩ’…âÖ±∞à§§(ÄÄÄÄÄÅ¡Ö…—Ãπ¡’Õ††à—		Å¡Ö…—πï…ÃÅÖ…îÅ—°îÅ—›ºÅ¡Ö•…ÃÅÕ°Ω›∏Å•∏ÅïÖç†Åù…Ω’¿à§Ï(ÄÄÄÅ•òÄ°åπ°ÖÃ†â—ïÖµA’——Ãà§§(ÄÄÄÄÄÅ¡Ö…—Ãπ¡’Õ††(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…Ãà(ÄÄÄÄÄÄÄÄÄÄ¸Äâ—°îÅ—›ºÄ—		Å¡Ö…—πï…Õ°•¡ÃÅÖ…îÅ—°îÅA’——•πúÅ¡Ö•…Ãà(ÄÄÄÄÄÄÄÄÄÄËÄâ—°îÅô’±∞ÅôΩ’»µ¡ï…ÕΩ∏Åù…Ω’¿Å•ÃÅ—°îÅA’——•πúÅ—ïÖ¥à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°åπ°ÖÃ†ââïÕ–ÕΩò–à§§(ÄÄÄÄÄÅ¡Ö…—Ãπ¡’Õ††â—°îÅô’±∞ÅôΩ’»µ¡ï…ÕΩ∏Åù…Ω’¿Å•ÃÅ—°îÅ	ïÕ–ÄÃÅΩòÄ–Å—ïÖ¥à§Ï(ÄÄÄÅ…ï—’…∏Å¡Ö…—Ãπ©Ω•∏†àÉ
+‹Äà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïŸïπ—ÖÂ!Öπë•çÖ¡Ã°ëÖ‰§ÅÏ(ÄÄÄÅïπÕ’…ïŸïπ—QïïA±Öππ•πú°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πëÖ•±Â!Öπë•çÖ¡ÃÄÙÅÕ—Ω…îπïŸïπ–πëÖ•±Â!Öπë•çÖ¡ÃÅÒÅÏ(ÄÄÄÄÄÅëÖ‰ƒËÅÌÙ∞(ÄÄÄÄÄÅëÖ‰»ËÅÌÙ∞(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞(ÄÄÄÄÄÅÖç—•ŸîÄÙÅ=â©ïç–πô…Ωµπ—…•ïÃ°ëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§πµÖ¿°•êÙ˘Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ıïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±•ê§±—ïîıÕï±ïç—ïëŸïπ—Qïî°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅmM—…•πú°•ê§±—ïï!Öπë•çÖ¡ÕΩ»°ëÖ‰±—ïî•mM—…•πú°•ê•utÏ(ÄÄÄÄÄÅÙ§§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πëÖ•±Â!Öπë•çÖ¡Õm≠ïÂtÄÙÅÖç—•ŸîÏ(ÄÄÄÅ…ï—’…∏ÅÖç—•ŸîÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅçÖ—ïùΩ…‰ıïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±•ê§Ï(ÄÄÄÅçΩπÕ–ÅÿÄÙÅ—ïï!Öπë•çÖ¡ÕΩ»†(ÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÅÕï±ïç—ïëŸïπ—Qïî°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§∞(ÄÄÄÄ•mM—…•πú°•ê•tÏ(ÄÄÄÅ…ï—’…∏ÅÿÄÙÙÙÄààÅÒÅÿÄÙÙÅπ’±∞Ä¸Åπ’±∞ÄËÄ≠ÿÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïçΩ…ëŸïπ—!Öπë•çÖ¡!•Õ—Ω…‰°ëÖÂ=π±‰ÄÙÅπ’±∞§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–ÅÒÅ•ÕQïÕ—Ÿïπ–°Õ—Ω…îπïŸïπ–§§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Åô•…Õ—Ö‰ÄÙÅëÖÂ=π±‰ÅÒÄƒ∞(ÄÄÄÄÄÅ±ÖÕ—Ö‰ÄÙÅëÖÂ=π±‰ÅÒÅÕ—Ω…îπïŸïπ–πëÖÂÃÏ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÅô•…Õ—Ö‰ÏÅëÖ‰ÄÙÅ±ÖÕ—Ö‰ÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§Ï(ÄÄÄÄÄÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å†ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ•ëïπ—•—‰ÄÙÅïŸïπ—A±ÖÂï»°•ê±ëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¿ÄÙÅÕ—Ω…îπ¡±ÖÂï…Ãπô•πê°¿Ù˘M—…•πú°¿π•ê§ÙÙıM—…•πú°•ëïπ—•—‰¸π¡…Ωô•±ï%êÅÒÅ•ê§§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°†ÄÙÙÅπ’±∞ÅÒÄÖ¿ÅÒÄÖå§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅ¿πçΩ’…Õï!Öπë•çÖ¡ÃÄÙÅ¿πçΩ’…Õï!Öπë•çÖ¡ÃÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÄÄÅ¿πçΩ’…Õï!Öπë•çÖ¡ÕmM—…•πú°åπ•ê•tÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩ’…Õï%êËÅM—…•πú°åπ•ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩ’…Õï9ÖµîËÅåππÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÅ°Öπë•çÖ¿ËÅ†∞(ÄÄÄÄÄÄÄÄÄÄÄÅ’¡ëÖ—ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ—9ÖµîËÅÕ—Ω…îπïŸïπ–ππÖµîÅÒÄàà∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ï—Ö•πïë1ïùÖçÂMçΩ…•πùI’±ïÃ†§ÅÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–¸πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–ÄòòÅÕ—Ω…îπïŸïπ–πô•πÖ±IïÕ’±—ÃπÕçΩ…•πùI’±ïÕYï…Õ•Ω∏ÄÑÙÙÄ»§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ—Öâ±ïôΩ…ëM—…Ω≠ïΩ’π–°•πëï·YÖ±’î∞Å°Öπë•çÖ¿§ÅÏ(ÄÄÄÅ°Öπë•çÖ¿ÄÙÄ≠°Öπë•çÖ¿ÅÒÄ¿Ï(ÄÄÄÅçΩπÕ–Å—·–ÄÙÅM—…•πú°•πëï·YÖ±’îÄ¸¸Äàà§π—…•¥†§Ï(ÄÄÄÅ•òÄ°°Öπë•çÖ¿ÄÄ¿§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•ë‡ÄÙÄ¨°—·–πÕ¡±•–†àºà•l¡tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÅ¡±’ÃÄÙÅ5Ö—†πÖâÃ°°Öπë•çÖ¿§Ï(ÄÄÄÄÄÅ•òÄ†Ö•ë‡§Å…ï—’…∏Ä¿Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅ5Ö—†πô±ΩΩ»°¡±’ÃÄºÄƒ‡§∞(ÄÄÄÄÄÄÄÅ…ï¥ÄÙÅ¡±’ÃÄîÄƒ‡Ï(ÄÄÄÄÄÅ…ï—’…∏ÄµâÖÕîÄ¥Ä°…ï¥ÄòòÅ•ë‡Ä¯Äƒ‡Ä¥Å…ï¥Ä¸ÄƒÄËÄ¿§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°°Öπë•çÖ¿ÄÙÙÙÄ¿§Å…ï—’…∏Ä¿Ï(ÄÄÄÅ•òÄ°—·–π•πç±’ëïÃ†àºà§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•πëï·ïÃÄÙÅ—·–πÕ¡±•–†àºà§πµÖ¿†°‡§ÄÙ¯Ä≠M—…•πú°‡§π—…•¥†§§(ÄÄÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯Å9’µâï»π•Õ•π•—î°‡§ÄòòÅ‡Ä¯Ä¿§Ï(ÄÄÄÄÄÅçΩπÕ–Å±•Õ—ïêÄÙÅ•πëï·ïÃπô•±—ï»†°‡§ÄÙ¯Å‡ÄÙÅ°Öπë•çÖ¿§π±ïπù—†Ï(ÄÄÄÄÄÄººÅA…ïÕï…ŸîÅçΩπô•…µïêÅ°•Õ—Ω…•çÖ∞Å…ïÕ’±—Ã∏ÅâΩŸîÄÃÿ∞Å…ï¡ïÖ–Å—°îÅ¡…•µÖ…‰(ÄÄÄÄÄÄººÄ«äLƒ‡Å•πëï‡Å›°•±îÅ…ï—Ö•π•πúÅ—°îÅçΩ’…ÕîùÃÅÕï¡Ö…Ö—îÅÕïçΩπêµÕ—…Ω≠îÅΩ…ëï»∏(ÄÄÄÄÄÅ•òÄ°…ï—Ö•πïë1ïùÖçÂMçΩ…•πùI’±ïÃ†§ÅÒÅ°Öπë•çÖ¿ÄÙÄÃÿ§Å…ï—’…∏Å±•Õ—ïêÏ(ÄÄÄÄÄÅçΩπÕ–Å¡…•µÖ…‰ÄÙÅ•πëï·ïÕl¡tÏ(ÄÄÄÄÄÅ•òÄ†Ö¡…•µÖ…‰ÅÒÅ¡…•µÖ…‰Ä¯Äƒ‡§Å…ï—’…∏Å±•Õ—ïêÏ(ÄÄÄÄÄÅçΩπÕ–Åï·—…ÑÄÙÅ°Öπë•çÖ¿Ä¥ÄÃÿÏ(ÄÄÄÄÄÅ…ï—’…∏Å±•Õ—ïêÄ¨Å5Ö—†πô±ΩΩ»°ï·—…ÑÄºÄƒ‡§Ä¨Ä°¡…•µÖ…‰ÄÙÅï·—…ÑÄîÄƒ‡Ä¸ÄƒÄËÄ¿§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•ë‡ÄÙÄ≠—·–Ï(ÄÄÄÅ•òÄ†Ö•ë‡§Å…ï—’…∏Ä¿Ï(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅ5Ö—†πô±ΩΩ»°°Öπë•çÖ¿ÄºÄƒ‡§∞(ÄÄÄÄÄÅ…ï¥ÄÙÅ°Öπë•çÖ¿ÄîÄƒ‡Ï(ÄÄÄÅ…ï—’…∏ÅâÖÕîÄ¨Ä°…ï¥ÄòòÅ•ë‡ÄÙÅ…ï¥Ä¸ÄƒÄËÄ¿§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°ù…ΩÕÃ∞Å¡Ö»∞Å•πëï·YÖ±’î∞Å°Öπë•çÖ¿§ÅÏ(ÄÄÄÅ•òÄ°M—…•πú°ù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à§Å…ï—’…∏Ä¿Ï(ÄÄÄÅù…ΩÕÃÄÙÄ≠ù…ΩÕÃÏ(ÄÄÄÅ¡Ö»ÄÙÄ≠¡Ö»Ï(ÄÄÄÅ•òÄ†Öù…ΩÕÃÅÒÄÖ¡Ö»ÅÒÅ°Öπë•çÖ¿ÄÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏Å5Ö—†πµÖ‡†(ÄÄÄÄÄÄ¿∞(ÄÄÄÄÄÄ»Ä¨Å¡Ö»Ä¨ÅÕ—Öâ±ïôΩ…ëM—…Ω≠ïΩ’π–°•πëï·YÖ±’î∞Å°Öπë•çÖ¿§Ä¥Åù…ΩÕÃ∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§ÅÏ(ÄÄÄÅÕ—Ö…–ÄÙÄ≠Õ—Ö…–ÅÒÄƒÏ(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Ä†°Õ—Ö…–Ä¥ÄƒÄ¨Å§§ÄîÄƒ‡§Ä¨Äƒ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§ÅÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πÕçΩ…•πúÄÙÅÕ—Ω…îπïŸïπ–πÕçΩ…•πúÅÒÅÏÅëÖ‰ƒËÅÌÙ∞ÅëÖ‰»ËÅÌÙÅÙÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πÕçΩ…•πùlâëÖ‰àÄ¨ÅëÖÂtÄÙÅÕ—Ω…îπïŸïπ–πÕçΩ…•πùlâëÖ‰àÄ¨ÅëÖÂtÅÒÅÌÙÏ(ÄÄÄÅ…ï—’…∏ÅÕ—Ω…îπïŸïπ–πÕçΩ…•πùlâëÖ‰àÄ¨ÅëÖÂtÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕçΩ…ï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅêÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§∞(ÄÄÄÄÄÅ•êÄÙÅM—…•πú°ÕçΩ…ï…%ê§Ï(ÄÄÄÅëm•ëtÄÙÅëm•ëtÅÒÅÌÙÏ(ÄÄÄÅ…ï—’…∏Åëm•ëtÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÕçΩ…ï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅÃÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕçΩ…ï…%ê§∞(ÄÄÄÄÄÅ¨ÄÙÅM—…•πú°°Ω±î§Ï(ÄÄÄÅÕm≠tÄÙÅÕm≠tÅÒÅÏÅΩôô•ç•Ö∞ËÅÌÙ∞ÅÕï±òËÅÌÙ∞Åπ—¿ËÅÌÙÅÙÏ(ÄÄÄÅ…ï—’…∏ÅÕm≠tÏ(ÄÅÙ(ÄÅçΩπÕ–ÅÕçΩ…ïπ—ï…ïêÄÙÄ°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÙÄààÄòòÅŸÖ±’îÄÑÙÅπ’±∞Ï(ÄÅô’πç—•Ω∏Åô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ω’πëÃÄÙÅÕ—Ω…îπïŸïπ–¸πÕçΩ…•πú¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅÌÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÕçΩ…ï…%ê∞Å…Ω’πëtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πëÃ§§ÅÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åm°Ω±î∞Å…ïçtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πêÅÒÅÌÙ§§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†ÑΩx°lƒ¥Âu≈l¿¥·t§êºπ—ïÕ–°°Ω±î§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïå¸πÕï±ò¸πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïå¸πÕï±ò¸π¡’——Ã∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïå¸πΩôô•ç•Ö∞¸πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïå¸πΩôô•ç•Ö∞¸π¡’——Ã∞(ÄÄÄÄÄÄÄÄÄÅtπÕΩµî°ÕçΩ…ïπ—ï…ïê§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅÕçΩ…ï…%êËÅM—…•πú°ÕçΩ…ï…%ê§∞Å°Ω±îËÄ≠°Ω±îÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅëÖÂ!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰§ÅÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åù…Ω’¡!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–Åù…Ω’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt¸πù…Ω’¡Ã¸πmù…Ω’¡%πëï·tÅÒÅmt∞(ÄÄÄÄÄÅÕçΩ…ï…%ëÃÄÙÅπï‹ÅMï–°ù…Ω’¿πµÖ¿°M—…•πú§πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§§∞(ÄÄÄÄÄÅ…Ω’πëÃÄÙÅÕ—Ω…îπïŸïπ–¸πÕçΩ…•πú¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅÌÙÏ(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÕçΩ…ï…%ê∞Å…Ω’πëtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πëÃ§§ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖÕçΩ…ï…%ëÃπ°ÖÃ°M—…•πú°ÕçΩ…ï…%ê§§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åm°Ω±î∞Å…ïçtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πêÅÒÅÌÙ§§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†ÑΩx°lƒ¥Âu≈l¿¥·t§êºπ—ïÕ–°°Ω±î§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°m…ïå¸πÕï±ò¸πù…ΩÕÃ∞Å…ïå¸πÕï±ò¸π¡’——Ã∞Å…ïå¸πΩôô•ç•Ö∞¸πù…ΩÕÃ∞Å…ïå¸πΩôô•ç•Ö∞¸π¡’——ÕtπÕΩµî°ÕçΩ…ïπ—ï…ïê§§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅÕçΩ…ï…%êËÅM—…•πú°ÕçΩ…ï…%ê§∞Å°Ω±îËÄ≠°Ω±îÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°ëÖ‰∞Å—ïî∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–∞ÅçÖ—ïùΩ…‰ÄÙÅπ’±∞§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ¿ÄÙÅ—ïï!Öπë•çÖ¡ÕΩ»°ëÖ‰∞Å—ïî∞ÅïŸïπ–§∞(ÄÄÄÄÄÅ•ëÃÄÙÅïŸïπ–ÄÙÙÙÅÕ—Ω…îπïŸïπ–Ä¸ÅëÖÂ•ï±ë%ëÃ°ëÖ‰§ÄËÅ›•ÈÖ…ëA±Öππ•πùA±ÖÂï…Ã°ëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Å•ëÃ(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÄÖçÖ—ïùΩ…‰ÅÒÅïŸïπ—ÖÖ—ïùΩ…‰°•ê±ïŸïπ–§ÄÙÙÙÅçÖ—ïùΩ…‰§(ÄÄÄÄÄÄπïŸï…‰†°•ê§ÄÙ¯ÅµÖ¡mM—…•πú°•ê•tÄÑÙÙÄààÄòòÅµÖ¡mM—…•πú°•ê•tÄÑÙÅπ’±∞§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕç…Ö—ç°!Öπë•çÖ¡1•µ•–°ïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅ…ï—’…∏ÅïŸïπ–¸πÕç…Ö—ç°5Ö·!ç¿ÄÙÙÅπ’±∞(ÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄËÅ9’µâï»π•Õ•π•—î†≠ïŸïπ–πÕç…Ö—ç°5Ö·!ç¿§(ÄÄÄÄÄÄÄÄ¸Ä≠ïŸïπ–πÕç…Ö—ç°5Ö·!ç¿(ÄÄÄÄÄÄÄÄËÄƒ¿Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕç…Ö—ç°I’±ïÕQï·–°ïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ‡ÄÙÅÕç…Ö—ç°!Öπë•çÖ¡1•µ•–°ïŸïπ–§Ä¸¸Äƒ¿Ï(ÄÄÄÅçΩπÕ–ÅÕçΩ…•πúÄÙ(ÄÄÄÄÄÅïŸïπ–¸πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰à(ÄÄÄÄÄÄÄÄ¸ÄâMçΩ…•πúÅ•ÃÅçÖ¡¡ïêÅÖ–ÅëΩ’â±îÅâΩùï‰Ä†»ÅΩŸï»Å¡Ö»§ÅΩ∏ÅïÖç†Å°Ω±î∏ÅÅA%,µU@Ä°@§Å…ïçΩ…ëÃÅÑÅÕçΩ…îÅΩòÄ»ÅΩŸï»Å¡Ö»ÅôΩ»Å—°Ö–Å°Ω±î∏à(ÄÄÄÄÄÄÄÄËÄâA’…îÅM—…Ω≠îÅÕçΩ…•πúÅÖ¡¡±•ïÃËÅïŸï…‰ÅÕ—…Ω≠îÅçΩ’π—Ã∏ÅŸï…‰Å°Ω±îÅµ’Õ–ÅâîÅ¡±ÖÂïêÅ—ºÅçΩµ¡±ï—•Ω∏ÅÖπêÅÑÅA%,µU@Ä°@§Å…ïÕ’±—ÃÅ•∏Åë•Õ≈’Ö±•ô•çÖ—•Ω∏Åô…Ω¥Å—°îÅMç…Ö—ç†ÅΩµ¡ï—•—•Ω∏∏àÏ(ÄÄÄÅ…ï—’…∏ÅÅQ°•ÃÅïŸïπ–Å•πç±’ëïÃÅÑÅMç…Ö—ç†ÅΩµ¡ï—•—•Ω∏∏Åπ‰Å¡±ÖÂï»Å›•—†ÅÑÅëÖ•±‰Å°Öπë•çÖ¿ÅΩòÄëÌµÖ·ÙÅΩ»Å±ïÕÃÅ•ÃÅ•πç±’ëïêÅ•∏Å—°îÅMç…Ö—ç†ÅΩµ¡ï—•—•Ω∏∏Åπ‰Å¡±ÖÂï»Å›•—†ÅÑÅëÖ•±‰Å°Öπë•çÖ¿Åù…ïÖ—ï»Å—°Ö∏ÄëÌµÖ·ÙÅ•ÃÅπΩ–Å•πç±’ëïê∏ÄëÌÕçΩ…•πùıÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕç…Ö—ç°A•ç≠’¡!Ω±î°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å†§¸πù…ΩÕÃÏ(ÄÄÄÄÄÅ•òÄ°M—…•πú°ù…ΩÕÃÄ¸¸Äàà§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à§Å…ï—’…∏Å†Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕç…Ö—ç°…ΩÕÕMçΩ…ïÃ°ëÖ‰∞Å¡±ÖÂï…%ê∞ÅçÖ…ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ·•µ’µΩ’â±ï	Ωùï‰ÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–¸πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰àÏ(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å§Ä¨Äƒ§¸πù…ΩÕÃÏ(ÄÄÄÄÄÅ•òÄ°M—…•πú°ù…ΩÕÃÄ¸¸Äàà§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖ·•µ’µΩ’â±ï	Ωùï‰Ä¸Ä¨°çÖ…ê¸π¡Ö»¸πm•tÅÒÄ¿§Ä¨Ä»ÄËÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ°ù…ΩÕÃÄÙÙÙÄààÅÒÅù…ΩÕÃÄÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÅ…ï—’…∏ÅµÖ·•µ’µΩ’â±ï	Ωùï‰(ÄÄÄÄÄÄÄÄ¸Å5Ö—†πµ•∏†≠ù…ΩÕÃ∞Ä¨°çÖ…ê¸π¡Ö»¸πm•tÅÒÄ¿§Ä¨Ä»§(ÄÄÄÄÄÄÄÄËÄ≠ù…ΩÕÃÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Å•êÄÙÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅô•πÖ±•Õïë–ÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πm•ët¸π}µï—Ñ¸πô•πÖ±•Õïë–Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅô•πÖ±•Õïë–Äòò(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâ¡±ÖÂï»àÄòò(ÄÄÄÄÄÅM—…•πú°Õ—Ω…îπç±Ω’êπ¡±ÖÂï…%ê§ÄÙÙÙÅ•êÄòò(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ê¸πïŸïπ—%ê(ÄÄÄÄ§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—îÄÙÅ›ÖÂ±Ω’êπ…Ω’πëMÖŸïM—Ö—î¸∏°Õ—Ω…îπç±Ω’êπïŸïπ—%ê∞ÅëÖ‰∞Å•ê§ÅÒÅÌÙÏ(ÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅÕ—Ö—îπÖç≠πΩ›±ïëùïêÄòò(ÄÄÄÄÄÄÄÄÖÕ—Ö—îπ¡ïπë•πúÄòò(ÄÄÄÄÄÄÄÄÖÕ—Ö—îπçΩπô±•ç–Äòò(ÄÄÄÄÄÄÄÄÖÕ—Ö—îπâ±Ωç≠ïê∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅµÖπ’Ö±ÖÂ•πÖ±•Õïê°ëÖ‰§ÅÒ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–¸π…Ω’πë•πÖ±•Õïê¸πlâëÖ‰àÄ¨ÅëÖÂt¸πm•ëtÅÒ(ÄÄÄÄÄÄÄÅô•πÖ±•Õïë–∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åµï…ùï=…ùÖπ•Õï…Ω……ïç—•ΩπÃ°±ΩçÖ∞ÄÙÅÌÙ∞Å…ïµΩ—îÄÙÅÌÙ§ÅÏ(ÄÄÄÅçΩπÕ–Åµï…ùïêÄÙÅ)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°±ΩçÖ∞ÅÒÅÌÙ§§Ï(ÄÄÄÅ=â©ïç–πïπ—…•ïÃ°…ïµΩ—îÅÒÅÌÙ§πôΩ…Öç††°mëÖÂ-ï‰∞Å¡±ÖÂï…Õt§ÄÙ¯ÅÏ(ÄÄÄÄÄÅµï…ùïëmëÖÂ-ïÂtÄÙÅµï…ùïëmëÖÂ-ïÂtÅÒÅÌÙÏ(ÄÄÄÄÄÅ=â©ïç–πïπ—…•ïÃ°¡±ÖÂï…ÃÅÒÅÌÙ§πôΩ…Öç††°m¡±ÖÂï…%ê∞Å°Ω±ïÕt§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅµï…ùïëmëÖÂ-ïÂum¡±ÖÂï…%ëtÄÙÅµï…ùïëmëÖÂ-ïÂum¡±ÖÂï…%ëtÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅ=â©ïç–πïπ—…•ïÃ°°Ω±ïÃÅÒÅÌÙ§πôΩ…Öç††°m°Ω±î∞ÅçΩ……ïç—•Ωπt§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åç’……ïπ–ÄÙÅµï…ùïëmëÖÂ-ïÂum¡±ÖÂï…%ëum°Ω±ïtÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÖç’……ïπ–ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ö—îπ¡Ö…Õî°çΩ……ïç—•Ω∏¸πçΩ……ïç—ïë–ÅÒÄ¿§ÅÒÄ¿§Ä¯Ù(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°Ö—îπ¡Ö…Õî°ç’……ïπ–¸πçΩ……ïç—ïë–ÅÒÄ¿§ÅÒÄ¿§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅµï…ùïëmëÖÂ-ïÂum¡±ÖÂï…%ëum°Ω±ïtÄÙÅ)M=8π¡Ö…Õî†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°çΩ……ïç—•Ω∏§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Åµï…ùïêÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ…ùÖπ•Õï…Ω……ïç—•ΩπΩ»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÕ—Ω…îπïŸïπ–¸πΩ…ùÖπ•Õï…Ω……ïç—•ΩπÃ¸πlâëÖ‰àÄ¨ÅëÖÂt¸πl(ÄÄÄÄÄÅM—…•πú°¡±ÖÂï…%ê§(ÄÄÄÅt¸πmM—…•πú°°Ω±î•tÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïçΩ…ë=…ùÖπ•Õï…Ω……ïç—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î∞ÅŸÖ±’ïÃ§ÅÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πΩ…ùÖπ•Õï…Ω……ïç—•ΩπÃÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πΩ…ùÖπ•Õï…Ω……ïç—•ΩπÃÅÒÅÌÙÏ(ÄÄÄÅçΩπÕ–ÅçΩ……ïç—•ΩπÖ‰ÄÙ(ÄÄÄÄÄÄÄÄ°Õ—Ω…îπïŸïπ–πΩ…ùÖπ•Õï…Ω……ïç—•ΩπÕlâëÖ‰àÄ¨ÅëÖÂtÅÒÙÅÌÙ§∞(ÄÄÄÄÄÅçΩ……ïç—•ΩπA±ÖÂï»ÄÙÄ°çΩ……ïç—•ΩπÖÂmM—…•πú°¡±ÖÂï…%ê•tÅÒÙÅÌÙ§Ï(ÄÄÄÅçΩ……ïç—•ΩπA±ÖÂï…mM—…•πú°°Ω±î•tÄÙÅÏ(ÄÄÄÄÄÄ∏∏πŸÖ±’ïÃ∞(ÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅΩ…ùÖπ•Õï…Ω……ïç—ïêËÅ—…’î∞(ÄÄÄÄÄÅçΩ……ïç—ïë–ËÅŸÖ±’ïÃπçΩ……ïç—ïë–ÅÒÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÅÙÏ(ÄÄÄÅ…ï—’…∏ÅçΩ……ïç—•ΩπA±ÖÂï…mM—…•πú°°Ω±î•tÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åï·¡±•ç•—±ÂIïçΩŸï…ïëA±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ…ï—’…∏Ä°Õ—Ω…îπïŸïπ–πïµï…ùïπçÂIïçΩŸï…Â1ΩúÅÒÅmt§πÕΩµî†°ïπ—…‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†≠ïπ—…‰πëÖ‰ÄÑÙÙÄ≠ëÖ‰§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅM—…•πú°¡±ÖÂï…%ê§Ï(ÄÄÄÄÄÅ•òÄ°ïπ—…‰π—Â¡îÄÙÙÙÄâÕï±òµÕçΩ…îµçΩ¡‰à§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅM—…•πú°ïπ—…‰π…ïçΩŸï…ïëA±ÖÂï…%ê§ÄÙÙÙÅ•êÅÒ(ÄÄÄÄÄÄÄÄÄÅM—…•πú°ïπ—…‰π…ïçΩŸï…ïëÖ•±ïëA±ÖÂï…%êÅÒÄàà§ÄÙÙÙÅ•êÏ(ÄÄÄÄÄÅ•òÄ°ïπ—…‰π—Â¡îÄÙÙÙÄâŸ•…—’Ö∞µ¡±ÖÂï»µµÖ…≠ï»µçÖ…êà§(ÄÄÄÄÄÄÄÅ…ï—’…∏Åmïπ—…‰πÕçΩ…ï…%ê∞Åïπ—…‰πµÖ…≠ïëA±ÖÂï…%ëtπµÖ¿°M—…•πú§π•πç±’ëïÃ°•ê§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïçΩŸï…ïëIΩ’πëççï¡—ïê°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ…ï—’…∏Åï·¡±•ç•—±ÂIïçΩŸï…ïëA±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§Äòò(ÄÄÄÄÄÅ…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞Å¡±ÖÂï…%ê§ÄòòÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞Å¡±ÖÂï…%ê§πçΩµ¡±ï—îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕÂπçIïçΩŸï…ïëA±ÖÂï…IΩ’πê°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ•òÄ†ÖlâÕçΩ…•πúà∞ÄâŸï…•ô‰âtπ•πç±’ëïÃ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5Ωëî§ÅÒ(ÄÄÄÄÄÄÄÄÖ…ïçΩŸï…ïëIΩ’πëççï¡—ïê°ëÖ‰∞Å¡±ÖÂï…%ê§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâçΩµ¡±ï—ïêàÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµ•πîàÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÅ…ï±ïÖÕïIΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Å¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅ…ïçΩ…ëÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯(ÄÄÄÄÄÄÄÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å§Ä¨Äƒ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅïπ—ï…ïêÄÙÅ…ïçΩ…ëÃπô•±—ï»†°…ïçΩ…ê§ÄÙ¯(ÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°…ïçΩ…ê¸πù…ΩÕÃ§∞(ÄÄÄÄÄÄ§π±ïπù—†∞(ÄÄÄÄÄÅ¡’——Õπ—ï…ïêÄÙÅ…ïçΩ…ëÃπô•±—ï»†°…ïçΩ…ê§ÄÙ¯(ÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°…ïçΩ…ê¸π¡’——Ã§∞(ÄÄÄÄÄÄ§π±ïπù—†Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅïπ—ï…ïê∞(ÄÄÄÄÄÅ¡’——Õπ—ï…ïê∞(ÄÄÄÄÄÅçΩµ¡±ï—îËÅïπ—ï…ïêÄÙÙÙÄƒ‡ÄòòÄ†Ö¡’——ÕIï≈’•…ïêÅÒÅ¡’——Õπ—ï…ïêÄÙÙÙÄƒ‡§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïΩ’π–°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Åµ•πîÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmM—…•πú°¡±ÖÂï…%ê•tÅÒÅÌÙ∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§πô•±—ï»†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±òÄÙÅµ•πïmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅΩôòÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å†§∞(ÄÄÄÄÄÄÄÅÕï±ô…ΩÕÃÄÙÅÕï±òπù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅΩôô…ΩÕÃÄÙÅΩôò¸πù…ΩÕÃÄ¸¸ÄààÏ(ÄÄÄÄÄÅ•òÄ†ÖΩôòÅÒÄÖÕçΩ…ïπ—ï…ïê°Õï±ô…ΩÕÃ§ÅÒÄÖÕçΩ…ïπ—ï…ïê°Ωôô…ΩÕÃ§§(ÄÄÄÄÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕçΩ…ï5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÅM—…•πú°Ωôô…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅM—…•πú°Õï±ô…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ¡’——Õ5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÄÖ¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°Ωôòπ¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°Õï±òπ¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ≠Ωôòπ¡’——ÃÄÙÙÙÄ≠Õï±òπ¡’——Ã§Ï(ÄÄÄÄÄÅ…ï—’…∏ÄÑ°ÕçΩ…ï5Ö—ç†ÄòòÅ¡’——Õ5Ö—ç†§Ï(ÄÄÄÅÙ§π±ïπù—†Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ï!Ω±ïÃ°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Åµ•πîÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmM—…•πú°¡±ÖÂï…%ê•tÅÒÅÌÙ∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§πô•±—ï»†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±òÄÙÅµ•πïmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅΩôòÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å†§Ï(ÄÄÄÄÄÅ•òÄ†ÖΩôòÅÒÄÖÕçΩ…ïπ—ï…ïê°Õï±òπù…ΩÕÃ§ÅÒÄÖÕçΩ…ïπ—ï…ïê°Ωôòπù…ΩÕÃ§§(ÄÄÄÄÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÄÄÄÄÅ…ï—’…∏ÄÑ†(ÄÄÄÄÄÄÄÅM—…•πú°Ωôòπù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅM—…•πú°Õï±òπù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§Äòò(ÄÄÄÄÄÄÄÄ†Ö¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°Ωôòπ¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°Õï±òπ¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ≠Ωôòπ¡’——ÃÄÙÙÙÄ≠Õï±òπ¡’——Ã§§(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±•ŸïA±ÖÂï…M—Ö—’Ã°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°¡±ÖÂï…%ê∞ÅëÖ‰§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅÕï—’¿¸πÕ—Ö…—Ã¸πmç—‡¸πù…Ω’¡%πëï·tÅÒÄƒ∞(ÄÄÄÄÄÅÕïƒÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§∞(ÄÄÄÄÄÅΩôô•ç•Ö∞ÄÙÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞Å¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅïπ—ï…ïêÄÙÅΩôô•ç•Ö∞πïπ—ï…ïê∞(ÄÄÄÄÄÅµ•πîÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmM—…•πú°¡±ÖÂï…%ê•tÅÒÅÌÙ∞(ÄÄÄÄÄÅïŸïπ—Ωµ¡±ï—îÄÙÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—îà∞(ÄÄÄÄÄÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïÃÄÙÅΩôô•ç•Ö∞πçΩµ¡±ï—î(ÄÄÄÄÄÄÄÄ¸ÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïΩ’π–°ëÖ‰∞Å¡±ÖÂï…%ê§(ÄÄÄÄÄÄÄÄËÄ¿∞(ÄÄÄÄÄÅµÖ…≠ïëYï…•ô•çÖ—•Ωπ%ÕÕ’ïÃÄÙÅΩôô•ç•Ö∞πçΩµ¡±ï—î(ÄÄÄÄÄÄÄÄ¸ÅµÖ…≠ïëMçΩ…ïçÖ…ëYï…•ô•çÖ—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê§πµ•ÕµÖ—ç°ïÃπ±ïπù—†(ÄÄÄÄÄÄÄÄËÄ¿∞(ÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•ÕïêÄÙÅï·¡±•ç•—±ÂIïçΩŸï…ïëA±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅô•πÖ±•ÕïêÄÙ(ÄÄÄÄÄÄÄÅïŸïπ—Ωµ¡±ï—îÅÒ(ÄÄÄÄÄÄÄÄ°…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞Å¡±ÖÂï…%ê§Äòò(ÄÄÄÄÄÄÄÄÄÄ†°ïµï…ùïπçÂ•πÖ±•ÕïêÄòòÅΩôô•ç•Ö∞πçΩµ¡±ï—î§ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°Ÿï…•ô•çÖ—•Ωπ%ÕÕ’ïÃÄÙÙÙÄ¿ÄòòÅµÖ…≠ïëYï…•ô•çÖ—•Ωπ%ÕÕ’ïÃÄÙÙÙÄ¿§§§∞(ÄÄÄÄÄÅ•ÕÕ’ïÃÄÙÅΩôô•ç•Ö∞πçΩµ¡±ï—îÄòòÄÖô•πÖ±•Õïê(ÄÄÄÄÄÄÄÄ¸ÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïÃÄ¨ÅµÖ…≠ïëYï…•ô•çÖ—•Ωπ%ÕÕ’ïÃ(ÄÄÄÄÄÄÄÄËÄ¿∞(ÄÄÄÄÄÅπï·–ÄÙÅÕï≈m5Ö—†πµ•∏°ïπ—ï…ïê∞Äƒ‹•t∞(ÄÄÄÄÄÅ©Ω•πïêÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÄ°Õ—Ω…îπç±Ω’ëA±ÖÂï…ÃÅÒÅmt§πô•πê†(ÄÄÄÄÄÄÄÄÄÄ°‡§ÄÙ¯ÅM—…•πú°‡π¡±ÖÂï…%ê§ÄÙÙÙÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÄ§¸π©Ω•πïê∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–ÅµÖπ’Ö±Ö…êÄÙÅç—‡(ÄÄÄÄÄÄ¸ÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§(ÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅ•òÄ°µÖπ’Ö±Ö…ê§ÅÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÅ©Ω•πïê∞(ÄÄÄÄÄÄÄÅïπ—ï…ïêËÄƒ‡∞(ÄÄÄÄÄÄÄÅô•πÖ±•ÕïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅ•ÕÕ’ïÃËÄ¿∞(ÄÄÄÄÄÄÄÅÕ—Ö—îËÄâô•πÖ±•Õïêà∞(ÄÄÄÄÄÄÄÅ±Öâï∞ËÄâΩµ¡±ï—îà∞(ÄÄÄÄÄÄÄÅëï—Ö•∞ËÄâ=ôô•ç•Ö∞Å¡Ö¡ï»Å—ïÖ¥ÅçÖ…êÅÕ’âµ•——ïêà∞(ÄÄÄÄÄÄÄÅù…Ω’¿ËÅç—‡πù…Ω’¡%πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Öµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§ÄòòÅç—‡§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç°ïç≠ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å•πëï‡Ä¨Äƒ§∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïπ—ï…ïêÄÙÅç°ïç≠Ãπô•±—ï»†°ç°ïç¨§ÄÙ¯Åç°ïç¨πÕçΩ…ï…Ωπî§π±ïπù—†∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï%ÕÕ’ïÃÄÙÅç°ïç≠Ãπô•±—ï»†°ç°ïç¨§ÄÙ¯Åç°ïç¨πµ•ÕµÖ—ç†§π±ïπù—†∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï•πÖ±•ÕïêÄÙ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçΩµ¡±ï—îàÅÒ(ÄÄÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•Õïê¸πlâëÖ‰àÄ¨ÅëÖÂt¸πmM—…•πú°¡±ÖÂï…%ê•t§ÅÒ(ÄÄÄÄÄÄÄÄÄÅÖµâ…ΩÕïQïÖµΩµ¡±ï—î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅ±ï–ÅÖµâ…ΩÕïM—Ö—îÄÙÄâπΩ—M—Ö…—ïêà∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï1Öâï∞ÄÙÄâ9Ω–ÅÕ—Ö…—ïêà∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïï—Ö•∞ÄÙÅ©Ω•πïêÄ¸ÄâΩππïç—ïêÉ
+‹Å…ïÖë‰Å—ºÅÕ—Ö…–àÄËÄâA°ΩπîÅπΩ–Å©Ω•πïêàÏ(ÄÄÄÄÄÅ•òÄ°Öµâ…ΩÕïπ—ï…ïê§ÅÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïM—Ö—îÄÙÄâ¡±ÖÂ•πúàÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï1Öâï∞ÄÙÄâA±ÖÂ•πúàÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïï—Ö•∞ÄÙÅÄëÌÖµâ…ΩÕïπ—ï…ïëÙÅΩòÄƒ‡Å—ïÖ¥ÅÕçΩ…ïÃÅïπ—ï…ïëÄÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Öµâ…ΩÕï%ÕÕ’ïÃ§ÅÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïM—Ö—îÄÙÄâÖ——ïπ—•Ω∏àÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï1Öâï∞ÄÙÄâ——ïπ—•Ω∏àÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïï—Ö•∞ÄÙÅÄëÌÖµâ…ΩÕï%ÕÕ’ïÕÙÅ°Ω±îëÌÖµâ…ΩÕï%ÕÕ’ïÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅπïïêÅç°ïç≠•πùÄÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Öµâ…ΩÕïQïÖµΩµ¡±ï—î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§ÄòòÄÖÖµâ…ΩÕï•πÖ±•Õïê§ÅÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïM—Ö—îÄÙÄâ…ïÖë‰àÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï1Öâï∞ÄÙÄâIïÖë‰Å—ºÅô•πÖ±•ÕîàÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïï—Ö•∞ÄÙÄâQïÖ¥ÅÕçΩ…îÅÖπêÅÕï±ïç—ïêÅë…•ŸïÃÅÖ…îÅçΩµ¡±ï—îàÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°Öµâ…ΩÕï•πÖ±•Õïê§ÅÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïM—Ö—îÄÙÄâô•πÖ±•ÕïêàÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï1Öâï∞ÄÙÄâΩµ¡±ï—îàÏ(ÄÄÄÄÄÄÄÅÖµâ…ΩÕïï—Ö•∞ÄÙÄâµâ…ΩÕîÅ—ïÖ¥ÅçÖ…êÅçΩµ¡±ï—îàÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°¡±ÖÂï…%ê§∞Å©Ω•πïê∞Åïπ—ï…ïêËÅÖµâ…ΩÕïπ—ï…ïê∞(ÄÄÄÄÄÄÄÅô•πÖ±•ÕïêËÅÖµâ…ΩÕï•πÖ±•Õïê∞Å•ÕÕ’ïÃËÅÖµâ…ΩÕï%ÕÕ’ïÃ∞(ÄÄÄÄÄÄÄÅÕ—Ö—îËÅÖµâ…ΩÕïM—Ö—î∞Å±Öâï∞ËÅÖµâ…ΩÕï1Öâï∞∞Åëï—Ö•∞ËÅÖµâ…ΩÕïï—Ö•∞∞(ÄÄÄÄÄÄÄÅù…Ω’¿ËÅç—‡πù…Ω’¡%πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ±ï–ÅÕ—Ö—îÄÙÄâπΩ—M—Ö…—ïêà∞(ÄÄÄÄÄÅ±Öâï∞ÄÙÄâ9Ω–ÅÕ—Ö…—ïêà∞(ÄÄÄÄÄÅëï—Ö•∞ÄÙÅ©Ω•πïêÄ¸ÄâΩππïç—ïêÉ
+‹Å…ïÖë‰Å—ºÅÕ—Ö…–àÄËÄâA°ΩπîÅπΩ–Å©Ω•πïêàÏ(ÄÄÄÅ•òÄ°ïπ—ï…ïêÄ¯Ä¿ÄòòÅïπ—ï…ïêÄÄƒ‡§ÅÏ(ÄÄÄÄÄÅÕ—Ö—îÄÙÄâ¡±ÖÂ•πúàÏ(ÄÄÄÄÄÅ±Öâï∞ÄÙÄâA±ÖÂ•πúàÏ(ÄÄÄÄÄÅëï—Ö•∞ÄÙÅÅ!Ω±îÄëÌπï·—ÙÅπï·–É
+‹ÄëÌïπ—ï…ïëÙÅΩòÄƒ‡Åïπ—ï…ïëÄÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ïπ—ï…ïêÄÙÙÙÄƒ‡ÄòòÅ•ÕÕ’ïÃ§ÅÏ(ÄÄÄÄÄÅÕ—Ö—îÄÙÄâÖ——ïπ—•Ω∏àÏ(ÄÄÄÄÄÅ±Öâï∞ÄÙÄâ——ïπ—•Ω∏àÏ(ÄÄÄÄÄÅëï—Ö•∞ÄÙÅÄëÌ•ÕÕ’ïÕÙÅ°Ω±îëÌ•ÕÕ’ïÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅπïïêÅç°ïç≠•πùÄÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ïπ—ï…ïêÄÙÙÙÄƒ‡ÄòòÄÖ•ÕÕ’ïÃ§ÅÏ(ÄÄÄÄÄÅÕ—Ö—îÄÙÄâ…ïÖë‰àÏ(ÄÄÄÄÄÅ±Öâï∞ÄÙÄâIïÖë‰Å—ºÅô•πÖ±•ÕîàÏ(ÄÄÄÄÄÅëï—Ö•∞ÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸Äâ	Ω—†ÅçÖ…ëÃÅÖù…ïîÅΩ∏ÅÖ±∞ÅÕçΩ…ïÃÅÖπêÅ¡’——Ãà(ÄÄÄÄÄÄÄÄËÄâ	Ω—†ÅçÖ…ëÃÅÖù…ïîÅΩ∏ÅÖ±∞ÅÕçΩ…ïÃàÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ô•πÖ±•Õïê§ÅÏ(ÄÄÄÄÄÅÕ—Ö—îÄÙÄâô•πÖ±•ÕïêàÏ(ÄÄÄÄÄÅ±Öâï∞ÄÙÄâΩµ¡±ï—îàÏ(ÄÄÄÄÄÅëï—Ö•∞ÄÙÄâ=ôô•ç•Ö∞ÅçÖ…êÅçΩµ¡±ï—îàÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅ©Ω•πïê∞(ÄÄÄÄÄÅïπ—ï…ïê∞(ÄÄÄÄÄÅô•πÖ±•Õïê∞(ÄÄÄÄÄÅ•ÕÕ’ïÃ∞(ÄÄÄÄÄÅÕ—Ö—î∞(ÄÄÄÄÄÅ±Öâï∞∞(ÄÄÄÄÄÅëï—Ö•∞∞(ÄÄÄÄÄÅù…Ω’¿ËÄ°ç—‡¸πù…Ω’¡%πëï‡Ä¸¸Ä¿§Ä¨Äƒ∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åïµï…ùïπçÂ1Ωú°ïπ—…‰§ÅÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIïçΩŸï…Â1ΩúÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIïçΩŸï…Â1ΩúÅÒÅmtÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIïçΩŸï…Â1Ωúπ¡’Õ†°Ï(ÄÄÄÄÄÄ∏∏πïπ—…‰∞(ÄÄÄÄÄÅÖ–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅëïŸ•çîËÄâΩ…ùÖπ•Õï»à∞(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê†(ÄÄÄÅëÖ‰∞(ÄÄÄÅ¡±ÖÂï…%ê∞(ÄÄÄÅΩ…ùÖπ•Õï…ççï¡—ïêÄÙÅôÖ±Õî∞(ÄÄ§ÅÏ(ÄÄÄÅçΩπÕ–Å•êÄÙÅM—…•πú°¡±ÖÂï…%êÅÒÄàà§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖ•êÅÒ(ÄÄÄÄÄÄ°Ω…ùÖπ•Õï…ççï¡—ïê(ÄÄÄÄÄÄÄÄ¸ÄÖΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞Å•ê§πçΩµ¡±ï—î(ÄÄÄÄÄÄÄÄËÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïΩ’π–°ëÖ‰∞Å•ê§ÄÑÙÙÄ¿§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–ÅÖ–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅ…Ω’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å•ê§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÄÙÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÅÒÅÌÙÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂtÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂtÅÒÅÌÙÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂum•ëtÄÙÅÖ–Ï(ÄÄÄÅ…Ω’πêπ}µï—ÑÄÙÅÏ(ÄÄÄÄÄÄ∏∏∏°…Ω’πêπ}µï—ÑÅÒÅÌÙ§∞(ÄÄÄÄÄÅô•πÖ±•Õïë–ËÅÖ–∞(ÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•ÕïêËÅ—…’î∞(ÄÄÄÅÙÏ(ÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Å•ê§Ï(ÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åç±ΩÕïµï…ùïπçÂIïçΩŸï…‰†§ÅÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åïµï…ùïπçÂA±ÖÂï…=¡—•ΩπÃ°ëÖ‰∞ÅÕï±ïç—ïêÄÙÄàà§ÅÏ(ÄÄÄÅ…ï—’…∏ÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌïÕå°•ê•ÙàÄëÌ•êÄÙÙÙÅM—…•πú°Õï±ïç—ïê§Ä¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩΩ¡—•Ω∏˘Ä∞(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄπ©Ω•∏†àà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπµï…ùïπçÂIïçΩŸï…‰†§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ5Ö—†πµ•∏†(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒ∞(ÄÄÄÄÄÄ¨°Õ—Ω…îπïŸïπ–π±•ŸïΩπ—…Ω±Ö‰ÅÒÄƒ§∞(ÄÄÄÄ§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêà¯ÒÕµÖ±∞˘=I9%MHÅ=91dΩÕµÖ±∞¯Ò†»˘µï…ùïπç‰ÅMçΩ…îÅIïçΩŸï…‰Ω†»¯Ò¿˘UÕîÅ—°•ÃÅΩπ±‰Å›°ï∏ÅπΩ…µÖ∞Å¡°ΩπîÅÕçΩ…•πúÅçÖππΩ–ÅâîÅçΩµ¡±ï—ïê∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ°Ω•çïÃà¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâ…ïçΩŸï…Mï±ôMçΩ…ïÃà¯Òà˘A°ΩπîÅÖ•±ïêÅ’…•πúÅA±Ö‰Ωà¯ÒÕ¡Ö∏˘Ω¡‰ÅÑÅ¡±ÖÂï»ùÃÅÖŸÖ•±Öâ±îÅÕï±òµç°ïç¨ÅÕçΩ…ïÃÅ•π—ºÅ—°îÅΩôô•ç•Ö∞ÅçÖ…êÅ—°ï•»ÅôÖ•±ïêÅµÖ…≠ï»ÅçΩ’±êÅπΩ–Åô•π•Õ†∏ΩÕ¡Ö∏¯Ωâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâïπ—ï…Y•…—’Ö±Ö…êà¯Òà˘π—ï»ÅA±ÖÂïÀäM5Ö…≠ï»ÅÖ…êΩà¯ÒÕ¡Ö∏˘π—ï»ÅÖ±∞Äƒ‡Å°Ω±ïÃÅô…Ω¥Å5•MçΩ…îÅΩ»ÅÑÅµÖπ’Ö±±‰ÅçΩµ¡±ï—ïêÅçÖ…ê∏ΩÕ¡Ö∏¯Ωâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâçΩ……ïç—=ôô•ç•Ö±!Ω±îà¯Òà˘Ω……ïç–Å=πîÅ=ôô•ç•Ö∞Å!Ω±îΩà¯ÒÕ¡Ö∏˘•‡ÅÖ∏Å•ÕΩ±Ö—ïêÅÖççï¡—ïêÅÕçΩ…îÅΩ»Åµ•ÕÕ•πúÅ¡’——ÃÅÖô—ï»Åç°ïç≠•πúÅ—°îÅµÖπ’Ö∞ÅçÖ…ê∏ΩÕ¡Ö∏¯Ωâ’——Ω∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Åïµï…ùïπçÂ±ΩÕîàÅ•êÙâç±ΩÕïµï…ùïπçÂIïçΩŸï…‰à˘±ΩÕîΩâ’——Ω∏˘ÄÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÄê†àççΩ……ïç—=ôô•ç•Ö±!Ω±îÅàà§π—ï·—Ωπ—ïπ–ÄÙÄâΩ……ïç–ÅÑÅA±ÖÂïÀäeÃÅÖ…êàÏ(ÄÄÄÄê†àççΩ……ïç—=ôô•ç•Ö±!Ω±îÅÕ¡Ö∏à§π—ï·—Ωπ—ïπ–ÄÙ(ÄÄÄÄÄÄâMï±ïç–ÅÑÅ¡±ÖÂï»∞Å›Ω…¨Å—°…Ω’ù†ÅïŸï…‰Å’πçΩπô•…µïêÅ°Ω±îÅÖπêÅÕÖŸîÅÖ’—°Ω…•—Ö—•ŸîÅΩ…ùÖπ•Õï»ÅçΩ……ïç—•ΩπÃ∏àÏ(ÄÄÄÄê†àçç±ΩÕïµï…ùïπçÂIïçΩŸï…‰à§πΩπç±•ç¨ÄÙÅç±ΩÕïµï…ùïπçÂIïçΩŸï…‰Ï(ÄÄÄÄê†àç…ïçΩŸï…Mï±ôMçΩ…ïÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÅ…ïπëï…Mï±ôMçΩ…ïIïçΩŸï…‰°ëÖ‰§Ï(ÄÄÄÄê†àçïπ—ï…Y•…—’Ö±Ö…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å…ïπëï…Y•…—’Ö±Ö…ê°ëÖ‰§Ï(ÄÄÄÄê†àççΩ……ïç—=ôô•ç•Ö±!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å…ïπëï…=ôô•ç•Ö±!Ω±ïΩ……ïç—•Ω∏°ëÖ‰§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩôô•ç•Ö±IïçΩ…ë1ΩçÖ—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂMçΩ…ïÃÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÕçΩ…ï…%ê∞Å…Ω’πëtÅΩòÅ=â©ïç–πïπ—…•ïÃ°ëÖÂMçΩ…ïÃ§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïçΩ…êÄÙÅ…Ω’πê¸πmM—…•πú°°Ω±î•tÏ(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅM—…•πú°…ïçΩ…ê¸πΩôô•ç•Ö∞¸π¡±ÖÂï…%êÅÒÄàà§ÄÙÙÙÅM—…•πú°¡±ÖÂï…%ê§Äòò(ÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°…ïçΩ…êπΩôô•ç•Ö∞πù…ΩÕÃ§ÅÒÅÕçΩ…ïπ—ï…ïê°…ïçΩ…êπΩôô•ç•Ö∞π¡’——Ã§§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅÕçΩ…ï…%ê∞Å…ïçΩ…êÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…=ôô•ç•Ö±!Ω±ïΩ……ïç—•Ω∏°ëÖ‰∞ÅÕï±ïç—ïëA±ÖÂï…%ê∞ÅÕï±ïç—ïë!Ω±îÄÙÄƒ§ÅÏ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅ¡±ÖÂï…%êÄÙÅM—…•πú°Õï±ïç—ïëA±ÖÂï…%êÅÒÅ•ëÕl¡tÅÒÄàà§∞(ÄÄÄÄÄÅ°Ω±îÄÙÅ5Ö—†πµÖ‡†ƒ∞Å5Ö—†πµ•∏†ƒ‡∞Ä≠Õï±ïç—ïë!Ω±îÅÒÄƒ§§∞(ÄÄÄÄÄÅ±ΩçÖ—•Ω∏ÄÙÅΩôô•ç•Ö±IïçΩ…ë1ΩçÖ—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§∞(ÄÄÄÄÄÅçΩ……ïç—•Ω∏ÄÙÅΩ…ùÖπ•Õï…Ω……ïç—•ΩπΩ»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§∞(ÄÄÄÄÄÅΩôô•ç•Ö∞ÄÙÅçΩ……ïç—•Ω∏ÅÒÅ±ΩçÖ—•Ω∏¸π…ïçΩ…ê¸πΩôô•ç•Ö∞ÅÒÅÌÙ∞(ÄÄÄÄÄÅ’πçΩπô•…µïêÄÙÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ï!Ω±ïÃ°ëÖ‰∞Å¡±ÖÂï…%ê§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêà¯ÒÕµÖ±∞˘=I9%MHÅ=IIQ%=8É
+‹ÅdÄëÌëÖÂÙΩÕµÖ±∞¯Ò†»˘Ω……ïç–ÅÑÅA±ÖÂïÀäeÃÅÖ…êΩ†»¯Ò¿˘UÕîÅ—°îÅÕ•ùπïêÅçÖ…êÅ—ºÅçΩ……ïç–ÅÖ∏ÅΩôô•ç•Ö∞Åïπ—…‰∏Å=…ùÖπ•Õï»ÅçΩ……ïç—•ΩπÃÅÖ…îÅ≠ï¡–ÅÕï¡Ö…Ö—ï±‰ÅÕºÅÖ∏ÅΩ±ëï»Å¡°ΩπîÅ’¡±ΩÖêÅçÖππΩ–Å…ï¡±ÖçîÅ—°ï¥∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâçΩ……ïç—•Ωπ]Ω…≠±•Õ–à¯Ò±Öâï∞Åç±ÖÕÃÙâçΩ……ïç—•Ωπ!Ω±ïA•ç¨à˘Mï±ïç–Å!Ω±îÒÕï±ïç–Å•êÙâçΩ……ïç—•Ωπ!Ω±îà¯ëÌ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ§Ä¨Ä≈ÙàÄëÌ§Ä¨ÄƒÄÙÙÙÅ°Ω±îÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌ§Ä¨Ä≈ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâ’πçΩπô•…µïë!Ω±ïÃà¯ÒÕµÖ±∞˘U9=9%I5Å!=1LΩÕµÖ±∞¯Òà¯ëÌ’πçΩπô•…µïêπ±ïπù—†Ä¸Å’πçΩπô•…µïêπ©Ω•∏†à∞Äà§ÄËÄâ9ΩπîÉäPÅÖ±∞Å°Ω±ïÃÅÖù…ïîâÙΩà¯Ωë•ÿ¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâΩôô•ç•Ö±Ω……ïç—•Ωπ…•êà¯Ò±Öâï∞˘A±ÖÂï»ÒÕï±ïç–Å•êÙâçΩ……ïç—•ΩπA±ÖÂï»à¯ëÌ•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌïÕå°•ê•ÙàÄëÌ•êÄÙÙÙÅ¡±ÖÂï…%êÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Ò±Öâï∞˘…ΩÕÃÅÕ—…Ω≠ïÃÒ•π¡’–Å•êÙâçΩ……ïç—•Ωπ…ΩÕÃàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»àÅŸÖ±’îÙàëÌïÕå°Ωôô•ç•Ö∞πù…ΩÕÃÄ¸¸Äàà•ÙàÅ¡±Öçï°Ω±ëï»Ùà«äL»¿ÅΩ»Å@à¯Ω±Öâï∞¯Ò±Öâï∞˘A’——ÃÒ•π¡’–Å•êÙâçΩ……ïç—•ΩπA’——ÃàÅ•π¡’—µΩëîÙâπ’µï…•åàÅµÖ·±ïπù—†ÙàƒàÅŸÖ±’îÙàëÌïÕå°Ωôô•ç•Ö∞π¡’——ÃÄ¸¸Äàà•ÙàÅ¡±Öçï°Ω±ëï»Ùà√äL‰à¯Ω±Öâï∞¯Ωë•ÿ¯ëÌçΩ……ïç—•Ω∏Ä¸ÄúÒ¿Åç±ÖÕÃÙâ…ïçΩŸï…Â9Ω—•çîà¯Òà˘’—°Ω…•—Ö—•ŸîÅΩ…ùÖπ•Õï»ÅçΩ……ïç—•Ω∏ÅÕÖŸïêÅôΩ»Å—°•ÃÅ°Ω±î∏Ωà¯Ω¿¯úÄËÅ±ΩçÖ—•Ω∏Ä¸ÅÄÒ¿Åç±ÖÕÃÙâ…ïçΩŸï…Â9Ω—•çîà˘’……ïπ–ÅΩôô•ç•Ö∞Åïπ—…‰ÅôΩ’πê∏Å5Ö…≠ï»ÅëïŸ•çîËÄëÌïÕå°¡±ÖÂï»°±ΩçÖ—•Ω∏πÕçΩ…ï…%ê§¸ππÖµîÅÒÄâ=…ùÖπ•Õï»Å…ïçΩŸï…‰à•ÙΩ¿˘ÄÄËÄúÒ¿Åç±ÖÕÃÙâïµï…ùïπçÂ]Ö…π•πúà¯Òà˘9ºÅΩôô•ç•Ö∞Åïπ—…‰Å•ÃÅç’……ïπ—±‰ÅÕ—Ω…ïêÅôΩ»Å—°•ÃÅ°Ω±î∏Ωà¯ÒÕ¡Ö∏˘Mï±ïç–Å—°îÅçΩ……ïç–Å¡±ÖÂï»ÅÖπêÅ°Ω±î∞Å—°ï∏Åïπ—ï»Å—°îÅÕ•ùπïêµçÖ…êÅŸÖ±’ïÃ∏ΩÕ¡Ö∏¯Ω¿¯ùÙÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠µï…ùïπç‰à˚ä@Å	Öç¨Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÕÖŸï=ôô•ç•Ö±Ω……ïç—•Ω∏à˘MÖŸîÅ=…ùÖπ•Õï»ÅΩ……ïç—•Ω∏Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àççΩ……ïç—•ΩπA±ÖÂï»à§πΩπç°ÖπùîÄÙÄ°ïŸïπ–§ÄÙ¯(ÄÄÄÄÄÅ…ïπëï…=ôô•ç•Ö±!Ω±ïΩ……ïç—•Ω∏°ëÖ‰∞ÅïŸïπ–π—Ö…ùï–πŸÖ±’î∞Å°Ω±î§Ï(ÄÄÄÄê†àççΩ……ïç—•Ωπ!Ω±îà§πΩπç°ÖπùîÄÙÄ°ïŸïπ–§ÄÙ¯(ÄÄÄÄÄÅ…ïπëï…=ôô•ç•Ö±!Ω±ïΩ……ïç—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Ä≠ïŸïπ–π—Ö…ùï–πŸÖ±’î§Ï(ÄÄÄÄê†àçâÖç≠µï…ùïπç‰à§πΩπç±•ç¨ÄÙÅΩ¡ïπµï…ùïπçÂIïçΩŸï…‰Ï(ÄÄÄÄê†àçÕÖŸï=ôô•ç•Ö±Ω……ïç—•Ω∏à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–Åù…ΩÕÃÄÙÄê†àççΩ……ïç—•Ωπ…ΩÕÃà§πŸÖ±’îπ—…•¥†§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ¡’——ÃÄÙÄê†àççΩ……ïç—•ΩπA’——Ãà§πŸÖ±’îπ—…•¥†§Ï(ÄÄÄÄÄÅ•òÄ°ù…ΩÕÃÄÙÙÙÄà¥àÅÒÅù…ΩÕÃÄÙÙÙÄãäLà§Åù…ΩÕÃÄÙÄâ@àÏ(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§ÅÒ(ÄÄÄÄÄÄÄÄÖÕçΩ…ïπ—ï…ïê°¡’——Ã§ÅÒ(ÄÄÄÄÄÄÄÄ°ù…ΩÕÃÄÑÙÙÄâ@àÄòòÄ†Ö9’µâï»π•Õ%π—ïùï»†≠ù…ΩÕÃ§ÅÒÄ≠ù…ΩÕÃÄÄƒÅÒÄ≠ù…ΩÕÃÄ¯Ä»¿§§ÅÒ(ÄÄÄÄÄÄÄÄÖ9’µâï»π•Õ%π—ïùï»†≠¡’——Ã§ÅÒ(ÄÄÄÄÄÄÄÄ≠¡’——ÃÄÄ¿ÅÒ(ÄÄÄÄÄÄÄÄ≠¡’——ÃÄ¯Ä‰ÅÒ(ÄÄÄÄÄÄÄÄ°ù…ΩÕÃÄÑÙÙÄâ@àÄòòÄ≠¡’——ÃÄ¯Ä≠ù…ΩÕÃ§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âπ—ï»Åù…ΩÕÃÅÕ—…Ω≠ïÃÅô…Ω¥Ä«äL»¿Ä°Ω»Å@§ÅÖπêÅ¡’——ÃÅô…Ω¥Ä√äL‰∏à§Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÅÅIïçΩ…êÄëÌ¡±ÖÂï»°¡±ÖÂï…%ê§¸ππÖµîÅÒÄâA±ÖÂï»âÙÉäPÅ!Ω±îÄëÌ°Ω±ïÙËÄëÌù…ΩÕÕÙÅÕ—…Ω≠ïÃ∞ÄëÌ¡’——ÕÙÅ¡’——ÃÅÖÃÅ—°îÅΩôô•ç•Ö∞ÅΩ…ùÖπ•Õï»ÅçΩ……ïç—•Ω∏˝Ä∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖÕÕ•ùπïëMçΩ…ï»ÄÙ(ÄÄÄÄÄÄÄÄÄÅ•ëÃπô•πê†(ÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯ÅM—…•πú°µÖ…≠ï…QÖ…ùï—Ω»°•ê∞ÅëÖ‰§§ÄÙÙÙÅM—…•πú°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÄÄÄ§ÅÒÅ¡±ÖÂï…%ê∞(ÄÄÄÄÄÄÄÅ—Ö…ùï–ÄÙ(ÄÄÄÄÄÄÄÄÄÅ±ΩçÖ—•Ω∏ÅÒ(ÄÄÄÄÄÄÄÄÄÄ°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅÖÕÕ•ùπïëMçΩ…ï»∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïçΩ…êËÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÖÕÕ•ùπïëMçΩ…ï»∞Å°Ω±î§∞(ÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ—Ö…ùï–π…ïçΩ…êπΩôô•ç•Ö∞ÄÙÅÏ(ÄÄÄÄÄÄÄÄ∏∏∏°—Ö…ùï–π…ïçΩ…êπΩôô•ç•Ö∞ÅÒÅÌÙ§∞(ÄÄÄÄÄÄÄÅ¡±ÖÂï…%ê∞(ÄÄÄÄÄÄÄÅù…ΩÕÃ∞(ÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠¡’——Ã∞(ÄÄÄÄÄÄÄÅΩ…ùÖπ•Õï…Ω……ïç—ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅçΩ……ïç—ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ…ïçΩ…ë=…ùÖπ•Õï…Ω……ïç—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î∞ÅÏ(ÄÄÄÄÄÄÄÅù…ΩÕÃ∞(ÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠¡’——Ã∞(ÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅM—…•πú°—Ö…ùï–πÕçΩ…ï…%ê§∞(ÄÄÄÄÄÄÄÅçΩ……ïç—ïë–ËÅ—Ö…ùï–π…ïçΩ…êπΩôô•ç•Ö∞πçΩ……ïç—ïë–∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•Õïê¸πlâëÖ‰àÄ¨ÅëÖÂt§(ÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂum¡±ÖÂï…%ëtÏ(ÄÄÄÄÄÅçΩπÕ–ÅçΩ……ïç—ïëA±ÖÂï…IΩ’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å¡±ÖÂï…%ê§Ï(ÄÄÄÄÄÅ•òÄ°çΩ……ïç—ïëA±ÖÂï…IΩ’πêπ}µï—Ñ¸πô•πÖ±•Õïë–§(ÄÄÄÄÄÄÄÅëï±ï—îÅçΩ……ïç—ïëA±ÖÂï…IΩ’πêπ}µï—Ñπô•πÖ±•Õïë–Ï(ÄÄÄÄÄÅïµï…ùïπçÂ1Ωú°Ï(ÄÄÄÄÄÄÄÅ—Â¡îËÄâΩ…ùÖπ•Õï»µ°Ω±îµçΩ……ïç—•Ω∏à∞(ÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÅ¡±ÖÂï…%ê∞(ÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅ—Ö…ùï–πÕçΩ…ï…%ê∞(ÄÄÄÄÄÄÄÅ°Ω±î∞(ÄÄÄÄÄÄÄÅù…ΩÕÃ∞(ÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠¡’——Ã∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅÖ›Ö•–Åô±’Õ°±Ω’ëIΩ’πê°ëÖ‰∞Å—Ö…ùï–πÕçΩ…ï…%ê§Ï(ÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ïΩ’π–°ëÖ‰∞Å¡±ÖÂï…%ê§ÄÙÙÙÄ¿Äòò(ÄÄÄÄÄÄÄÅµÖ…≠ïëMçΩ…ïçÖ…ëYï…•ô•çÖ—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê§πµ•ÕµÖ—ç°ïÃπ±ïπù—†ÄÙÙÙÄ¿(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê°ëÖ‰∞Å¡±ÖÂï…%ê∞ÅôÖ±Õî§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÖ±ï…–†âQ°îÅΩôô•ç•Ö∞Å°Ω±îÅ°ÖÃÅâïï∏ÅçΩ……ïç—ïêÅÖπêÅÕÖŸïê∏à§Ï(ÄÄÄÄÄÅ…ïπëï…=ôô•ç•Ö±!Ω±ïΩ……ïç—•Ω∏°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…Mï±ôMçΩ…ïIïçΩŸï…‰°ëÖ‰∞ÅôÖ•±ïëMçΩ…ï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄπµÖ¿°M—…•πú§Ï(ÄÄÄÅçΩπÕ–ÅôÖ•±ïêÄÙÅM—…•πú°ôÖ•±ïëMçΩ…ï…%êÅÒÅ•ëÕl¡tÅÒÄàà§∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅµÖ…≠ïë%êÄÙÅµÖ…≠ï…QÖ…ùï—Ω»°ôÖ•±ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅµÖ…≠ïêÄÙÅ¡±ÖÂï»°µÖ…≠ïë%ê§∞(ÄÄÄÄÄÅΩ›∏ÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmM—…•πú°µÖ…≠ïë%ê•tÅÒÅÌÙ∞(ÄÄÄÄÄÅµ•ÕÕ•πúÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±òÄÙÅΩ›πmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅΩôô•ç•Ö∞ÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞ÅµÖ…≠ïë%ê∞Å†§Ï(ÄÄÄÄÄÅ•òÄ†ÖΩôô•ç•Ö∞ÄòòÅÕçΩ…ïπ—ï…ïê°Õï±òπù…ΩÕÃ§§(ÄÄÄÄÄÄÄÅµ•ÕÕ•πúπ¡’Õ†°ÏÅ†∞Åù…ΩÕÃËÅÕï±òπù…ΩÕÃ∞Å¡’——ÃËÅÕï±òπ¡’——ÃÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅµ•ÕÕ•πúπ±ïπù—†(ÄÄÄÄÄÄ¸Åµ•ÕÕ•πú(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄ°»§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒ—»¯Ò—ê¯ëÌ»π°ÙΩ—ê¯Ò—ê¯Ò•π¡’–Åç±ÖÕÃÙâ…ïçΩŸï…Âë•–àÅëÖ—Ñµ…ïçΩŸï…Âù…ΩÕÃÙàëÌ»π°ÙàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»àÅŸÖ±’îÙàëÌïÕå°»πù…ΩÕÃ•ÙàÅÖ…•Ñµ±Öâï∞Ùâ!Ω±îÄëÌ»π°ÙÅù…ΩÕÃÅÕ—…Ω≠ïÃà¯Ω—ê¯ëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒ—ê¯Ò•π¡’–Åç±ÖÕÃÙâ…ïçΩŸï…Âë•–àÅëÖ—Ñµ…ïçΩŸï…Â¡’——ÃÙàëÌ»π°ÙàÅ•π¡’—µΩëîÙâπ’µï…•åàÅµÖ·±ïπù—†ÙàƒàÅŸÖ±’îÙàëÌÕçΩ…ïπ—ï…ïê°»π¡’——Ã§Ä¸ÅïÕå°»π¡’——Ã§ÄËÄàâÙàÅ¡±Öçï°Ω±ëï»ÙâIï≈’•…ïêàÅÖ…•Ñµ±Öâï∞Ùâ!Ω±îÄëÌ»π°ÙÅ¡’——Ãà¯Ω—ê˘ÄÄËÄàâÙÒ—ê¯ëÌÕçΩ…ïπ—ï…ïê°»πù…ΩÕÃ§ÄòòÄ†Ö¡’——ÕIï≈’•…ïêÅÒÅÕçΩ…ïπ—ï…ïê°»π¡’——Ã§§Ä¸ÄâIïÖë‰àÄËÄâΩµ¡±ï—îÅïπ—…‰âÙΩ—ê¯Ω—»˘Ä∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§(ÄÄÄÄÄÄËÄúÒ—»¯Ò—êÅçΩ±Õ¡Ö∏Ùà–à˘9ºÅ…ïçΩŸï…Öâ±îÅµ•ÕÕ•πúÅÕçΩ…ïÃÅ›ï…îÅôΩ’πê∏Ω—ê¯Ω—»¯úÏ(ÄÄÄÅçΩπÕ–Å…ïçΩŸï…ÂIΩ›YÖ±•êÄÙÄ°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅM—…•πú°…Ω‹πù…ΩÕÃÄ¸¸Äàà§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅ9’µâï»°…Ω‹π¡’——Ã§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÄÄÄ°ù…ΩÕÃÄÙÙÙÄâ@àÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°9’µâï»π•Õ%π—ïùï»†≠ù…ΩÕÃ§ÄòòÄ≠ù…ΩÕÃÄ¯ÙÄƒÄòòÄ≠ù…ΩÕÃÄÙÄ»¿§§Äòò(ÄÄÄÄÄÄÄÄÄÄ†Ö¡’——ÕIï≈’•…ïêÅÒÄ°ÕçΩ…ïπ—ï…ïê°…Ω‹π¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅ9’µâï»π•Õ%π—ïùï»°¡’——Ã§ÄòòÅ¡’——ÃÄ¯ÙÄ¿ÄòòÅ¡’——ÃÄÙÄ‰Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ°ù…ΩÕÃÄÙÙÙÄâ@àÅÒÅ¡’——ÃÄÙÄ≠ù…ΩÕÃ§§§(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅ…ïçΩŸï…ÂIïÖë‰ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄÄÅµ•ÕÕ•πúπ±ïπù—†Ä¯Ä¿ÄòòÅµ•ÕÕ•πúπïŸï…‰°…ïçΩŸï…ÂIΩ›YÖ±•ê§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêà¯ÒÕµÖ±∞˘A!=9Å%1UIÉ
+‹ÅdÄëÌëÖÂÙΩÕµÖ±∞¯Ò†»˘IïçΩŸï»Åô…Ω¥ÅMï±òµMçΩ…ïÃΩ†»¯Ò¿˘Mï±ïç–Å—°îÅ¡±ÖÂï»Å›°ΩÕîÅ¡°ΩπîÅôÖ•±ïê∏ÅQ°îÅÖ¡¿Å›•±∞Åô•πêÅ—°îÅΩôô•ç•Ö∞ÅçÖ…êÅ—°Ö–Å¡°ΩπîÅ›ÖÃÅµÖ…≠•πú∏Ω¿¯Ωë•ÿ¯Ò±Öâï∞Åç±ÖÕÃÙâïµï…ùïπçÂMï±ïç–à˘A°ΩπîÅ—°Ö–ÅôÖ•±ïêÒÕï±ïç–Å•êÙâôÖ•±ïëMçΩ…ï»à¯ëÌïµï…ùïπçÂA±ÖÂï…=¡—•ΩπÃ°ëÖ‰∞ÅôÖ•±ïê•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâ…ïçΩŸï…ÂIï±Ö—•ΩπÕ°•¿à¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘%1ÅA!=9ΩÕµÖ±∞¯Òà¯ëÌïÕå°¡±ÖÂï»°ôÖ•±ïê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩà¯ΩÕ¡Ö∏¯ÒÕ—…Ωπú˘›ÖÃÅµÖ…≠•πúÉäHΩÕ—…Ωπú¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘A1eHÅQ<ÅI=YHΩÕµÖ±∞¯Òà¯ëÌïÕå°µÖ…≠ïê¸ππÖµîÅÒÄâ9ºÅµÖ…≠ï»Å¡Ö…—πï»ÅôΩ’πêà•ÙΩà¯ΩÕ¡Ö∏¯Ωë•ÿ¯Ò¿Åç±ÖÕÃÙâ…ïçΩŸï…Â9Ω—•çîà˘Ωµ¡Ö…îÅïŸï…‰Åïπ—…‰Å›•—†Å—°îÅµÖπ’Ö±±‰ÅçΩµ¡±ï—ïêÅçÖ…ê∏Å•±∞ÅÖπ‰Åµ•ÕÕ•πúÄëÌ¡’——ÕIï≈’•…ïêÄ¸ÄâÕçΩ…îÅΩ»Å¡’——ÃàÄËÄâÕçΩ…îâÙÅâïôΩ…îÅÖççï¡—•πú∏Å·•Õ—•πúÅΩôô•ç•Ö∞ÅÕçΩ…ïÃÅ›•±∞ÅπΩ–ÅâîÅç°Öπùïê∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂQÖâ±ï]…Ö¿à¯Ò—Öâ±îÅç±ÖÕÃÙâïµï…ùïπçÂQÖâ±îà¯Ò—°ïÖê¯Ò—»¯Ò—†˘!Ω±îΩ—†¯Ò—†¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°µÖ…≠ïë%ê§•ÙÅÕï±òÅÕçΩ…îΩ—†¯ëÌ¡’——ÕIï≈’•…ïêÄ¸ÄàÒ—†˘A’——ÃΩ—†¯àÄËÄàâÙÒ—†˘=ôô•ç•Ö∞Åïπ—…‰Ω—†¯Ω—»¯Ω—°ïÖê¯Ò—âΩë‰¯ëÌ…Ω›ÕÙΩ—âΩë‰¯Ω—Öâ±î¯Ωë•ÿ¯ëÌΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞ÅôÖ•±ïê§πçΩµ¡±ï—îÄ¸ÅÄÒ±Öâï∞Åç±ÖÕÃÙâ…ïçΩŸï…Â9Ω—•çîà¯Ò•π¡’–Å•êÙâÖççï¡—Ö•±ïë=ôô•ç•Ö∞àÅ—Â¡îÙâç°ïç≠âΩ‡àÅç°ïç≠ïêÅÕ—Â±îÙâ›•ë—†ÈÖ’—ºà¯Å±ÕºÅÖççï¡–ÄëÌïÕå°¡±ÖÂï»°ôÖ•±ïê§¸ππÖµîÅÒÄâ—°îÅôÖ•±ïêµ¡°ΩπîÅ¡±ÖÂï»à•˜äeÃÅçΩµ¡±ï—ïêÅΩôô•ç•Ö∞ÅçÖ…êÅÖô—ï»Åç°ïç≠•πúÅ•–∏ÅQ°ï•»ÅôÖ•±ïêÅ¡°ΩπîÅçÖππΩ–ÅŸï…•ô‰Å—°îÅ…ïµÖ•π•πúÅ°Ω±ïÃ∏Ω±Öâï∞˘ÄÄËÄàâÙÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠µï…ùïπç‰à˚ä@Å	Öç¨Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÖççï¡—Mï±ôIïçΩŸï…‰àÄëÌ…ïçΩŸï…ÂIïÖë‰†§Ä¸ÄààÄËÄâë•ÕÖâ±ïêâÙ˘ççï¡–ÄëÌµ•ÕÕ•πúπ±ïπù—°ÙÅMï±òµMçΩ…îëÌµ•ÕÕ•πúπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅÖÃÅΩ……ïç–Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àçôÖ•±ïëMçΩ…ï»à§πΩπç°ÖπùîÄÙÄ°î§ÄÙ¯(ÄÄÄÄÄÅ…ïπëï…Mï±ôMçΩ…ïIïçΩŸï…‰°ëÖ‰∞Åîπ—Ö…ùï–πŸÖ±’î§Ï(ÄÄÄÄê†àçâÖç≠µï…ùïπç‰à§πΩπç±•ç¨ÄÙÅΩ¡ïπµï…ùïπçÂIïçΩŸï…‰Ï(ÄÄÄÄêê†ùmëÖ—Ñµ…ïçΩŸï…Âù…ΩÕÕt∞ÅmëÖ—Ñµ…ïçΩŸï…Â¡’——Õtú§πôΩ…Öç††°•π¡’–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•π¡’–πΩπ•π¡’–ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å†ÄÙÄ¨°•π¡’–πëÖ—ÖÕï–π…ïçΩŸï…Âù…ΩÕÃÅÒÅ•π¡’–πëÖ—ÖÕï–π…ïçΩŸï…Â¡’——Ã§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅµ•ÕÕ•πúπô•πê†°•—ï¥§ÄÙ¯Å•—ï¥π†ÄÙÙÙÅ†§Ï(ÄÄÄÄÄÄÄÅ•òÄ†Ö…Ω‹§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅ•òÄ°•π¡’–πëÖ—ÖÕï–π…ïçΩŸï…Âù…ΩÕÃ§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅ•π¡’–πŸÖ±’îπ—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÃÄÙÅŸÖ±’îÄÙÙÙÄà¥àÅÒÅŸÖ±’îÄÙÙÙÄãäLàÄ¸Äâ@àÄËÅŸÖ±’îÏ(ÄÄÄÄÄÄÄÅÙÅï±ÕîÅ…Ω‹π¡’——ÃÄÙÅ•π¡’–πŸÖ±’îπ—…•¥†§Ï(ÄÄÄÄÄÄÄÄê†àçÖççï¡—Mï±ôIïçΩŸï…‰à§πë•ÕÖâ±ïêÄÙÄÖ…ïçΩŸï…ÂIïÖë‰†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†ê†àçÖççï¡—Mï±ôIïçΩŸï…‰à§§(ÄÄÄÄÄÄê†àçÖççï¡—Mï±ôIïçΩŸï…‰à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö…ïçΩŸï…ÂIïÖë‰†§§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÖççï¡—Ö•±ïë=ôô•ç•Ö∞ÄÙÅ	ΩΩ±ïÖ∏†ê†àçÖççï¡—Ö•±ïë=ôô•ç•Ö∞à§¸πç°ïç≠ïêÄòòÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞ÅôÖ•±ïê§πçΩµ¡±ï—î§Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄÄÅÅΩ¡‰ÄëÌµ•ÕÕ•πúπ±ïπù—°ÙÄëÌµÖ…≠ïê¸ππÖµîÅÒÄâ¡±ÖÂï»âÙÅÕï±òµÕçΩ…îÅïπ—…•ïÃÅ•π—ºÅ—°îÅµ•ÕÕ•πúÅΩôô•ç•Ö∞ÅçÖ…ê¸ëÌÖççï¡—Ö•±ïë=ôô•ç•Ö∞Ä¸ÅÄÅ±ÕºÅÖççï¡–ÄëÌ¡±ÖÂï»°ôÖ•±ïê§¸ππÖµîÅÒÄâ—°îÅôÖ•±ïêµ¡°ΩπîÅ¡±ÖÂï»âÙùÃÅçΩµ¡±ï—ïêÅΩôô•ç•Ö∞ÅçÖ…êπÄÄËÄàâıÄ∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅµ•ÕÕ•πúπôΩ…Öç††°»§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…ïåÄÙÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅôÖ•±ïê∞Å»π†§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ†Öô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞ÅµÖ…≠ïë%ê∞Å»π†§§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïåπΩôô•ç•Ö∞ÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°µÖ…≠ïë%ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ»πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ∏∏∏°¡’——ÕIï≈’•…ïêÄ¸ÅÏÅ¡’——ÃËÅ»π¡’——ÃÅÙÄËÅÌÙ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅïµï…ùïπçÂIïçΩŸï…ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïçΩŸï…ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïçΩ…ë=…ùÖπ•Õï…Ω……ïç—•Ω∏°ëÖ‰∞ÅµÖ…≠ïë%ê∞Å»π†∞ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ»πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ∏∏∏°¡’——ÕIï≈’•…ïêÄ¸ÅÏÅ¡’——ÃËÄ≠»π¡’——ÃÅÙÄËÅÌÙ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅM—…•πú°ôÖ•±ïê§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅïµï…ùïπçÂIïçΩŸï…ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅïµï…ùïπçÂ1Ωú°Ï(ÄÄÄÄÄÄÄÄÄÅ—Â¡îËÄâÕï±òµÕçΩ…îµçΩ¡‰à∞(ÄÄÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÄÄÅôÖ•±ïëMçΩ…ï…%êËÅôÖ•±ïê∞(ÄÄÄÄÄÄÄÄÄÅ…ïçΩŸï…ïëA±ÖÂï…%êËÅM—…•πú°µÖ…≠ïë%ê§∞(ÄÄÄÄÄÄÄÄÄÅ…ïçΩŸï…ïëÖ•±ïëA±ÖÂï…%êËÅÖççï¡—Ö•±ïë=ôô•ç•Ö∞Ä¸ÅôÖ•±ïêÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅôÖ•±ïëMï±ô5•ÕÕ•πù!Ω±ïÃËÅÖççï¡—Ö•±ïë=ôô•ç•Ö∞Ä¸Å……Ö‰πô…Ω¥°Ì±ïπù—†Ëƒ·Ù∞Ä°|±§§ÄÙ¯Å§¨ƒ§πô•±—ï»°†ÄÙ¯ÄÖÕçΩ…ïπ—ï…ïê°ÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅôÖ•±ïê•mM—…•πú°†•t¸πÕï±ò¸πù…ΩÕÃ§§ÄËÅmt∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃËÅµ•ÕÕ•πúπµÖ¿†°‡§ÄÙ¯Å‡π†§∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê°ëÖ‰∞ÅµÖ…≠ïë%ê∞Å—…’î§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Öççï¡—Ö•±ïë=ôô•ç•Ö∞§Åïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê°ëÖ‰∞ÅôÖ•±ïê∞Å—…’î§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Åô±’Õ°±Ω’ëIΩ’πê°ëÖ‰∞ÅôÖ•±ïê§Ï(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Åô±’Õ°±Ω’ëIΩ’πê°ëÖ‰∞ÅµÖ…≠ïë%ê§Ï(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅç±ΩÕïµï…ùïπçÂIïçΩŸï…‰†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÄÄÅÖ±ï…–°ÄëÌµÖ…≠ïê¸ππÖµîÅÒÄâA±ÖÂï»âÙùÃÅµ•ÕÕ•πúÅΩôô•ç•Ö∞ÅÕçΩ…ïÃÅ°ÖŸîÅâïï∏Å…ïçΩŸï…ïêπÄ§Ï(ÄÄÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅŸ•…—’Ö±Ö…ë]Ö…π•πùÃ°ŸÖ±’ïÃ§ÅÏ(ÄÄÄÅçΩπÕ–Å›Ö…π•πùÃÄÙÅmtÏ(ÄÄÄÅŸÖ±’ïÃπôΩ…Öç††°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÅl(ÄÄÄÄÄÄÄÅlâA±ÖÂï»à∞Å…Ω‹πÕï±ô…ΩÕÃ∞Å…Ω‹πÕï±ôA’——Õt∞(ÄÄÄÄÄÄÄÅlâAÖ…—πï»à∞Å…Ω‹πΩôô•ç•Ö±…ΩÕÃ∞Å…Ω‹πΩôô•ç•Ö±A’——Õt∞(ÄÄÄÄÄÅtπôΩ…Öç††°m±Öâï∞∞Åù…ΩÕÃ∞Å¡’——Õt§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†ÖÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§ÅÒÄÖÕçΩ…ïπ—ï…ïê°¡’——Ã§§(ÄÄÄÄÄÄÄÄÄÅ›Ö…π•πùÃπ¡’Õ†°Å!Ω±îÄëÌ…Ω‹π°ÙËÄëÌ±Öâï±ÙÅïπ—…‰Å•ÃÅ•πçΩµ¡±ï—îπÄ§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅM—…•πú°ù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄâ@àÄòò(ÄÄÄÄÄÄÄÄÄÄ†≠ù…ΩÕÃÄÄƒÅÒÄ≠ù…ΩÕÃÄ¯Ä»¿§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ›Ö…π•πùÃπ¡’Õ†°Å!Ω±îÄëÌ…Ω‹π°ÙËÄëÌ±Öâï±ÙÅÕçΩ…îÅµ’Õ–ÅâîÄ«äL»¿ÅΩ»Å@πÄ§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅ•òÄ†≠¡’——ÃÄÄ¿ÅÒÄ≠¡’——ÃÄ¯Ä‰§(ÄÄÄÄÄÄÄÄÄÅ›Ö…π•πùÃπ¡’Õ†°Å!Ω±îÄëÌ…Ω‹π°ÙËÄëÌ±Öâï±ÙÅ¡’——ÃÅµ’Õ–ÅâîÄ√äL‰πÄ§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅ•òÄ°M—…•πú°ù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄâ@àÄòòÄ≠¡’——ÃÄ¯Ä≠ù…ΩÕÃ§(ÄÄÄÄÄÄÄÄÄÅ›Ö…π•πùÃπ¡’Õ†°Å!Ω±îÄëÌ…Ω‹π°ÙËÄëÌ±Öâï±ÙÅ¡’——ÃÅï·çïïêÅ—Ω—Ö∞ÅÕ—…Ω≠ïÃπÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Å›Ö…π•πùÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…Y•…—’Ö±Ö…ê°ëÖ‰∞ÅÕçΩ…ï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅÕçΩ…ï»ÄÙÅM—…•πú°ÕçΩ…ï…%êÅÒÅ•ëÕl¡tÅÒÄàà§∞(ÄÄÄÄÄÅ—Ö…ùï—%êÄÙÅµÖ…≠ï…QÖ…ùï—Ω»°ÕçΩ…ï»∞ÅëÖ‰§∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±ÕçΩ…ï»§∞(ÄÄÄÄÄÅï·•Õ—•πúÄÙÅ=â©ïç–π≠ïÂÃ°ÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmÕçΩ…ï…tÅÒÅÌÙ§πô•±—ï»†(ÄÄÄÄÄÄÄÄ°‡§ÄÙ¯ÄΩyqê¨êºπ—ïÕ–°‡§∞(ÄÄÄÄÄÄ§π±ïπù—†Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å†ÄÙÅ§Ä¨ÄƒÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒ—»¯Ò—ê¯Òà¯ëÌ°ÙΩà¯ÒÕµÖ±∞˘AÖ»ÄëÌÿπ¡Ö»¸πm•tÅÒÄãäPâÙΩÕµÖ±∞¯Ω—ê¯Ò—ê¯Ò•π¡’–ÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°ÕçΩ…ï»§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙÅ!Ω±îÄëÌ°ÙÅÕ—…Ω≠ïÃàÅëÖ—ÑµŸçÖ…êÙàëÌ°ıÒÕï±ô…ΩÕÃàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»à¯Ω—ê¯Ò—ê¯Ò•π¡’–ÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°ÕçΩ…ï»§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙÅ!Ω±îÄëÌ°ÙÅ¡’——ÃàÅëÖ—ÑµŸçÖ…êÙàëÌ°ıÒÕï±ôA’——ÃàÅ•π¡’—µΩëîÙâπ’µï…•åàÅµÖ·±ïπù—†Ùàƒà¯Ω—ê¯Ò—ê¯Ò•π¡’–ÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°—Ö…ùï—%ê§¸ππÖµîÅÒÄâAÖ…—πï»à•ÙÅ!Ω±îÄëÌ°ÙÅÕ—…Ω≠ïÃàÅëÖ—ÑµŸçÖ…êÙàëÌ°ıÒΩôô•ç•Ö±…ΩÕÃàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»à¯Ω—ê¯Ò—ê¯Ò•π¡’–ÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°—Ö…ùï—%ê§¸ππÖµîÅÒÄâAÖ…—πï»à•ÙÅ!Ω±îÄëÌ°ÙÅ¡’——ÃàÅëÖ—ÑµŸçÖ…êÙàëÌ°ıÒΩôô•ç•Ö±A’——ÃàÅ•π¡’—µΩëîÙâπ’µï…•åàÅµÖ·±ïπù—†Ùàƒà¯Ω—ê¯Ω—»˘ÄÏ(ÄÄÄÅÙ§π©Ω•∏†àà§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêà¯ÒÕµÖ±∞˘=5A1QÅIÉ
+‹ÅdÄëÌëÖÂÙΩÕµÖ±∞¯Ò†»˘π—ï»ÅA±ÖÂïÀäM5Ö…≠ï»ÅÖ…êΩ†»¯Òë•ÿÅç±ÖÕÃÙâŸ•…—’Ö±Ω’…Õï9Öµîà¯ÒÕµÖ±∞˘=UIMÅM=IIΩÕµÖ±∞¯Òà¯ëÌïÕå°å¸ππÖµîÅÒÄâΩ’…ÕîÅπΩ–ÅÕï±ïç—ïêà•ÙΩà¯Ωë•ÿ¯Ò¿˘π—ï»ÄÒà˘ù…ΩÕÃÅÕ—…Ω≠ïÃÅ—Ö≠ï∏Ωà¯Åô…Ω¥Å5•MçΩ…îÅΩ»Å—°îÅµÖπ’Ö∞ÅçÖ…ê∏Å›Ö‰ÅΩ±òÅçÖ±ç’±Ö—ïÃÅM—Öâ±ïôΩ…êÅ¡Ω•π—ÃÅÖ’—ΩµÖ—•çÖ±±‰∏Ω¿¯Ωë•ÿ¯Ò±Öâï∞Åç±ÖÕÃÙâïµï…ùïπçÂMï±ïç–à˘Y•…—’Ö∞Å¡±ÖÂï»ÄºÅÕçΩ…ï»ÒÕï±ïç–Å•êÙâŸ•…—’Ö±MçΩ…ï»à¯ëÌïµï…ùïπçÂA±ÖÂï…=¡—•ΩπÃ°ëÖ‰∞ÅÕçΩ…ï»•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâŸ•…—’Ö±Ö…ë9ÖµïÃà¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘M1µ!,ÅIΩÕµÖ±∞¯Òà¯ëÌïÕå°¡±ÖÂï»°ÕçΩ…ï»§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘=%%0ÅIÅ	%9Å5I-ΩÕµÖ±∞¯Òà¯ëÌïÕå°¡±ÖÂï»°—Ö…ùï—%ê§¸ππÖµîÅÒÄâ5Ö…≠ï»Å¡Ö…—πï»à•ÙΩà¯ΩÕ¡Ö∏¯Ωë•ÿ¯ëÌï·•Õ—•πúÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ]Ö…π•πúà¯Òà˘Ö…êÅÖ±…ïÖë‰ÅçΩπ—Ö•πÃÄëÌï·•Õ—•πùÙÅ°Ω±îëÌï·•Õ—•πúÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙ∏Ωà¯ÒÕ¡Ö∏˘Ωµ¡±ï—îµçÖ…êÅïπ—…‰Å•ÃÅë•ÕÖâ±ïêÅÕºÅï·•Õ—•πúÅ¡°ΩπîÅÕçΩ…ïÃÅçÖππΩ–ÅâîÅΩŸï…›…•——ï∏∏ΩÕ¡Ö∏¯Ωë•ÿ˘ÄÄËÄàâÙÒ¿Åç±ÖÕÃÙâôÖÕ—π—…Â!ï±¿à˘π—ï»Åù…ΩÕÃÅÕ—…Ω≠ïÃÅÖπêÅ¡…ïÕÃÅIï—’…∏Å—ºÅµΩŸîÅ—ºÅ—°îÅπï·–ÅâΩ‡∏Åiï…ºÅ¡’——ÃÅ•ÃÅŸÖ±•ê∏Åπ—ï»ÄÒà˘@Ωà¯ÅΩ»ÄÒà˚äLΩà¯ÅôΩ»ÅÑÅ¡•ç≠’¿∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂQÖâ±ï]…Ö¿ÅŸ•…—’Ö±Ö…ë]…Ö¿à¯Ò—Öâ±îÅç±ÖÕÃÙâïµï…ùïπçÂQÖâ±îÅŸ•…—’Ö±Ö…êà¯Ò—°ïÖê¯Ò—»¯Ò—†˘!Ω±îΩ—†¯Ò—†¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°ÕçΩ…ï»§•ÙÒâ»˘…ΩÕÃÅM—…Ω≠ïÃΩ—†¯Ò—†¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°ÕçΩ…ï»§•ÙÒâ»˘A’——ÃΩ—†¯Ò—†¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°—Ö…ùï—%ê§•ÙÒâ»˘=ôô•ç•Ö∞ÅM—…Ω≠ïÃΩ—†¯Ò—†¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°—Ö…ùï—%ê§•ÙÒâ»˘A’——ÃΩ—†¯Ω—»¯Ω—°ïÖê¯Ò—âΩë‰¯ëÌ…Ω›ÕÙΩ—âΩë‰¯Ω—Öâ±î¯Ωë•ÿ¯Òë•ÿÅ•êÙâŸ•…—’Ö±Ö…ë°ïç¨àÅç±ÖÕÃÙâŸ•…—’Ö±Ö…ë°ïç¨à¯¿ÅΩòÄ‹»Åïπ—…•ïÃÅçΩµ¡±ï—ïêΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠µï…ùïπç‰à˚ä@Å	Öç¨Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ…ïŸ•ï›Y•…—’Ö±Ö…êàÄëÌï·•Õ—•πúÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ˘IïŸ•ï‹ÅÖ…êΩâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àçŸ•…—’Ö±MçΩ…ï»à§πΩπç°ÖπùîÄÙÄ°î§ÄÙ¯(ÄÄÄÄÄÅ…ïπëï…Y•…—’Ö±Ö…ê°ëÖ‰∞Åîπ—Ö…ùï–πŸÖ±’î§Ï(ÄÄÄÄê†àçâÖç≠µï…ùïπç‰à§πΩπç±•ç¨ÄÙÅΩ¡ïπµï…ùïπçÂIïçΩŸï…‰Ï(ÄÄÄÅçΩπÕ–Å•π¡’—ÃÄÙÄêê†ùmëÖ—ÑµŸçÖ…ëtú§Ï(ÄÄÄÅçΩπÕ–Å’¡ëÖ—ïΩ’π–ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å∏ÄÙÅ•π¡’—Ãπô•±—ï»†°‡§ÄÙ¯Å‡πŸÖ±’îπ—…•¥†§ÄÑÙÙÄàà§π±ïπù—†Ï(ÄÄÄÄÄÄê†àçŸ•…—’Ö±Ö…ë°ïç¨à§π—ï·—Ωπ—ïπ–ÄÙÅÄëÌπÙÅΩòÄ‹»Åïπ—…•ïÃÅçΩµ¡±ï—ïëÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅ•π¡’—ÃπôΩ…Öç††°•π¡’–∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•π¡’–πΩπ•π¡’–ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕçΩ…ï•ï±êÄÙÄΩ…ΩÕÃêºπ—ïÕ–°•π¡’–πëÖ—ÖÕï–πŸçÖ…êÅÒÄàà§Ï(ÄÄÄÄÄÄÄÅ•π¡’–πŸÖ±’îÄÙÅÕçΩ…ï•ï±ê(ÄÄÄÄÄÄÄÄÄÄ¸Å•π¡’–πŸÖ±’îπ—ΩU¡¡ï…ÖÕî†§π…ï¡±Öçî†ΩoäOäPµtΩú∞Äâ@à§π…ï¡±Öçî†Ωmx¿¥ÂAtΩú∞Äàà§(ÄÄÄÄÄÄÄÄÄÄËÅ•π¡’–πŸÖ±’îπ…ï¡±Öçî†Ωmx¿¥ÂtΩú∞Äàà§Ï(ÄÄÄÄÄÄÄÅ•òÄ°ÕçΩ…ï•ï±êÄòòÅ•π¡’–πŸÖ±’îπ•πç±’ëïÃ†â@à§§Å•π¡’–πŸÖ±’îÄÙÄâ@àÏ(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïΩ’π–†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ•π¡’–πΩπ≠ïÂëΩ›∏ÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°îπ≠ï‰ÄÙÙÙÄâπ—ï»à§ÅÏ(ÄÄÄÄÄÄÄÄÄÅîπ¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÄÄÅ•π¡’—Õm§Ä¨Ä≈t¸πôΩç’Ã†§Ï(ÄÄÄÄÄÄÄÄÄÅ•π¡’—Õm§Ä¨Ä≈t¸πÕï±ïç–†§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄê†àç…ïŸ•ï›Y•…—’Ö±Ö…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å†ÄÙÅ§Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÅùï–ÄÙÄ°≠ï‰§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄê°ÅmëÖ—ÑµŸçÖ…êÙàëÌ°ıëÌ≠ïÂÙâuÄ§πŸÖ±’îπ—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄÄÅ†∞(ÄÄÄÄÄÄÄÄÄÅÕï±ô…ΩÕÃËÅùï–†âÕï±ô…ΩÕÃà§∞(ÄÄÄÄÄÄÄÄÄÅÕï±ôA’——ÃËÅùï–†âÕï±ôA’——Ãà§∞(ÄÄÄÄÄÄÄÄÄÅΩôô•ç•Ö±…ΩÕÃËÅùï–†âΩôô•ç•Ö±…ΩÕÃà§∞(ÄÄÄÄÄÄÄÄÄÅΩôô•ç•Ö±A’——ÃËÅùï–†âΩôô•ç•Ö±A’——Ãà§∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–Å›Ö…π•πùÃÄÙÅŸ•…—’Ö±Ö…ë]Ö…π•πùÃ°ŸÖ±’ïÃ§Ï(ÄÄÄÄÄÅ•òÄ°›Ö…π•πùÃπ±ïπù—†§ÅÏ(ÄÄÄÄÄÄÄÄê†àçŸ•…—’Ö±Ö…ë°ïç¨à§π•ππï…!Q50ÄÙÅÄÒà˘°ïç¨ÄëÌ›Ö…π•πùÃπ±ïπù—°ÙÅïπ—»ëÌ›Ö…π•πùÃπ±ïπù—†ÄÙÙÙÄƒÄ¸Äâ‰àÄËÄâ•ïÃâÙΩà¯ÒÕ¡Ö∏¯ëÌ›Ö…π•πùÃπÕ±•çî†¿∞Äÿ§πµÖ¿°ïÕå§π©Ω•∏†àÒâ»¯à•ÙëÌ›Ö…π•πùÃπ±ïπù—†Ä¯ÄÿÄ¸ÅÄÒâ»˚äôÖπêÄëÌ›Ö…π•πùÃπ±ïπù—†Ä¥ÄŸÙÅµΩ…ïÄÄËÄàâÙΩÕ¡Ö∏˘ÄÏ(ÄÄÄÄÄÄÄÄê†àçŸ•…—’Ö±Ö…ë°ïç¨à§πç±ÖÕÕ1•Õ–πÖëê†â°ÖÕ]Ö…π•πùÃà§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÅÅççï¡–Å—°îÅçΩµ¡±ï—îÅA±ÖÂïÀäM5Ö…≠ï»ÅçÖ…êÅôΩ»ÄëÌ¡±ÖÂï»°ÕçΩ…ï»§¸ππÖµîÅÒÄâ—°•ÃÅ¡±ÖÂï»âÙ˝Ä∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅŸÖ±’ïÃπôΩ…Öç††°»§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…ïåÄÙÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÕçΩ…ï»∞Å»π†§Ï(ÄÄÄÄÄÄÄÅ…ïåπÕï±òÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅÕçΩ…ï»∞(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ»πÕï±ô…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠»πÕï±ôA’——Ã∞(ÄÄÄÄÄÄÄÄÄÅïµï…ùïπçÂπ—ï…ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅ…ïåπΩôô•ç•Ö∞ÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°—Ö…ùï—%ê§∞(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ»πΩôô•ç•Ö±…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠»πΩôô•ç•Ö±A’——Ã∞(ÄÄÄÄÄÄÄÄÄÅïµï…ùïπçÂπ—ï…ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅ…ïçΩ…ë=…ùÖπ•Õï…Ω……ïç—•Ω∏°ëÖ‰∞Å—Ö…ùï—%ê∞Å»π†∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ»πΩôô•ç•Ö±…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃËÄ≠»πΩôô•ç•Ö±A’——Ã∞(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅM—…•πú°ÕçΩ…ï»§∞(ÄÄÄÄÄÄÄÄÄÅïµï…ùïπçÂπ—ï…ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅïµï…ùïπçÂ1Ωú°Ï(ÄÄÄÄÄÄÄÅ—Â¡îËÄâŸ•…—’Ö∞µ¡±ÖÂï»µµÖ…≠ï»µçÖ…êà∞(ÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅÕçΩ…ï»∞(ÄÄÄÄÄÄÄÅµÖ…≠ïëA±ÖÂï…%êËÅM—…•πú°—Ö…ùï—%ê§∞(ÄÄÄÄÄÄÄÅ°Ω±ïÃËÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê°ëÖ‰∞ÅÕçΩ…ï»∞Å—…’î§Ï(ÄÄÄÄÄÅïµï…ùïπçÂ•πÖ±•Õï%ôYï…•ô•ïê°ëÖ‰∞Å—Ö…ùï—%ê∞Å—…’î§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕçΩ…ï»§Ï(ÄÄÄÄÄÅç±ΩÕïµï…ùïπçÂIïçΩŸï…‰†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÖ±ï…–†âQ°îÅçΩµ¡±ï—îÅA±ÖÂïÀäM5Ö…≠ï»ÅçÖ…êÅ°ÖÃÅâïï∏ÅÖççï¡—ïê∏à§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•π¡’—Õl¡t¸πôΩç’Ã†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åïµï…ùïπçÂI’±ïQï·–°ëÖ‰∞ÅŸ•…—’Ö±%ê∞ÅÖôôïç—ïë%ê∞Åπ—¡·—…ÖA±ÖÂï…Ã§ÅÏ(ÄÄÄÅçΩπÕ–Å¡…ïô•‡ÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÅÖ‰ÄëÌëÖÂÙËÅÄÄËÄààÏ(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅÄëÌ¡…ïô•·ı]îÅÖ…îÅÑÅ¡±ÖÂï»ÅÕ°Ω…–ÅôΩ»ÅΩ’»Å›Ö‰ÅΩ±òÅŸïπ–Å—ΩëÖ‰∏ÄëÌ¡±ÖÂï»°Ÿ•…—’Ö±%ê§¸ππÖµîÅÒÄâÅ¡±ÖÂï»âÙÅ°ÖÃÅâïï∏Å…ÖπëΩµ±‰ÅÕï±ïç—ïêÅ—ºÅâîÅ—°îÅŸ•…—’Ö∞Å¡±ÖÂï»Å—ºÅ¡Ö…—πï»ÄëÌ¡±ÖÂï»°Öôôïç—ïë%ê§¸ππÖµîÅÒÄâ—°îÅ¡±ÖÂï»Å›•—†Å—°îÅµ•ÕÕ•πúÅ¡Ö…—πï»âÙÅ•∏ÅÖ±∞Åµ’±—•¡±ÖÂï»ÅçΩµ¡ï—•—•ΩπÃπÄÏ(ÄÄÄÅçΩπÕ–ÅÕ°Ω—ÃÄÙÅ=â©ïç–πïπ—…•ïÃ°π—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙ§πµÖ¿†°m°Ω±î∞Å•ët§ÄÙ¯ÅÄëÌ¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâÅ¡±ÖÂï»âÙÅ°ÖÃÅâïï∏Å…ÖπëΩµ±‰ÅÕï±ïç—ïêÅ—ºÅ°ÖŸîÄ»ÅÕ°Ω—ÃÅΩ∏Å—°îÅ9Q@Å°Ω±îÄëÌ°Ω±ïÙπÄ§Ï(ÄÄÄÅ…ï—’…∏ÅmâÖÕî∞Ä∏∏πÕ°Ω—Õtπ©Ω•∏†àÄà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπ5•ÕÕ•πùA±ÖÂï…Iï¡±Öçïµïπ–°ëÖ‰§ÅÏ(ÄÄÄÅ•π•—•Ö±•Õï…Ω’¡Ã†§Ï(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿¸πm≠ïÂtÏ(ÄÄÄÅ•òÄ†ÖÕï—’¿ÅÒÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πm≠ïÂt§ÅÏ(ÄÄÄÄÄÅÖ±ï…–°Õ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πm≠ïÂtÄ¸Äâ∏Åïµï…ùïπç‰Å…ï¡±Öçïµïπ–Å°ÖÃÅÖ±…ïÖë‰Åâïï∏ÅÖ¡¡±•ïêÅôΩ»Å—°•ÃÅëÖ‰∏àÄËÄâQ°îÅù…Ω’¡ÃÅôΩ»Å—°•ÃÅëÖ‰ÅÖ…îÅπΩ–Å…ïÖë‰∏à§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêà¯ÒÕµÖ±∞˘	=IÅA1dÉ
+‹ÅdÄëÌëÖÂÙΩÕµÖ±∞¯Ò†»˘µï…ùïπç‰Å5•ÕÕ•πúÅA±ÖÂï»Ω†»¯Ò¿˘Mï±ïç–Å—°îÅ¡±ÖÂï»Å›°ºÅ°ÖÃÅπΩ–ÅÖ……•Ÿïê∏ÅQ°îÅç°ÖπùîÅ…ïµÖ•πÃÅÖŸÖ•±Öâ±îÅ’π—•∞Å—°Ö–Å¡±ÖÂï»ùÃÅù…Ω’¿Å…ïçΩ…ëÃÅ•—ÃÅô•…Õ–ÅÕçΩ…î∏Ω¿¯Ωë•ÿ¯Ò±Öâï∞Åç±ÖÕÃÙâïµï…ùïπçÂMï±ïç–à˘Mï±ïç–Å5•ÕÕ•πúÅA±ÖÂï»ÒÕï±ïç–Å•êÙâµ•ÕÕ•πùA±ÖÂï…Mï±ïç–à¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙàà˘°ΩΩÕîÅ¡±ÖÂïÀäòΩΩ¡—•Ω∏¯ëÌ•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÏÅçΩπÕ–Åù…Ω’¡%πëï‡ÄÙÅÕï—’¿πù…Ω’¡Ãπô•πë%πëï‡†°ú§ÄÙ¯ÅúπµÖ¿°M—…•πú§π•πç±’ëïÃ°M—…•πú°•ê§§§∞ÅÕ—Ö…—ïêÄÙÅù…Ω’¡!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÏÅ…ï—’…∏ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌïÕå°•ê•ÙàÄëÌÕ—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙëÌÕ—Ö…—ïêÄ¸ÄàÉäPÅù…Ω’¿ÅÖ±…ïÖë‰ÅÕçΩ…•πúàÄËÄàâÙΩΩ¡—•Ω∏˘ÄÏÅÙ§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅ•êÙâµ•ÕÕ•πùA±ÖÂï…A…ïŸ•ï‹à¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâçÖπçï±5•ÕÕ•πùA±ÖÂï»à˘Öπçï∞Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÖ¡¡±Â5•ÕÕ•πùA±ÖÂï»àÅë•ÕÖâ±ïê˘¡¡±‰Åµï…ùïπç‰ÅIï¡±Öçïµïπ–Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÅ±ï–Å¡…Ω¡ΩÕÖ∞ÄÙÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡…Ω¡ΩÕîÄÙÄ°µ•ÕÕ•πù%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…Ω’¡%πëï‡ÄÙÅÕï—’¿πù…Ω’¡Ãπô•πë%πëï‡†°ú§ÄÙ¯ÅúπµÖ¿°M—…•πú§π•πç±’ëïÃ°M—…•πú°µ•ÕÕ•πù%ê§§§∞Åù…Ω’¿ÄÙÅÕï—’¿πù…Ω’¡Õmù…Ω’¡%πëï·t¸πµÖ¿°M—…•πú§ÅÒÅmt∞Åµ•ÕÕ•πù%πëï‡ÄÙÅù…Ω’¿π•πëï·=ò°M—…•πú°µ•ÕÕ•πù%ê§§∞Å¡Ö•…M—Ö…–ÄÙÅµ•ÕÕ•πù%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»∞ÅÖôôïç—ïë%êÄÙÅù…Ω’¿πÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§πô•πê†°•ê§ÄÙ¯Å•êÄÑÙÙÅM—…•πú°µ•ÕÕ•πù%ê§§∞Å…ïÖ±%π…Ω’¿ÄÙÅù…Ω’¿πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅM—…•πú°µ•ÕÕ•πù%ê§ÄòòÅ•êÄÑÙÙÅ9=}AIQ9I}%§∞ÅÖùù…ïùÖ—ïAÖ…—πï»ÄÙÅÖùù…ïùÖ—ïAÖ»ÕAÖ…—πï»°µ•ÕÕ•πù%ê±ëÖ‰§∞ÅçÖπë•ëÖ—ïÃÄÙÅ•ëÃπô•±—ï»†°•ê§ÄÙ¯ÄÖù…Ω’¿π•πç±’ëïÃ°M—…•πú°•ê§§ÄòòÅM—…•πú°•ê§ÄÑÙÙÅM—…•πú°µ•ÕÕ•πù%ê§ÄòòÅM—…•πú°•ê§ÄÑÙÙÅÖùù…ïùÖ—ïAÖ…—πï»ÄòòÄÖ=â©ïç–πŸÖ±’ïÃ°Õï—’¿πÕ°Ω…—QïÖµÕÒÒÌÙ§πÕΩµî°ÑÙ˘M—…•πú°ÑπŸ•…—’Ö±A±ÖÂï»§ÙÙıM—…•πú°•ê§§§∞ÅŸ•…—’Ö±%êÄÙÅç°ΩΩÕïIÖπëΩ¥°çÖπë•ëÖ—ïÃ§∞Åπ—¡·—…ÖA±ÖÂï…ÃÄÙÅÌÙÏ(ÄÄÄÄÄÅ•òÄ°ù…Ω’¡%πëï‡ÄÄ¿ÅÒÅù…Ω’¡!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÒÄÖÖôôïç—ïë%êÅÒÄÖŸ•…—’Ö±%êÅÒÅ…ïÖ±%π…Ω’¿π±ïπù—†ÄÑÙÙÄÃ§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ°’ôô±ïêÄÙÅÕ°’ôô±ïΩ¡‰°…ïÖ±%π…Ω’¿§Ï(ÄÄÄÄÄÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§πôΩ…Öç††°°Ω±î∞Å§§ÄÙ¯Åπ—¡·—…ÖA±ÖÂï…ÕmM—…•πú°°Ω±î•tÄÙÅÕ°’ôô±ïëm§ÄîÅÕ°’ôô±ïêπ±ïπù—°t§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅµ•ÕÕ•πù%êËÅM—…•πú°µ•ÕÕ•πù%ê§∞Åù…Ω’¡%πëï‡∞Åµ•ÕÕ•πù%πëï‡∞ÅÖôôïç—ïë%êËÅM—…•πú°Öôôïç—ïë%ê§∞ÅŸ•…—’Ö±%êËÅM—…•πú°Ÿ•…—’Ö±%ê§∞Åπ—¡·—…ÖA±ÖÂï…ÃÅÙÏ(ÄÄÄÅÙÏ(ÄÄÄÄê†àçµ•ÕÕ•πùA±ÖÂï…Mï±ïç–à§πΩπç°ÖπùîÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ¡…Ω¡ΩÕÖ∞ÄÙÅ¡…Ω¡ΩÕî°îπ—Ö…ùï–πŸÖ±’î§ÏÄê†àçÖ¡¡±Â5•ÕÕ•πùA±ÖÂï»à§πë•ÕÖâ±ïêÄÙÄÖ¡…Ω¡ΩÕÖ∞Ï(ÄÄÄÄÄÄê†àçµ•ÕÕ•πùA±ÖÂï…A…ïŸ•ï‹à§π•ππï…!Q50ÄÙÅ¡…Ω¡ΩÕÖ∞(ÄÄÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ]Ö…π•πúà¯Òà¯ëÌïÕå°¡±ÖÂï»°¡…Ω¡ΩÕÖ∞πµ•ÕÕ•πù%ê§¸ππÖµî•ÙÅ›•±∞ÅâîÅ…ïµΩŸïêÅô…Ω¥Å—ΩëÖÁäeÃÅë…Ö‹∏Ωà¯ÒÕ¡Ö∏¯ëÌïÕå°¡±ÖÂï»°¡…Ω¡ΩÕÖ∞πŸ•…—’Ö±%ê§¸ππÖµî•ÙÅ›•±∞ÅâîÅ—°îÅ±Ωç≠ïêÅŸ•…—’Ö∞Å¡±ÖÂï»ÅôΩ»ÄëÌïÕå°¡±ÖÂï»°¡…Ω¡ΩÕÖ∞πÖôôïç—ïë%ê§¸ππÖµî•Ù∏ÅQ°îÅ…ïµÖ•π•πúÅ—°…ïîÅ¡±ÖÂï…ÃÅ›•±∞ÅµÖ…¨ÅïÖç†ÅΩ—°ï»∏ΩÕ¡Ö∏¯ëÌ=â©ïç–πïπ—…•ïÃ°¡…Ω¡ΩÕÖ∞ππ—¡·—…ÖA±ÖÂï…Ã§πµÖ¿†°m°Ω±î∞Å•ët§ÄÙ¯ÅÄÒÕ¡Ö∏˘!Ω±îÄëÌ°Ω±ïÙÅ9Q@Åï·—…ÑÅÖ——ïµ¡–ËÄëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµî•ÙΩÕ¡Ö∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ˘Ä(ÄÄÄÄÄÄÄÄËÅîπ—Ö…ùï–πŸÖ±’î(ÄÄÄÄÄÄÄÄÄÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ]Ö…π•πúà¯Òà˘9ºÅïµï…ùïπç‰Å…ï¡±Öçïµïπ–Å•ÃÅÖŸÖ•±Öâ±î∏Ωà¯ÒÕ¡Ö∏˘∏Åïµï…ùïπç‰Å…ï¡±Öçïµïπ–Å…ï≈’•…ïÃÅÑÅôΩ’»µ¡±ÖÂï»Å—ïÖ¥Å—°Ö–Å°ÖÃÅπΩ–ÅÕ—Ö…—ïêÅÕçΩ…•πúÅÖπêÅÖ∏Å’π’ÕïêÅï±•ù•â±îÅY•…—’Ö∞ÅA±ÖÂï»ÅΩ’—Õ•ëîÅ—°Ö–Å—ïÖ¥∏ΩÕ¡Ö∏¯Ωë•ÿ¯ú(ÄÄÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅÙÏ(ÄÄÄÄê†àççÖπçï±5•ÕÕ•πùA±ÖÂï»à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Äê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄê†àçÖ¡¡±Â5•ÕÕ•πùA±ÖÂï»à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†Ö¡…Ω¡ΩÕÖ∞ÅÒÄÖçΩπô•…¥°Å¡¡±‰Å—°îÅïµï…ùïπç‰Å…ï¡±Öçïµïπ–ÅôΩ»ÄëÌ¡±ÖÂï»°¡…Ω¡ΩÕÖ∞πµ•ÕÕ•πù%ê§¸ππÖµïÙ˝Ä§§Å…ï—’…∏Ï(ÄÄÄÄÄÅ•òÄ°ù…Ω’¡!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰∞Å¡…Ω¡ΩÕÖ∞πù…Ω’¡%πëï‡§§ÅÏ(ÄÄÄÄÄÄÄÅÖ±ï…–†âQ°•ÃÅù…Ω’¿Å°ÖÃÅπΩ‹Åâïù’∏ÅÕçΩ…•πú∞ÅÕºÅ•—ÃÅ¡±ÖÂï»ÅÖ……Öπùïµïπ–ÅçÖ∏ÅπºÅ±Ωπùï»ÅâîÅç°Öπùïê∏à§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÕï—’¿πù…Ω’¡Õm¡…Ω¡ΩÕÖ∞πù…Ω’¡%πëï·um¡…Ω¡ΩÕÖ∞πµ•ÕÕ•πù%πëï·tÄÙÅ9=}AIQ9I}%Ï(ÄÄÄÄÄÅ=â©ïç–πÖÕÕ•ù∏°Õï—’¿∞ÅÏÅµ•ÕÕ•πùA±ÖÂï…%êËÅ¡…Ω¡ΩÕÖ∞πµ•ÕÕ•πù%ê∞ÅŸ•…—’Ö±A±ÖÂï»ËÅ¡…Ω¡ΩÕÖ∞πŸ•…—’Ö±%ê∞Åπ—¡·—…ÖA±ÖÂï…ÃËÅ¡…Ω¡ΩÕÖ∞ππ—¡·—…ÖA±ÖÂï…ÃÅÙ§Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—ÃÄÙÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—ÃÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Õm≠ïÂtÄÙÅÏÅµ•ÕÕ•πùA±ÖÂï…%êËÅ¡…Ω¡ΩÕÖ∞πµ•ÕÕ•πù%ê∞ÅŸ•…—’Ö±A±ÖÂï…%êËÅ¡…Ω¡ΩÕÖ∞πŸ•…—’Ö±%ê∞ÅÖôôïç—ïëA±ÖÂï…%êËÅ¡…Ω¡ΩÕÖ∞πÖôôïç—ïë%ê∞Åù…Ω’¡%πëï‡ËÅ¡…Ω¡ΩÕÖ∞πù…Ω’¡%πëï‡∞Åπ—¡·—…ÖA±ÖÂï…ÃËÅ¡…Ω¡ΩÕÖ∞ππ—¡·—…ÖA±ÖÂï…Ã∞ÅÖ¡¡±•ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞Å…’±ïQï·–ËÅïµï…ùïπçÂI’±ïQï·–°ëÖ‰∞Å¡…Ω¡ΩÕÖ∞πŸ•…—’Ö±%ê∞Å¡…Ω¡ΩÕÖ∞πÖôôïç—ïë%ê∞Å¡…Ω¡ΩÕÖ∞ππ—¡·—…ÖA±ÖÂï…Ã§ÅÙÏ(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿±ëÖ‰§Ï(ÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§ÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§ÏÅ…ïπëï…!Ωµî†§ÏÅ…ïπëï…QïÖµÕAÖùî†§ÏÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰∞Åç…ïÖ—îÄÙÅ—…’î§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–πµÖπ’Ö±MçΩ…ïçÖ…ëÃÄòòÅç…ïÖ—î§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±MçΩ…ïçÖ…ëÃÄÙÅÌÙÏ(ÄÄÄÅçΩπÕ–Å…ΩΩ–ÄÙÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±MçΩ…ïçÖ…ëÃÏ(ÄÄÄÅ•òÄ†Ö…ΩΩ–§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰Ï(ÄÄÄÅ•òÄ†Ö…ΩΩ—m≠ïÂtÄòòÅç…ïÖ—î§(ÄÄÄÄÄÅ…ΩΩ—m≠ïÂtÄÙÅÏÅù…Ω’¡ÃËÅÌÙ∞Åπ—¿ËÅÌÙ∞ÅÕ—Ö—’ÃËÄâë…Öô–àÅÙÏ(ÄÄÄÅ…ï—’…∏Å…ΩΩ—m≠ïÂtÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±ÖÂ•πÖ±•Õïê°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂM—Ω…îÄÙÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰∞ÅôÖ±Õî§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ëÖÂM—Ω…î¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄòòÅëÖÂM—Ω…î¸πçΩµ¡±ï—ïë–§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±…Ω’¡Ö…ê°ëÖ‰∞Åù…Ω’¡%πëï‡∞Åç…ïÖ—îÄÙÅ—…’î§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂM—Ω…îÄÙÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰∞Åç…ïÖ—î§Ï(ÄÄÄÅ•òÄ†ÖëÖÂM—Ω…î§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅëÖÂM—Ω…îπù…Ω’¡ÃÄÙÅëÖÂM—Ω…îπù…Ω’¡ÃÅÒÅÌÙÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÅM—…•πú°ù…Ω’¡%πëï‡§Ï(ÄÄÄÅ•òÄ†ÖëÖÂM—Ω…îπù…Ω’¡Õm≠ïÂtÄòòÅç…ïÖ—î§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÄÄÅ•ëÃÄÙÄ°Õï—’¿¸πù…Ω’¡Ã¸πmù…Ω’¡%πëï·tÅÒÅmt§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅM—…•πú°Õï—’¡Ω…QïÖ¥°Õï—’¿±ù…Ω’¡%πëï‡§¸πŸ•…—’Ö±A±ÖÂï»ÅÒÄàà§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅM—…•πú°•ê§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÄÄÅëÖÂM—Ω…îπù…Ω’¡Õm≠ïÂtÄÙÅÏ(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÄâë…Öô–à∞(ÄÄÄÄÄÄÄÅÕΩ’…çîËÄâ¡Ö¡ï»µ—ïÖ¥µçÖ…êà∞(ÄÄÄÄÄÄÄÅ¡±ÖÂï…%ëÃËÅ•ëÃ∞(ÄÄÄÄÄÄÄÅ¡±ÖÂï…ÃËÅÌÙ∞(ÄÄÄÄÄÄÄÅ¡Ö•…ÃËÅÌÙ∞(ÄÄÄÄÄÄÄÅ—ïÖ¥ËÅÌÙ∞(ÄÄÄÄÄÄÄÅ’¡ëÖ—ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅëÖÂM—Ω…îπù…Ω’¡Õm≠ïÂtÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–ÅçÖ…êÄÙÅµÖπ’Ö±…Ω’¡Ö…ê°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅôÖ±Õî§Ï(ÄÄÄÅ…ï—’…∏ÅçÖ…ê¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄ¸ÅçÖ…êÄËÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±Ö…ëΩ…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Åç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°M—…•πú°¡±ÖÂï…%ê§∞ÅëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Åç—‡Ä¸ÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§ÄËÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±YÖ±’î°Ωâ©ïç–∞Å¡Ö—†∞ÅôÖ±±âÖç¨ÄÙÄàà§ÅÏ(ÄÄÄÅ±ï–ÅŸÖ±’îÄÙÅΩâ©ïç–Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–Å≠ï‰ÅΩòÅ¡Ö—†πÕ¡±•–†à∏à§§ÅÏ(ÄÄÄÄÄÅ•òÄ°ŸÖ±’îÄÙÙÅπ’±∞§Å…ï—’…∏ÅôÖ±±âÖç¨Ï(ÄÄÄÄÄÅŸÖ±’îÄÙÅŸÖ±’ïm≠ïÂtÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅŸÖ±’îÄÙÙÅπ’±∞Ä¸ÅôÖ±±âÖç¨ÄËÅŸÖ±’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕï—5Öπ’Ö±YÖ±’î°Ωâ©ïç–∞Å¡Ö—†∞ÅŸÖ±’î§ÅÏ(ÄÄÄÅçΩπÕ–Å≠ïÂÃÄÙÅ¡Ö—†πÕ¡±•–†à∏à§Ï(ÄÄÄÅ±ï–Å—Ö…ùï–ÄÙÅΩâ©ïç–Ï(ÄÄÄÅ≠ïÂÃπÕ±•çî†¿∞Ä¥ƒ§πôΩ…Öç††°≠ï‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ—Ö…ùï—m≠ïÂtÄÙÅ—Ö…ùï—m≠ïÂtÅÒÅÌÙÏ(ÄÄÄÄÄÅ—Ö…ùï–ÄÙÅ—Ö…ùï—m≠ïÂtÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ—Ö…ùï—m≠ïÂÕm≠ïÂÃπ±ïπù—†Ä¥Ä≈utÄÙÅŸÖ±’îÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±M’µµÖ…Â•ï±ëÃ°¡…ïô•‡∞ÅŸÖ±’ïÃÄÙÅÌÙ∞Å…ï≈’•…ïêÄÙÅ—…’î§ÅÏ(ÄÄÄÅçΩπÕ–Åô•ï±êÄÙÄ°≠ï‰∞Å±Öâï∞∞ÅçÕÃÄÙÄàà§ÄÙ¯(ÄÄÄÄÄÅÄÒ±Öâï∞Åç±ÖÕÃÙàëÌçÕÕÙà¯ÒÕ¡Ö∏¯ëÌ±Öâï±ÙΩÕ¡Ö∏¯Ò•π¡’–Å•π¡’—µΩëîÙâπ’µï…•åàÅ¡Ö——ï…∏Ùâl¿¥Ât®àÅëÖ—ÑµµÖπ’Ö∞ÙàëÌïÕå°¡…ïô•‡Ä¨Äà∏àÄ¨Å≠ï‰•ÙàÄëÌ…ï≈’•…ïêÄòòÅ≠ï‰ÄÙÙÙÄâ—Ω—Ö∞àÄ¸ÄâëÖ—Ñµ…ï≈’•…ïêàÄËÄàâÙÅŸÖ±’îÙàëÌïÕå°ŸÖ±’ïÕm≠ïÂtÄ¸¸Äàà•Ùà¯Ω±Öâï∞˘ÄÏ(ÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±M’µµÖ…Â•ï±ëÃà¯ëÌô•ï±ê†â—Ω—Ö∞à∞ÄâQΩ—Ö∞à∞ÄâµÖπ’Ö±QΩ—Ö∞à•ÙëÌô•ï±ê†ââÖç¨‰à∞Äâ	Öç¨Ä‰à•ÙëÌô•ï±ê†â±ÖÕ–ÿà∞Äâ1ÖÕ–Äÿà•ÙëÌô•ï±ê†â±ÖÕ–Ãà∞Äâ1ÖÕ–ÄÃà•ÙΩë•ÿ˘ÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°ëÖ‰ÄÙÅÕ—Ω…îπïŸïπ–¸π±•ŸïΩπ—…Ω±Ö‰ÅÒÄƒ§ÅÏ(ÄÄÄÅ…ï—’…∏Åπï‹ÅMï–†°Õ—Ω…îπïŸïπ–¸πçΩµ¡ï—•—•ΩπÃÅÒÅmt§πô•±—ï»°•êÙ˘çΩµ¡ï—•—•Ωπ%Õ=∏°•ê±ëÖ‰§§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±AÖ»Õ!Ω±ïÃ°ëÖ‰∞Å•êÄÙÅπ’±∞§ÅÏ(ÄÄÄÅçΩπÕ–Å•ëÃı•êÙıπ’±∞˝ëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»°‡Ù˘M—…•πú°‡§ÑÙı9=}AIQ9I}%§Èm•ëtÏ(ÄÄÄÅçΩπÕ–ÅçÖ…ëÃı•ëÃπ±ïπù—†˝•ëÃπµÖ¿°¡•êÙ˘ïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡•ê§§ÈmïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰•tÏ(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°Ì±ïπù—†Ëƒ·Ù∞°|±§§Ù˘§¨ƒ§πô•±—ï»°°Ω±îÙ˘çÖ…ëÃπÕΩµî°ÿÙ¯≠ÿπ¡Ö»¸πm°Ω±î¥≈tÙÙÙÃ§§Ï(ÄÅÙ((ÄÅô’πç—•Ω∏ÅµÖπ’Ö±A±ÖÂï…M’µµÖ…‰°ëÖ‰∞Å¡±ÖÂï…%ê∞Å—Â¡î§ÅÏ(ÄÄÄÅçΩπÕ–ÅçÖ…êÄÙÅµÖπ’Ö±Ö…ëΩ…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§Ï(ÄÄÄÅ…ï—’…∏ÅçÖ…ê¸π¡±ÖÂï…Ã¸πmM—…•πú°¡±ÖÂï…%ê•t¸πm—Â¡ïtÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±AÖ»ÕAΩ•π–°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅµÖπ’Ö±Ö…ëΩ…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê§¸π¡±ÖÂï…Ã¸πl(ÄÄÄÄÄÄÄÅM—…•πú°¡±ÖÂï…%ê§(ÄÄÄÄÄÅt¸π¡Ö»Ã¸πmM—…•πú°°Ω±î•tÏ(ÄÄÄÅ•òÄ°ù…ΩÕÃÄÙÙÙÄààÅÒÅù…ΩÕÃÄÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡±ÖÂï…%ê§Ï(ÄÄÄÅ•ò†≠ÿπ¡Ö»¸πm°Ω±î¥≈tÑÙÙÃ•…ï—’…∏Ä¿Ï(ÄÄÄÅ…ï—’…∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÅù…ΩÕÃ∞(ÄÄÄÄÄÄ¨°ÿπ¡Ö»¸πm°Ω±îÄ¥Ä≈tÅÒÄ¿§∞(ÄÄÄÄÄÅÿπ•πëï‡¸πm°Ω±îÄ¥Ä≈tÄ¸¸Äàà∞(ÄÄÄÄÄÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡±ÖÂï…%ê∞ÅëÖ‰§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±AÖ•…M’µµÖ…‰°ëÖ‰∞Å’π•—%ê∞Å—Â¡îÄÙÄâôΩ’…âÖ±∞à§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ—ç†ÄÙÅM—…•πú°’π•—%ê§πµÖ—ç††Ωyëqê≠ú°qê¨•¿°qê¨§êº§Ï(ÄÄÄÅ•òÄ†ÖµÖ—ç†§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅçÖ…êÄÙÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Ä≠µÖ—ç°l≈t§Ï(ÄÄÄÅ…ï—’…∏ÅçÖ…ê¸π¡Ö•…Ã¸πlâ¿àÄ¨ÅµÖ—ç°l…ut¸πm—Â¡ïtÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±QïÖµM’µµÖ…‰°ëÖ‰∞Å’π•—%ê∞Å—Â¡î§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖ—ç†ÄÙÅM—…•πú°’π•—%ê§πµÖ—ç††Ωyëqê≠ú°qê¨§êº§Ï(ÄÄÄÅ•òÄ†ÖµÖ—ç†§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏ÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Ä≠µÖ—ç°l≈t§¸π—ïÖ¥¸πm—Â¡ïtÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±QïÖµ!ÖÕA°ΩπïMçΩ…ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ù…Ω’¡!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±Iï≈’•…ïµïπ—Ã°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩµ¡ÃÄÙÅµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°ëÖ‰§∞(ÄÄÄÄÄÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅ…Ö‹ÄÙÅÕï—’¿¸πù…Ω’¡Ã¸πmù…Ω’¡%πëï·tÅÒÅmt∞(ÄÄÄÄÄÅŸ•…—’Ö±%êÄÙÅ…Ö‹πÕΩµî†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄ¸ÅM—…•πú°Õï—’¡Ω…QïÖ¥°Õï—’¿±ù…Ω’¡%πëï‡§¸πŸ•…—’Ö±A±ÖÂï»ÅÒÄàà§(ÄÄÄÄÄÄÄÄËÄàà∞(ÄÄÄÄÄÅ•ëÃÄÙÅ…Ö‹(ÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅM—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%Ä¸ÅŸ•…—’Ö±%êÄËÅM—…•πú°•ê§∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ•ëÃ∞(ÄÄÄÄÄÅŸ•…—’Ö±%ê∞(ÄÄÄÄÄÅÕ°Ω…—QïÖ¥ËÅ	ΩΩ±ïÖ∏°Ÿ•…—’Ö±%ê§∞(ÄÄÄÄÄÅÕ•πù±îËÅçΩµ¡Ãπ°ÖÃ†âÕ•πù±îà§ÅÒÅçΩµ¡Ãπ°ÖÃ†âçΩµâ•πïêà§ÅÒÅçΩµ¡Ãπ°ÖÃ†âçÖ¡QïÖµÃà§∞(ÄÄÄÄÄÅôΩ’…âÖ±∞ËÅçΩµ¡Ãπ°ÖÃ†âôΩ’…âÖ±∞à§∞(ÄÄÄÄÄÅâïÕ–ÃËÅçΩµ¡Ãπ°ÖÃ†ââïÕ–ÕΩò–à§∞(ÄÄÄÄÄÅ¡’——•πúËÅçΩµ¡Ãπ°ÖÃ†â—ïÖµA’——Ãà§∞(ÄÄÄÄÄÅ¡’——•πùAÖ•…ÃËÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…Ãà∞(ÄÄÄÄÄÅ¡Ö»ÃËÅçΩµ¡Ãπ°ÖÃ†â¡Ö»Ãà§∞(ÄÄÄÄÄÅπ—¿ËÅçΩµ¡Ãπ°ÖÃ†âπ—¿à§∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±∞ËÅÂï±±Ω›	Ö±±%Õ=∏°ëÖ‰§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±Ö±ç’±Ö—ïëM’µµÖ…‰°ŸÖ±’ïÃ§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ’¥ÄÙÄ°•—ïµÃ§ÄÙ¯(ÄÄÄÄÄÅ•—ïµÃπ…ïë’çî†°—Ω—Ö∞∞ÅŸÖ±’î§ÄÙ¯Å—Ω—Ö∞Ä¨Ä°ŸÖ±’îÄÙÙÅπ’±∞Ä¸Ä¿ÄËÄ≠ŸÖ±’îÅÒÄ¿§∞Ä¿§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ—Ω—Ö∞ËÅM—…•πú°Õ’¥°ŸÖ±’ïÃ§§∞(ÄÄÄÄÄÅâÖç¨‰ËÅM—…•πú°Õ’¥°ŸÖ±’ïÃπÕ±•çî†‰∞Äƒ‡§§§∞(ÄÄÄÄÄÅ±ÖÕ–ÿËÅM—…•πú°Õ’¥°ŸÖ±’ïÃπÕ±•çî†ƒ»∞Äƒ‡§§§∞(ÄÄÄÄÄÅ±ÖÕ–ÃËÅM—…•πú°Õ’¥°ŸÖ±’ïÃπÕ±•çî†ƒ‘∞Äƒ‡§§§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±eï±±Ω›	Ö±±1ΩÕÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å…ïÕ’±–§ÅÏ(ÄÄÄÅ•òÄ†Ö…ïÕ’±–ÅÒÄÖ…ïÕ’±–π±ΩÕÕ!Ω±îÅÒÅ…ïÕ’±–π±ΩÕÕ!Ω±îÄÙÙÙÄâ9=9à§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å°Ω±îÄÙÄ≠…ïÕ’±–π±ΩÕÕ!Ω±îÏ(ÄÄÄÅçΩπÕ–Å¡ΩÕ•—•Ω∏ÄÙÅÕçΩ…ïMï≈’ïπçî°ù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§§π•πëï·=ò°°Ω±î§Ï(ÄÄÄÅ…ï—’…∏Å¡ΩÕ•—•Ω∏ÄÄ¿Ä¸Åπ’±∞ÄËÅÌ°Ω±î∞Å¡ΩÕ•—•Ω∏∞Å¡±ÖÂï…%êËÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î§∞ÅÕΩ’…çîËÄâ¡Ö¡ï»µ—ïÖ¥µçÖ…êâÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åëï…•Ÿï5Öπ’Ö±eï±±Ω›	Ö±∞°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å¡Ω•π—Ã§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅçÖ…êπ—ïÖ¥πÂï±±Ω›	Ö±∞Ï(ÄÄÄÅ•òÄ†Ö…ïÕ’±–¸π±ΩÕÕ!Ω±î§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°ù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§§Ï(ÄÄÄÅçΩπÕ–Å±ΩÕÃÄÙÅµÖπ’Ö±eï±±Ω›	Ö±±1ΩÕÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å…ïÕ’±–§Ï(ÄÄÄÅçΩπÕ–ÅçΩ’π—•πúÄÙÅÕï≈’ïπçîπÕ±•çî†¿∞Å±ΩÕÃÄ¸Å±ΩÕÃπ¡ΩÕ•—•Ω∏ÄËÅÕï≈’ïπçîπ±ïπù—†§Ï(ÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅçΩ’π—•πúπµÖ¿°°Ω±îÄÙ¯Å¡Ω•π—ÕmÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î•t¸πm°Ω±îÄ¥Ä≈t§Ï(ÄÄÄÅ…ïÕ’±–π—Ω—Ö∞ÄÙÅŸÖ±’ïÃπïŸï…‰°ŸÖ±’îÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§Ä¸ÅM—…•πú°ŸÖ±’ïÃπ…ïë’çî†°Õ’¥∞ÅŸÖ±’î§ÄÙ¯ÅÕ’¥Ä¨ÅŸÖ±’î∞Ä¿§§ÄËÄààÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åëï…•Ÿï5Öπ’Ö±’±±Ö…ëÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å…ïƒ§ÅÏ(ÄÄÄÅ•òÄ†ÖçÖ…êπô’±±Ö…ëÕ=¡ï∏§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Å¡Ω•π—ÃÄÙÅÌÙÏ(ÄÄÄÅ…ïƒπ•ëÃπôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅçÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πô’±±…ΩÕÃÅÒÅÌÙ±ÿıïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±•ê§Ï(ÄÄÄÄÄÅ¡Ω•π—Õm•ëtÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅù…ΩÕÕmM—…•πú°•πëï‡Ä¨Äƒ•tÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±’îÄÙÙÙÄààÅÒÅŸÖ±’îÄÙÙÅπ’±∞(ÄÄÄÄÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄÄÄÄÄËÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅŸÖ±’î∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¨°ÿπ¡Ö»¸πm•πëï·tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÿπ•πëï‡¸πm•πëï·tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î°çÖ…ê∞ÅÅ¡±ÖÂï…Ã∏ëÌ•ëÙπÕ•πù±ïÄ∞ÅµÖπ’Ö±Ö±ç’±Ö—ïëM’µµÖ…‰°¡Ω•π—Õm•ët§§Ï(ÄÄÄÄÄÅµÖπ’Ö±AÖ»Õ!Ω±ïÃ°ëÖ‰§πôΩ…Öç††°°Ω±î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅù…ΩÕÕmM—…•πú°°Ω±î•tÏ(ÄÄÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î†(ÄÄÄÄÄÄÄÄÄÅçÖ…ê∞(ÄÄÄÄÄÄÄÄÄÅÅ¡±ÖÂï…Ã∏ëÌ•ëÙπ¡Ö»Ã∏ëÌ°Ω±ïıÄ∞(ÄÄÄÄÄÄÄÄÄÅŸÖ±’îÄÙÙÙÄààÅÒÅŸÖ±’îÄÙÙÅπ’±∞Ä¸ÄààÄËÅŸÖ±’î∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡’——ÃÄÙÅçÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πô’±±A’——ÕQΩ—Ö∞Ï(ÄÄÄÄÄÅ•òÄ°¡’——ÃÄÑÙÙÄààÄòòÅ¡’——ÃÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î°çÖ…ê∞ÅÅ¡±ÖÂï…Ã∏ëÌ•ëÙπ¡’——Ãπ—Ω—Ö±Ä∞ÅM—…•πú†≠¡’——ÃÅÒÄ¿§§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°…ïƒπÂï±±Ω›	Ö±∞§Åëï…•Ÿï5Öπ’Ö±eï±±Ω›	Ö±∞°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å¡Ω•π—Ã§Ï(ÄÄÄÅm…ïƒπ•ëÃπÕ±•çî†¿∞Ä»§∞Å…ïƒπ•ëÃπÕ±•çî†»∞Ä–•tπôΩ…Öç††°•ëÃ∞Å¡Ö•…%πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•…AΩ•π—ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅ•ëÃπµÖ¿†°•ê§ÄÙ¯Å¡Ω•π—Õm•ët¸πm•πëï·t§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±’ïÃπïŸï…‰†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄÄÄ¸Å5Ö—†πµÖ‡†∏∏πŸÖ±’ïÃ§(ÄÄÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î†(ÄÄÄÄÄÄÄÅçÖ…ê∞(ÄÄÄÄÄÄÄÅÅ¡Ö•…Ãπ¿ëÌ¡Ö•…%πëï·ÙπôΩ’…âÖ±±Ä∞(ÄÄÄÄÄÄÄÅµÖπ’Ö±Ö±ç’±Ö—ïëM’µµÖ…‰°¡Ö•…AΩ•π—Ã§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–ÅâïÕ–ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅ…ïƒπ•ëÃπµÖ¿†°•ê§ÄÙ¯Å¡Ω•π—Õm•ët¸πm•πëï·t§Ï(ÄÄÄÄÄÅ•òÄ†ÖŸÖ±’ïÃπïŸï…‰†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±’ïÃπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅàÄ¥ÅÑ§πÕ±•çî†¿∞ÄÃ§π…ïë’çî†°∏∞ÅŸÖ±’î§ÄÙ¯Å∏Ä¨ÅŸÖ±’î∞Ä¿§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅÕï—5Öπ’Ö±YÖ±’î°çÖ…ê∞Äâ—ïÖ¥πâïÕ–Ãà∞ÅµÖπ’Ö±Ö±ç’±Ö—ïëM’µµÖ…‰°âïÕ–Ã§§Ï(ÄÄÄÅçΩπÕ–Å¡’——YÖ±’ïÃÄÙÅ…ïƒπ•ëÃπµÖ¿†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅçÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πô’±±A’——ÕQΩ—Ö∞∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°¡’——YÖ±’ïÃπÕΩµî†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÙÄààÄòòÅŸÖ±’îÄÑÙÅπ’±∞§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö∞ÄÙÅ¡’——YÖ±’ïÃπ…ïë’çî†(ÄÄÄÄÄÄÄÄ°Õ’¥∞ÅŸÖ±’î§ÄÙ¯ÅÕ’¥Ä¨Ä°ŸÖ±’îÄÙÙÙÄààÅÒÅŸÖ±’îÄÙÙÅπ’±∞Ä¸Ä¿ÄËÄ≠ŸÖ±’îÅÒÄ¿§∞(ÄÄÄÄÄÄÄÄ¿∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î°çÖ…ê∞Äâ—ïÖ¥π¡’——Ãπ—Ω—Ö∞à∞ÅM—…•πú°—Ω—Ö∞§§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕÂπç5Öπ’Ö±Ö±ç’±Ö—ïë%π¡’—Ã°çÖ…ê§ÅÏ(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§(ÄÄÄÄÄÄπ≈’ï…ÂMï±ïç—Ω…±∞†âmëÖ—ÑµµÖπ’Ö±tà§(ÄÄÄÄÄÄπôΩ…Öç††°•π¡’–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞π•πç±’ëïÃ†àπô’±±…ΩÕÃ∏à§ÅÒ(ÄÄÄÄÄÄÄÄÄÅ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞πïπëÕ]•—††àπô’±±A’——ÕQΩ—Ö∞à§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅµÖπ’Ö±YÖ±’î°çÖ…ê∞Å•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞∞Äàà§Ï(ÄÄÄÄÄÄÄÅ•π¡’–πŸÖ±’îÄÙÅŸÖ±’îÏ(ÄÄÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅŸÖ±•ëÖ—ï5Öπ’Ö±Ö…ê°çÖ…ê∞Å°ΩÕ–§ÅÏ(ÄÄÄÅçΩπÕ–Åµ•ÕÕ•πúÄÙÅl∏∏π°ΩÕ–π≈’ï…ÂMï±ïç—Ω…±∞†âmëÖ—Ñµ…ï≈’•…ïëtà•tπô•±—ï»†(ÄÄÄÄÄÄ°•π¡’–§ÄÙ¯ÅM—…•πú°•π¡’–πŸÖ±’î§π—…•¥†§ÄÙÙÙÄàà∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°µ•ÕÕ•πúπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅµ•ÕÕ•πùl¡tπôΩç’Ã†§Ï(ÄÄÄÄÄÅÖ±ï…–°ÅΩµ¡±ï—îÅ—°îÅ…ïµÖ•π•πúÄëÌµ•ÕÕ•πúπ±ïπù—°ÙÅ°•ù°±•ù°—ïêÅô•ï±êëÌµ•ÕÕ•πúπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅâïôΩ…îÅÕ’âµ•——•πúÅ—°•ÃÅ—ïÖ¥ÅçÖ…êπÄ§Ï(ÄÄÄÄÄÅµ•ÕÕ•πúπôΩ…Öç††°•π¡’–§ÄÙ¯Å•π¡’–πç±ÖÕÕ1•Õ–πÖëê†âµÖπ’Ö±5•ÕÕ•πúà§§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•πŸÖ±•êÄÙÅl∏∏π°ΩÕ–π≈’ï…ÂMï±ïç—Ω…±∞†âmëÖ—ÑµµÖπ’Ö±tà•tπô•πê†°•π¡’–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°•π¡’–πŸÖ±’îÄÙÙÙÄàà§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÕπ—…‰ÄÙ(ÄÄÄÄÄÄÄÅ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞π•πç±’ëïÃ†àπô’±±…ΩÕÃ∏à§ÅÒ(ÄÄÄÄÄÄÄÅ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞π•πç±’ëïÃ†àπ¡Ö»Ã∏à§Ï(ÄÄÄÄÄÅ•òÄ°ù…ΩÕÕπ—…‰ÄòòÅ•π¡’–πŸÖ±’îπ—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÄÄÅ•òÄ†Ö9’µâï»π•Õ%π—ïùï»†≠•π¡’–πŸÖ±’î§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÄÄÅ…ï—’…∏Åù…ΩÕÕπ—…‰(ÄÄÄÄÄÄÄÄ¸Ä≠•π¡’–πŸÖ±’îÄÄƒÅÒÄ≠•π¡’–πŸÖ±’îÄ¯Ä»¿(ÄÄÄÄÄÄÄÄËÄ≠•π¡’–πŸÖ±’îÄÄ¿ÅÒÄ≠•π¡’–πŸÖ±’îÄ¯Ä‰‰‰Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°•πŸÖ±•ê§ÅÏ(ÄÄÄÄÄÅ•πŸÖ±•êπôΩç’Ã†§Ï(ÄÄÄÄÄÅÖ±ï…–†âπ—ï»Å›°Ω±îÅπ’µâï…ÃÅΩπ±‰∞ÅΩ»Å@ÅôΩ»ÅÑÅ¡•ç≠’¿ÅΩ∏ÅÑÅù…ΩÕÃµÕçΩ…îÅçÖ…ê∏Å°ïç¨Å—°îÅ°•ù°±•ù°—ïêÅô•ï±ê∏à§Ï(ÄÄÄÄÄÅ•πŸÖ±•êπç±ÖÕÕ1•Õ–πÖëê†âµÖπ’Ö±5•ÕÕ•πúà§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°çÖ…ê§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åâ•πë5Öπ’Ö±%π¡’—Ã°çÖ…ê∞ÅëÖ‰∞Åù…Ω’¡%πëï‡∞Å…ïƒ§ÅÏ(ÄÄÄÅçΩπÕ–Å•π¡’—ÃÄÙÅl∏∏∏ê†àçµΩëÖ±Ωπ—ïπ–à§π≈’ï…ÂMï±ïç—Ω…±∞†âmëÖ—ÑµµÖπ’Ö±tà•tÏ(ÄÄÄÅ•π¡’—ÃπôΩ…Öç††°•π¡’–∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•π¡’–πΩπ•π¡’–ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•π¡’–πç±ÖÕÕ1•Õ–π…ïµΩŸî†âµÖπ’Ö±5•ÕÕ•πúà§Ï(ÄÄÄÄÄÄÄÅ•òÄ°•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞π•πç±’ëïÃ†àπô’±±…ΩÕÃ∏à§§(ÄÄÄÄÄÄÄÄÄÅ•π¡’–πŸÖ±’îÄÙÅ•π¡’–πŸÖ±’î(ÄÄÄÄÄÄÄÄÄÄÄÄπ—ΩU¡¡ï…ÖÕî†§(ÄÄÄÄÄÄÄÄÄÄÄÄπ…ï¡±Öçî†ΩoäOäPµtΩú∞Äâ@à§(ÄÄÄÄÄÄÄÄÄÄÄÄπ…ï¡±Öçî†Ωmx¿¥ÂAtΩú∞Äàà§(ÄÄÄÄÄÄÄÄÄÄÄÄπÕ±•çî†¿∞Ä»§Ï(ÄÄÄÄÄÄÄÅÕï—5Öπ’Ö±YÖ±’î°çÖ…ê∞Å•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞∞Å•π¡’–πŸÖ±’îπ—…•¥†§§Ï(ÄÄÄÄÄÄÄÅëï…•Ÿï5Öπ’Ö±’±±Ö…ëÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å…ïƒ§Ï(ÄÄÄÄÄÄÄÅÕÂπç5Öπ’Ö±Ö±ç’±Ö—ïë%π¡’—Ã°çÖ…ê§Ï(ÄÄÄÄÄÄÄÅçÖ…êπÕ—Ö—’ÃÄÙÄâë…Öô–àÏ(ÄÄÄÄÄÄÄÅçÖ…êπ’¡ëÖ—ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêÄÙÄê†àçµÖπ’Ö±MÖŸïëM—Ö—îà§Ï(ÄÄÄÄÄÄÄÅ•òÄ°ÕÖŸïê§ÅÕÖŸïêπ—ï·—Ωπ—ïπ–ÄÙÄâMÖŸïêÅΩ∏Å—°•ÃÅëïŸ•çîÉärLàÏ(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ•π¡’–πΩπ≠ïÂëΩ›∏ÄÙÄ°ïŸïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ïŸïπ–π≠ï‰ÄÑÙÙÄâπ—ï»à§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅïŸïπ–π¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÅ•π¡’—Õm•πëï‡Ä¨Ä≈t¸πôΩç’Ã†§Ï(ÄÄÄÄÄÄÄÅ•π¡’—Õm•πëï‡Ä¨Ä≈t¸πÕï±ïç–¸∏†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…5Öπ’Ö±QïÖµÖ…ê°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïƒÄÙÅµÖπ’Ö±Iï≈’•…ïµïπ—Ã°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅçÖ…êÄÙÅµÖπ’Ö±…Ω’¡Ö…ê°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅ¡±ÖÂ•πùΩ’…ÕîÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅ¡±ÖÂ•πùYï…Õ•Ω∏ÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰§∞(ÄÄÄÄÄÅçΩµ¡ÃÄÙÅmt∞(ÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏ÄÙÄ°—•—±î∞ÅâΩë‰∞ÅπΩ—îÄÙÄàà§ÄÙ¯(ÄÄÄÄÄÄÄÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâµÖπ’Ö±π—…ÂMïç—•Ω∏à¯Ò†Ã¯ëÌ—•—±ïÙΩ†Ã¯ëÌπΩ—îÄ¸ÅÄÒ¿¯ëÌπΩ—ïÙΩ¿˘ÄÄËÄàâÙëÌâΩëÂÙΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅëï…•Ÿï5Öπ’Ö±’±±Ö…ëÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å…ïƒ§Ï(ÄÄÄÅçΩπÕ–Å¡±ÖÂï…1Öâï∞ÄÙÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÅÄëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙëÌ•êÄÙÙÙÅ…ïƒπŸ•…—’Ö±%êÄ¸ÄàÄÒÕµÖ±∞¯°Y%IQU0ÅA1eH§ΩÕµÖ±∞¯àÄËÄàâıÄ∞(ÄÄÄÄÄÅ¡Ö•…1Öâï∞ÄÙÄ°•ëÃ§ÄÙ¯(ÄÄÄÄÄÄÄÅ•ëÃ(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâµÖπ’Ö±AÖ•…A±ÖÂï»à¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩÕ¡Ö∏˘Ä∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†úÒÕ¡Ö∏Åç±ÖÕÃÙâµÖπ’Ö±AÖ•…πêà¯ÄôÖµ¿ÏÄΩÕ¡Ö∏¯ú§∞(ÄÄÄÄÄÅô’±±Ö…ëπ—…‰ÄÙÅçÖ…êπô’±±Ö…ëÕ=¡ï∏(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâµÖπ’Ö±π—…ÂMïç—•Ω∏ÅµÖπ’Ö±’±±Ö…ëÃà¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±’±±Ö…ëQ•—±îà¯Òë•ÿ¯Ò†Ã˘%πë•Ÿ•ë’Ö∞ÅMçΩ…îÅÖ…ëÃΩ†Ã¯Ò¿¯ëÌ…ïƒπÕ°Ω…—QïÖ¥Ä¸Äâπ—ï»Åù…ΩÕÃÅÕ—…Ω≠ïÃÅô…Ω¥Å—°îÅ—°…ïîÅÕ•ùπïêÅçÖ…ëÃÅÖπêÅ—°îÅÕï±ïç—ïêÅŸ•…—’Ö∞Å¡±ÖÂï»ùÃÅçÖ…ê∏àÄËÄâπ—ï»Åù…ΩÕÃÅÕ—…Ω≠ïÃÅô…Ω¥ÅïÖç†Å¡±ÖÂï»ùÃÅÕ•ùπïêÅçÖ…ê∏âÙÅπ—ï»Å@ÅôΩ»ÅÑÅ¡•ç≠’¿∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±’±±Ö…ëΩπ—…Ω±Ãà¯ÒÕ¡Ö∏˘Ö±ç’±Ö—ïêÅÖ’—ΩµÖ—•çÖ±±‰ΩÕ¡Ö∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅ•êÙâç±ΩÕï5Öπ’Ö±’±±Ö…ëÃà˘±ΩÕîÅMçΩ…îÅÖ…ëÃΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±’±±Ö…ë…•êàÅÕ—Â±îÙà¥µµÖπ’Ö∞µ¡±ÖÂï»µçΩ’π–ËëÌ…ïƒπ•ëÃπ±ïπù—°Ùà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâµÖπ’Ö±AÖ»ÕΩ…πï»àÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËƒÌù…•êµ…Ω‹Ëƒà˘!Ω±îΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâµÖπ’Ö±AÖ»ÕΩ…πï»àÅÕ—Â±îÙâù…•êµçΩ±’µ∏Ë»Ìù…•êµ…Ω‹Ëƒà˘AÖ»ΩÕ¡Ö∏¯ëÌ…ïƒπ•ëÃπµÖ¿†°•ê∞Å¡±ÖÂï…%πëï‡§ÄÙ¯ÅÄÒÕ—…ΩπúÅç±ÖÕÃÙâµÖπ’Ö±AÖ»ÕA±ÖÂï»àÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËëÌ¡±ÖÂï…%πëï‡Ä¨ÄÕÙÌù…•êµ…Ω‹Ëƒà¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩÕ—…Ωπú˘Ä§π©Ω•∏†àà•ÙëÌ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÄÒàÅç±ÖÕÃÙâµÖπ’Ö±AÖ»Õ!Ω±îàÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËƒÌù…•êµ…Ω‹ËëÌ•πëï‡Ä¨Ä…Ùà¯ëÌ•πëï‡Ä¨Ä≈ÙΩà¯ÒàÅç±ÖÕÃÙâµÖπ’Ö±’±±Ö…ëAÖ»àÅÕ—Â±îÙâù…•êµçΩ±’µ∏Ë»Ìù…•êµ…Ω‹ËëÌ•πëï‡Ä¨Ä…Ùà¯ëÌïÕå°¡±ÖÂ•πùYï…Õ•Ω∏π¡Ö»¸πm•πëï·tÄ¸¸ÄãäLà•ÙΩà˘Ä§π©Ω•∏†àà•ÙëÌ…ïƒπ•ëÃπµÖ¿†°•ê∞Å¡±ÖÂï…%πëï‡§ÄÙ¯Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÄÒ•π¡’–ÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËëÌ¡±ÖÂï…%πëï‡Ä¨ÄÕÙÌù…•êµ…Ω‹ËëÌ•πëï‡Ä¨Ä…ÙàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»àÅëÖ—Ñµ…ï≈’•…ïêÅëÖ—ÑµµÖπ’Ö∞Ùâ¡±ÖÂï…Ã∏ëÌ•ëÙπô’±±…ΩÕÃ∏ëÌ•πëï‡Ä¨Ä≈ÙàÅŸÖ±’îÙàëÌïÕå°çÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πô’±±…ΩÕÃ¸πm•πëï‡Ä¨Ä≈tÄ¸¸Äàà•ÙàÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙÅ!Ω±îÄëÌ•πëï‡Ä¨Ä≈ÙÅù…ΩÕÃÅÕçΩ…î∞Å¡Ö»ÄëÌïÕå°¡±ÖÂ•πùYï…Õ•Ω∏π¡Ö»¸πm•πëï·tÄ¸¸Äâ’π≠πΩ›∏à•Ùà˘Ä§π©Ω•∏†àà§§π©Ω•∏†àà•ÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±’±±A’——•πúà¯Ò†Ã˘QïÖ¥ÅA’——•πúΩ†Ã¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±’±±A’——•πù…•êàÅÕ—Â±îÙà¥µµÖπ’Ö∞µ¡’——•πúµçΩ’π–ËëÌ…ïƒπ•ëÃπ±ïπù—†Ä¨Ä≈Ùà¯ëÌ…ïƒπ•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÄÒ±Öâï∞¯ÒÕ¡Ö∏¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩÕ¡Ö∏¯Ò•π¡’–Å•π¡’—µΩëîÙâπ’µï…•åàÅ¡Ö——ï…∏Ùâl¿¥Ât®àÅëÖ—Ñµ…ï≈’•…ïêÅëÖ—ÑµµÖπ’Ö∞Ùâ¡±ÖÂï…Ã∏ëÌ•ëÙπô’±±A’——ÕQΩ—Ö∞àÅŸÖ±’îÙàëÌïÕå°çÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πô’±±A’——ÕQΩ—Ö∞Ä¸¸Äàà•Ùà¯Ω±Öâï∞˘Ä§π©Ω•∏†àà•ÙÒ±Öâï∞Åç±ÖÕÃÙâµÖπ’Ö±A’——•πùQΩ—Ö∞à¯ÒÕ¡Ö∏˘QΩ—Ö∞ΩÕ¡Ö∏¯Ò•π¡’–Å…ïÖëΩπ±‰ÅëÖ—ÑµµÖπ’Ö∞Ùâ—ïÖ¥π¡’——Ãπ—Ω—Ö∞àÅŸÖ±’îÙàëÌïÕå°çÖ…êπ—ïÖ¥¸π¡’——Ã¸π—Ω—Ö∞Ä¸¸Äàà•ÙàÅÖ…•Ñµ±Öâï∞ÙâQïÖ¥Å¡’——•πúÅ—Ω—Ö∞à¯Ω±Öâï∞¯Ωë•ÿ¯Ωë•ÿ¯ΩÕïç—•Ω∏˘Ä(ÄÄÄÄÄÄÄÄÄÄËÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ¡…•µÖ…‰ÅµÖπ’Ö±=¡ïπ’±±Ö…ëÃàÅ•êÙâΩ¡ïπ5Öπ’Ö±’±±Ö…ëÃà˘=¡ï∏Å%πë•Ÿ•ë’Ö∞ÅMçΩ…îÅÖ…ëÃΩâ’——Ω∏˘ÄÏ(ÄÄÄÅ•òÄ°…ïƒπÕ•πù±î§(ÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄâM•πù±îÅM—Öâ±ïôΩ…êà∞(ÄÄÄÄÄÄÄÄÄÅ…ïƒπ•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯Òà¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩà¯ëÌµÖπ’Ö±M’µµÖ…Â•ï±ëÃ°Å¡±ÖÂï…Ã∏ëÌ•ëÙπÕ•πù±ïÄ∞ÅçÖ…êπ¡±ÖÂï…Ã¸πm•ët¸πÕ•πù±î•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§∞(ÄÄÄÄÄÄÄÄÄÄâπ—ï»ÅïÖç†Å¡±ÖÂï»ùÃÅÕ•ùπïêµçÖ…êÅ—Ω—Ö∞ÅÖπêÅçΩ’π—âÖç¨Åô•ù’…ïÃ∏à∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°…ïƒπôΩ’…âÖ±∞§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•…ÃÄÙÅm…ïƒπ•ëÃπÕ±•çî†¿∞Ä»§∞Å…ïƒπ•ëÃπÕ±•çî†»∞Ä–•tπô•±—ï»†(ÄÄÄÄÄÄÄÄ°•ëÃ§ÄÙ¯Å•ëÃπ±ïπù—†∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄà—		ÅM—Öâ±ïôΩ…êà∞(ÄÄÄÄÄÄÄÄÄÅ¡Ö•…Ã(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°•ëÃ∞Å•πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯ÒàÅç±ÖÕÃÙâµÖπ’Ö±AÖ•…1Öâï∞à¯ëÌ¡Ö•…1Öâï∞°•ëÃ•ÙΩà¯ëÌµÖπ’Ö±M’µµÖ…Â•ï±ëÃ°Å¡Ö•…Ãπ¿ëÌ•πëï·ÙπôΩ’…âÖ±±Ä∞ÅçÖ…êπ¡Ö•…Ã¸πlâ¿àÄ¨Å•πëï·t¸πôΩ’…âÖ±∞•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°…ïƒπâïÕ–Ã§(ÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄâ	ïÕ–ÄÃÅΩòÄ–ÅM—Öâ±ïôΩ…êà∞(ÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯Òà˘QïÖ¥ÄëÌù…Ω’¡%πëï‡Ä¨Ä≈ÙΩà¯ëÌµÖπ’Ö±M’µµÖ…Â•ï±ëÃ†â—ïÖ¥πâïÕ–Ãà∞ÅçÖ…êπ—ïÖ¥¸πâïÕ–Ã•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°…ïƒπ¡’——•πú§ÅÏ(ÄÄÄÄÄÅ•òÄ°…ïƒπ¡’——•πùAÖ•…Ã§(ÄÄÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄÄÄâA’——•πúÉäPÅ•πë•Ÿ•ë’Ö∞Å—Ω—Ö±Ãà∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïƒπ•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯Òà¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩà¯ëÌµÖπ’Ö±M’µµÖ…Â•ï±ëÃ°Å¡±ÖÂï…Ã∏ëÌ•ëÙπ¡’——ÕÄ∞ÅçÖ…êπ¡±ÖÂï…Ã¸πm•ët¸π¡’——Ã•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§∞(ÄÄÄÄÄÄÄÄÄÄÄÄâQ°îÅÖ¡¿Å›•±∞ÅçΩµâ•πîÅ—°îÅçΩπô•ù’…ïêÅ¡’——•πúÅ¡Ö…—πï…ÃÅÖ’—ΩµÖ—•çÖ±±‰∏à∞(ÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅï±Õî(ÄÄÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄÄÄâQïÖ¥ÅA’——•πúà∞(ÄÄÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯Òà˘QïÖ¥ÄëÌù…Ω’¡%πëï‡Ä¨Ä≈ÙΩà¯ëÌµÖπ’Ö±M’µµÖ…Â•ï±ëÃ†â—ïÖ¥π¡’——Ãà∞ÅçÖ…êπ—ïÖ¥¸π¡’——Ã•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄâ=π±‰Å—°îÅ—ïÖ¥Å—Ω—Ö±ÃÅÖ…îÅ…ï≈’•…ïêÅôΩ»Å—°•ÃÅïŸïπ–ùÃÅ¡’——•πúÅôΩ…µÖ–∏à∞(ÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°…ïƒπ¡Ö»Ã§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å°Ω±ïÃÄÙÅµÖπ’Ö±AÖ»Õ!Ω±ïÃ°ëÖ‰§Ï(ÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ††(ÄÄÄÄÄÄÄÅÕ’µµÖ…ÂMïç—•Ω∏†(ÄÄÄÄÄÄÄÄÄÄâAÖ»ÄÃÅMçΩ…ïÃà∞(ÄÄÄÄÄÄÄÄÄÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±AÖ»Õ…•êàÅÕ—Â±îÙà¥µµÖπ’Ö∞µ¡±ÖÂï»µçΩ’π–ËëÌ…ïƒπ•ëÃπ±ïπù—°Ùà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâµÖπ’Ö±AÖ»ÕΩ…πï»à˘!Ω±îΩÕ¡Ö∏¯ëÌ…ïƒπ•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°•ê∞Å¡±ÖÂï…%πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒÕ—…ΩπúÅç±ÖÕÃÙâµÖπ’Ö±AÖ»ÕA±ÖÂï»àÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËëÌ¡±ÖÂï…%πëï‡Ä¨Ä…ÙÌù…•êµ…Ω‹Ëƒà¯ëÌ¡±ÖÂï…1Öâï∞°•ê•ÙΩÕ—…Ωπú˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙëÌ°Ω±ïÃ(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°°Ω±î∞Å°Ω±ï%πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒàÅç±ÖÕÃÙâµÖπ’Ö±AÖ»Õ!Ω±îàÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËƒÌù…•êµ…Ω‹ËëÌ°Ω±ï%πëï‡Ä¨Ä…Ùà˘!Ω±îÄëÌ°Ω±ïÙΩà˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙëÌ…ïƒπ•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê∞Å¡±ÖÂï…%πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°°Ω±î∞Å°Ω±ï%πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒ•π¡’–ÅÕ—Â±îÙâù…•êµçΩ±’µ∏ËëÌ¡±ÖÂï…%πëï‡Ä¨Ä…ÙÌù…•êµ…Ω‹ËëÌ°Ω±ï%πëï‡Ä¨Ä…ÙàÅ•π¡’—µΩëîÙâπ’µï…•åàÅ¡Ö——ï…∏Ùâl¿¥Ât®àÅëÖ—Ñµ…ï≈’•…ïêÅëÖ—ÑµµÖπ’Ö∞Ùâ¡±ÖÂï…Ã∏ëÌ•ëÙπ¡Ö»Ã∏ëÌ°Ω±ïÙàÅŸÖ±’îÙàëÌïÕå°çÖ…êπ¡±ÖÂï…Ã¸πm•ët¸π¡Ö»Ã¸πm°Ω±ïtÄ¸¸Äàà•ÙàÅÖ…•Ñµ±Öâï∞ÙàëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙÅ!Ω±îÄëÌ°Ω±ïÙÅù…ΩÕÃÅÕçΩ…îà˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄâπ—ï»Åù…ΩÕÃÅÕ—…Ω≠ïÃ∏ÅQ°îÅÖ¡¿ÅÖ¡¡±•ïÃÅïÖç†Å¡±ÖÂï»ùÃÅ°Öπë•çÖ¿∏à∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°…ïƒπÂï±±Ω›	Ö±∞§ÅÏ(ÄÄÄÄÄÅçÖ…êπ—ïÖ¥πÂï±±Ω›	Ö±∞ÅÒÙÅÌ—Ω—Ö∞ËÄàà∞Å±ΩÕÕ!Ω±îËÄàâÙÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅçÖ…êπ—ïÖ¥πÂï±±Ω›	Ö±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°ù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§§Ï(ÄÄÄÄÄÅçΩµ¡Ãπ¡’Õ†°Õ’µµÖ…ÂMïç—•Ω∏†âeï±±Ω‹Å	Ö±∞à∞ÅÄÒ±Öâï∞˘	Ö±∞Å…ïÕ’±–ÒÕï±ïç–Å•êÙâµÖπ’Ö±eï±±Ω›	Ö±±1ΩÕÃàÅëÖ—Ñµ…ï≈’•…ïê¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙàà˘°ΩΩÕîÅ…ïÕ’±–ΩΩ¡—•Ω∏¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙâ9=9àÄëÌ…ïÕ’±–π±ΩÕÕ!Ω±îÄÙÙÙÄâ9=9àÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘Ωµ¡±ï—ïêÉäPÅâÖ±∞ÅπΩ–Å±ΩÕ–ΩΩ¡—•Ω∏¯ëÌÕï≈’ïπçîπµÖ¿°°Ω±îÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ°Ω±ïÙàÄëÌM—…•πú°…ïÕ’±–π±ΩÕÕ!Ω±î§ÄÙÙÙÅM—…•πú°°Ω±î§Ä¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘1ΩÕ–ÅΩ∏Å!Ω±îÄëÌ°Ω±ïÙÉäPÄëÌïÕå°¡±ÖÂï»°Âï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î§§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…ÂIΩ‹à¯Òà˘eï±±Ω‹Å	Ö±∞Å¡Ω•π—ÃΩà¯Ò±Öâï∞¯ÒÕ¡Ö∏˘QΩ—Ö∞ΩÕ¡Ö∏¯Ò•π¡’–Å•π¡’—µΩëîÙâπ’µï…•åàÅëÖ—Ñµ…ï≈’•…ïêÅëÖ—ÑµµÖπ’Ö∞Ùâ—ïÖ¥πÂï±±Ω›	Ö±∞π—Ω—Ö∞àÅŸÖ±’îÙàëÌïÕå°…ïÕ’±–π—Ω—Ö∞Ä¸¸Äàà•Ùà¯Ω±Öâï∞¯Ωë•ÿ˘Ä∞ÄâΩ’π–Å—°îÅπΩµ•πÖ—ïêÅ…ïÖ∞ÅùΩ±ôï»ùÃÅM—Öâ±ïôΩ…êÅ¡Ω•π—ÃÅΩ∏ÅïÖç†Å°Ω±îÅâïôΩ…îÅ—°îÅâÖ±∞Å›ÖÃÅ±ΩÕ–∏ÅQ°îÅ±ΩÕÃÅ°Ω±îÅëΩïÃÅπΩ–ÅçΩ’π–∏Å’±∞ÅÕçΩ…îÅçÖ…ëÃÅçÖ±ç’±Ö—îÅ—°•ÃÅ—Ω—Ö∞ÅÖ’—ΩµÖ—•çÖ±±‰∏ÅY•…—’Ö∞ÅA±ÖÂï…ÃÅπïŸï»Åïπ—ï»Å—°îÅ…Ω—Ö—•Ω∏∏à§§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡°Ωπï]Ö…π•πúÄÙÅµÖπ’Ö±QïÖµ!ÖÕA°ΩπïMçΩ…ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§(ÄÄÄÄÄÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±Ωπô±•ç–à¯Òà˘A°ΩπîÅÕçΩ…ïÃÅÖ±…ïÖë‰Åï·•Õ–ÅôΩ»Å—°•ÃÅ—ïÖ¥∏Ωà¯ÒÕ¡Ö∏˘M’âµ•——•πúÅ—°•ÃÅ¡Ö¡ï»ÅçÖ…êÅµÖ≠ïÃÅ•—ÃÅÕ’µµÖ…‰Å…ïÕ’±—ÃÅÖ’—°Ω…•—Ö—•Ÿî∏ÅQ°îÅ’πëï…±Â•πúÅ¡°ΩπîÅÕçΩ…ïÃÅÖ…îÅ…ï—Ö•πïê∏ΩÕ¡Ö∏¯Ωë•ÿ¯ú(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêÅµÖπ’Ö±π—…Â!ïÖêà¯ÒÕµÖ±∞˘I=IÅ10ÅM=ILÉ
+‹ÅdÄëÌëÖÂÙΩÕµÖ±∞¯Ò†»˘QïÖ¥ÄëÌù…Ω’¡%πëï‡Ä¨Ä≈ÙÅAÖ¡ï»ÅÖ…êΩ†»¯Ò¿¯ëÌ…ïƒπ•ëÃπµÖ¿°¡±ÖÂï…1Öâï∞§π©Ω•∏†àÉ
+‹Äà•ÙΩ¿¯Ωë•ÿ¯ëÌ¡°Ωπï]Ö…π•πùÙÒ¿Åç±ÖÕÃÙâµÖπ’Ö±ëÖ¡—•Ÿï9Ω—îà˘=π±‰Åô•ï±ëÃÅ…ï≈’•…ïêÅâ‰Å—°•ÃÅïŸïπ–ùÃÅÕï±ïç—ïêÅçΩµ¡ï—•—•ΩπÃÅÖ…îÅÕ°Ω›∏∏Ω¿¯ëÌô’±±Ö…ëπ—…ÂÙÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±π—…Â	Ωë‰à¯ëÌçΩµ¡Ãπ©Ω•∏†àà•ÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâµÖπ’Ö±M—•ç≠Âç—•ΩπÃà¯ÒÕ¡Ö∏Å•êÙâµÖπ’Ö±MÖŸïëM—Ö—îà¯ëÌçÖ…êπ’¡ëÖ—ïë–Ä¸ÄâMÖŸïêÅΩ∏Å—°•ÃÅëïŸ•çîÉärLàÄËÄâ9Ω–ÅÂï–ÅÕÖŸïêâÙΩÕ¡Ö∏¯Òë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠5Öπ’Ö±ÖÕ°âΩÖ…êà˚ä@ÅQïÖµÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâÕÖŸï5Öπ’Ö±…Öô–à˘MÖŸîÅ…Öô–Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÕ’âµ•—5Öπ’Ö±Ö…êà¯ëÌçÖ…êπÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄ¸ÄâU¡ëÖ—îÅM’âµ•——ïêÅÖ…êàÄËÄâM’âµ•–ÅQïÖ¥ÅÖ…êâÙΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅâ•πë5Öπ’Ö±%π¡’—Ã°çÖ…ê∞ÅëÖ‰∞Åù…Ω’¡%πëï‡∞Å…ïƒ§Ï(ÄÄÄÅ•òÄ†ê†àçµÖπ’Ö±eï±±Ω›	Ö±±1ΩÕÃà§§Äê†àçµÖπ’Ö±eï±±Ω›	Ö±±1ΩÕÃà§πΩπç°ÖπùîÄÙÅîÄÙ¯ÅÏ(ÄÄÄÄÄÅçÖ…êπ—ïÖ¥πÂï±±Ω›	Ö±∞π±ΩÕÕ!Ω±îÄÙÅîπ—Ö…ùï–πŸÖ±’îÏ(ÄÄÄÄÄÅçÖ…êπÕ—Ö—’ÃÄÙÄâë…Öô–àÏ(ÄÄÄÄÄÅëï…•Ÿï5Öπ’Ö±’±±Ö…ëÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅçÖ…ê∞Å…ïƒ§Ï(ÄÄÄÄÄÅÕÂπç5Öπ’Ö±Ö±ç’±Ö—ïë%π¡’—Ã°çÖ…ê§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°çÖ…êπô’±±Ö…ëÕ=¡ï∏§(ÄÄÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§(ÄÄÄÄÄÄÄÄπ≈’ï…ÂMï±ïç—Ω…±∞†âmëÖ—ÑµµÖπ’Ö±tà§(ÄÄÄÄÄÄÄÄπôΩ…Öç††°•π¡’–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÖ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞π•πç±’ëïÃ†àπô’±±…ΩÕÃ∏à§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÖ•π¡’–πëÖ—ÖÕï–πµÖπ’Ö∞πïπëÕ]•—††àπô’±±A’——ÕQΩ—Ö∞à§(ÄÄÄÄÄÄÄÄÄÄ§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•π¡’–π…ïÖë=π±‰ÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•π¡’–πç±ÖÕÕ1•Õ–πÖëê†âµÖπ’Ö±Ö±ç’±Ö—ïêà§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†ê†àçΩ¡ïπ5Öπ’Ö±’±±Ö…ëÃà§§(ÄÄÄÄÄÄê†àçΩ¡ïπ5Öπ’Ö±’±±Ö…ëÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçÖ…êπô’±±Ö…ëÕ=¡ï∏ÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅçÖ…êπÕ—Ö—’ÃÄÙÄâë…Öô–àÏ(ÄÄÄÄÄÄÄÅçÖ…êπ’¡ëÖ—ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±QïÖµÖ…ê°ëÖ‰∞Åù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçç±ΩÕï5Öπ’Ö±’±±Ö…ëÃà§§(ÄÄÄÄÄÄê†àçç±ΩÕï5Öπ’Ö±’±±Ö…ëÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçÖ…êπô’±±Ö…ëÕ=¡ï∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅçÖ…êπÕ—Ö—’ÃÄÙÄâë…Öô–àÏ(ÄÄÄÄÄÄÄÅçÖ…êπ’¡ëÖ—ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±QïÖµÖ…ê°ëÖ‰∞Åù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄê†àçâÖç≠5Öπ’Ö±ÖÕ°âΩÖ…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°ëÖ‰§Ï(ÄÄÄÄê†àçÕÖŸï5Öπ’Ö±…Öô–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçÖ…êπ’¡ëÖ—ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄê†àçµÖπ’Ö±MÖŸïëM—Ö—îà§π—ï·—Ωπ—ïπ–ÄÙÄâMÖŸïêÅΩ∏Å—°•ÃÅëïŸ•çîÉärLàÏ(ÄÄÄÅÙÏ(ÄÄÄÄê†àçÕ’âµ•—5Öπ’Ö±Ö…êà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖŸÖ±•ëÖ—ï5Öπ’Ö±Ö…ê°çÖ…ê∞Äê†àçµΩëÖ±Ωπ—ïπ–à§§§Å…ï—’…∏Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÅÅM’âµ•–ÅQïÖ¥ÄëÌù…Ω’¡%πëï‡Ä¨Ä≈ÙùÃÅ¡Ö¡ï»ÅçÖ…êÅÖÃÅ—°îÅÖ’—°Ω…•—Ö—•ŸîÅÖ‰ÄëÌëÖÂÙÅ…ïÕ’±–˝Ä∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅçÖ…êπÕ—Ö—’ÃÄÙÄâÕ’âµ•——ïêàÏ(ÄÄÄÄÄÅçÖ…êπÕ’âµ•——ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅçÖ…êπ’¡ëÖ—ïë–ÄÙÅçÖ…êπÕ’âµ•——ïë–Ï(ÄÄÄÄÄÅçÖ…êπ¡°ΩπïMçΩ…ïÕM’¡ï…ÕïëïêÄÙÅµÖπ’Ö±QïÖµ!ÖÕA°ΩπïMçΩ…ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°ëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…5Öπ’Ö±9—¡ë•—Ω»°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂM—Ω…îÄÙÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰§∞(ÄÄÄÄÄÅ°Ω±ïÃÄÙÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§∞(ÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§Ï(ÄÄÄÅ•òÄ†Ö°Ω±ïÃπ±ïπù—†§Å…ï—’…∏ÄààÏ(ÄÄÄÅ…ï—’…∏ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâµÖπ’Ö±9—¡ë•—Ω»à¯Ò†Ã˘9ïÖ…ïÕ–Å—°îÅA•∏Ω†Ã¯Ò¿˘Mï±ïç–Å—°îÅ¡Ö¡ï»µçÖ…êÅ›•ππï»ÅΩ»Å9Ω–Å]Ω∏∏Ω¿¯ëÌ°Ω±ïÃ(ÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄ°°Ω±î§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅÄÒ±Öâï∞¯Òà˘!Ω±îÄëÌ°Ω±ïÙΩà¯ÒÕï±ïç–ÅëÖ—ÑµµÖπ’Ö∞µπ—¿ÙàëÌ°Ω±ïÙà¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙàà˘Mï±ïç–Å…ïÕ’±–ΩΩ¡—•Ω∏¯ÒΩ¡—•Ω∏ÅŸÖ±’îÙâ9=9àÄëÌëÖÂM—Ω…îππ—¿¸πm°Ω±ïtÄÙÙÙÄâ9=9àÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘9Ω–Å]Ω∏ΩΩ¡—•Ω∏¯ëÌ•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌïÕå°•ê•ÙàÄëÌM—…•πú°ëÖÂM—Ω…îππ—¿¸πm°Ω±ïtÅÒÄàà§ÄÙÙÙÅ•êÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞˘Ä∞(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩÕïç—•Ω∏˘ÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±ÖÂIïÖë‰°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅçÖ…ëÕIïÖë‰ÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅÕï—’¿¸πù…Ω’¡Ã¸π±ïπù—†Äòò(ÄÄÄÄÄÄÄÄÄÅÕï—’¿πù…Ω’¡ÃπïŸï…‰†°…Ö‹∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°Õ’âµ•——ïë5Öπ’Ö±Ö…ê°ëÖ‰∞Å•πëï‡§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•ëÃÄÙÅ…Ö‹(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄòòÅ•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•ëÃπ±ïπù—†ÄòòÅ•ëÃπïŸï…‰†°•ê§ÄÙ¯Å±•ŸïA±ÖÂï…M—Ö—’Ã°ëÖ‰∞Å•ê§πô•πÖ±•Õïê§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅçΩµ¡ÃÄÙÅµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°ëÖ‰§∞(ÄÄÄÄÄÅπ—¡IïÖë‰ÄÙ(ÄÄÄÄÄÄÄÄÖçΩµ¡Ãπ°ÖÃ†âπ—¿à§ÅÒ(ÄÄÄÄÄÄÄÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§πïŸï…‰†(ÄÄÄÄÄÄÄÄÄÄ°°Ω±î§ÄÙ¯ÅM—…•πú°µÖπ’Ö±ÖÂM—Ω…î°ëÖ‰∞ÅôÖ±Õî§¸ππ—¿¸πm°Ω±ïtÅÒÄàà§ÄÑÙÙÄàà∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅçÖ…ëÕIïÖë‰ÄòòÅπ—¡IïÖë‰Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒ∞(ÄÄÄÄÄÅÕï±ïç—ïëÖ‰ÄÙÅ5Ö—†πµÖ‡†ƒ∞Å5Ö—†πµ•∏°ëÖÂÃ∞Ä≠ëÖ‰ÅÒÄƒ§§∞(ÄÄÄÄÄÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅÕï±ïç—ïëÖÂt∞(ÄÄÄÄÄÅëÖÂM—Ω…îÄÙÅµÖπ’Ö±ÖÂM—Ω…î°Õï±ïç—ïëÖ‰§∞(ÄÄÄÄÄÅù…Ω’¡ÃÄÙÅÕï—’¿¸πù…Ω’¡ÃÅÒÅmtÏ(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïµï…ùïπçÂ!ïÖêÅµÖπ’Ö±π—…Â!ïÖêà¯ÒÕµÖ±∞˘=I9%MHÅAAHµIÅ9QIdΩÕµÖ±∞¯Ò†»˘IïçΩ…êÅ±∞ÅMçΩ…ïÃΩ†»¯Ò¿˘π—ï»ÅΩπîÅÕ•ùπïêÅ—ïÖ¥ÅçÖ…êÅÖ–ÅÑÅ—•µî∏Å…Öô–Åïπ—…•ïÃÅëºÅπΩ–ÅÖôôïç–Å…ïÕ’±—Ã∏Ω¿¯Ωë•ÿ¯ëÌëÖÂQÖâÃ†âµÖπ’Ö±ëÖ‰à∞ÅÕï±ïç—ïëÖ‰∞ÅÕ—Ω…îπïŸïπ–∞ÄâµÖπ’Ö±ÖÂQÖâÃà•ÙÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±QïÖµÖÕ°âΩÖ…êà¯ëÌù…Ω’¡Ã(ÄÄÄÄÄÄπµÖ¿†°…Ö‹∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…ïƒÄÙÅµÖπ’Ö±Iï≈’•…ïµïπ—Ã°Õï±ïç—ïëÖ‰∞Å•πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅ•ëÃÄÙÅ…ïƒπ•ëÃ∞(ÄÄÄÄÄÄÄÄÄÅçÖ…êÄÙÅµÖπ’Ö±…Ω’¡Ö…ê°Õï±ïç—ïëÖ‰∞Å•πëï‡∞ÅôÖ±Õî§∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ö—’ÃÄÙÅçÖ…ê¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄ¸ÄâM’âµ•——ïêÉärLàÄËÅçÖ…êÄ¸Äâ…Öô–àÄËÄâ9Ω–ÅÕ—Ö…—ïêàÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâµÖπ’Ö±QïÖµQ•±îÄëÌçÖ…ê¸πÕ—Ö—’ÃÅÒÄâïµ¡—‰âÙà¯Òë•ÿ¯ÒÕµÖ±∞˘Q4ÄëÌ•πëï‡Ä¨Ä≈ÙΩÕµÖ±∞¯Ò†Ã¯ëÌ•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÄëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙëÌ•êÄÙÙÙÅ…ïƒπŸ•…—’Ö±%êÄ¸ÄúÄÒï¥Åç±ÖÕÃÙâµÖπ’Ö±Y•…—’Ö±1Öâï∞à¯°Y%IQU0ÅA1eH§Ωï¥¯úÄËÄàâıÄ§π©Ω•∏†àÉ
+‹Äà•ÙΩ†Ã¯ÒÕ¡Ö∏¯ëÌÕ—Ö—’ÕÙΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙàëÌçÖ…ê¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄ¸ÄâÕΩô–àÄËÄâ¡…•µÖ…‰âÙàÅëÖ—ÑµΩ¡ïπµÖπ’Ö±—ïÖ¥ÙàëÌ•πëï·Ùà¯ëÌçÖ…ê¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄ¸ÄâIïŸ•ï‹ÄºÅë•–àÄËÅçÖ…êÄ¸ÄâΩπ—•π’îàÄËÄâ=¡ï∏ÅQïÖ¥ÅÖ…êâÙΩâ’——Ω∏¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄπ©Ω•∏†àà§ÅÒÄúÒ¿Åç±ÖÕÃÙâ±ïÖëï…µ¡—‰à˘MÖŸîÅ—°îÅ—ïÖµÃÅôΩ»Å—°•ÃÅëÖ‰ÅâïôΩ…îÅ…ïçΩ…ë•πúÅ¡Ö¡ï»ÅçÖ…ëÃ∏Ω¿¯ùÙΩë•ÿ¯ëÌµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°Õï±ïç—ïëÖ‰§π°ÖÃ†âπ—¿à§Ä¸Å…ïπëï…5Öπ’Ö±9—¡ë•—Ω»°Õï±ïç—ïëÖ‰§ÄËÄàâÙÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±ÖÂ•π•Õ†à¯Òë•ÿ¯Òà¯ëÌµÖπ’Ö±ÖÂIïÖë‰°Õï±ïç—ïëÖ‰§Ä¸ÅÅÖ‰ÄëÌÕï±ïç—ïëÖÂÙÅïπ—…‰ÅçΩµ¡±ï—îÉärMÄÄËÅÅÖ‰ÄëÌÕï±ïç—ïëÖÂÙÅ…ïµÖ•πÃÅ•∏Å¡…Ωù…ïÕÕÅÙΩà¯ÒÕ¡Ö∏¯ëÌµÖπ’Ö±ÖÂIïÖë‰°Õï±ïç—ïëÖ‰§Ä¸Äâ±∞Å¡Ö¡ï»ÅçÖ…ëÃÅÖπêÅ9Q@Å…ïÕ’±—ÃÅÖ…îÅ…ïÖë‰ÅôΩ»Å—°îÅ±ïÖëï…âΩÖ…ëÃ∏àÄËÄâM’âµ•–ÅïŸï…‰Å—ïÖ¥ÅçÖ…êÅÖπêÅçΩµ¡±ï—îÅ—°îÅ9Q@Å…ïÕ’±–ÅâïôΩ…îÅô•π•Õ°•πúÅ—°îÅëÖ‰∏âÙΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâçΩµ¡±ï—ï5Öπ’Ö±Ö‰àÄëÌµÖπ’Ö±ÖÂIïÖë‰°Õï±ïç—ïëÖ‰§Ä¸ÄààÄËÄâë•ÕÖâ±ïêâÙ˘Ωµ¡±ï—îÅÖ‰ÄëÌÕï±ïç—ïëÖÂÙÅIïÕ’±—ÃΩâ’——Ω∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Åïµï…ùïπçÂ±ΩÕîàÅ•êÙâç±ΩÕï5Öπ’Ö±MçΩ…ïÃà˘±ΩÕîΩâ’——Ω∏˘ÄÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÄêê†ùmëÖ—ÑµµÖπ’Ö±ëÖÂtú§πôΩ…Öç††(ÄÄÄÄÄÄ°â’——Ω∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅΩ¡ïπ5Öπ’Ö±MçΩ…ïÃ†≠â’——Ω∏πëÖ—ÖÕï–πµÖπ’Ö±ëÖ‰§§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†ùmëÖ—ÑµΩ¡ïπµÖπ’Ö±—ïÖµtú§πôΩ…Öç††(ÄÄÄÄÄÄ°â’——Ω∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±QïÖµÖ…ê°Õï±ïç—ïëÖ‰∞Ä≠â’——Ω∏πëÖ—ÖÕï–πΩ¡ïπµÖπ’Ö±—ïÖ¥§§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†ùmëÖ—ÑµµÖπ’Ö∞µπ—¡tú§πôΩ…Öç††°Õï±ïç–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕï±ïç–πΩπç°ÖπùîÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅëÖÂM—Ω…îππ—¡mÕï±ïç–πëÖ—ÖÕï–πµÖπ’Ö±9—¡tÄÙÅÕï±ïç–πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅëÖÂM—Ω…îππ—¡•πÖ±•ÕïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°Õï±ïç—ïëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄê†àççΩµ¡±ï—ï5Öπ’Ö±Ö‰à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖµÖπ’Ö±ÖÂIïÖë‰°Õï±ïç—ïëÖ‰§§Å…ï—’…∏Ï(ÄÄÄÄÄÅëÖÂM—Ω…îπÕ—Ö—’ÃÄÙÄâÕ’âµ•——ïêàÏ(ÄÄÄÄÄÅëÖÂM—Ω…îππ—¡•πÖ±•ÕïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅëÖÂM—Ω…îπçΩµ¡±ï—ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅ…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°Õï±ïç—ïëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçç±ΩÕï5Öπ’Ö±MçΩ…ïÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπ5Öπ’Ö±MçΩ…ïÃ°ëÖ‰ÄÙÄƒ§ÅÏ(ÄÄÄÅ•òÄ°Öµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†âµâ…ΩÕîÅ¡Ö¡ï»µçÖ…êÅïπ—…‰Å›•±∞Å’ÕîÅ•—ÃÅëïë•çÖ—ïêÅ—ïÖ¥ÅÕçΩ…îÅÖπêÅÕï±ïç—ïêµë…•ŸïÃÅçÖ…êÅ•∏Å—°îÅπï·–ÅÕ—Öùî∏à§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÕï±ïç—ïëÖ‰ÄÙÅ5Ö—†πµÖ‡†(ÄÄÄÄÄÄÄÄƒ∞(ÄÄÄÄÄÄÄÅ5Ö—†πµ•∏°Õ—Ω…îπïŸïπ–¸πëÖÂÃÅÒÄƒ∞Ä≠ëÖ‰ÅÒÄƒ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ’πÕ’¡¡Ω…—ïêÄÙÅl(ÄÄÄÄÄÅlâÕç…Ö—ç†à∞ÄâMç…Ö—ç†ât∞(ÄÄÄÄÄÅlâïç±ïç—•åà∞Äâç±ïç—•åât∞(ÄÄÄÅtπô•±—ï»†°m≠ïÂt§ÄÙ¯ÅµÖπ’Ö±Mï±ïç—ïëΩµ¡ï—•—•ΩπÃ°Õï±ïç—ïëÖ‰§π°ÖÃ°≠ï‰§§Ï(ÄÄÄÅ•òÄ°’πÕ’¡¡Ω…—ïêπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÅÅIïçΩ…êÅ±∞ÅMçΩ…ïÃÅëΩïÃÅπΩ–ÅÂï–ÅÕ’¡¡Ω…–ÄëÌ’πÕ’¡¡Ω…—ïêπµÖ¿†°l∞Å±Öâï±t§ÄÙ¯Å±Öâï∞§π©Ω•∏†à∞Äà•ÙÅΩ∏ÅÖ‰ÄëÌÕï±ïç—ïëÖÂÙ∏Å-ïï¿Å’Õ•πúÅ¡°ΩπîÅÕçΩ…•πúÅôΩ»Å—°Ö–ÅëÖ‰∞ÅΩ»Å…ïµΩŸîÅ—°Ö–ÅçΩµ¡ï—•—•Ω∏ÅâïôΩ…îÅïπ—ï…•πúÅ¡Ö¡ï»ÅçÖ…ëÃπÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ…ïπëï…5Öπ’Ö±MçΩ…ïÕÖÕ°âΩÖ…ê°Õï±ïç—ïëÖ‰§Ï(ÄÅÙ((ÄÅô’πç—•Ω∏Å…ïπëï…1•ŸïŸïπ—Ωπ—…Ω∞†§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç±•ŸïŸïπ—Ωπ—…Ω∞à§∞(ÄÄÄÄÄÅâÖÕ•åÄÙÄê†àçâÖÕ•çŸïπ—A…Ωù…ïÕÃà§Ï(ÄÄÄÅ•òÄ†Ö°ΩÕ–ÅÒÄÖâÖÕ•å§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–¸πÕ—Ö—’ÃÄÙÙÙÄâçÖπçï±±ïêà§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÄààÏ(ÄÄÄÄÄÅâÖÕ•åπÕ—Â±îπë•Õ¡±Ö‰ÄÙÄâπΩπîàÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–¸π±Ωç≠ïêÅÒÅ•ÕA±ÖÂï…ïŸ•çî†§ÅÒÅ•ÕM¡ïç—Ö—Ω…ïŸ•çî†§§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÄààÏ(ÄÄÄÄÄÅâÖÕ•åπÕ—Â±îπë•Õ¡±Ö‰ÄÙÄààÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅâÖÕ•åπÕ—Â±îπë•Õ¡±Ö‰ÄÙÄâπΩπîàÏ(ÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒ∞(ÄÄÄÄÄÅëÖ‰ÄÙÅ5Ö—†πµ•∏†(ÄÄÄÄÄÄÄÅëÖÂÃ∞(ÄÄÄÄÄÄÄÄ¨°Õ—Ω…îπïŸïπ–π±•ŸïΩπ—…Ω±Ö‰ÅÒÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ•ëÃ(ÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯Å±•ŸïA±ÖÂï…M—Ö—’Ã°ëÖ‰∞Å•ê§§(ÄÄÄÄÄÄÄÄπÕΩ…–†(ÄÄÄÄÄÄÄÄÄÄ°Ñ∞Åà§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅÑπù…Ω’¿Ä¥Åàπù…Ω’¿ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°ïŸïπ—A±ÖÂï»°Ñπ¡±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà§π±ΩçÖ±ïΩµ¡Ö…î†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ—A±ÖÂï»°àπ¡±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ©Ω•πïêÄÙÅ…Ω›Ãπô•±—ï»†°‡§ÄÙ¯Å‡π©Ω•πïê§π±ïπù—†∞(ÄÄÄÄÄÅ¡±ÖÂ•πúÄÙÅ…Ω›Ãπô•±—ï»†(ÄÄÄÄÄÄÄÄ°‡§ÄÙ¯Å‡πÕ—Ö—îÄÙÙÙÄâ¡±ÖÂ•πúàÅÒÅ‡πÕ—Ö—îÄÙÙÙÄâ…ïÖë‰à∞(ÄÄÄÄÄÄ§π±ïπù—†∞(ÄÄÄÄÄÅÖ——ïπ—•Ω∏ÄÙÅ…Ω›Ãπô•±—ï»†°‡§ÄÙ¯Å‡πÕ—Ö—îÄÙÙÙÄâÖ——ïπ—•Ω∏à§π±ïπù—†∞(ÄÄÄÄÄÅô•πÖ±•ÕïêÄÙÅ…Ω›Ãπô•±—ï»†°‡§ÄÙ¯Å‡πô•πÖ±•Õïê§π±ïπù—†∞(ÄÄÄÄÄÅÖ±±•πÖ∞ÄÙÅ	ΩΩ±ïÖ∏°…Ω›Ãπ±ïπù—†ÄòòÅô•πÖ±•ÕïêÄÙÙÙÅ…Ω›Ãπ±ïπù—†§∞(ÄÄÄÄÄÅÕçΩ…•πù=¡ï∏ÄÙÅÕçΩ…•πù%Õ=¡ï∏°ëÖ‰§Ï(ÄÄÄÅÕç°ïë’±ïMçΩ…•πù=¡ïπ•πú°ëÖ‰§Ï(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâ±•ŸïΩπ—…Ω±Ö…êà¯Òë•ÿÅç±ÖÕÃÙâ±•ŸïΩπ—…Ω±!ïÖêà¯Òë•ÿ¯ÒÕµÖ±∞¯ëÌÕ—Ω…îπïŸïπ–π…•ëùïQïÕ—5ΩëîÄ¸ÄâI%ÄƒÿµA1eHÅQMPàÄËÅÕ—Ω…îπïŸïπ–π—ïÕ—5ΩëîÄ¸Äâ=Q19LÅQMPÅY9PàÄËÄâ=I9%MHùLÅ1%YÅY9PÅ=9QI=0âÙΩÕµÖ±∞¯Ò†»¯ëÌëÖÂÃÄÙÙÙÄƒÄ¸ÄâIΩ’πêÅA…Ωù…ïÕÃàÄËÅÅÖ‰ÄëÌëÖÂÙÅIΩ’πêÅA…Ωù…ïÕÕÅÙΩ†»¯Ò¿˘MïîÅ›°ºÅ•ÃÅçΩππïç—ïê∞Å¡±ÖÂ•πú∞Å›Ö•—•πúÅôΩ»ÅÑÅÕçΩ…îÅç°ïç¨ÅΩ»Åô•π•Õ°ïê∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ±•ŸïΩπ—…Ω±ç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ±•Ÿï=…ùÖπ•Õï…%πÕ—…’ç—•ΩπÃà˘=…ùÖπ•Õï»Å%πÕ—…’ç—•ΩπÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâµÖπ’Ö±MçΩ…ïÕ	—∏àÅ•êÙâ…ïçΩ…ë±±MçΩ…ïÃà˘IïçΩ…êÅ±∞ÅMçΩ…ïÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâïµï…ùïπçÂIïçΩŸï…Â	—∏àÅ•êÙâ…ï¡±ÖçïIïÖ±A±ÖÂï»à¯ëÌÕ—Ω…îπïŸïπ–π…ïÖ±A±ÖÂï…M’âÕ—•—’—•ΩπAïπë•πúÄ¸ÄâIï—…‰ÅM’âÕ—•—’—îÅU¡ëÖ—îàÄËÄâIï¡±ÖçîÅA±ÖÂï»âÙΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâïµï…ùïπçÂIïçΩŸï…Â	—∏àÅ•êÙâµ•ÕÕ•πùA±ÖÂï…Iï¡±Öçïµïπ–à˘5•ÕÕ•πúÅA±ÖÂï»Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâïµï…ùïπçÂIïçΩŸï…Â	—∏àÅ•êÙâïµï…ùïπçÂIïçΩŸï…‰à˘µï…ùïπç‰ÅMçΩ…îÅIïçΩŸï…‰Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ…ïô…ïÕ°1•ŸïΩπ—…Ω∞à˘Iïô…ïÕ†Ωâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ¯ëÌëÖÂQÖâÃ†â±•ŸïëÖ‰à∞ÅëÖ‰•ÙÒë•ÿÅç±ÖÕÃÙâ±•ŸïΩ’π—ï…Ãà¯Òë•ÿ¯ÒÕµÖ±∞˘)=%9ΩÕµÖ±∞¯Òà¯ëÌ©Ω•πïëÙÒï¥¯ºëÌ…Ω›Ãπ±ïπù—°ÙΩï¥¯Ωà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘A1e%9ΩÕµÖ±∞¯Òà¯ëÌ¡±ÖÂ•πùÙΩà¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙàëÌÖ——ïπ—•Ω∏Ä¸Äâ›Ö…∏àÄËÄàâÙà¯ÒÕµÖ±∞˘QQ9Q%=8ΩÕµÖ±∞¯Òà¯ëÌÖ——ïπ—•ΩπÙΩà¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙàëÌÖ±±•πÖ∞Ä¸ÄâëΩπîàÄËÄàâÙà¯ÒÕµÖ±∞˘=5A1QΩÕµÖ±∞¯Òà¯ëÌô•πÖ±•ÕïëÙÒï¥¯ºëÌ…Ω›Ãπ±ïπù—°ÙΩï¥¯Ωà¯Ωë•ÿ¯Ωë•ÿ¯ëÌÖ±±•πÖ∞Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâ¡…•ÈïIïÖë‰à¯Òë•ÿ¯Òà˚ärLÅA…•ÈîÅ•Ÿ•πúÅIïÖë‰Ωà¯ÒÕ¡Ö∏¯ëÌëÖÂÃÄÙÙÙÄƒÄ¸ÄâŸï…‰ÅÕçΩ…ïçÖ…êàÄËÅÅŸï…‰ÅÖ‰ÄëÌëÖÂÙÅÕçΩ…ïçÖ…ëÅÙÅ•ÃÅçΩµ¡±ï—î∏ΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâΩ¡ïπA…•ÈïM’µµÖ…‰à˘=¡ï∏ÅIïÕ’±—ÃÅM’µµÖ…‰Ωâ’——Ω∏¯Ωë•ÿ˘ÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâ…ïÕ’±—Õ]Ö•—•πúà¯Òà˘IïÕ’±—ÃÅ…ïµÖ•∏Å%∏ÅA…Ωù…ïÕÃΩà¯ÒÕ¡Ö∏¯ëÌ…Ω›Ãπ±ïπù—†Ä¥Åô•πÖ±•ÕïëÙÅ¡±ÖÂï»ëÌ…Ω›Ãπ±ïπù—†Ä¥Åô•πÖ±•ÕïêÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅÕ—•±∞Å—ºÅçΩµ¡±ï—îëÌëÖÂÃÄÙÙÙÄƒÄ¸Äà∏àÄËÅÄÅÖ‰ÄëÌëÖÂÙπÅÙΩÕ¡Ö∏¯Ωë•ÿ˘ÅÙÒë•ÿÅç±ÖÕÃÙâ±•ŸïA±ÖÂï…1•Õ–à¯ëÌ…Ω›ÃπµÖ¿†°»§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâ±•ŸïA±ÖÂï…IΩ‹ÄëÌ»πÕ—Ö—ïÙà¯Òë•ÿÅç±ÖÕÃÙâ±•ŸïA±ÖÂï…9Öµîà¯Ò§Åç±ÖÕÃÙàëÌ»π©Ω•πïêÄ¸ÄâçΩππïç—ïêàÄËÄàâÙà¯Ω§¯ÒÕ¡Ö∏¯Òà¯ëÌïÕå°ïŸïπ—A±ÖÂï»°»π¡±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩà¯ÒÕµÖ±∞˘…Ω’¿ÄëÌ»πù…Ω’¡ÙÉ
+‹ÄëÌ»π©Ω•πïêÄ¸ÄâA°ΩπîÅ©Ω•πïêàÄËÄâ9Ω–Å©Ω•πïêâÙΩÕµÖ±∞¯ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ±•ŸïA…Ωù…ïÕÃà¯ÒÕ¡Ö∏¯Ò§ÅÕ—Â±îÙâ›•ë—†ËëÌ5Ö—†π…Ω’πê†°»πïπ—ï…ïêÄºÄƒ‡§Ä®Äƒ¿¿•Ùîà¯Ω§¯ΩÕ¡Ö∏¯ÒÕµÖ±∞¯ëÌ»πïπ—ï…ïëÙºƒ‡ΩÕµÖ±∞¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ±•ŸïA±ÖÂï…M—Ö—îà¯Òà¯ëÌïÕå°»π±Öâï∞•ÙΩà¯ÒÕµÖ±∞¯ëÌïÕå°»πëï—Ö•∞•ÙΩÕµÖ±∞¯Ωë•ÿ¯Ωë•ÿ˘Ä§π©Ω•∏†àà§ÅÒÄúÒ¿Åç±ÖÕÃÙâ±ïÖëï…µ¡—‰à˘9ºÅ¡±ÖÂï…ÃÅÖ…îÅÖÕÕ•ùπïêÅôΩ»Å—°•ÃÅëÖ‰∏Ω¿¯ùÙΩë•ÿ¯Ò¿Åç±ÖÕÃÙâ±•ŸïΩπ—…Ω±9Ω—îà˘A…Ωù…ïÕÃÅôΩ±±Ω›ÃÅïÖç†Å¡±ÖÂï»ùÃÅΩôô•ç•Ö∞ÅµÖ…≠ï»ÅçÖ…ê∏Å——ïπ—•Ω∏ÅµïÖπÃÅÑÅçΩµ¡±ï—îÅΩôô•ç•Ö∞ÅçÖ…êÅÕ—•±∞Å°ÖÃÅÑÅ¡±ÖÂï»ΩµÖ…≠ï»Åë•Õç…ï¡Öπç‰Å…ï≈’•…•πúÅ…ïŸ•ï‹∏ÄÒâ’——Ω∏Åç±ÖÕÃÙâ—ïÕ—QΩΩ±Õ1•π¨àÅ•êÙâ—ïÕ—Ÿïπ—QΩΩ±Ãà˘QïÕ—•πúÅQΩΩ±ÃΩâ’——Ω∏¯Ω¿¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅ•òÄ†ÖÕçΩ…•πù=¡ï∏§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖç—•ΩπÃÄÙÅ°ΩÕ–π≈’ï…ÂMï±ïç—Ω»†àπ±•ŸïΩπ—…Ω±ç—•ΩπÃà§Ï(ÄÄÄÄÄÅÖç—•ΩπÃ¸π•πÕï…—ë©Öçïπ—!Q50†âÖô—ï…âïù•∏à∞ÄúÒâ’——Ω∏Åç±ÖÕÃÙâïµï…ùïπçÂIïçΩŸï…Â	—∏àÅ•êÙâΩ¡ïπMçΩ…•πù9Ω‹à˘=¡ï∏ÅMçΩ…•πúÅ9Ω‹Ωâ’——Ω∏¯ú§Ï(ÄÄÄÄÄÅ°ΩÕ–π≈’ï…ÂMï±ïç—Ω»†àπ±•ŸïΩπ—…Ω±!ïÖêÅ¿à§π—ï·—Ωπ—ïπ–ÄÙÅÅMçΩ…•πúÅΩ¡ïπÃÅÖ–ÄëÌÕçΩ…•πù=¡ïπ•πù1Öâï∞°ëÖ‰•Ù∞Äƒ‘Åµ•π’—ïÃÅâïôΩ…îÅ—°îÅô•…Õ–Å—ïîÅ—•µîπÄÏ(ÄÄÄÅÙ(ÄÄÄÄêê†âmëÖ—Ñµ±•ŸïëÖÂtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±•ŸïΩπ—…Ω±Ö‰ÄÙÄ≠àπëÖ—ÖÕï–π±•ŸïëÖ‰Ï(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…1•ŸïŸïπ—Ωπ—…Ω∞†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄê†àç…ïô…ïÕ°1•ŸïΩπ—…Ω∞à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÖ›Ö•–ÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÄÄÅ…ïπëï…1•ŸïŸïπ—Ωπ—…Ω∞†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçïµï…ùïπçÂIïçΩŸï…‰à§πΩπç±•ç¨ÄÙÅΩ¡ïπµï…ùïπçÂIïçΩŸï…‰Ï(ÄÄÄÄê†àç…ïçΩ…ë±±MçΩ…ïÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅΩ¡ïπ5Öπ’Ö±MçΩ…ïÃ°ëÖ‰§Ï(ÄÄÄÄê†àçµ•ÕÕ•πùA±ÖÂï…Iï¡±Öçïµïπ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅΩ¡ïπ5•ÕÕ•πùA±ÖÂï…Iï¡±Öçïµïπ–°ëÖ‰§Ï(ÄÄÄÄê†àç…ï¡±ÖçïIïÖ±A±ÖÂï»à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅΩ¡ïπA±ÖÂï…M’âÕ—•—’—•Ω∏°ëÖ‰§Ï(ÄÄÄÄê†àç±•Ÿï=…ùÖπ•Õï…%πÕ—…’ç—•ΩπÃà§πΩπç±•ç¨ÄÙÅΩ¡ïπ=…ùÖπ•Õï…%πÕ—…’ç—•ΩπÃÏ(ÄÄÄÅ•òÄ†ê†àçΩ¡ïπMçΩ…•πù9Ω‹à§§(ÄÄÄÄÄÄê†àçΩ¡ïπMçΩ…•πù9Ω‹à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†ÖçΩπô•…¥°Å=¡ï∏ÅÖ±∞ÅÖ‰ÄëÌëÖÂÙÅÕçΩ…ïçÖ…ëÃÅπΩ‹˝Ä§§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕçΩ…•πù=¡ïπïëÖ…±‰ÄÙÅÕ—Ω…îπïŸïπ–πÕçΩ…•πù=¡ïπïëÖ…±‰ÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕçΩ…•πù=¡ïπïëÖ…±ÂlâëÖ‰àÄ¨ÅëÖÂtÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1•ŸïŸïπ—Ωπ—…Ω∞†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçΩ¡ïπA…•ÈïM’µµÖ…‰à§§(ÄÄÄÄÄÄê†àçΩ¡ïπA…•ÈïM’µµÖ…‰à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄâÕ’µµÖ…‰àÏ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅπÖÿ†â±ïÖëï…âΩÖ…ëAÖùîà§Ï(ÄÄÄÄÄÅÙÏ(ÄÅÙ((ÄÅô’πç—•Ω∏Åç±ΩÕï±Ω’ëΩππïç—•Ω∏†§ÅÏ(ÄÄÄÅç±Ω’ë	’Õ‰ÄÙÅôÖ±ÕîÏ(ÄÄÄÅç±ïÖ…Q•µïΩ’–°ç±Ω’ëIï±ΩÖëQ•µï»§Ï(ÄÄÄÅç±Ω’ëIï±ΩÖëQ•µï»ÄÙÅπ’±∞Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–Å—•µï»ÅΩòÅç±Ω’ëIΩ’πëQ•µï…ÃπŸÖ±’ïÃ†§§Åç±ïÖ…Q•µïΩ’–°—•µï»§Ï(ÄÄÄÅç±Ω’ëIΩ’πëQ•µï…Ãπç±ïÖ»†§Ï(ÄÄÄÅç±Ω’ëIΩ’πë°Ö•πÃπç±ïÖ»†§Ï(ÄÄÄÅ±ÖÕ—±Ω’ë	’πë±ïM•ùπÖ—’…îÄÙÄààÏ(ÄÄÄÅ•òÄ°ç±Ω’ë°Öππï∞ÄòòÅ›ÖÂ±Ω’ê¸πç±•ïπ–¸π…ïµΩŸï°Öππï∞§(ÄÄÄÄÄÅ›ÖÂ±Ω’êπç±•ïπ–π…ïµΩŸï°Öππï∞°ç±Ω’ë°Öππï∞§Ï(ÄÄÄÅç±Ω’ë°Öππï∞ÄÙÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπŸïπ—=¡—•ΩπÃ†§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ°•Õ’ïÕ—=…ùÖπ•Õï»†§§ÅÏ(ÄÄÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙÅÄÒ†»˘Ÿïπ–Å=¡—•ΩπÃΩ†»¯Ò¿¯Òà¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩà¯Ω¿¯Ò¿˘eΩ’»Å’ïÕ–Å=…ùÖπ•Õï»ÅÖççïÕÃÅ•ÃÅ±•µ•—ïêÅ—ºÅ¡±Öππ•πúÅÖπêÅΩ¡ï…Ö—•πúÅ—°•ÃÅïŸïπ–∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâïŸïπ—=¡—•Ωπç—•ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâçΩπ—•π’ïŸïπ—Mï—’¿à˘Ωπ—•π’îÅŸïπ–ÅMï—’¿Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâç±ΩÕïŸïπ—=¡—•ΩπÃà˘±ΩÕîΩâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÄÄÄê†àççΩπ—•π’ïŸïπ—Mï—’¿à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÄÄÅ…ïΩ¡ïπŸïπ—A±Ö∏†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄê†àçç±ΩÕïŸïπ—=¡—•ΩπÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Äê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π—ïÕ—5Ωëî§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†âUÕîÅQïÕ—•πúÅQΩΩ±ÃÅ—ºÅç°ÖπùîÅΩ»Åô•π•Õ†Å—°îÅ¡…Ω—ïç—ïêÅ—ïÕ–ÅïŸïπ–∏à§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅçÖπçï±±ïêÄÙÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçÖπçï±±ïêàÏ(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÅÄÒ†»˘Ÿïπ–Å=¡—•ΩπÃΩ†»¯Ò¿¯Òà¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩà¯Ω¿¯Ò¿¯ëÌçÖπçï±±ïêÄ¸ÄâQ°•ÃÅïŸïπ–Å•ÃÅÖ±…ïÖë‰ÅçÖπçï±±ïê∏ÅeΩ‘ÅµÖ‰Å…ï—Ö•∏Å•–ÅôΩ»Å…ïôï…ïπçîÅΩ»Åëï±ï—îÅ•–Åô…Ω¥Å—°•ÃÅëïŸ•çî∏àÄËÄâΩπ—•π’îÅ¡±Öππ•πú∞ÅçÖπçï∞ÅÖ∏ÅïŸïπ–Å—°Ö–Å›•±∞ÅπΩ–Å¡…Ωçïïê∞ÅΩ»Å¡ï…µÖπïπ—±‰Åëï±ï—îÅÖ∏Å’π›Öπ—ïêÅëïÕ•ù∏Ωë…Öô–ÅïŸïπ–∏âÙΩ¿¯Òë•ÿÅç±ÖÕÃÙâïŸïπ—=¡—•Ωπç—•ΩπÃà¯ëÌçÖπçï±±ïêÄ¸ÄààÄËÄúÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâçΩπ—•π’ïŸïπ—Mï—’¿à˘Ωπ—•π’îÅŸïπ–ÅMï—’¿Ωâ’——Ω∏¯ùÙëÏÖçÖπçï±±ïêòôÕ—Ω…îπïŸïπ–π±Ωç≠ïêòò≠Õ—Ω…îπïŸïπ–πëÖÂÃ¯ƒ¸úÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâµΩë•ôÂ’—’…ïIΩ’πëÃà˘5Ωë•ô‰Å’—’…îÅIΩ’πëÃΩâ’——Ω∏¯úËàâÙëÌçÖπçï±±ïêÄ¸ÄààÄËÅÄÒâ’——Ω∏Åç±ÖÕÃÙâëÖπùï»àÅ•êÙâçÖπçï±’……ïπ—Ÿïπ–à˘Öπçï∞ÅŸïπ–Ωâ’——Ω∏˘ÅÙÒâ’——Ω∏Åç±ÖÕÃÙâëÖπùï»àÅ•êÙâëï±ï—ï’……ïπ—Ÿïπ–à˘ï±ï—îÅŸïπ–Åô…Ω¥ÅQ°•ÃÅïŸ•çîΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâëÖπùï»Åç±ïÖ…QïÕ—Õ	—∏àÅ•êÙâç±ïÖ…A…ïŸ•Ω’ÕQïÕ—Ãà˘±ïÖ»Å±∞ÅA…ïŸ•Ω’ÃÅQïÕ–ÅŸïπ—ÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ¡…ï¡Ö…ïA±ÖÂï…ïŸ•çîà˘A…ï¡Ö…îÅQ°•ÃÅïŸ•çîÅôΩ»ÅA±ÖÂï»ÅUÕîΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâç±ΩÕïŸïπ—=¡—•ΩπÃà˘-ïï¿ÅŸïπ–ÅÖπêÅ±ΩÕîΩâ’——Ω∏¯Ωë•ÿ¯Ò¿Åç±ÖÕÃÙââÖç≠’¡MÖôï—Â9Ω—îà¯Òà˘ïŸ•çîµΩπ±‰Åç±ïÖπ’¿ËΩà¯ÅA…ï¡Ö…•πúÅ—°•ÃÅëïŸ•çîÅôΩ»Å¡±ÖÂï»Å’ÕîÅ…ïµΩŸïÃÅ•—ÃÅ±ΩçÖ∞ÅΩ…ùÖπ•Õï»µïŸïπ–Å±•Õ–ÅΩπ±‰∏Å%–ÅçÖππΩ–ÅÖ±—ï»ÅM’¡ÖâÖÕî∞ÅÖπΩ—°ï»Å¡°ΩπîÅΩ»Å—Öâ±ï–∞ÅΩ»Å—°îÅΩ…ùÖπ•Õï»ÅA∏Ω¿˘ÄÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÅ•òÄ†ê†àççÖπçï±’……ïπ—Ÿïπ–à§§(ÄÄÄÄÄÄê†àççÖπçï±’……ïπ—Ÿïπ–à§πΩπç±•ç¨ÄÙÅçÖπçï±’……ïπ—Ÿïπ–Ï(ÄÄÄÅ•òÄ†ê†àççΩπ—•π’ïŸïπ—Mï—’¿à§§(ÄÄÄÄÄÄê†àççΩπ—•π’ïŸïπ—Mï—’¿à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÄÄÅ…ïΩ¡ïπŸïπ—A±Ö∏†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçµΩë•ôÂ’—’…ïIΩ’πëÃà§§Äê†àçµΩë•ôÂ’—’…ïIΩ’πëÃà§πΩπç±•ç¨ÄÙÅΩ¡ïπ’—’…ïIΩ’πëë•—Ω»Ï(ÄÄÄÄê†àçëï±ï—ï’……ïπ—Ÿïπ–à§πΩπç±•ç¨ÄÙÅëï±ï—ï’……ïπ—Ÿïπ–Ï(ÄÄÄÄê†àçç±ïÖ…A…ïŸ•Ω’ÕQïÕ—Ãà§πΩπç±•ç¨ÄÙÅç±ïÖ…A…ïŸ•Ω’ÕQïÕ—Ÿïπ—ÃÏ(ÄÄÄÄê†àç¡…ï¡Ö…ïA±ÖÂï…ïŸ•çîà§πΩπç±•ç¨ÄÙÅ¡…ï¡Ö…ïïŸ•çïΩ…A±ÖÂï…UÕîÏ(ÄÄÄÄê†àçç±ΩÕïŸïπ—=¡—•ΩπÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïŸïπ—ÖÂM—Ö…—ïê°ëÖ‰§ÅÏ(ÄÄÄÅ•òÄ°ïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§ÅÒÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰±ôÖ±Õî§¸πÕ—Ö—’Ã§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅ•òÄ°=â©ïç–πŸÖ±’ïÃ°Õ—Ω…îπïŸïπ–πÕçΩ…•πú¸πlâëÖ‰à≠ëÖÂuÒÒÌÙ§πÕΩµî°…Ω’πêÙ˘=â©ïç–π≠ïÂÃ°…Ω’πëÒÒÌÙ§πÕΩµî°≠ï‰Ù¯Ωx°lƒ¥Âu≈l¿¥·t§êºπ—ïÕ–°≠ï‰§§§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅ…ï—’…∏Å=â©ïç–π≠ïÂÃ°Õ—Ω…îπïŸïπ–πô•πÖ±MçΩ…ïÃ¸πlâëÖ‰à≠ëÖÂuÒÒÌÙ§π±ïπù—†¯¿Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπ’—’…ïIΩ’πëë•—Ω»†§ÅÏ(ÄÄÄÅçΩπÕ–Åïë•—Öâ±îıïŸïπ—ÖÂÃ†§πô•±—ï»°ëÖ‰Ù¯ÖïŸïπ—ÖÂM—Ö…—ïê°ëÖ‰§§Ï(ÄÄÄÅ•ò†Öïë•—Öâ±îπ±ïπù—†•…ï—’…∏ÅÖ±ï…–†âŸï…‰Å¡±ÖÂ•πúÅëÖ‰Å°ÖÃÅÕ—Ö…—ïêÅΩ»Åô•π•Õ°ïê∏ÅΩµ¡±ï—ïêÅÕçΩ…•πúÅçÖππΩ–ÅâîÅç°Öπùïê∏à§Ï(ÄÄÄÅçΩπÕ–Å•ëÃı=â©ïç–π≠ïÂÃ°çΩµ¡ï—•—•Ωπ9ÖµïÃ§πô•±—ï»°•êÙ˘•êÑÙÙâïç±ïç—•åâÒÒïç±ïç—•çΩ’…Õï…Ω’¡Ã°Õ—Ω…îπïŸïπ–§π±ïπù—†¯¿§Ï(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ıÄÒ†»˘5Ωë•ô‰Å’—’…îÅIΩ’πëÃΩ†»¯Ò¿˘=π±‰Å’πÕ—Ö…—ïêÅëÖÂÃÅçÖ∏Åç°Öπùî∏ÅΩµ¡±ï—ïêÅÖπêÅÕ—Ö…—ïêÅ…Ω’πëÃÅ…ïµÖ•∏Å±Ωç≠ïê∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâô’—’…ïIΩ’πëë•—Ω»à¯ëÌïŸïπ—ÖÂÃ†§πµÖ¿°ëÖ‰Ù˘ÌçΩπÕ–Å±Ωç≠ïêÙÖïë•—Öâ±îπ•πç±’ëïÃ°ëÖ‰§Ì…ï—’…∏ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙàëÌ±Ωç≠ïê¸â±Ωç≠ïêàËàâÙà¯Ò†Ã˘Ö‰ÄëÌëÖÂÙÄëÌ±Ωç≠ïê¸ãäPÅ1Ωç≠ïêàËàâÙΩ†Ã¯Ò±Öâï∞˘MçΩ…îÅïπ—…‰Åµï—°ΩêÒÕï±ïç–ÅëÖ—Ñµô’—’…ïµï—°ΩêÙàëÌëÖÂÙàÄëÌ±Ωç≠ïê¸âë•ÕÖâ±ïêàËàâÙ¯ëÌ=â©ïç–πïπ—…•ïÃ°M=I%9}5Q!=L§πµÖ¿†°mŸÖ±’î±±Öâï±t§Ù˘ÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌŸÖ±’ïÙàÄëÌëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÙÙıŸÖ±’î¸âÕï±ïç—ïêàËàâÙ¯ëÌ±Öâï±ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òë•ÿÅç±ÖÕÃÙâô’—’…ïΩµ¡ï—•—•ΩπÃà¯ëÌ•ëÃπµÖ¿°•êÙ˘ÄÒ±Öâï∞¯Ò•π¡’–Å—Â¡îÙâç°ïç≠âΩ‡àÅëÖ—Ñµô’—’…ïçΩµ¿ÙàëÌëÖÂıëÌ•ëÙàÄëÌçΩµ¡ï—•—•Ωπ%Õ=∏°•ê±ëÖ‰§¸âç°ïç≠ïêàËàâÙÄëÌ±Ωç≠ïê¸âë•ÕÖâ±ïêàËàâÙ¯ÄëÌïÕå°çΩµ¡ï—•—•Ωπ9ÖµïÕm•ëuÒÒ•ê•ÙΩ±Öâï∞˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯ΩÕïç—•Ω∏˘ÅÙ§π©Ω•∏†àà•ÙΩë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÕÖŸï’—’…ïIΩ’πëÃà˘A’â±•Õ†Å’—’…îµIΩ’πêÅU¡ëÖ—îΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâçÖπçï±’—’…ïIΩ’πëÃà˘Öπçï∞Ωâ’——Ω∏˘ÄÏ(ÄÄÄÄê†àççÖπçï±’—’…ïIΩ’πëÃà§πΩπç±•ç¨Ù†§Ù˘Ω¡ïπŸïπ—=¡—•ΩπÃ†§Ï(ÄÄÄÄê†àçÕÖŸï’—’…ïIΩ’πëÃà§πΩπç±•ç¨ıÖÕÂπå†§Ù˘Ï(ÄÄÄÄÄÅçΩπÕ–Åπï·—5ï—°ΩëÃıÏ∏∏∏°Õ—Ω…îπïŸïπ–πÕçΩ…•πù5ï—°ΩëÕÒÒÌÙ•Ù∞Åπï·—ÖÂÃı)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÕÒÒÌÙ§§Ï(ÄÄÄÄÄÅïë•—Öâ±îπôΩ…Öç†°ëÖ‰Ù˘Ìπï·—5ï—°ΩëÕlâëÖ‰à≠ëÖÂtÙê°ÅmëÖ—Ñµô’—’…ïµï—°ΩêÙàëÌëÖÂÙâuÄ§πŸÖ±’îÌ•ëÃπôΩ…Öç†°•êÙ˘ÌçΩπÕ–ÅÖ±∞ıπï‹ÅMï–°çΩµ¡ï—•—•ΩπÖÂÃ°•ê§§Ïê°ÅmëÖ—Ñµô’—’…ïçΩµ¿ÙàëÌëÖÂıëÌ•ëÙâuÄ§πç°ïç≠ïê˝Ö±∞πÖëê°ëÖ‰§ÈÖ±∞πëï±ï—î°ëÖ‰§Ìπï·—ÖÂÕm•ëtıl∏∏πÖ±±tπÕΩ…–†°Ñ±à§Ù˘Ñµà§ÌÙ§ÌÙ§Ï(ÄÄÄÄÄÅôΩ»°çΩπÕ–ÅëÖ‰ÅΩòÅïë•—Öâ±î•ÌçΩπÕ–ÅÖç—•ŸîÙ°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÕÒÒmt§πô•±—ï»°•êÙ¯°πï·—ÖÂÕm•ëuÒÒçΩµ¡ï—•—•ΩπÖÂÃ°•ê§§π•πç±’ëïÃ°ëÖ‰§§Ì•ò†ÖÖç—•Ÿîπ±ïπù—†•…ï—’…∏ÅÖ±ï…–°ÅÖ‰ÄëÌëÖÂÙÅπïïëÃÅÖ–Å±ïÖÕ–ÅΩπîÅçΩµ¡ï—•—•Ω∏πÄ§ÌçΩπÕ–ÅçΩπô±•ç—ÃıÖç—•Ÿîπô•±—ï»°•êÙ¯Öô•πÖ±MçΩ…ïΩµ¡ï—•—•Ωπ±±Ω›ïê°•ê±πï·—5ï—°ΩëÕlâëÖ‰à≠ëÖÂt§§Ì•ò°çΩπô±•ç—Ãπ±ïπù—†•…ï—’…∏ÅÖ±ï…–°ÅÖ‰ÄëÌëÖÂÙÅçÖππΩ–Å’ÕîÄëÌçΩπô±•ç—ÃπµÖ¿°•êÙ˘çΩµ¡ï—•—•Ωπ9ÖµïÕm•ëuÒÒ•ê§π©Ω•∏†à∞Äà•ÙÅ›•—†ÄëÌM=I%9}5Q!=Mmπï·—5ï—°ΩëÕlâëÖ‰à≠ëÖÂuuÙπÄ§ÌÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕçΩ…•πù5ï—°ΩëÃıπï·—5ï—°ΩëÃÌÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÖÂÃıπï·—ÖÂÃÌÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃı•ëÃπô•±—ï»°•êÙ¯°πï·—ÖÂÕm•ëuÒÒmt§π±ïπù—°Ò†°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÕÒÒmt§π•πç±’ëïÃ°•ê§òôïŸïπ—ÖÂÃ†§πÕΩµî°ëÖ‰Ù¯Öïë•—Öâ±îπ•πç±’ëïÃ°ëÖ‰§òôçΩµ¡ï—•—•Ωπ%Õ=∏°•ê±ëÖ‰§§§§ÌÕ—Ω…îπïŸïπ–πô’—’…ïIΩ’πëIïŸ•Õ•Ω∏Ù†≠Õ—Ω…îπïŸïπ–πô’—’…ïIΩ’πëIïŸ•Õ•ΩπÒ¿§¨ƒÌÕ—Ω…îπïŸïπ–πô•πÖ±U¡ëÖ—ï–ıπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§ÌÕÖŸî†§Ï(ÄÄÄÄÄÅ•ò°Õ—Ω…îπç±Ω’ê¸π…Ω±îÙÙÙâΩ…ùÖπ•Õï»àòôÕ—Ω…îπç±Ω’êπïŸïπ—%ê•Ö›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅÖ±ï…–†â’—’…îµ…Ω’πêÅ’¡ëÖ—îÅ¡’â±•Õ°ïê∏ÅA±ÖÂï»Å¡°ΩπïÃÅ›•±∞Å…ïçï•ŸîÅ—°îÅ…ïŸ•ÕïêÅçΩµ¡ï—•—•ΩπÃÅÖπêÅÕçΩ…•πúÅµï—°Ωê∏à§Ïê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ì…ïπëï…!Ωµî†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏Å¡…ï¡Ö…ïïŸ•çïΩ…A±ÖÂï…UÕî†§ÅÏ(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†âA…ï¡Ö…îÅQ!%LÅëïŸ•çîÅôΩ»Å¡±ÖÂï»Å’Õî˝qπqπ±∞ÅΩ…ùÖπ•Õï»ÅïŸïπ—ÃÅÕÖŸïêÅΩ∏Å—°•ÃÅëïŸ•çîÅ›•±∞ÅâîÅ…ïµΩŸïê∏ÅA±ÖÂï…ÃÅÖπêÅçΩ’…ÕïÃÅ›•±∞Å…ïµÖ•∏∏ÅM’¡ÖâÖÕî∞Å—°îÅΩ…ùÖπ•Õï»ÅAÅÖπêÅïŸï…‰ÅΩ—°ï»ÅëïŸ•çîÅ›•±∞ÅâîÅ’πç°Öπùïê∏à§§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†â•πÖ∞Åç°ïç¨ËÅ…ïµΩŸîÅ—°•ÃÅëïŸ•çîùÃÅΩ…ùÖπ•Õï»µïŸïπ–Å±•Õ–ÅπΩ‹¸à§§Å…ï—’…∏Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…ÖùîπÕï—%—ï¥†(ÄÄÄÄÄÄÄÅAI}Y%}1I}	-UA}-d∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ω…ùÖπ•Õï…	Öç≠’¡AÖÂ±ΩÖê†§§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÄÄÅÖ›Ö•–Å…ï±ïÖÕïIΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÄÄÅ›Ω…≠Õ¡ÖçïM°…•π≠’—°Ω…•ÕïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÄÙÅmtÏ(ÄÄÄÄÄÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅmtÏ(ÄÄÄÄÄÅôΩ…ùï—=…ùÖπ•Õï…Ÿïπ–†§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥°I9Q}AU	1%M!}-d§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÅÖ¡¡±ÂïŸ•çïIΩ±î†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÄÄÄÄÅ’¡ëÖ—ïïŸ•çï±ïÖ…IïçΩŸï…Â	’——Ω∏†§Ï(ÄÄÄÄÄÅÖ±ï…–†âQ°•ÃÅëïŸ•çîÅ•ÃÅ…ïÖë‰ÅôΩ»Å¡±ÖÂï»Å’Õî∏Å%—ÃÅΩ…ùÖπ•Õï»ÅïŸïπ—ÃÅ›ï…îÅç±ïÖ…ïêÅ±ΩçÖ±±‰ÏÅM’¡ÖâÖÕîÅÖπêÅÖ±∞ÅΩ—°ï»ÅëïŸ•çïÃÅ›ï…îÅ’πç°Öπùïê∏Åπ—ï»Å—°îÅπï‹ÅïŸïπ–ÅçΩëîÅ›°ï∏Å•–Å•ÃÅÕ’¡¡±•ïê∏à§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†âQ°•ÃÅëïŸ•çîÅ›ÖÃÅπΩ–Åç±ïÖ…ïê∏ÄàÄ¨Ä°ï……Ω»πµïÕÕÖùîÅÒÅï……Ω»§§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅô’πç—•Ω∏Å’¡ëÖ—ïïŸ•çï±ïÖ…IïçΩŸï…Â	’——Ω∏†§ÅÏ(ÄÄÄÅçΩπÕ–Åâ’——Ω∏ÄÙÄê†àç…ïÕ—Ω…ï±ïÖ…ïë=…ùÖπ•Õï…Ÿïπ—Ãà§Ï(ÄÄÄÅ•òÄ°â’——Ω∏§(ÄÄÄÄÄÅâ’——Ω∏π°•ëëï∏ÄÙÄÖ±ΩçÖ±M—Ω…Öùîπùï—%—ï¥°AI}Y%}1I}	-UA}-d§Ï(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏Å…ïÕ—Ω…ï±ïÖ…ïë=…ùÖπ•Õï…Ÿïπ—Ã†§ÅÏ(ÄÄÄÅ±ï–ÅÕÖôï—‰ÄÙÅπ’±∞Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅÕÖôï—‰ÄÙÅ)M=8π¡Ö…Õî†(ÄÄÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπùï—%—ï¥°AI}Y%}1I}	-UA}-d§ÅÒÄâπ’±∞à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°|§ÅÌÙ(ÄÄÄÅ•òÄ†ÖÕÖôï—‰§Å…ï—’…∏Å’¡ëÖ—ïïŸ•çï±ïÖ…IïçΩŸï…Â	’——Ω∏†§Ï(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†âIïÕ—Ω…îÅ—°îÅΩ…ùÖπ•Õï»ÅïŸïπ—ÃÅ—°Ö–Å›ï…îÅç±ïÖ…ïêÅô…Ω¥Å—°•ÃÅëïŸ•çî˝qπqπQ°•ÃÅ…ïÕ—Ω…ïÃÅΩπ±‰Å—°îÅ±ΩçÖ∞ÅâÖç≠’¿ÅÖπêÅëΩïÃÅπΩ–Å¡’â±•Õ†ÅÖπÂ—°•πú∏à§§Å…ï—’…∏Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅÖ›Ö•–ÅÖ¡¡±Â=…ùÖπ•Õï…	Öç≠’¿°ÕÖôï—‰∞ÅôÖ±Õî§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥°AI}Y%}1I}	-UA}-d§Ï(ÄÄÄÄÄÅ’¡ëÖ—ïïŸ•çï±ïÖ…IïçΩŸï…Â	’——Ω∏†§Ï(ÄÄÄÄÄÅÖ±ï…–†âQ°îÅΩ…ùÖπ•Õï»ÅïŸïπ—ÃÅΩ∏Å—°•ÃÅëïŸ•çîÅ°ÖŸîÅâïï∏Å…ïÕ—Ω…ïê∏à§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†âQ°îÅΩ…ùÖπ•Õï»ÅïŸïπ—ÃÅçΩ’±êÅπΩ–ÅâîÅ…ïÕ—Ω…ïê∏ÄàÄ¨Ä°ï……Ω»πµïÕÕÖùîÅÒÅï……Ω»§§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏Åç±ïÖ…A…ïŸ•Ω’ÕQïÕ—Ÿïπ—Ã†§ÅÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄâ±ïÖ»Å10Å¡…ïŸ•Ω’ÃÅ—ïÕ–ÅïŸïπ—Ã˝qπqπ=π±‰Å¡’â±•Õ°ïêÅïŸïπ—ÃÅ›•—†ÅQMPÅ•∏Å—°ï•»ÅïŸïπ–ÅπÖµîÅ›•±∞ÅâîÅÖ…ç°•Ÿïê∏Åïπ’•πîÅïŸïπ—ÃÅ›•±∞Å…ïµÖ•∏Å’π—Ω’ç°ïê∏ÅΩππïç—ïêÅ—ïÕ–Å¡°ΩπïÃÅÖπêÅ—Öâ±ï—ÃÅ›•±∞ÅâîÅë•ÕçΩππïç—ïêÅÖπêÅ±ΩçÖ∞Å—ïÕ–ÅÕçΩ…ïÃÅ›•±∞ÅâîÅ…ïµΩŸïê∏ÅA±ÖÂï…Ã∞ÅçΩ’…ÕïÃÅÖπêÅÕçΩ…ïçÖ…ëÃÅ›•±∞Å…ïµÖ•∏∏à∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†â•πÖ∞Åç°ïç¨ËÅç±ïÖ»ÅÖ±∞Å¡…ïŸ•Ω’ÃÅ—ïÕ–ÅïŸïπ—ÃÅπΩ‹¸à§§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Åâ’——Ω∏ÄÙÄê†àçç±ïÖ…A…ïŸ•Ω’ÕQïÕ—Ãà§Ï(ÄÄÄÅ•òÄ°â’——Ω∏§Åâ’——Ω∏πë•ÕÖâ±ïêÄÙÅ—…’îÏ(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖ…ç°•ŸïêÄÙÅÖ›Ö•–Å›ÖÂ±Ω’êπÖ…ç°•Ÿï±±=›πïëŸïπ—Ã†§Ï(ÄÄÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å›ÖÂ±Ω’êπÕÖŸï]Ω…≠Õ¡Öçî°ÏÅÖç—•ŸïA’â±•Õ°ïëŸïπ–ËÅπ’±∞ÅÙ§Ï(ÄÄÄÄÄÅÙÅçÖ—ç†Ä°|§ÅÌÙ(ÄÄÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÄÄÅ›Ω…≠Õ¡ÖçïM°…•π≠’—°Ω…•ÕïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅmtÏ(ÄÄÄÄÄÅôΩ…ùï—=…ùÖπ•Õï…Ÿïπ–†§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÅÖ¡¡±ÂïŸ•çïIΩ±î†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÅÄëÌÖ…ç°•Ÿïêπ±ïπù—°ÙÅ¡’â±•Õ°ïêÅ—ïÕ–ÅïŸïπ–ëÌÖ…ç°•Ÿïêπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄàÅ›ÖÃàÄËÄâÃÅ›ï…îâÙÅç±ïÖ…ïê∏Å›Ö‰ÅΩ±òÅ•ÃÅ…ïÖë‰Å—ºÅç…ïÖ—îÅ—°îÅô•ï±êµ—ïÕ–ÅïŸïπ–πÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÅ•òÄ°â’——Ω∏§Åâ’——Ω∏πë•ÕÖâ±ïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÄâQ°îÅ—ïÕ–ÅïŸïπ—ÃÅ›ï…îÅπΩ–Åç±ïÖ…ïêÅâïçÖ’ÕîÅ—°îÅç±Ω’êÅç±ïÖπ’¿Åë•êÅπΩ–ÅçΩµ¡±ï—î∏ÄàÄ¨(ÄÄÄÄÄÄÄÄÄÄ°ï……Ω»πµïÕÕÖùîÅÒÅï……Ω»§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏ÅçÖπçï±’……ïπ—Ÿïπ–†§ÅÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÅÅÖπçï∞ÄëÌÕ—Ω…îπïŸïπ–¸ππÖµîÅÒÄâ—°•ÃÅïŸïπ–âÙ˝qπqπA±ÖÂï…ÃÅ›•±∞ÅπºÅ±Ωπùï»ÅâîÅÖâ±îÅ—ºÅ©Ω•∏ÅΩ»ÅÕçΩ…î∏ÅQ°îÅïŸïπ–Å›•±∞Å…ïµÖ•∏ÅΩ∏Å—°•ÃÅëïŸ•çîÅÖÃÅÑÅçÖπçï±±ïêÅ…ïçΩ…êπÄ∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’ÃÄÙÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÄâçÖπçï±±ïêàÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πçÖπçï±±ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å›ÖÂ±Ω’êπ’¡ëÖ—ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’ëAÖÂ±ΩÖê†§∞(ÄÄÄÄÄÄÄÄÄÄâÖ…ç°•Ÿïêà∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÅ¡…ïŸ•Ω’ÃÏ(ÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–πçÖπçï±±ïë–Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÄâQ°îÅïŸïπ–Å›ÖÃÅπΩ–ÅçÖπçï±±ïêÅâïçÖ’ÕîÅ—°îÅ¡±ÖÂï»ÅçΩππïç—•Ω∏ÅçΩ’±êÅπΩ–ÅâîÅç±ΩÕïê∏ÄàÄ¨(ÄÄÄÄÄÄÄÄÄÄÄÄ°ï……Ω»πµïÕÕÖùîÅÒÅï……Ω»§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ—…‰ÅÏÅÖ›Ö•–Å›ÖÂ±Ω’êπÕÖŸï]Ω…≠Õ¡Öçî°ÏÅÖç—•ŸïA’â±•Õ°ïëŸïπ–ËÅπ’±∞ÅÙ§ÏÅÙÅçÖ—ç†Ä°|§ÅÌÙ(ÄÄÄÅÙ(ÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄâŸïπ–ÅçÖπçï±±ïê∏Å%–Å…ïµÖ•πÃÅÖŸÖ•±Öâ±îÅÖÃÅÑÅ…ïçΩ…êÅ’π—•∞ÅÂΩ‘Åç°ΩΩÕîÅ—ºÅëï±ï—îÅ•–∏à∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏Åëï±ï—ï’……ïπ—Ÿïπ–†§ÅÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÅÅAï…µÖπïπ—±‰Åëï±ï—îÄëÌÕ—Ω…îπïŸïπ–¸ππÖµîÅÒÄâ—°•ÃÅïŸïπ–âÙÅô…Ω¥Å—°•ÃÅëïŸ•çî˝qπqπA±ÖÂï…ÃÅÖπêÅçΩ’…ÕïÃÅ›•±∞Å…ïµÖ•∏∏ÅQ°•ÃÅïŸïπ–ÅÕï—’¿ÅÖπêÅ•—ÃÅ±ΩçÖ±±‰ÅÕ—Ω…ïêÅÕçΩ…ïÃÅ›•±∞ÅâîÅ…ïµΩŸïêπÄ∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†â•πÖ∞Åç°ïç¨ËÅëï±ï—îÅ—°•ÃÅïŸïπ–ÅπΩ‹¸à§§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å›ÖÂ±Ω’êπ’¡ëÖ—ïŸïπ–†(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’ëAÖÂ±ΩÖê†§∞(ÄÄÄÄÄÄÄÄÄÄâÖ…ç°•Ÿïêà∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙÅçÖ—ç†Ä°ï……Ω»§ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÄâQ°îÅïŸïπ–Å›ÖÃÅπΩ–Åëï±ï—ïêÅâïçÖ’ÕîÅ•—ÃÅ¡±ÖÂï»ÅçΩππïç—•Ω∏ÅçΩ’±êÅπΩ–ÅâîÅç±ΩÕïê∏ÄàÄ¨(ÄÄÄÄÄÄÄÄÄÄÄÄ°ï……Ω»πµïÕÕÖùîÅÒÅï……Ω»§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ—…‰ÅÏÅÖ›Ö•–Å›ÖÂ±Ω’êπÕÖŸï]Ω…≠Õ¡Öçî°ÏÅÖç—•ŸïA’â±•Õ°ïëŸïπ–ËÅπ’±∞ÅÙ§ÏÅÙÅçÖ—ç†Ä°|§ÅÌÙ(ÄÄÄÅÙ(ÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÅçΩπÕ–Åëï±ï—ïë]Ω…≠Õ¡Öçï%êÄÙÅM—…•πú°Õ—Ω…îπïŸïπ–¸π›Ω…≠Õ¡Öçï%êÅÒÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÅÒÄàà§Ï(ÄÄÄÅ›Ω…≠Õ¡ÖçïM°…•π≠’—°Ω…•ÕïêÄÙÅ—…’îÏ(ÄÄÄÅÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÄÙÄ°Õ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçîÅÒÅmt§πô•±—ï»†(ÄÄÄÄÄÄ°•—ï¥§ÄÙ¯ÅM—…•πú°•—ï¥π•ê§ÄÑÙÙÅëï±ï—ïë]Ω…≠Õ¡Öçï%ê∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åπï·—]Ω…≠Õ¡ÖçïŸïπ–ÄÙÅl∏∏πÕ—Ω…îπïŸïπ—]Ω…≠Õ¡ÖçïtπÕΩ…–†°Ñ∞Åà§ÄÙ¯(ÄÄÄÄÄÅïŸïπ—]Ω…≠Õ¡ÖçïÖ—î°à§π±ΩçÖ±ïΩµ¡Ö…î°ïŸïπ—]Ω…≠Õ¡ÖçïÖ—î°Ñ§§∞(ÄÄÄÄ•l¡tÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅπï·—]Ω…≠Õ¡ÖçïŸïπ–¸πïŸïπ–(ÄÄÄÄÄÄ¸Å)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°πï·—]Ω…≠Õ¡ÖçïŸïπ–πïŸïπ–§§(ÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅÕ—Ω…îπÖç—•ŸïŸïπ—%êÄÙÅπï·—]Ω…≠Õ¡ÖçïŸïπ–¸π•êÅÒÅπ’±∞Ï(ÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅmtÏ(ÄÄÄÅôΩ…ùï—=…ùÖπ•Õï…Ÿïπ–†§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÄÄÅÖ±ï…–°πï·—]Ω…≠Õ¡ÖçïŸïπ–Ä¸ÄâŸïπ–Åëï±ï—ïê∏ÅeΩ’»Åπï·–ÅïŸïπ–Å•ÃÅπΩ‹Åç’……ïπ–∏àÄËÄâŸïπ–Åëï±ï—ïê∏Å›Ö‰ÅΩ±òÅ•ÃÅ…ïÖë‰ÅôΩ»ÅÑÅπï‹ÅïŸïπ–∏à§Ï(ÄÅÙ(ÄÄê†àçïŸïπ—=¡—•ΩπÃà§πΩπç±•ç¨ÄÙÅΩ¡ïπŸïπ—=¡—•ΩπÃÏ(ÄÄê†àçµÂŸïπ—Ãà§πΩπç±•ç¨ÄÙÅΩ¡ïπ5ÂŸïπ—ÃÏ(ÄÄê†àç¡’â±•Õ°ïëŸïπ—Ãà§πΩπç±•ç¨ÄÙÅΩ¡ïπA’â±•Õ°ïëŸïπ—ÃÏ(ÄÄê†àç¡ÖÕ—Ÿïπ—Ãà§πΩπç±•ç¨ÄÙÅΩ¡ïπAÖÕ—Ÿïπ—ÃÏ(ÄÄê†àçΩ…ùÖπ•Õï…	Öç≠’¿à§πΩπç±•ç¨ÄÙÅΩ¡ïπ=…ùÖπ•Õï…	Öç≠’¿Ï(ÄÄê†àçΩ›πï…ççΩ’π–à§πΩπç±•ç¨ÄÙÅΩ¡ïπ=›πï…ççΩ’π–Ï(ÄÄê†àçù’ïÕ—=…ùÖπ•Õï…ççïÕÃà§πΩπç±•ç¨ÄÙÅΩ¡ïπ’ïÕ—=…ùÖπ•Õï…ççïÕÃÏ((ÄÅçΩπÕ–Å=Q19M}QMQ}%LÄÙÅl(ÄÄÄÄâ¿–»à∞(ÄÄÄÄâ¿ƒƒà∞(ÄÄÄÄâ¿»‹à∞(ÄÄÄÄâ¿ÿà∞(ÄÄÄÄâ¿»à∞(ÄÄÄÄâ¿ƒ‹à∞(ÄÄÄÄâ¿–‰à∞(ÄÄÄÄâ¿ƒà∞(ÄÅtÏ(ÄÅçΩπÕ–Å=Q19M}M%aQ9}%LÄÙÅl(ÄÄÄÄ∏∏π=Q19M}QMQ}%L∞(ÄÄÄÄâ¿Ãà∞(ÄÄÄÄâ¿–à∞(ÄÄÄÄâ¿‘à∞(ÄÄÄÄâ¿‹à∞(ÄÄÄÄâ¿‡à∞(ÄÄÄÄâ¿‰à∞(ÄÄÄÄâ¿ƒ»à∞(ÄÄÄÄâ¿ƒÃà∞(ÄÅtÏ(ÄÅçΩπÕ–Å=Q19M}QMQ}I=MLÄÙÅÏ(ÄÄÄÅëÖ‰ƒËÅÏ(ÄÄÄÄÄÅ¿–»ËÅlÿ∞Ä–∞Ä‘∞Ä‹∞Ä–∞Ä‹∞Ä–∞Äÿ∞Ä‹∞Ä‘∞Äÿ∞Äÿ∞Ä–∞Ä‹∞Äÿ∞Äÿ∞Äÿ∞Ä’t∞(ÄÄÄÄÄÅ¿ƒƒËÅl‘∞Ä‘∞Äÿ∞Ä‹∞Ä‘∞Ä‘∞Ä–∞Ä‹∞Äÿ∞Ä‘∞Ä–∞Ä–∞ÄÃ∞Äÿ∞Ä‘∞Äÿ∞Ä‘∞ÄŸt∞(ÄÄÄÄÄÅ¿»‹ËÅlÿ∞Ä–∞Äÿ∞Ä‘∞Ä‘∞Ä‘∞ÄÃ∞Ä‘∞Ä‹∞Ä–∞Äÿ∞Ä‘∞Ä–∞Ä‡∞Ä–∞Ä‹∞Ä‹∞Ä’t∞(ÄÄÄÄÄÅ¿ÿËÅl‘∞Ä–∞Ä–∞Ä‘∞Ä–∞Ä‘∞Ä–∞Ä‘∞Äÿ∞Äÿ∞Ä‘∞Ä‹∞ÄÃ∞Ä‡∞Ä‘∞Ä‘∞Äÿ∞ÄŸt∞(ÄÄÄÄÄÅ¿»ËÅlÿ∞ÄÃ∞Ä‘∞Ä‹∞Äÿ∞Äÿ∞ÄÃ∞Ä‹∞Ä‡∞Ä‘∞Ä‘∞Äÿ∞Ä–∞Ä‡∞Äÿ∞Ä‹∞Ä‘∞ÄŸt∞(ÄÄÄÄÄÅ¿ƒ‹ËÅl‹∞Ä–∞Äÿ∞Äÿ∞ÄÃ∞Ä‹∞ÄÃ∞Ä‘∞Äÿ∞Ä–∞Ä‘∞Ä‘∞ÄÃ∞Ä‡∞Ä‘∞Äÿ∞Ä–∞ÄŸt∞(ÄÄÄÄÄÅ¿–‰ËÅl–∞ÄÃ∞Ä‘∞Ä–∞Ä–∞Ä–∞ÄÃ∞Ä–∞Äÿ∞Äÿ∞Ä–∞Äÿ∞ÄÃ∞Ä‘∞Ä–∞Äÿ∞Ä‘∞Ä’t∞(ÄÄÄÄÄÅ¿ƒËÅl–∞ÄÃ∞Äÿ∞Äÿ∞Ä–∞Ä–∞ÄÃ∞Ä–∞Ä‹∞ÄÃ∞Ä–∞Ä‘∞Ä–∞Ä–∞Äÿ∞Ä‘∞Ä–∞Ä—t∞(ÄÄÄÅÙ∞(ÄÄÄÅëÖ‰»ËÅÏ(ÄÄÄÄÄÅ¿–»ËÅlÿ∞Ä‘∞Ä‹∞Äÿ∞Äÿ∞Äÿ∞Ä–∞Ä‘∞Äÿ∞Ä–∞Ä‘∞Ä‹∞Ä‘∞Äÿ∞Ä‹∞Äÿ∞Äÿ∞ÄŸt∞(ÄÄÄÄÄÅ¿ƒƒËÅl‘∞Ä–∞Äÿ∞Ä‘∞Ä–∞Ä‘∞Ä–∞Ä‹∞Ä‘∞Äÿ∞Ä‘∞Ä‘∞Ä–∞Ä‡∞Äÿ∞Äÿ∞Ä‹∞ÄŸt∞(ÄÄÄÄÄÅ¿»‹ËÅl–∞Ä–∞Ä‘∞Ä–∞Ä–∞Äÿ∞ÄÃ∞Ä–∞Ä‡∞Ä–∞Ä‘∞Äÿ∞Ä‘∞Ä‘∞Ä‹∞Äÿ∞Äÿ∞Ä›t∞(ÄÄÄÄÄÅ¿ÿËÅl‹∞Ä‘∞Ä‘∞Ä‘∞Ä‘∞Ä‘∞Ä–∞Äÿ∞Äÿ∞Ä–∞Ä‘∞Ä‘∞Ä–∞Ä‹∞Ä‹∞Äÿ∞Ä‘∞Ä›t∞(ÄÄÄÄÄÅ¿»ËÅlÿ∞Ä–∞Äÿ∞Ä‘∞Ä‘∞Äÿ∞ÄÃ∞Ä‘∞Ä–∞ÄÃ∞Ä‘∞Äÿ∞Ä‹∞Äÿ∞Ä‘∞Äÿ∞ÄÃ∞Ä’t∞(ÄÄÄÄÄÅ¿ƒ‹ËÅl–∞ÄÃ∞Äÿ∞Äÿ∞Ä–∞Ä–∞ÄÃ∞Ä–∞Ä‹∞ÄÃ∞Ä–∞Ä‘∞Ä–∞Ä–∞Äÿ∞Ä‘∞Ä–∞Ä—t∞(ÄÄÄÄÄÅ¿–‰ËÅl‘∞Ä–∞Ä‘∞Ä–∞Ä‘∞Äÿ∞ÄÃ∞Ä–∞Ä‹∞Ä–∞Ä‘∞Äÿ∞Ä–∞Äÿ∞Äÿ∞Ä‘∞Äÿ∞ÄŸt∞(ÄÄÄÄÄÅ¿ƒËÅlÿ∞Ä–∞Ä‘∞Äÿ∞Ä–∞Ä‘∞Ä–∞Äÿ∞Ä‹∞Ä–∞Äÿ∞Ä‘∞Ä–∞Ä‹∞Ä‘∞Ä‹∞Äÿ∞Ä’t∞(ÄÄÄÅÙ∞(ÄÅÙÏ(ÄÅçΩπÕ–Å=Q19M}QMQ}!@ÄÙÅÏ(ÄÄÄÅëÖ‰ƒËÅÏ(ÄÄÄÄÄÅ¿–»ËÄ»‡∞(ÄÄÄÄÄÅ¿ƒƒËÄƒ‰∞(ÄÄÄÄÄÅ¿»‹ËÄ»ÿ∞(ÄÄÄÄÄÅ¿ÿËÄƒ‹∞(ÄÄÄÄÄÅ¿»ËÄ»»∞(ÄÄÄÄÄÅ¿ƒ‹ËÄƒ‹∞(ÄÄÄÄÄÅ¿–‰ËÄ‘∞(ÄÄÄÄÄÅ¿ƒËÄƒ¿∞(ÄÄÄÅÙ∞(ÄÄÄÅëÖ‰»ËÅÏ(ÄÄÄÄÄÅ¿–»ËÄ»‡∞(ÄÄÄÄÄÅ¿ƒƒËÄƒ‡∞(ÄÄÄÄÄÅ¿»‹ËÄ»ƒ∞(ÄÄÄÄÄÅ¿ÿËÄƒÿ∞(ÄÄÄÄÄÅ¿»ËÄƒ–∞(ÄÄÄÄÄÅ¿ƒ‹ËÄƒ¿∞(ÄÄÄÄÄÅ¿–‰ËÄƒ‹∞(ÄÄÄÄÄÅ¿ƒËÄ»»∞(ÄÄÄÅÙ∞(ÄÅÙÏ(ÄÅ=â©ïç–πÖÕÕ•ù∏°=Q19M}QMQ}!@πëÖ‰ƒ∞ÅÏ(ÄÄÄÅ¿ÃËÄƒ‘∞(ÄÄÄÅ¿–ËÄƒ»∞(ÄÄÄÅ¿‘ËÄ»Ã∞(ÄÄÄÅ¿‹ËÄƒ‡∞(ÄÄÄÅ¿‡ËÄ»¿∞(ÄÄÄÅ¿‰ËÄƒƒ∞(ÄÄÄÅ¿ƒ»ËÄƒÿ∞(ÄÄÄÅ¿ƒÃËÄ»‘∞(ÄÅÙ§Ï(ÄÅ=â©ïç–πÖÕÕ•ù∏°=Q19M}QMQ}!@πëÖ‰»∞ÅÏ(ÄÄÄÅ¿ÃËÄƒ‘∞(ÄÄÄÅ¿–ËÄƒ»∞(ÄÄÄÅ¿‘ËÄ»Ã∞(ÄÄÄÅ¿‹ËÄƒ‡∞(ÄÄÄÅ¿‡ËÄ»¿∞(ÄÄÄÅ¿‰ËÄƒƒ∞(ÄÄÄÅ¿ƒ»ËÄƒÿ∞(ÄÄÄÅ¿ƒÃËÄ»‘∞(ÄÅÙ§Ï(ÄÅçΩπÕ–Å=Q19M}aQI}	MÄÙÅÏ(ÄÄÄÅ¿ÃËÄâ¿ƒà∞(ÄÄÄÅ¿–ËÄâ¿–‰à∞(ÄÄÄÅ¿‘ËÄâ¿–»à∞(ÄÄÄÅ¿‹ËÄâ¿ƒƒà∞(ÄÄÄÅ¿‡ËÄâ¿»‹à∞(ÄÄÄÅ¿‰ËÄâ¿ÿà∞(ÄÄÄÅ¿ƒ»ËÄâ¿»à∞(ÄÄÄÅ¿ƒÃËÄâ¿ƒ‹à∞(ÄÅÙÏ(ÄÅô’πç—•Ω∏Å—ïÕ—…ΩÕÃ°ëÖ‰∞Å•ê§ÅÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰Ï(ÄÄÄÅ•òÄ°=Q19M}QMQ}I=MMm≠ïÂum•ët§Å…ï—’…∏Å=Q19M}QMQ}I=MMm≠ïÂum•ëtÏ(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅ=Q19M}QMQ}I=MMm≠ïÂum=Q19M}aQI}	Mm•ëut∞(ÄÄÄÄÄÅÕïïêÄÙÅ=Q19M}M%aQ9}%Lπ•πëï·=ò°•ê§Ï(ÄÄÄÅ…ï—’…∏ÅâÖÕîπµÖ¿†°ú∞Å§§ÄÙ¯(ÄÄÄÄÄÅ5Ö—†πµÖ‡†(ÄÄÄÄÄÄÄÄ»∞(ÄÄÄÄÄÄÄÅúÄ¨Ä†°§Ä¨ÅÕïïêÄ®Ä»§ÄîÄ‹ÄÙÙÙÄ¿Ä¸ÄƒÄËÄ°§Ä¨ÅÕïïê§ÄîÄƒƒÄÙÙÙÄ¿Ä¸Ä¥ƒÄËÄ¿§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å—ïÕ—Ω’…Õî†§ÅÏ(ÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÅÕ—Ω…îπçΩ’…ÕïÃπô•πê†°å§ÄÙ¯Ååπ•êÄÙÙÙÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃà§ÅÒ(ÄÄÄÄÄÅÕ—Ω…îπçΩ’…ÕïÃπô•πê†°å§ÄÙ¯ÄΩΩÖ—±ÖπëÃΩ§π—ïÕ–°åππÖµî§§ÅÒ(ÄÄÄÄÄÅÕ—Ω…îπçΩ’…ÕïÕl¡t(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å•πÕ—Ö±±QïÕ—Ω’…Õî†§ÅÏ(ÄÄÄÅ•òÄ°Õ—Ω…îπçΩ’…ÕïÃπÕΩµî†°å§ÄÙ¯Ååπ•êÄÙÙÙÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃà§§Å…ï—’…∏Ï(ÄÄÄÅçΩπÕ–ÅÕΩ’…çîÄÙÅ—ïÕ—Ω’…Õî†§∞(ÄÄÄÄÄÅâÖÕîÄÙÅ)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°ÕΩ’…çî§§∞(ÄÄÄÄÄÅÿÄÙÅŸï…Õ•Ω∏°âÖÕî§ÅÒÅÌÙÏ(ÄÄÄÅâÖÕîπ•êÄÙÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃàÏ(ÄÄÄÅâÖÕîππÖµîÄÙÄâ=Ö—±ÖπëÃÅÉäPÅQïÕ–ÅÖ…êàÏ(ÄÄÄÅâÖÕîπÖŸÖ•±Öâ±îÄÙÅ—…’îÏ(ÄÄÄÅâÖÕîπŸï…Õ•ΩπÃÄÙÅl(ÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄ∏∏πÿ∞(ÄÄÄÄÄÄÄÅ•êËÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃµÿƒà∞(ÄÄÄÄÄÄÄÅ¡Ö»ËÅl–∞ÄÃ∞Ä–∞Ä–∞ÄÃ∞Ä–∞ÄÃ∞Ä–∞Ä‘∞ÄÃ∞Ä–∞Ä–∞ÄÃ∞Ä‘∞Ä–∞Ä‘∞Ä–∞Ä—t∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÅtÏ(ÄÄÄÅâÖÕîπÖç—•ŸïYï…Õ•Ωπ%êÄÙÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃµÿƒàÏ(ÄÄÄÅÕ—Ω…îπçΩ’…ÕïÃπ¡’Õ†°âÖÕî§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å—ïÕ—A’——Ã°ù…ΩÕÃ∞Å¡Ö»∞Å¡Ω•π—Ã∞Å°Ω±î∞ÅÕïïê§ÅÏ(ÄÄÄÅ•òÄ°¡Ω•π—ÃÄ¯ÙÄÃÅÒÅù…ΩÕÃÄÙÅ¡Ö»§Å…ï—’…∏ÄƒÏ(ÄÄÄÅ•òÄ°¡Ω•π—ÃÄÙÙÙÄ¿ÅÒÅù…ΩÕÃÄ¯ÙÅ¡Ö»Ä¨ÄÃ§Å…ï—’…∏ÄÃÏ(ÄÄÄÅ…ï—’…∏Åù…ΩÕÃÄ¯ÙÅ¡Ö»Ä¨Ä»ÄòòÄ°°Ω±îÄ¨ÅÕïïê§ÄîÄ–ÄÙÙÙÄ¿Ä¸ÄÃÄËÄ»Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖ≠ïQïÕ—ÖÂMçΩ…•πú°ëÖ‰∞Åù…Ω’¡Ã§ÅÏ(ÄÄÄÅçΩπÕ–Å≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞(ÄÄÄÄÄÅåÄÙÅ—ïÕ—Ω’…Õî†§∞(ÄÄÄÄÄÅÿÄÙÅŸï…Õ•Ω∏°å§ÅÒÅÌÙ∞(ÄÄÄÄÄÅÕçΩ…ïÃÄÙÅÌÙ∞(ÄÄÄÄÄÅ°ç¿ÄÙÅ=Q19M}QMQ}!Am≠ïÂt∞(ÄÄÄÄÄÅ•ëÃÄÙÅù…Ω’¡Ãπô±Ö–†§πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅ•ëÃπôΩ…Öç††°•ê§ÄÙ¯Ä°ÕçΩ…ïÕm•ëtÄÙÅÌÙ§§Ï(ÄÄÄÅçΩπÕ–Å¡Ö…—πï»ÄÙÅÌÙÏ(ÄÄÄÅù…Ω’¡ÃπôΩ…Öç††°ú§ÄÙ¯ÅÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅúπ±ïπù—†ÏÅ§Ä¨ÙÄ»§ÅÏ(ÄÄÄÄÄÄÄÅ¡Ö…—πï…mùm•utÄÙÅùm§Ä¨Ä≈tÏ(ÄÄÄÄÄÄÄÅ¡Ö…—πï…mùm§Ä¨Ä≈utÄÙÅùm•tÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•ëÃπôΩ…Öç††°•ê∞ÅÕïïê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅ—ïÕ—…ΩÕÃ°ëÖ‰∞Å•ê§Ï(ÄÄÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅúÄÙÅù…ΩÕÕm†Ä¥Ä≈t∞(ÄÄÄÄÄÄÄÄÄÅ¡Ö»ÄÙÄ¨†(ÄÄÄÄÄÄÄÄÄÄÄÅÿπ¡Ö»¸πm†Ä¥Ä≈tÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÅl–∞ÄÃ∞Ä–∞Ä–∞ÄÃ∞Ä–∞ÄÃ∞Ä–∞Ä‘∞ÄÃ∞Ä–∞Ä–∞ÄÃ∞Ä‘∞Ä–∞Ä‘∞Ä–∞Ä—um†Ä¥Ä≈t(ÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÅ¡—ÃÄÙÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°ú∞Å¡Ö»∞Åÿπ•πëï‡¸πm†Ä¥Ä≈tÄ¸¸Äàà∞Å°ç¡m•ët§∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅ—ïÕ—A’——Ã°ú∞Å¡Ö»∞Å¡—Ã∞Å†∞ÅÕïïê§Ï(ÄÄÄÄÄÄÄÅÕçΩ…ïÕm•ëum°tÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅÕï±òËÅÏÅ¡±ÖÂï…%êËÅ•ê∞Åù…ΩÕÃËÅú∞Å¡’——ÃÅÙ∞(ÄÄÄÄÄÄÄÄÄÅΩôô•ç•Ö∞ËÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅ¡Ö…—πï…m•ët∞(ÄÄÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ—ïÕ—…ΩÕÃ°ëÖ‰∞Å¡Ö…—πï…m•ët•m†Ä¥Ä≈t∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡’——ÃËÄ¿∞(ÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÅπ—¿ËÅÌÙ∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÕçΩ…ïÕm•ëtπ}µï—ÑÄÙÅÏ(ÄÄÄÄÄÄÄÅô•πÖ±•Õïë–ËÅÄ»¿»ÿ¥¿‡¥ëÌëÖ‰ÄÙÙÙÄƒÄ¸Äà¿‡àÄËÄà¿‰âıP¿‡Ë¿¿Ë¿¿∏¿¿¡iÄ∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄººÅQ°îÅµÖ…≠ï»ùÃÅΩôô•ç•Ö∞Å¡’——ÃÅµ’Õ–ÅµÖ—ç†Å—°îÅµÖ…≠ïêÅ¡±ÖÂï»ùÃÅÕï±òÅ¡’——Ã∏(ÄÄÄÅ•ëÃπôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§(ÄÄÄÄÄÄÄÅÕçΩ…ïÕm•ëum°tπΩôô•ç•Ö∞π¡’——ÃÄÙÅÕçΩ…ïÕm¡Ö…—πï…m•ëuum°tπÕï±òπ¡’——ÃÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Åπ—¡ÃÄÙ(ÄÄÄÄÄÅëÖ‰ÄÙÙÙÄƒÄòòÅÕ—Ω…îπïŸïπ–¸ππ—¡)Öç≠¡Ω–(ÄÄÄÄÄÄÄÄ¸Åmt(ÄÄÄÄÄÄÄÄËÅëÖ‰ÄÙÙÙÄƒ(ÄÄÄÄÄÄÄÄ¸Ål(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄ»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿–»à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿ƒƒà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿·P¿‰Ë»–Ë¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄ»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿»‹à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿ÿà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿·Pƒ¿Ëƒ‘Ë¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄ»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿»à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿ƒ‹à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿·PƒƒË¿»Ë¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÅt(ÄÄÄÄÄÄÄÄËÅl(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄ‘∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿–»à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿»‹à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿ÂP¿‰Ëƒ‡Ë¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄ‘∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿»‹à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿»à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿ÂPƒ¿Ë–ƒË¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄƒ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿ÿà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿ƒ‹à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿ÂP¿‰Ë–ÿË¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±îËÄƒ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ›•ππï»ËÄâ¿ƒƒà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï»ËÄâ¿ƒà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÄà»¿»ÿ¥¿‡¥¿ÂPƒƒË¿‹Ë¿¿¨ƒ¿Ë¿¿à∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄÄÅtÏ(ÄÄÄÅπ—¡ÃπôΩ…Öç††°∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕçΩ…ïÕm∏πÕçΩ…ï…um∏π°Ω±ïtππ—¿ÄÙÅÏ(ÄÄÄÄÄÄÄÅïπ—…Öπ—%êËÅ∏π›•ππï»∞(ÄÄÄÄÄÄÄÅçΩπô•…µïë–ËÅ∏πÖ–∞(ÄÄÄÄÄÄÄÅ±Ωç≠ïêËÅ—…’î∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏ÅÕçΩ…ïÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åâ’•±ë=Ö—±ÖπëÕQïÕ—Ÿïπ–†§ÅÏ(ÄÄÄÅçΩπÕ–ÅåÄÙÅ—ïÕ—Ω’…Õî†§∞(ÄÄÄÄÄÅêƒÄÙÅl(ÄÄÄÄÄÄÄÅlâ¿–»à∞Äâ¿ƒƒà∞Äâ¿»‹à∞Äâ¿ÿât∞(ÄÄÄÄÄÄÄÅlâ¿»à∞Äâ¿ƒ‹à∞Äâ¿–‰à∞Äâ¿ƒât∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅê»ÄÙÅl(ÄÄÄÄÄÄÄÅlâ¿–»à∞Äâ¿»‹à∞Äâ¿»à∞Äâ¿–‰ât∞(ÄÄÄÄÄÄÄÅlâ¿ƒƒà∞Äâ¿ÿà∞Äâ¿ƒ‹à∞Äâ¿ƒât∞(ÄÄÄÄÄÅtÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅπÖµîËÄâQMPÉäPÅ=Ö—±ÖπëÃÅQ›ºµÖ‰Å°Öµ¡•ΩπÕ°•¿à∞(ÄÄÄÄÄÅëÖ—îËÄà»¿»ÿ¥¿‡¥¿‡à∞(ÄÄÄÄÄÅëÖÂÃËÄ»∞(ÄÄÄÄÄÅ—ïÕ—5ΩëîËÅ—…’î∞(ÄÄÄÄÄÅÕ—Ö—’ÃËÄâ±Ωç≠ïêà∞(ÄÄÄÄÄÅ±Ωç≠ïêËÅ—…’î∞(ÄÄÄÄÄÅ±Ωç≠ïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅÕ—Ö…—5ï—°ΩêËÄâÕ•πù±îà∞(ÄÄÄÄÄÅÕ—Ö…—5ï—°ΩëÃËÅÏÅëÖ‰ƒËÄâÕ•πù±îà∞ÅëÖ‰»ËÄâÕ•πù±îàÅÙ∞(ÄÄÄÄÄÅÕ—Ö…—!Ω±ïÃËÅÏÅëÖ‰ƒËÅl≈t∞ÅëÖ‰»ËÅlƒÕtÅÙ∞(ÄÄÄÄÄÅçΩ’…ÕîƒËÅåπ•ê∞(ÄÄÄÄÄÅçΩ’…Õî»ËÅåπ•ê∞(ÄÄÄÄÄÅô•ï±ëM•ÈîËÄ‡∞(ÄÄÄÄÄÅçΩπô•…µïêËÅl∏∏π=Q19M}QMQ}%Mt∞(ÄÄÄÄÄÅëÖÂ•ï±ëÃËÅÏÅëÖ‰ƒËÅl∏∏π=Q19M}QMQ}%Mt∞ÅëÖ‰»ËÅl∏∏π=Q19M}QMQ}%MtÅÙ∞(ÄÄÄÄÄÅëÖÂŸÖ•±Öâ•±•—‰ËÅ=â©ïç–πô…Ωµπ—…•ïÃ†(ÄÄÄÄÄÄÄÅ=Q19M}QMQ}%LπµÖ¿†°•ê§ÄÙ¯Åm•ê∞ÅÏÄƒËÅ—…’î∞Ä»ËÅ—…’îÅıt§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅçΩµ¡ï—•—•ΩπÃËÅl(ÄÄÄÄÄÄÄÄâçΩµâ•πïêà∞(ÄÄÄÄÄÄÄÄâôΩ’…âÖ±∞à∞(ÄÄÄÄÄÄÄÄâ—ïÖµA’——Ãà∞(ÄÄÄÄÄÄÄÄââïÕ–ÕΩò–à∞(ÄÄÄÄÄÄÄÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄÄÄâπ—¿à∞(ÄÄÄÄÄÄÄÄâÕç…Ö—ç†à∞(ÄÄÄÄÄÄÄÄâïç±ïç—•åà∞(ÄÄÄÄÄÅt∞(ÄÄÄÄÄÅÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ËÄâÖùù…ïùÖ—îà∞(ÄÄÄÄÄÅ¡’——•πùΩ…µÖ–ËÄâ—ïÖ¥à∞(ÄÄÄÄÄÅ¡Ö»ÕΩ…µÖ–ËÄâÖùù…ïùÖ—îà∞(ÄÄÄÄÄÅπ—¡Ö‰…Ω’π–ËÄ»∞(ÄÄÄÄÄÅπ—¡)Öç≠¡Ω–ËÅ—…’î∞(ÄÄÄÄÄÅπ—¡Mï±ïç—•ΩπÃËÅÏÅëÖ‰ƒËÅl…t∞ÅëÖ‰»ËÅl‘∞Äƒ¡tÅÙ∞(ÄÄÄÄÄÅâïπïô•—ÃËÅÏ(ÄÄÄÄÄÄÄÅçΩµâ•πïêËÅÏÅâÖ±±ÃËÄÃ∞Å¡±’ÃËÅ—…’îÅÙ∞(ÄÄÄÄÄÄÄÅôΩ’…âÖ±∞ËÅÏÅâÖ±±ÃËÄÃÅÙ∞(ÄÄÄÄÄÄÄÅ—ïÖµA’——ÃËÅÏÅâÖ±±ÃËÄ»ÅÙ∞(ÄÄÄÄÄÄÄÅâïÕ–ÕΩò–ËÅÏÅµΩëîËÄâ±Ω——ï…‰à∞ÅçΩπ—…•â’—•Ω∏ËÄƒ¿ÅÙ∞(ÄÄÄÄÄÄÄÅ¡Ö»ÃËÅÏÅâÖ±±ÃËÄ»ÅÙ∞(ÄÄÄÄÄÄÄÅπ—¿ËÅÏÅâÖ±±ÃËÄ–ÅÙ∞(ÄÄÄÄÄÄÄÅÕç…Ö—ç†ËÅÏÅâÖ±±ÃËÄÃÅÙ∞(ÄÄÄÄÄÄÄÅïç±ïç—•åËÅÏÅâÖ±±ÃËÄÃÅÙ∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅÕ¡ïç•Ö±I’±ïÃË(ÄÄÄÄÄÄÄÄâQMPÅY9PÉäPÅÕçΩ…ïÃÅÖ…îÅâÖÕïêÅΩ∏Åùïπ’•πîÅ=Ö—±ÖπëÃÅ…Ω’πëÃ∏Å5•ÕÕ•πúÅ°•Õ—Ω…•çÖ∞ÅÕçΩ…ïÃÅÖπêÅ¡’——ÃÅ°ÖŸîÅâïï∏ÅçΩµ¡±ï—ïêÅ›•—†Å…ïÖ±•Õ—•åÅ—ïÕ–ÅŸÖ±’ïÃ∏à∞(ÄÄÄÄÄÅëÖ•±Â!Öπë•çÖ¡ÃËÅ)M=8π¡Ö…Õî°)M=8πÕ—…•πù•ô‰°=Q19M}QMQ}!@§§∞(ÄÄÄÄÄÅù…Ω’¡Mï—’¿ËÅÏ(ÄÄÄÄÄÄÄÅëÖ‰ƒËÅÏÅù…Ω’¡ÃËÅêƒ∞ÅÕ—Ö…—ÃËÅlƒ∞Ä≈t∞ÅÕÖŸïêËÅ—…’îÅÙ∞(ÄÄÄÄÄÄÄÅëÖ‰»ËÅÏÅù…Ω’¡ÃËÅê»∞ÅÕ—Ö…—ÃËÅlƒÃ∞ÄƒÕt∞ÅÕÖŸïêËÅ—…’îÅÙ∞(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅ…Ω’πë•πÖ±•ÕïêËÅÏÅëÖ‰ƒËÅÌÙ∞ÅëÖ‰»ËÅÌÙÅÙ∞(ÄÄÄÄÄÅÕçΩ…•πúËÅÏÅëÖ‰ƒËÅÌÙ∞ÅëÖ‰»ËÅÌÙÅÙ∞(ÄÄÄÄÄÅ±•ŸïΩπ—…Ω±Ö‰ËÄƒ∞(ÄÄÄÄÄÅ±ïÖëï…âΩÖ…ëY•ï‹ËÄâÕ’µµÖ…‰à∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åâ’•±ë=Ö—±ÖπëÕ=πïÖÂQïÕ—Ÿïπ–†§ÅÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅâ’•±ë=Ö—±ÖπëÕQïÕ—Ÿïπ–†§Ï(ÄÄÄÅîππÖµîÄÙÄâQMPÉäPÅ=Ö—±ÖπëÃÅ=πîµÖ‰Å°Öµ¡•ΩπÕ°•¿àÏ(ÄÄÄÅîπëÖÂÃÄÙÄƒÏ(ÄÄÄÅîπ—ïÕ—-•πêÄÙÄâΩπïÖ‰àÏ(ÄÄÄÅîπçΩµ¡ï—•—•ΩπÃÄÙÅl(ÄÄÄÄÄÄâÕ•πù±îà∞(ÄÄÄÄÄÄâôΩ’…âÖ±∞à∞(ÄÄÄÄÄÄâ—ïÖµA’——Ãà∞(ÄÄÄÄÄÄââïÕ–ÕΩò–à∞(ÄÄÄÄÄÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄâπ—¿à∞(ÄÄÄÄÄÄâÕç…Ö—ç†à∞(ÄÄÄÅtÏ(ÄÄÄÅîπâïπïô•—ÃÄÙÅÏ(ÄÄÄÄÄÅÕ•πù±îËÅÏÅâÖ±±ÃËÄÃ∞Å¡±’ÃËÅ—…’îÅÙ∞(ÄÄÄÄÄÅôΩ’…âÖ±∞ËÅÏÅâÖ±±ÃËÄÃÅÙ∞(ÄÄÄÄÄÅ—ïÖµA’——ÃËÅÏÅâÖ±±ÃËÄ»ÅÙ∞(ÄÄÄÄÄÅâïÕ–ÕΩò–ËÅÏÅµΩëîËÄâ±Ω——ï…‰à∞ÅçΩπ—…•â’—•Ω∏ËÄƒ¿ÅÙ∞(ÄÄÄÄÄÅ¡Ö»ÃËÅÏÅâÖ±±ÃËÄ»ÅÙ∞(ÄÄÄÄÄÅπ—¿ËÅÏÅâÖ±±ÃËÄ»ÅÙ∞(ÄÄÄÄÄÅÕç…Ö—ç†ËÅÏÅâÖ±±ÃËÄÃÅÙ∞(ÄÄÄÅÙÏ(ÄÄÄÅîπ¡Ö»ÕΩ…µÖ–ÄÙÄâëÖ•±‰àÏ(ÄÄÄÅîππ—¡Mï±ïç—•ΩπÃÄÙÅÏÅëÖ‰ƒËÅl…tÅÙÏ(ÄÄÄÅîπù…Ω’¡Mï—’¿ÄÙÅÏÅëÖ‰ƒËÅîπù…Ω’¡Mï—’¿πëÖ‰ƒÅÙÏ(ÄÄÄÅîπëÖÂ•ï±ëÃÄÙÅÏÅëÖ‰ƒËÅl∏∏π=Q19M}QMQ}%MtÅÙÏ(ÄÄÄÅîπÕçΩ…•πúÄÙÅÏÅëÖ‰ƒËÅÌÙÅÙÏ(ÄÄÄÅîπ…Ω’πë•πÖ±•ÕïêÄÙÅÏÅëÖ‰ƒËÅÌÙÅÙÏ(ÄÄÄÅîπ±•ŸïΩπ—…Ω±Ö‰ÄÙÄƒÏ(ÄÄÄÅîπ±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄâÕ’µµÖ…‰àÏ(ÄÄÄÅëï±ï—îÅîπçΩ’…Õî»Ï(ÄÄÄÅëï±ï—îÅîπÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–Ï(ÄÄÄÅ…ï—’…∏ÅîÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åâ’•±ë=Ö—±ÖπëÕM•·—ïïπA±ÖÂï…QïÕ—Ÿïπ–†§ÅÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅâ’•±ë=Ö—±ÖπëÕ=πïÖÂQïÕ—Ÿïπ–†§∞(ÄÄÄÄÄÅ•ëÃÄÙÅl∏∏π=Q19M}M%aQ9}%Mt∞(ÄÄÄÄÄÅù…Ω’¡ÃÄÙÅl(ÄÄÄÄÄÄÄÅ•ëÃπÕ±•çî†¿∞Ä–§∞(ÄÄÄÄÄÄÄÅ•ëÃπÕ±•çî†–∞Ä‡§∞(ÄÄÄÄÄÄÄÅ•ëÃπÕ±•çî†‡∞Äƒ»§∞(ÄÄÄÄÄÄÄÅ•ëÃπÕ±•çî†ƒ»∞Äƒÿ§∞(ÄÄÄÄÄÅtÏ(ÄÄÄÅîππÖµîÄÙÄâQMPÉäPÅ=Ö—±ÖπëÃÄƒÿµA±ÖÂï»Å…ïÕÃÅIï°ïÖ…ÕÖ∞àÏ(ÄÄÄÅîπ—ïÕ—-•πêÄÙÄâÕ•·—ïï∏àÏ(ÄÄÄÅîπô•ï±ëM•ÈîÄÙÄƒÿÏ(ÄÄÄÅîπçΩπô•…µïêÄÙÅ•ëÃÏ(ÄÄÄÅîπëÖÂ•ï±ëÃÄÙÅÏÅëÖ‰ƒËÅ•ëÃÅÙÏ(ÄÄÄÅîπëÖÂŸÖ•±Öâ•±•—‰ÄÙÅ=â©ïç–πô…Ωµπ—…•ïÃ°•ëÃπµÖ¿†°•ê§ÄÙ¯Åm•ê∞ÅÏÄƒËÅ—…’îÅıt§§Ï(ÄÄÄÅîπëÖ•±Â!Öπë•çÖ¡ÃÄÙÅÏ(ÄÄÄÄÄÅëÖ‰ƒËÅ=â©ïç–πô…Ωµπ—…•ïÃ†(ÄÄÄÄÄÄÄÅ•ëÃπµÖ¿†°•ê§ÄÙ¯Åm•ê∞Å=Q19M}QMQ}!@πëÖ‰≈m•ëut§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅÙÏ(ÄÄÄÅîπù…Ω’¡Mï—’¿ÄÙÅÏÅëÖ‰ƒËÅÏÅù…Ω’¡Ã∞ÅÕ—Ö…—ÃËÅlƒ∞Äƒ∞Äƒ∞Ä≈t∞ÅÕÖŸïêËÅ—…’îÅÙÅÙÏ(ÄÄÄÅîπÕ¡ïç•Ö±I’±ïÃÄÙ(ÄÄÄÄÄÄâAI=QQÄƒÿµA1eHÅIMLÅI!IM0ÉäPÅôΩ’»Åù…Ω’¡Ã∞Åï•ù°–Ä—		Å¡Ö•…ÃÅÖπêÅïŸï…‰ÅΩπîµëÖ‰ÅçΩµ¡ï—•—•Ω∏∏ÅQïÕ–ÅëÖ—ÑÅ•ÃÅ±ΩçÖ∞ÅÖπêÅçÖππΩ–ÅâîÅ¡’â±•Õ°ïê∏àÏ(ÄÄÄÅ…ï—’…∏ÅîÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ΩÖëQïÕ—M—Öùî°Õ—Öùî§ÅÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅÕ—Ω…îπïŸïπ–Ï(ÄÄÄÅ•òÄ†Öî¸π—ïÕ—5Ωëî§Å…ï—’…∏Ï(ÄÄÄÅîπÕçΩ…•πúÄÙÅÏÅëÖ‰ƒËÅÌÙ∞ÅëÖ‰»ËÅÌÙÅÙÏ(ÄÄÄÅîπ…Ω’πë•πÖ±•ÕïêÄÙÅÏÅëÖ‰ƒËÅÌÙ∞ÅëÖ‰»ËÅÌÙÅÙÏ(ÄÄÄÅîπ¡…•ÈïÕ›Ö…ëïêÄÙÅÌÙÏ(ÄÄÄÅçΩπÕ–Å•ëÃÄÙÅîπëÖÂ•ï±ëÃ¸πëÖ‰ƒÅÒÅîπçΩπô•…µïêÅÒÅmtÏ(ÄÄÄÅ•òÄ°Õ—ÖùîÄ¯ÙÄƒ§ÅÏ(ÄÄÄÄÄÅîπÕçΩ…•πúπëÖ‰ƒÄÙÅµÖ≠ïQïÕ—ÖÂMçΩ…•πú†ƒ∞Åîπù…Ω’¡Mï—’¿πëÖ‰ƒπù…Ω’¡Ã§Ï(ÄÄÄÄÄÅ•ëÃπôΩ…Öç††(ÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄ°îπ…Ω’πë•πÖ±•ÕïêπëÖ‰≈m•ëtÄÙÅîπÕçΩ…•πúπëÖ‰≈m•ëtπ}µï—Ñπô•πÖ±•Õïë–§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ—ÖùîÄ¯ÙÄ»ÄòòÅîπëÖÂÃÄÙÙÙÄ»§ÅÏ(ÄÄÄÄÄÅîπÕçΩ…•πúπëÖ‰»ÄÙÅµÖ≠ïQïÕ—ÖÂMçΩ…•πú†»∞Åîπù…Ω’¡Mï—’¿πëÖ‰»πù…Ω’¡Ã§Ï(ÄÄÄÄÄÄ°îπëÖÂ•ï±ëÃ¸πëÖ‰»ÅÒÅ•ëÃ§πôΩ…Öç††(ÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄ°îπ…Ω’πë•πÖ±•ÕïêπëÖ‰…m•ëtÄÙÅîπÕçΩ…•πúπëÖ‰…m•ëtπ}µï—Ñπô•πÖ±•Õïë–§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙ(ÄÄÄÄÄÅîπ—ïÕ—-•πêÄÙÙÙÄâÕ•·—ïï∏à(ÄÄÄÄÄÄÄÄ¸Å•ëÃπµÖ¿†°•ê∞Å§§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅπÖµîËÅ¡±ÖÂï»°•ê§¸ππÖµîÅÒÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ©Ω•πïêËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ©Ω•πïë–ËÅÄ»¿»ÿ¥¿‡¥¿·PëÌM—…•πú†‹Ä¨Å5Ö—†πô±ΩΩ»°§ÄºÄ–§§π¡ÖëM—Ö…–†»∞Äà¿à•ÙËëÌM—…•πú†°§ÄîÄ–§Ä®Ä‹§π¡ÖëM—Ö…–†»∞Äà¿à•ÙË¿¿∏¿¿¡iÄ∞(ÄÄÄÄÄÄÄÄÄÅÙ§§(ÄÄÄÄÄÄÄÄËÅmtÏ(ÄÄÄÅîπ±•ŸïΩπ—…Ω±Ö‰ÄÙÅÕ—ÖùîÄ¯ÙÄ»ÄòòÅîπëÖÂÃÄÙÙÙÄ»Ä¸Ä»ÄËÄƒÏ(ÄÄÄÅîπ±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄâÕ’µµÖ…‰àÏ(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åâïù•π=Ö—±ÖπëÕQïÕ–°≠•πêÄÙÄâ—›ΩÖ‰à§ÅÏ(ÄÄÄÅçΩπÕ–Å±Öâï∞ÄÙ(ÄÄÄÄÄÅ≠•πêÄÙÙÙÄâÕ•·—ïï∏à(ÄÄÄÄÄÄÄÄ¸Äàƒÿµ¡±ÖÂï»ÅΩπîµëÖ‰Åë…ïÕÃÅ…ï°ïÖ…ÕÖ∞à(ÄÄÄÄÄÄÄÄËÅÅï•ù°–µ¡±ÖÂï»ÄëÌ≠•πêÄÙÙÙÄâΩπïÖ‰àÄ¸ÄâΩπîµëÖ‰àÄËÄâ—›ºµëÖ‰âÙÅ=Ö—±ÖπëÃÅ—ïÕ—ÄÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÅÅ1ΩÖêÅ—°îÅ¡…Ω—ïç—ïêÄëÌ±Öâï±Ù¸ÅeΩ’»Åç’……ïπ–ÅïŸïπ–ÅÖπêÅç±Ω’êÅçΩππïç—•Ω∏Å›•±∞ÅâîÅÕÖŸïêÅôΩ»Å…ïÕ—Ω…Ö—•Ω∏πÄ∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅ•òÄ†Ö±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§§(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…ÖùîπÕï—%—ï¥†(ÄÄÄÄÄÄÄÄâÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅïŸïπ–ËÅÕ—Ω…îπïŸïπ–ÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’êËÅÕ—Ω…îπç±Ω’êÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’ëA±ÖÂï…ÃËÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÅÒÅmt∞(ÄÄÄÄÄÄÄÄÄÅçΩ’…ÕïÃËÅÕ—Ω…îπçΩ’…ÕïÃ∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅmtÏ(ÄÄÄÅ•πÕ—Ö±±QïÕ—Ω’…Õî†§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙ(ÄÄÄÄÄÅ≠•πêÄÙÙÙÄâÕ•·—ïï∏à(ÄÄÄÄÄÄÄÄ¸Åâ’•±ë=Ö—±ÖπëÕM•·—ïïπA±ÖÂï…QïÕ—Ÿïπ–†§(ÄÄÄÄÄÄÄÄËÅ≠•πêÄÙÙÙÄâΩπïÖ‰à(ÄÄÄÄÄÄÄÄÄÄ¸Åâ’•±ë=Ö—±ÖπëÕ=πïÖÂQïÕ—Ÿïπ–†§(ÄÄÄÄÄÄÄÄÄÄËÅâ’•±ë=Ö—±ÖπëÕQïÕ—Ÿïπ–†§Ï(ÄÄÄÅ±ΩÖëQïÕ—M—Öùî†ƒ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ›•—ç°=Ö—±ÖπëÕQïÕ–°≠•πê§ÅÏ(ÄÄÄÅçΩπÕ–Å±Öâï∞ÄÙ(ÄÄÄÄÄÅ≠•πêÄÙÙÙÄâÕ•·—ïï∏à(ÄÄÄÄÄÄÄÄ¸Äàƒÿµ¡±ÖÂï»ÅΩπîµëÖ‰Åë…ïÕÃÅ…ï°ïÖ…ÕÖ∞à(ÄÄÄÄÄÄÄÄËÅÅï•ù°–µ¡±ÖÂï»ÄëÌ≠•πêÄÙÙÙÄâΩπïÖ‰àÄ¸ÄâΩπîµëÖ‰àÄËÄâ—›ºµëÖ‰âÙÅ—ïÕ—ÄÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÅÅM›•—ç†Å—ºÅ—°îÅ¡…Ω—ïç—ïêÄëÌ±Öâï±Ù¸Å’……ïπ–Å—ïÕ–ÅÕçΩ…ïÃÅÖπêÅÖ›Ö…ëïêÅ—ïÕ–Å¡…•ÈïÃÅ›•±∞ÅâîÅ…ï¡±ÖçïêπÄ∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅ•πÕ—Ö±±QïÕ—Ω’…Õî†§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙ(ÄÄÄÄÄÅ≠•πêÄÙÙÙÄâÕ•·—ïï∏à(ÄÄÄÄÄÄÄÄ¸Åâ’•±ë=Ö—±ÖπëÕM•·—ïïπA±ÖÂï…QïÕ—Ÿïπ–†§(ÄÄÄÄÄÄÄÄËÅ≠•πêÄÙÙÙÄâΩπïÖ‰à(ÄÄÄÄÄÄÄÄÄÄ¸Åâ’•±ë=Ö—±ÖπëÕ=πïÖÂQïÕ—Ÿïπ–†§(ÄÄÄÄÄÄÄÄÄÄËÅâ’•±ë=Ö—±ÖπëÕQïÕ—Ÿïπ–†§Ï(ÄÄÄÅ±ΩÖëQïÕ—M—Öùî†ƒ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïÕ—Ω…ï	ïôΩ…ïQïÕ–†§ÅÏ(ÄÄÄÅ±ï–ÅâÖç≠’¿Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅâÖç≠’¿ÄÙÅ)M=8π¡Ö…Õî†(ÄÄÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§ÅÒÄâπ’±∞à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°|§ÅÏ(ÄÄÄÄÄÅâÖç≠’¿ÄÙÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖâÖç≠’¿§Å…ï—’…∏ÅÖ±ï…–†â9ºÅÕÖŸïêÅïŸïπ–Å›ÖÃÅôΩ’πê∏à§Ï(ÄÄÄÅ•òÄ†ÖçΩπô•…¥†âIïÕ—Ω…îÅ—°îÅïŸïπ–Å—°Ö–Å›ÖÃÅΩ¡ï∏ÅâïôΩ…îÅ—°îÅ=Ö—±ÖπëÃÅ—ïÕ–¸à§§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅâÖç≠’¿πïŸïπ–Ï(ÄÄÄÅÕ—Ω…îπç±Ω’êÄÙÅâÖç≠’¿πç±Ω’êÏ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅâÖç≠’¿πç±Ω’ëA±ÖÂï…ÃÅÒÅmtÏ(ÄÄÄÅ•òÄ°âÖç≠’¿πçΩ’…ÕïÃ§ÅÕ—Ω…îπçΩ’…ÕïÃÄÙÅâÖç≠’¿πçΩ’…ÕïÃÏ(ÄÄÄÅï±Õî(ÄÄÄÄÄÅÕ—Ω…îπçΩ’…ÕïÃÄÙÅÕ—Ω…îπçΩ’…ÕïÃπô•±—ï»†(ÄÄÄÄÄÄÄÄ°å§ÄÙ¯Ååπ•êÄÑÙÙÄâ—ïÕ–µΩÖ—±ÖπëÃµô’±∞µ…Ω’πëÃà∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅ…ïπëï…Ω’…ÕïÕëµ•∏†§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÅ›Ö—ç°±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÅÙ(ÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÅÙ(ÄÅçΩπÕ–ÅI%}QMQ}Q=Q1LÄÙÅÏ(ÄÄÄÄâÕÖ¥Å…ïïçîàËÄ–¿∞(ÄÄÄÄâ©ï…ïµ‰Å›Ö…êàËÄÃ‡∞(ÄÄÄÄâù…Öπ–Å±ΩµÖÃàËÄÃ‹∞(ÄÄÄÄâç°…•Õ—•Ö∏ÅôΩπúàËÄÃÿ∞(ÄÄÄÄâ©ï……‰ÅµÖ°ï»àËÄÃÿ∞(ÄÄÄÄâ¡ï—ï»Å…Ω±ôîàËÄÃ‘∞(ÄÄÄÄâ…ΩàÅâ±Ö•∏àËÄÃ‘∞(ÄÄÄÄâ…ΩÕÃÅÕµ•—†àËÄÃ–∞(ÄÄÄÄâ…Ö±¡†ÅçÖëµÖ∏àËÄÃ–∞(ÄÄÄÄâëÖŸ•êÅôÖ•…›ïÖ—°ï»àËÄÃ–∞(ÄÄÄÄâù…ÖïµîÅ°ïππïÕÕ‰àËÄÃÃ∞(ÄÄÄÄââï∏ÅµïïÃàËÄÃ»∞(ÄÄÄÄâ•Ö∏Å¡…•ïÕ–àËÄÃƒ∞(ÄÄÄÄââΩàÅŸÖ±¨àËÄÃ¿∞(ÄÄÄÄâ±’≠îÅâ…ÖëÕ°Ö‹àËÄ»‹∞(ÄÄÄÄâ…ΩêÅ…’Õ—Ω∏àËÄ»‘∞(ÄÅÙÏ(ÄÅçΩπÕ–ÅI%}QMQ}AUQQLÄÙÅÏ(ÄÄÄÄâÕÖ¥Å…ïïçîàËÄ»‡∞(ÄÄÄÄâ©ï…ïµ‰Å›Ö…êàËÄÃƒ∞(ÄÄÄÄâù…Öπ–Å±ΩµÖÃàËÄÃ¿∞(ÄÄÄÄâç°…•Õ—•Ö∏ÅôΩπúàËÄÃ¿∞(ÄÄÄÄâ©ï……‰ÅµÖ°ï»àËÄÃ¿∞(ÄÄÄÄâ¡ï—ï»Å…Ω±ôîàËÄÃ»∞(ÄÄÄÄâ…ΩàÅâ±Ö•∏àËÄÃ»∞(ÄÄÄÄâ…ΩÕÃÅÕµ•—†àËÄÃ»∞(ÄÄÄÄâ…Ö±¡†ÅçÖëµÖ∏àËÄÃÃ∞(ÄÄÄÄâëÖŸ•êÅôÖ•…›ïÖ—°ï»àËÄÃ–∞(ÄÄÄÄâù…ÖïµîÅ°ïππïÕÕ‰àËÄÃÃ∞(ÄÄÄÄââï∏ÅµïïÃàËÄÃƒ∞(ÄÄÄÄâ•Ö∏Å¡…•ïÕ–àËÄÃƒ∞(ÄÄÄÄââΩàÅŸÖ±¨àËÄÃ‘∞(ÄÄÄÄâ±’≠îÅâ…ÖëÕ°Ö‹àËÄÃ‘∞(ÄÄÄÄâ…ΩêÅ…’Õ—Ω∏àËÄÃ‹∞(ÄÅÙÏ(ÄÅô’πç—•Ω∏Å…•ëùïQïÕ—±•ù•â±î†§ÅÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅÕ—Ω…îπïŸïπ–∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°î¸πçΩ’…Õîƒ§∞(ÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ†ƒ§πô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅî¸π±Ωç≠ïêÄòò(ÄÄÄÄÄÄÄÅî¸πëÖÂÃÄÙÙÙÄƒÄòò(ÄÄÄÄÄÄÄÅ•ëÃπ±ïπù—†ÄÙÙÙÄƒÿÄòò(ÄÄÄÄÄÄÄÄΩ…•ëùîΩ§π—ïÕ–°å¸ππÖµîÅÒÄàà§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…•ëùïAΩ•π—AÖ——ï…∏°πÖµî∞Å—Ö…ùï–∞ÅÕïïê§ÅÏ(ÄÄÄÅ•òÄ°πÖµîπ—Ω1Ω›ï…ÖÕî†§ÄÙÙÙÄâ…ΩêÅ…’Õ—Ω∏à§(ÄÄÄÄÄÅ…ï—’…∏Ålƒ∞Ä¿∞Ä»∞Äƒ∞Ä»∞Äƒ∞Ä»∞ÄÃ∞Ä»∞Äƒ∞Ä»∞Äƒ∞Ä¿∞Ä»∞Ä»∞Ä¿∞Ä»∞Ä≈tÏ(ÄÄÄÅçΩπÕ–ÅΩ’–ÄÙÅ……Ö‰†ƒ‡§πô•±∞†»§∞(ÄÄÄÄÄÅΩ…ëï»ÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÄÄÅÏÅ±ïπù—†ËÄƒ‡ÅÙ∞(ÄÄÄÄÄÄÄÄ°|∞Å§§ÄÙ¯Ä°§Ä®Ä‹Ä¨ÅÕïïêÄ®Ä‘§ÄîÄƒ‡∞(ÄÄÄÄÄÄ§πô•±—ï»†°‡∞Å§∞ÅÑ§ÄÙ¯ÅÑπ•πëï·=ò°‡§ÄÙÙÙÅ§§Ï(ÄÄÄÅ±ï–Åëï±—ÑÄÙÅ—Ö…ùï–Ä¥ÄÃÿ∞(ÄÄÄÄÄÅ∏ÄÙÄ¿Ï(ÄÄÄÅ›°•±îÄ°ëï±—ÑÄ¯Ä¿§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅΩ…ëï…m∏¨¨ÄîÅΩ…ëï»π±ïπù—°tÏ(ÄÄÄÄÄÅ•òÄ°Ω’—m•tÄÄ–§ÅÏ(ÄÄÄÄÄÄÄÅΩ’—m•t¨¨Ï(ÄÄÄÄÄÄÄÅëï±—Ñ¥¥Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ›°•±îÄ°ëï±—ÑÄÄ¿§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅΩ…ëï…m∏¨¨ÄîÅΩ…ëï»π±ïπù—°tÏ(ÄÄÄÄÄÅ•òÄ°Ω’—m•tÄ¯Ä¿§ÅÏ(ÄÄÄÄÄÄÄÅΩ’—m•t¥¥Ï(ÄÄÄÄÄÄÄÅëï±—Ñ¨¨Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅΩ’–Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…•ëùïA’——AÖ——ï…∏°πÖµî∞Å—Ö…ùï–∞Å¡Ω•π—Ã∞ÅÕïïê§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ’–ÄÙÅ……Ö‰†ƒ‡§πô•±∞†»§∞(ÄÄÄÄÄÅùΩΩêÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§§πÕΩ…–†(ÄÄÄÄÄÄÄÄ°Ñ∞Åà§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅ¡Ω•π—ÕmâtÄ¥Å¡Ω•π—ÕmÖtÅÒÄ†°ÑÄ¨ÅÕïïê§ÄîÄƒ‡§Ä¥Ä†°àÄ¨ÅÕïïê§ÄîÄƒ‡§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅâÖêÄÙÅl∏∏πùΩΩëtπ…ïŸï…Õî†§Ï(ÄÄÄÅ±ï–Åëï±—ÑÄÙÅ—Ö…ùï–Ä¥ÄÃÿ∞(ÄÄÄÄÄÅ∏ÄÙÄ¿Ï(ÄÄÄÅ›°•±îÄ°ëï±—ÑÄÄ¿§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅùΩΩëm∏¨¨ÄîÄƒ·tÏ(ÄÄÄÄÄÅ•òÄ°Ω’—m•tÄ¯Äƒ§ÅÏ(ÄÄÄÄÄÄÄÅΩ’—m•t¥¥Ï(ÄÄÄÄÄÄÄÅëï±—Ñ¨¨Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ∏ÄÙÄ¿Ï(ÄÄÄÅ›°•±îÄ°ëï±—ÑÄ¯Ä¿§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅâÖëm∏¨¨ÄîÄƒ·tÏ(ÄÄÄÄÄÅ•òÄ°Ω’—m•tÄÄÃ§ÅÏ(ÄÄÄÄÄÄÄÅΩ’—m•t¨¨Ï(ÄÄÄÄÄÄÄÅëï±—Ñ¥¥Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅΩ’–Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖ≠ïI•ëùïQïÕ—MçΩ…•πú†§ÅÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅÕ—Ω…îπïŸïπ–∞(ÄÄÄÄÄÅù…Ω’¡ÃÄÙÅîπù…Ω’¡Mï—’¿¸πëÖ‰ƒ¸πù…Ω’¡ÃÅÒÅmt∞(ÄÄÄÄÄÅ•ëÃÄÙÅù…Ω’¡Ã(ÄÄÄÄÄÄÄÄπô±Ö–†§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°îπçΩ’…Õîƒ§∞(ÄÄÄÄÄÅÿÄÙÅŸï…Õ•Ω∏°å§ÅÒÅÌÙ∞(ÄÄÄÄÄÅÕçΩ…ïÃÄÙÅÌÙ∞(ÄÄÄÄÄÅ¡Ö…—πï»ÄÙÅÌÙÏ(ÄÄÄÅù…Ω’¡ÃπôΩ…Öç††°…Ö‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅúÄÙÅ…Ö‹πµÖ¿°M—…•πú§Ï(ÄÄÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄ¿ÏÅ§ÄÅúπ±ïπù—†ÏÅ§Ä¨ÙÄ»§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ùm•tÄòòÅùm§Ä¨Ä≈t§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ¡Ö…—πï…mùm•utÄÙÅùm§Ä¨Ä≈tÏ(ÄÄÄÄÄÄÄÄÄÅ¡Ö…—πï…mùm§Ä¨Ä≈utÄÙÅùm•tÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•ëÃπôΩ…Öç††°•ê∞ÅÕïïê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅπÖµîÄÙÄ°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄàà§π—…•¥†§∞(ÄÄÄÄÄÄÄÅ≠ï‰ÄÙÅπÖµîπ—Ω1Ω›ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ—Ö…ùï–ÄÙÅI%}QMQ}Q=Q1Mm≠ïÂtÄ¸¸ÄÃ¿Ä¨Ä†°ÕïïêÄ®Ä‹§ÄîÄ‰§∞(ÄÄÄÄÄÄÄÅ¡Ω•π—ÃÄÙÅ…•ëùïAΩ•π—AÖ——ï…∏°πÖµî∞Å—Ö…ùï–∞ÅÕïïê§∞(ÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅ…•ëùïA’——AÖ——ï…∏†(ÄÄÄÄÄÄÄÄÄÅπÖµî∞(ÄÄÄÄÄÄÄÄÄÅI%}QMQ}AUQQMm≠ïÂtÄ¸¸ÄÃ¿Ä¨Ä†°ÕïïêÄ®Ä‘§ÄîÄ‹§∞(ÄÄÄÄÄÄÄÄÄÅ¡Ω•π—Ã∞(ÄÄÄÄÄÄÄÄÄÅÕïïê∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÅ°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞Äƒ§Ï(ÄÄÄÄÄÅÕçΩ…ïÕm•ëtÄÙÅÌÙÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ö»ÄÙÄ¨°ÿπ¡Ö»¸πm†Ä¥Ä≈tÅÒÄ–§∞(ÄÄÄÄÄÄÄÄÄÅ•πëï‡ÄÙÅÿπ•πëï‡¸πm†Ä¥Ä≈tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÄÄÅÕ—…Ω≠îÄÙÅÕ—Öâ±ïôΩ…ëM—…Ω≠ïΩ’π–°•πëï‡∞Å°ç¿§∞(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃÄÙÅ5Ö—†πµÖ‡†ƒ∞Å¡Ö»Ä¨ÅÕ—…Ω≠îÄ¨Ä»Ä¥Å¡Ω•π—Õm†Ä¥Ä≈t§Ï(ÄÄÄÄÄÄÄÅÕçΩ…ïÕm•ëum°tÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅÕï±òËÅÏÅ¡±ÖÂï…%êËÅ•ê∞Åù…ΩÕÃ∞Å¡’——ÃËÅ¡’——Õm†Ä¥Ä≈tÅÙ∞(ÄÄÄÄÄÄÄÄÄÅΩôô•ç•Ö∞ËÅÏÅ¡±ÖÂï…%êËÅ¡Ö…—πï…m•ëtÅÒÄàà∞Åù…ΩÕÃËÄàà∞Å¡’——ÃËÄààÅÙ∞(ÄÄÄÄÄÄÄÄÄÅπ—¿ËÅÌÙ∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÕçΩ…ïÕm•ëtπ}µï—ÑÄÙÅÏ(ÄÄÄÄÄÄÄÅô•πÖ±•Õïë–ËÅÄ»¿»ÿ¥¿‡¥»…PëÌM—…•πú†‡Ä¨Å5Ö—†πô±ΩΩ»°ÕïïêÄºÄ–§§π¡ÖëM—Ö…–†»∞Äà¿à•ÙËëÌM—…•πú†°ÕïïêÄîÄ–§Ä®Ä‹§π¡ÖëM—Ö…–†»∞Äà¿à•ÙË¿¿¨ƒ¿Ë¿¡Ä∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•ëÃπôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅµÖ…≠ïêÄÙÅ¡Ö…—πï…m•ëtÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å†ÄÙÄƒÏÅ†ÄÙÄƒ‡ÏÅ†¨¨§ÅÏ(ÄÄÄÄÄÄÄÅÕçΩ…ïÕm•ëum°tπΩôô•ç•Ö∞πù…ΩÕÃÄÙÅÕçΩ…ïÕmµÖ…≠ïëum°tπÕï±òπù…ΩÕÃÏ(ÄÄÄÄÄÄÄÅÕçΩ…ïÕm•ëum°tπΩôô•ç•Ö∞π¡’——ÃÄÙÅÕçΩ…ïÕmµÖ…≠ïëum°tπÕï±òπ¡’——ÃÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Å°Ω±îÄÙÄ¨°îππ—¡Mï±ïç—•ΩπÃ¸πëÖ‰ƒ¸πl¡tÅÒÄ¿§∞(ÄÄÄÄÄÅô•πë%êÄÙÄ°πÖµî§ÄÙ¯(ÄÄÄÄÄÄÄÅ•ëÃπô•πê†(ÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯Ä°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄàà§π—Ω1Ω›ï…ÖÕî†§ÄÙÙÙÅπÖµîπ—Ω1Ω›ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°°Ω±î§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç°ÖπùïÃÄÙÅl(ÄÄÄÄÄÄÄÅlâIΩàÅ	±Ö•∏à∞Äâ)ï…ïµ‰Å]Ö…êà∞Äà»¿»ÿ¥¿‡¥»…P¿‰Ë»–Ë¿¿¨ƒ¿Ë¿¿ât∞(ÄÄÄÄÄÄÄÅlâ)ï……‰Å5Ö°ï»à∞ÄâMÖ¥ÅIïïçîà∞Äà»¿»ÿ¥¿‡¥»…Pƒ¿Ëƒ‘Ë¿¿¨ƒ¿Ë¿¿ât∞(ÄÄÄÄÄÄÄÅlâAï—ï»ÅIΩ±ôîà∞Äâ…Öπ–Å1ΩµÖÃà∞Äà»¿»ÿ¥¿‡¥»…PƒƒË¿»Ë¿¿¨ƒ¿Ë¿¿ât∞(ÄÄÄÄÄÅtÏ(ÄÄÄÄÄÅç°ÖπùïÃπôΩ…Öç††°mïπ—…Öπ–∞ÅÕçΩ…ï»∞ÅÖ—t∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åïπ—…Öπ—%êÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÅô•πë%ê°ïπ—…Öπ–§ÅÒÅ•ëÕm5Ö—†πµ•∏°§Ä®Ä‘∞Å•ëÃπ±ïπù—†Ä¥Äƒ•t∞(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…%êÄÙÅô•πë%ê°ÕçΩ…ï»§ÅÒÅ•ëÕm5Ö—†πµ•∏°§Ä®Ä‘Ä¨Äƒ∞Å•ëÃπ±ïπù—†Ä¥Äƒ•tÏ(ÄÄÄÄÄÄÄÅÕçΩ…ïÕmÕçΩ…ï…%ëum°Ω±ïtππ—¿ÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅïπ—…Öπ—%ê∞(ÄÄÄÄÄÄÄÄÄÅçΩπô•…µïë–ËÅÖ–∞(ÄÄÄÄÄÄÄÄÄÅ±Ωç≠ïêËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÕçΩ…ïÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ΩÖëI•ëùïŸïπ—QïÕ–†§ÅÏ(ÄÄÄÅ•òÄ†Ö…•ëùïQïÕ—±•ù•â±î†§§(ÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄâQ°îÅI•ëùîÅ—ïÕ–Å…ï≈’•…ïÃÅÑÅ±Ωç≠ïêÅΩπîµëÖ‰ÅïŸïπ–Å›•—†Åï·Öç—±‰ÄƒÿÅ¡±ÖÂï…Ã∏à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄâA±Ö‰ÅÖπêÅô•πÖ±•ÕîÅÖ±∞ÄƒÿÅI•ëùîÅ—ïÕ–Å…Ω’πëÃÅπΩ‹˝qπqπeΩ’»ÅçΩµ¡±ï—îÅ±Ωç≠ïêÅïŸïπ–Å›•±∞ÅâîÅâÖç≠ïêÅ’¿∏ÅQïÕ–ÅÕçΩ…ïÃÅ›•±∞Å…ïµÖ•∏Å±ΩçÖ∞ÅÖπêÅçÖ∏ÅâîÅ…ïµΩŸïêÅÖô—ï…›Ö…ëÃ∏à∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅ•òÄ†Ö±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§§(ÄÄÄÄÄÅ±ΩçÖ±M—Ω…ÖùîπÕï—%—ï¥†(ÄÄÄÄÄÄÄÄâÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà∞(ÄÄÄÄÄÄÄÅ)M=8πÕ—…•πù•ô‰°Ï(ÄÄÄÄÄÄÄÄÄÅïŸïπ–ËÅÕ—Ω…îπïŸïπ–∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’êËÅÕ—Ω…îπç±Ω’êÅÒÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÅç±Ω’ëA±ÖÂï…ÃËÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÅÒÅmt∞(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÅçΩπÕ–ÅîÄÙÅÕ—Ω…îπïŸïπ–∞(ÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ†ƒ§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅÕçΩ…ïÃÄÙÅµÖ≠ïI•ëùïQïÕ—MçΩ…•πú†§Ï(ÄÄÄÅîπÕçΩ…•πúÄÙÅÏÄ∏∏∏°îπÕçΩ…•πúÅÒÅÌÙ§∞ÅëÖ‰ƒËÅÕçΩ…ïÃÅÙÏ(ÄÄÄÅîπ…Ω’πë•πÖ±•ÕïêÄÙÅÏÄ∏∏∏°îπ…Ω’πë•πÖ±•ÕïêÅÒÅÌÙ§∞ÅëÖ‰ƒËÅÌÙÅÙÏ(ÄÄÄÅ•ëÃπôΩ…Öç††(ÄÄÄÄÄÄ°•ê§ÄÙ¯Ä°îπ…Ω’πë•πÖ±•ÕïêπëÖ‰≈m•ëtÄÙÅÕçΩ…ïÕm•ëtπ}µï—Ñπô•πÖ±•Õïë–§∞(ÄÄÄÄ§Ï(ÄÄÄÅîπ¡…•ÈïÕ›Ö…ëïêÄÙÅÌÙÏ(ÄÄÄÅîπ…•ëùïQïÕ—5ΩëîÄÙÅ—…’îÏ(ÄÄÄÅîπ±•ŸïΩπ—…Ω±Ö‰ÄÙÄƒÏ(ÄÄÄÅîπ±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄâÕ’µµÖ…‰àÏ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅ•ëÃπµÖ¿†°•ê∞Å§§ÄÙ¯Ä°Ï(ÄÄÄÄÄÅ¡±ÖÂï…%êËÅ•ê∞(ÄÄÄÄÄÅπÖµîËÅ¡±ÖÂï»°•ê§¸ππÖµîÅÒÅ•ê∞(ÄÄÄÄÄÅ©Ω•πïêËÅ—…’î∞(ÄÄÄÄÄÅ©Ω•πïë–ËÅÄ»¿»ÿ¥¿‡¥»…PëÌM—…•πú†‹Ä¨Å5Ö—†πô±ΩΩ»°§ÄºÄ–§§π¡ÖëM—Ö…–†»∞Äà¿à•ÙËëÌM—…•πú†°§ÄîÄ–§Ä®Äÿ§π¡ÖëM—Ö…–†»∞Äà¿à•ÙË¿¿¨ƒ¿Ë¿¡Ä∞(ÄÄÄÅÙ§§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïÕ—Ω…ïI•ëùïŸïπ—ô—ï…QïÕ–†§ÅÏ(ÄÄÄÅ±ï–ÅâÖç≠’¿Ï(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅâÖç≠’¿ÄÙÅ)M=8π¡Ö…Õî†(ÄÄÄÄÄÄÄÅ±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§ÅÒÄâπ’±∞à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÅçÖ—ç†Ä°|§ÅÏ(ÄÄÄÄÄÅâÖç≠’¿ÄÙÅπ’±∞Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†ÖâÖç≠’¿§Å…ï—’…∏ÅÖ±ï…–†â9ºÅI•ëùîÅïŸïπ–ÅâÖç≠’¿Å›ÖÃÅôΩ’πê∏à§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄâIïµΩŸîÅïŸï…‰Å—ïÕ–ÅÕçΩ…îÅÖπêÅ…ïÕ—Ω…îÅ—°îÅ±Ωç≠ïêÅI•ëùîÅïŸïπ–Åï·Öç—±‰ÅÖÃÅ•–Å›ÖÃÅâïôΩ…îÅ—°îÅ—ïÕ–¸à∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–ÄÙÅâÖç≠’¿πïŸïπ–Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–¸πëÖÂÃÄÙÙÙÄƒÄòò(ÄÄÄÄÄÅ……Ö‰π•Õ……Ö‰°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃ§Äòò(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃπ•πç±’ëïÃ†âçΩµâ•πïêà§(ÄÄÄÄ§ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÄÙÅÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃπô•±—ï»†(ÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯Å•êÄÑÙÙÄâçΩµâ•πïêà∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃπ•πç±’ëïÃ†âÕ•πù±îà§§(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃπ¡’Õ††âÕ•πù±îà§Ï(ÄÄÄÅÙ(ÄÄÄÅÕ—Ω…îπç±Ω’êÄÙÅâÖç≠’¿πç±Ω’êÅÒÅ’πëïô•πïêÏ(ÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃÄÙÅâÖç≠’¿πç±Ω’ëA±ÖÂï…ÃÅÒÅmtÏ(ÄÄÄÅ±ΩçÖ±M—Ω…Öùîπ…ïµΩŸï%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§Ï(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÅ›Ö—ç°±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÅÙ(ÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπQïÕ—Ÿïπ—QΩΩ±Ã†§ÅÏ(ÄÄÄÅçΩπÕ–Å…•ëùïç—•ŸîÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–¸π…•ëùïQïÕ—5Ωëî§∞(ÄÄÄÄÄÅ…•ëùïIïÖë‰ÄÙÅ…•ëùïQïÕ—±•ù•â±î†§∞(ÄÄÄÄÄÅ…•ëùï	Öç≠’¿ÄÙÅ	ΩΩ±ïÖ∏°±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôI•ëùïQïÕ—	Öç≠’¡Xƒà§§∞(ÄÄÄÄÄÅÖç—•ŸîÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–¸π—ïÕ—5Ωëî§∞(ÄÄÄÄÄÅΩπïÖ‰ÄÙÅÖç—•ŸîÄòòÅÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒ∞(ÄÄÄÄÄÅÕ•·—ïï∏ÄÙÅÕ—Ω…îπïŸïπ–¸π—ïÕ—-•πêÄÙÙÙÄâÕ•·—ïï∏à∞(ÄÄÄÄÄÅâÖç≠’¿ÄÙÅ	ΩΩ±ïÖ∏°±ΩçÖ±M—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ôQïÕ—	Öç≠’¡Xƒà§§Ï(ÄÄÄÅ•òÄ°…•ëùïç—•ŸîÅÒÅ…•ëùïIïÖë‰ÅÒÅ…•ëùï	Öç≠’¿§ÅÏ(ÄÄÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÄÄÅÄÒ†»˘Q°îÅI•ëùîÉäPÄƒÿµA±ÖÂï»ÅQïÕ–Ω†»¯Ò¿˘Ωµ¡±ï—îÅÖ±∞Ä»‡‡Å°Ω±ïÃÅ±ΩçÖ±±‰Å’Õ•πúÅ—°îÅ±Ωç≠ïêÅ¡±ÖÂï…Ã∞Åù…Ω’¡Ã∞Å°Öπë•çÖ¡ÃÅÖπêÅçΩµ¡ï—•—•ΩπÃ∏ÅQ°îÅΩ…•ù•πÖ∞Å±Ωç≠ïêÅïŸïπ–Å•ÃÅâÖç≠ïêÅ’¿ÅâïôΩ…îÅÖπ‰ÅÕçΩ…ïÃÅÖ…îÅÖëëïê∏Ω¿¯ëÌ…•ëùïç—•ŸîÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâ—ïÕ—M—Öùï	’——ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâΩ¡ïπI•ëùïIïÕ’±—Ãà˘=¡ï∏ÅIïÕ’±—ÃÅM’µµÖ…‰Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâëÖπùï»àÅ•êÙâ…ïÕ—Ω…ïI•ëùïŸïπ–à˘IïµΩŸîÅQïÕ–ÅMçΩ…ïÃÄòÅIïÕ—Ω…îÅŸïπ–Ωâ’——Ω∏¯Ωë•ÿ¯úÄËÄúÒë•ÿÅç±ÖÕÃÙâ—ïÕ—M—Öùï	’——ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ±ΩÖëI•ëùïQïÕ–à˘A±Ö‰Å±∞ÄƒÿÅIΩ’πëÃΩâ’——Ω∏¯Ωë•ÿ¯ùÙÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Åç±ΩÕïQïÕ—QΩΩ±ÃàÅ•êÙâç±ΩÕïQïÕ—QΩΩ±Ãà˘±ΩÕîΩâ’——Ω∏˘ÄÏ(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÄÄÅ•òÄ†ê†àç±ΩÖëI•ëùïQïÕ–à§§Äê†àç±ΩÖëI•ëùïQïÕ–à§πΩπç±•ç¨ÄÙÅ±ΩÖëI•ëùïŸïπ—QïÕ–Ï(ÄÄÄÄÄÅ•òÄ†ê†àç…ïÕ—Ω…ïI•ëùïŸïπ–à§§(ÄÄÄÄÄÄÄÄê†àç…ïÕ—Ω…ïI•ëùïŸïπ–à§πΩπç±•ç¨ÄÙÅ…ïÕ—Ω…ïI•ëùïŸïπ—ô—ï…QïÕ–Ï(ÄÄÄÄÄÅ•òÄ†ê†àçΩ¡ïπI•ëùïIïÕ’±—Ãà§§(ÄÄÄÄÄÄÄÄê†àçΩ¡ïπI•ëùïIïÕ’±—Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄâÕ’µµÖ…‰àÏ(ÄÄÄÄÄÄÄÄÄÅπÖÿ†â±ïÖëï…âΩÖ…ëAÖùîà§Ï(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄê†àçç±ΩÕïQïÕ—QΩΩ±Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÄê†àçµΩëÖ±Ωπ—ïπ–à§π•ππï…!Q50ÄÙ(ÄÄÄÄÄÅÄÒ†»˘=Ö—±ÖπëÃÅQïÕ–ÅŸïπ—ÃΩ†»¯Ò¿˘QïÕ–ÅçΩµ¡±ï—îÅïŸïπ—ÃÅÕÖôï±‰Å›•—†Åùïπ’•πîÅ=Ö—±ÖπëÃÅÕçΩ…•πúÅ¡Ö——ï…πÃ∏ÅQïÕ–ÅëÖ—ÑÅ…ïµÖ•πÃÅ±ΩçÖ∞ÅÖπêÅçÖππΩ–ÅâîÅ¡’â±•Õ°ïê∏Ω¿¯ëÌÖç—•ŸîÄ¸ÅÄÒ†Ã¯ëÌÕ•·—ïï∏Ä¸Äâ=πîµÖ‰ÄƒÿµA±ÖÂï»Å…ïÕÃÅIï°ïÖ…ÕÖ∞àÄËÅÄëÌΩπïÖ‰Ä¸Äâ=πîµÖ‰àÄËÄâQ›ºµÖ‰âÙÅ•ù°–µA±ÖÂï»ÅQïÕ—ÅÙΩ†Ã¯Òë•ÿÅç±ÖÕÃÙâ—ïÕ—M—Öùï	’——ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ—ïÕ—±ïÖ…MçΩ…ïÃà˘M—Ö…–Å›•—†Å9ºÅMçΩ…ïÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ—ïÕ—Ö‰≈MçΩ…ïÃà¯ëÌΩπïÖ‰Ä¸ÄâΩµ¡±ï—îÅIΩ’πêàÄËÄâΩµ¡±ï—îÅÖ‰ÄƒâÙΩâ’——Ω∏¯ëÌΩπïÖ‰Ä¸ÄààÄËÅÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ—ïÕ—	Ω—°ÖÂÃà˘Ωµ¡±ï—îÅ	Ω—†ÅÖÂÃΩâ’——Ω∏˘ÅÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ—ïÕ—°Ω•çï	’——ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅëÖ—ÑµÕ›•—ç°—ïÕ–ÙâΩπïÖ‰à¯‡ÅA±ÖÂï…ÃÉ
+‹Å=πîÅÖ‰Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅëÖ—ÑµÕ›•—ç°—ïÕ–Ùâ—›ΩÖ‰à¯‡ÅA±ÖÂï…ÃÉ
+‹ÅQ›ºÅÖÂÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅëÖ—ÑµÕ›•—ç°—ïÕ–ÙâÕ•·—ïï∏à¯ƒÿÅA±ÖÂï…ÃÉ
+‹Å=πîÅÖ‰Ωâ’——Ω∏¯Ωë•ÿ¯ëÌâÖç≠’¿Ä¸ÄúÒâ’——Ω∏Åç±ÖÕÃÙâëÖπùï»Å…ïÕ—Ω…ïQïÕ—	—∏àÅ•êÙâ…ïÕ—Ω…ïQïÕ—Ÿïπ–à˘IïÕ—Ω…îÅ5‰ÅA…ïŸ•Ω’ÃÅŸïπ–Ωâ’——Ω∏¯úÄËÄàâıÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâ—ïÕ—°Ω•çï	’——ΩπÃà¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙââïù•π=πïÖÂQïÕ–à¯‡ÅA±ÖÂï…ÃÉ
+‹Å=πîÅÖ‰Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙââïù•πQ›ΩÖÂQïÕ–à¯‡ÅA±ÖÂï…ÃÉ
+‹ÅQ›ºÅÖÂÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙââïù•πM•·—ïïπQïÕ–à¯ƒÿÅA±ÖÂï…ÃÉ
+‹Å=πîµÖ‰Å…ïÕÃÅIï°ïÖ…ÕÖ∞Ωâ’——Ω∏¯Ωë•ÿ˘ÅÙÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Åç±ΩÕïQïÕ—QΩΩ±ÃàÅ•êÙâç±ΩÕïQïÕ—QΩΩ±Ãà˘±ΩÕîΩâ’——Ω∏˘ÄÏ(ÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πÖëê†âΩ¡ï∏à§Ï(ÄÄÄÅ•òÄ†ê†àçâïù•π=πïÖÂQïÕ–à§§(ÄÄÄÄÄÄê†àçâïù•π=πïÖÂQïÕ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Åâïù•π=Ö—±ÖπëÕQïÕ–†âΩπïÖ‰à§Ï(ÄÄÄÅ•òÄ†ê†àçâïù•πQ›ΩÖÂQïÕ–à§§(ÄÄÄÄÄÄê†àçâïù•πQ›ΩÖÂQïÕ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Åâïù•π=Ö—±ÖπëÕQïÕ–†â—›ΩÖ‰à§Ï(ÄÄÄÅ•òÄ†ê†àçâïù•πM•·—ïïπQïÕ–à§§(ÄÄÄÄÄÄê†àçâïù•πM•·—ïïπQïÕ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Åâïù•π=Ö—±ÖπëÕQïÕ–†âÕ•·—ïï∏à§Ï(ÄÄÄÄêê†âmëÖ—ÑµÕ›•—ç°—ïÕ—tà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯Ä°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÕ›•—ç°=Ö—±ÖπëÕQïÕ–°àπëÖ—ÖÕï–πÕ›•—ç°—ïÕ–§§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àç—ïÕ—±ïÖ…MçΩ…ïÃà§§(ÄÄÄÄÄÄê†àç—ïÕ—±ïÖ…MçΩ…ïÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å±ΩÖëQïÕ—M—Öùî†¿§Ï(ÄÄÄÅ•òÄ†ê†àç—ïÕ—Ö‰≈MçΩ…ïÃà§§(ÄÄÄÄÄÄê†àç—ïÕ—Ö‰≈MçΩ…ïÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å±ΩÖëQïÕ—M—Öùî†ƒ§Ï(ÄÄÄÅ•òÄ†ê†àç—ïÕ—	Ω—°ÖÂÃà§§Äê†àç—ïÕ—	Ω—°ÖÂÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å±ΩÖëQïÕ—M—Öùî†»§Ï(ÄÄÄÅ•òÄ†ê†àç…ïÕ—Ω…ïQïÕ—Ÿïπ–à§§(ÄÄÄÄÄÄê†àç…ïÕ—Ω…ïQïÕ—Ÿïπ–à§πΩπç±•ç¨ÄÙÅ…ïÕ—Ω…ï	ïôΩ…ïQïÕ–Ï(ÄÄÄÄê†àçç±ΩÕïQïÕ—QΩΩ±Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–π…ïµΩŸî†âΩ¡ï∏à§Ï(ÄÅÙ(ÄÅëΩç’µïπ–πÖëëŸïπ—1•Õ—ïπï»†âç±•ç¨à∞Ä°î§ÄÙ¯ÅÏ(ÄÄÄÅ•òÄ°îπ—Ö…ùï–π•êÄÙÙÙÄâ—ïÕ—Ÿïπ—QΩΩ±Ãà§ÅΩ¡ïπQïÕ—Ÿïπ—QΩΩ±Ã†§Ï(ÄÅÙ§Ï(ÄÅô’πç—•Ω∏ÅµÖ…≠ï…QÖ…ùï—Ω»°¡•ê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Åç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°¡•ê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ†Öç—‡§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅúÄÙÅç—‡πù…Ω’¿πô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÅµîÄÙÅM—…•πú°¡•ê§∞(ÄÄÄÄÄÅ¡ΩÃÄÙÅúπ•πëï·=ò°µî§Ï(ÄÄÄÅ•òÄ°¡ΩÃÄÄ¿§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄººÅÅùïπ’•πîÅ±Ö—îÅ›•—°ë…Ö›Ö∞Å±ïÖŸïÃÅ—°…ïîÅùΩ±ôï…Ã∏ÅQ°ï‰ÅµÖ…¨Å•∏ÅΩπîÅç±ΩÕïê(ÄÄÄÄººÅ±ΩΩ¿ÅÕºÅïŸï…‰ÅŸ•Õ•â±îÅA±ÖÂï»ÅÖπêÅ5Ö…≠ï»Å•ÃÅÑÅ…ïÖ∞ÅùΩ±ôï»Å•∏Å—°Ö–Åù…Ω’¿∏(ÄÄÄÅ•òÄ°úπ±ïπù—†ÄÙÙÙÄÃ§(ÄÄÄÄÄÅ…ï—’…∏ÅM—…•πú°ùl°¡ΩÃÄ¨Äƒ§ÄîÄÕt§Ï(ÄÄÄÄººÅA…ïôï»Å—°îÄ—		Å¡Ö…—πï»ÅâïçÖ’ÕîÅ—°îÅ—›ºÅùΩ±ôï…ÃÅπÖ—’…Ö±±‰ÅµÖ…¨ΩŸï…•ô‰ÅïÖç†ÅΩ—°ï»∏(ÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âôΩ’…âÖ±∞à∞ÅëÖ‰§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•…M—Ö…–ÄÙÅç—‡π¡±ÖÂï…%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»Ï(ÄÄÄÄÄÅçΩπÕ–ÅΩ—°ï»ÄÙÅç—‡πù…Ω’¿(ÄÄÄÄÄÄÄÄπÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄπô•πê†°‡§ÄÙ¯Å‡ÄÑÙÙÅµîÄòòÅ‡ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÄÄÅ•òÄ°Ω—°ï»§Å…ï—’…∏ÅΩ—°ï»Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅM—…•πú°ùl°¡ΩÃÄ¨Äƒ§ÄîÅúπ±ïπù—°tÅÒÄàà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡!Ω±ïÕΩ»°ëÖ‰§ÅÏ(ÄÄÄÅ…ï—’…∏ÅçΩµ¡ï—•—•Ωπ%Õ=∏†âπ—¿à±ëÖ‰§Ä¸Ä°Õ—Ω…îπïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅmt§πµÖ¿°9’µâï»§ÄËÅmtÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å°Ω±ïÃÄÙÅπ—¡!Ω±ïÕΩ»°ëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ö…—5ï—°ΩëΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§ÄÑÙÙÄâÕ•πù±îà§Å…ï—’…∏Å°Ω±ïÃÏ(ÄÄÄÅçΩπÕ–ÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…—!Ω±ïÕΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰•l¡tÅÒÄƒ§Ï(ÄÄÄÅ…ï—’…∏Å°Ω±ïÃπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÕï≈’ïπçîπ•πëï·=ò°Ñ§Ä¥ÅÕï≈’ïπçîπ•πëï·=ò°à§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡MçΩ…ïM’¡¡Ω…—Õ±Ö•¥°ëÖ‰∞Å…ïçΩ…ê§ÅÏ(ÄÄÄÅ•òÄ†ÖçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅ…ïçΩ…ê¸πΩôô•ç•Ö∞¸πù…ΩÕÃ∞(ÄÄÄÄÄÅ¡’——ÃÄÙÅ…ïçΩ…ê¸πΩôô•ç•Ö∞¸π¡’——ÃÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÅM—…•πú°ù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÄâ@àÄòò(ÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°¡’——Ã§Äòò(ÄÄÄÄÄÄÄÅ9’µâï»°ù…ΩÕÃ§ÄÙÙÙÅ9’µâï»°¡’——Ã§Ä¨Äƒ∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡!•Õ—Ω…‰°ëÖ‰∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–Åïπ—…•ïÃÄÙÅmtÏ(ÄÄÄÅ=â©ïç–πïπ—…•ïÃ°ÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§§πôΩ…Öç††°mÕçΩ…ï…%ê∞Å°Ω±ïÕt§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å∏ÄÙÅ°Ω±ïÃ¸πmM—…•πú°°Ω±î•t¸ππ—¿Ï(ÄÄÄÄÄÅ•òÄ†Ö∏¸πçΩπô•…µïë–ÅÒÄÖπ—¡MçΩ…ïM’¡¡Ω…—Õ±Ö•¥°ëÖ‰∞Å°Ω±ïÃ¸πmM—…•πú°°Ω±î•t§§Å…ï—’…∏Ï(ÄÄÄÄÄÅïπ—…•ïÃπ¡’Õ†°Ï(ÄÄÄÄÄÄÄÅ•êËÅM—…•πú°∏πïπ—…Öπ—%êÅÒÅÕçΩ…ï…%ê§∞(ÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅM—…•πú°ÕçΩ…ï…%ê§∞(ÄÄÄÄÄÄÄÅÖ–ËÅ∏πçΩπô•…µïë–∞(ÄÄÄÄÄÄÄÅ–ËÅÖ—îπ¡Ö…Õî°∏πçΩπô•…µïë–§ÅÒÄ¿∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Åïπ—…•ïÃπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÑπ–Ä¥Åàπ–ÅÒÅÑπ•êπ±ΩçÖ±ïΩµ¡Ö…î°àπ•ê§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åç’……ïπ—9—¡!Ω±ëï»°ëÖ‰∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅµÖπ’Ö±Ö‰ÄÙÅµÖπ’Ö±ÖÂM—Ω…î°ëÖ‰∞ÅôÖ±Õî§∞(ÄÄÄÄÄÅµÖπ’Ö±IïÕ’±–ÄÙÅµÖπ’Ö±Ö‰¸ππ—¡•πÖ±•Õïê(ÄÄÄÄÄÄÄÄ¸ÅµÖπ’Ö±Ö‰ππ—¿¸πmM—…•πú°°Ω±î•t(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅ•òÄ°µÖπ’Ö±IïÕ’±–§(ÄÄÄÄÄÅ…ï—’…∏ÅµÖπ’Ö±IïÕ’±–ÄÙÙÙÄâ9=9à(ÄÄÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄÄÄËÅÏÅ•êËÅM—…•πú°µÖπ’Ö±IïÕ’±–§∞ÅµÖπ’Ö∞ËÅ—…’î∞ÅÖ–ËÅµÖπ’Ö±Ö‰πçΩµ¡±ï—ïë–ÅÙÏ(ÄÄÄÅçΩπÕ–Å°•Õ—Ω…‰ÄÙÅπ—¡!•Õ—Ω…‰°ëÖ‰∞Å°Ω±î§Ï(ÄÄÄÅ…ï—’…∏Å°•Õ—Ω…Âm°•Õ—Ω…‰π±ïπù—†Ä¥Ä≈tÅÒÅπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡Ÿïπ—M±Ω—Ã†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕ±Ω—ÃÄÙÅmtÏ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÄ°Õ—Ω…îπïŸïπ–¸πëÖÂÃÅÒÄƒ§ÏÅëÖ‰¨¨§(ÄÄÄÄÄÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§πôΩ…Öç††°°Ω±î§ÄÙ¯ÅÕ±Ω—Ãπ¡’Õ†°ÏÅëÖ‰∞Å°Ω±îÅÙ§§Ï(ÄÄÄÅ…ï—’…∏ÅÕ±Ω—ÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕÖµï9—¡M±Ω–°Ñ∞Åà§ÅÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ÑÄòòÅàÄòòÅÑπëÖ‰ÄÙÙÙÅàπëÖ‰ÄòòÅÑπ°Ω±îÄÙÙÙÅàπ°Ω±î§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡	ÖÕï	Ö±±Ã†§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖ±±ÃÄÙÄ¨°Õ—Ω…îπïŸïπ–¸πâïπïô•—Ã¸ππ—¿¸πâÖ±±ÃÅÒÄ¿§Ï(ÄÄÄÅ…ï—’…∏Å9’µâï»π•Õ•π•—î°âÖ±±Ã§Ä¸ÅâÖ±±ÃÄËÄ¿Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡)Öç≠¡Ω—M—Ö—î°ëÖ‰∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖÕîÄÙÅπ—¡	ÖÕï	Ö±±Ã†§∞(ÄÄÄÄÄÅÕ±Ω—ÃÄÙÅπ—¡Ÿïπ—M±Ω—Ã†§∞(ÄÄÄÄÄÅ—Ö…ùï—%πëï‡ÄÙÅÕ±Ω—Ãπô•πë%πëï‡†(ÄÄÄÄÄÄÄÄ°Õ±Ω–§ÄÙ¯Ä≠Õ±Ω–πëÖ‰ÄÙÙÙÄ≠ëÖ‰ÄòòÄ≠Õ±Ω–π°Ω±îÄÙÙÙÄ≠°Ω±î∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ©Öç≠¡Ω—=∏ÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–¸ππ—¡)Öç≠¡Ω–§∞(ÄÄÄÄÄÅµΩëîÄÙÅÕ—Ω…îπïŸïπ–¸ππ—¡)Öç≠¡Ω—5ΩëîÄÙÙÙÄâ…Ω±±•πúàÄ¸Äâ…Ω±±•πúàÄËÄâô•πÖ∞à∞(ÄÄÄÄÄÅô•πÖ±%πëï‡ÄÙÅÕ±Ω—Ãπ±ïπù—†Ä¥ÄƒÏ(ÄÄÄÅ±ï–ÅçÖ……•ïêÄÙÄ¿Ï(ÄÄÄÅ•òÄ†ÖâÖÕîÅÒÅ—Ö…ùï—%πëï‡ÄÄ¿ÅÒÄÖ©Öç≠¡Ω—=∏§(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅâÖÕî∞ÅçÖ……•ïêËÄ¿∞Å¡…•ÈîËÅâÖÕî∞Å…ïÕΩ±ŸïêËÅôÖ±Õî∞ÅµΩëîÅÙÏ(ÄÄÄÅôΩ»Ä°±ï–Å•πëï‡ÄÙÄ¿ÏÅ•πëï‡ÄÅ—Ö…ùï—%πëï‡ÏÅ•πëï‡¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ±Ω–ÄÙÅÕ±Ω—Õm•πëï·t∞(ÄÄÄÄÄÄÄÅ°Ω±ëï»ÄÙÅç’……ïπ—9—¡!Ω±ëï»°Õ±Ω–πëÖ‰∞ÅÕ±Ω–π°Ω±î§∞(ÄÄÄÄÄÄÄÅ…ïÕΩ±ŸïêÄÙÅïŸïπ—ÖÂΩµ¡±ï—î°Õ±Ω–πëÖ‰§Ï(ÄÄÄÄÄÅ•òÄ°°Ω±ëï»§ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°µΩëîÄÙÙÙÄâ…Ω±±•πúà§ÅçÖ……•ïêÄÙÄ¿Ï(ÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°…ïÕΩ±Ÿïê§ÅçÖ……•ïêÄ¨ÙÅâÖÕîÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°µΩëîÄÙÙÙÄâô•πÖ∞àÄòòÅ—Ö…ùï—%πëï‡ÄÑÙÙÅô•πÖ±%πëï‡§ÅçÖ……•ïêÄÙÄ¿Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅâÖÕî∞(ÄÄÄÄÄÅçÖ……•ïê∞(ÄÄÄÄÄÅ¡…•ÈîËÅâÖÕîÄ¨ÅçÖ……•ïê∞(ÄÄÄÄÄÅ…ïÕΩ±ŸïêËÅïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§∞(ÄÄÄÄÄÅµΩëî∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡A…•Èï	Ö±±Ã°ëÖ‰∞Å°Ω±î§ÅÏ(ÄÄÄÅ…ï—’…∏Åπ—¡)Öç≠¡Ω—M—Ö—î°ëÖ‰∞Å°Ω±î§π¡…•ÈîÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡A…•ÈïQï·–°ëÖ‰∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅâÖ±±ÃÄÙÅπ—¡A…•Èï	Ö±±Ã°ëÖ‰∞Å°Ω±î§Ï(ÄÄÄÅ…ï—’…∏ÅâÖ±±ÃÄ¸ÅÄëÌâÖ±±ÕÙÅ	Ö±∞ëÌâÖ±±ÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâıÄÄËÄààÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åπ—¡M’µµÖ…Â1•πî°ëÖ‰∞Å°Ω±î∞ÅçΩµ¡±ï—î§ÅÏ(ÄÄÄÅçΩπÕ–Å°Ω±ëï»ÄÙÅç’……ïπ—9—¡!Ω±ëï»°ëÖ‰∞Å°Ω±î§∞(ÄÄÄÄÄÅÕ—Ö—îÄÙÅπ—¡)Öç≠¡Ω—M—Ö—î°ëÖ‰∞Å°Ω±î§∞(ÄÄÄÄÄÅ¡…•ÈîÄÙÅπ—¡A…•ÈïQï·–°ëÖ‰∞Å°Ω±î§∞(ÄÄÄÄÄÅçÖ……ÂQï·–ÄÙÅÕ—Ö—îπçÖ……•ïê(ÄÄÄÄÄÄÄÄ¸ÅÄÄ†ëÌÕ—Ö—îπâÖÕïÙÄ¨ÄëÌÕ—Ö—îπçÖ……•ïëÙÅ©Öç≠¡Ω–•Ä(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅ•òÄ°°Ω±ëï»§(ÄÄÄÄÄÅ…ï—’…∏ÅÅ!Ω±îÄëÌ°Ω±ïÙËÄëÌçΩµ¡±ï—îÄ¸Äâ]•ππï»àÄËÄâ’……ïπ–Å°Ω±ëï»âÙÉäPÄëÌïŸïπ—A±ÖÂï»°°Ω±ëï»π•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»âÙëÌ¡…•ÈîÄ¸ÅÄÉäPÄëÌ¡…•ÈïÙëÌçÖ……ÂQï·—ıÄÄËÄàâıÄÏ(ÄÄÄÅ•òÄ†ÖçΩµ¡±ï—î§(ÄÄÄÄÄÅ…ï—’…∏ÅÅ!Ω±îÄëÌ°Ω±ïÙËÅAïπë•πúëÌ¡…•ÈîÄ¸ÅÄÉäPÄëÌ¡…•ÈïÙëÌçÖ……ÂQï·—ÙÅÖŸÖ•±Öâ±ïÄÄËÄàâıÄÏ(ÄÄÄÅçΩπÕ–ÅÕ±Ω—ÃÄÙÅπ—¡Ÿïπ—M±Ω—Ã†§∞(ÄÄÄÄÄÅÕ±Ω–ÄÙÅÏÅëÖ‰∞Å°Ω±îÅÙ∞(ÄÄÄÄÄÅÕ±Ω—%πëï‡ÄÙÅÕ±Ω—Ãπô•πë%πëï‡†°•—ï¥§ÄÙ¯ÅÕÖµï9—¡M±Ω–°•—ï¥∞ÅÕ±Ω–§§∞(ÄÄÄÄÄÅπï·—M±Ω–ÄÙÅÕ±Ω—ÕmÕ±Ω—%πëï‡Ä¨Ä≈tÏ(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–¸ππ—¡)Öç≠¡Ω–ÄòòÅπï·—M±Ω–§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅëïÕ—•πÖ—•Ω∏ÄÙ(ÄÄÄÄÄÄÄÅÕ—Ö—îπµΩëîÄÙÙÙÄâ…Ω±±•πúàÄ¸Åπï·—M±Ω–ÄËÅÕ±Ω—ÕmÕ±Ω—Ãπ±ïπù—†Ä¥Ä≈tÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÅ!Ω±îÄëÌ°Ω±ïÙËÅ9ºÅ]•ππï»ÉäPÄëÌ¡…•ÈîÅÒÄâA…•ÈîâÙÅçÖ……•ïÃÅ—ºÅ!Ω±îÄëÌëïÕ—•πÖ—•Ω∏π°Ω±ïÙëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÄÅÖ‰ÄëÌëïÕ—•πÖ—•Ω∏πëÖÂıÄÄËÄàâıÄÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅÅ!Ω±îÄëÌ°Ω±ïÙËÅ9ºÅ]•ππï»ëÌ¡…•ÈîÄ¸ÅÄÉäPÄëÌ¡…•ÈïıÄÄËÄâA…•ÈîâÙÅπΩ–ÅÖ›Ö…ëïëÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å—ïÖµÕ•πÖ±°ïç≠!—µ∞†§ÅÏ(ÄÄÄÅçΩπÕ–ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–Ï(ÄÄÄÅ•òÄ†ÖïŸïπ–§Å…ï—’…∏ÄààÏ(ÄÄÄÅçΩπÕ–Åë•Õ¡±ÖÂÖ—îÄÙÄ°•Õº§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖ—ç†ÄÙÅM—…•πú°•ÕºÅÒÄàà§πµÖ—ç††Ωx°qëÏ—Ù§¥°qëÏ…Ù§¥°qëÏ…Ù§êº§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖ—ç†Ä¸ÅÄëÌµÖ—ç°lÕuÙºëÌµÖ—ç°l…uÙºëÌµÖ—ç°l≈uıÄÄËÅ•ÕºÅÒÄâ9Ω–Åïπ—ï…ïêàÏ(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅ—ïÖµQï·–ÄÙÄ°•ëÃ§ÄÙ¯(ÄÄÄÄÄÄÄÅ•ëÃπ±ïπù—†ÄòòÅ•ëÃπ±ïπù—†ÄîÄ–ÄÙÙÙÄ¿(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ•ëÃπ±ïπù—†ÄºÄ—ÙÅ—ïÖ¥ëÌ•ëÃπ±ïπù—†ÄÙÙÙÄ–Ä¸ÄààÄËÄâÃâÙÅΩòÄ—Ä(ÄÄÄÄÄÄÄÄÄÄËÅÄëÌ•ëÃπ±ïπù—°ÙÅ¡±ÖÂ•πúÅ¡ΩÕ•—•ΩπÕÄ∞(ÄÄÄÄÄÅ©Ω•π!Ω±ïÃÄÙÄ°°Ω±ïÃ§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å±Öâï±ÃÄÙÄ°°Ω±ïÃÅÒÅmt§πµÖ¿†°°Ω±î§ÄÙ¯ÅÅ!Ω±îÄëÌ°Ω±ïıÄ§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å±Öâï±Ãπ±ïπù—†ÄÄ»(ÄÄÄÄÄÄÄÄÄÄ¸Å±Öâï±Õl¡tÅÒÄâ9Ω–ÅÕï±ïç—ïêà(ÄÄÄÄÄÄÄÄÄÄËÅÄëÌ±Öâï±ÃπÕ±•çî†¿∞Ä¥ƒ§π©Ω•∏†à∞Äà•ÙÅÖπêÄëÌ±Öâï±ÃπÖ–†¥ƒ•ıÄÏ(ÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÅçΩπô•…µïêÄÙÄ°ïŸïπ–πçΩπô•…µïêÅÒÅmt§πô•±—ï»†(ÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ•πŸ•—ïêÄÙÅ=â©ïç–πïπ—…•ïÃ°ïŸïπ–π•πŸ•—Ö—•ΩπM—Ö—’ÃÅÒÅÌÙ§πô•±—ï»†(ÄÄÄÄÄÄÄÄ°m•ê∞ÅÕ—Ö—’Õt§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%Äòò(ÄÄÄÄÄÄÄÄÄÅlâÖççï¡—ïêà∞ÄâÖ›Ö•—•πúâtπ•πç±’ëïÃ°Õ—Ö—’Ã§∞(ÄÄÄÄÄÄ§π±ïπù—†∞(ÄÄÄÄÄÅçÖ…ëÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÅ•—ï¥ÄÙÅçΩ’…Õî°ïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å•—ï¥Ä¸ÅÏÅ•—ï¥∞Å—ïîËÅÕï±ïç—ïëŸïπ—Qïî°ëÖ‰∞ÅïŸïπ–§ÅÙÄËÅπ’±∞Ï(ÄÄÄÄÄÅÙ§πô•±—ï»°	ΩΩ±ïÖ∏§∞(ÄÄÄÄÄÅçÖ…ëÕ°ïç≠ïêÄÙ(ÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°ïŸïπ–πÕçΩ…ïçÖ…ëÕ°ïç≠ïê§Äòò(ÄÄÄÄÄÄÄÅçÖ…ëÃπ±ïπù—†Ä¯Ä¿Äòò(ÄÄÄÄÄÄÄÅïŸïπ—ÖÂÃ°ïŸïπ–§πïŸï…‰°ëÖ‰Ù˘ïŸïπ—Ö…ë°ïç≠Ã°ëÖ‰±ïŸïπ–§πïŸï…‰°ç°ïç¨Ù˘ç°ïç¨πΩ¨§§∞(ÄÄÄÄÄÅô•…Õ—QïïQï·–ÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±îÄÙÄ¨°Õ—Ö…—!Ω±ïÕΩ»°ïŸïπ–∞ÅëÖ‰•l¡tÅÒÄƒ§∞(ÄÄÄÄÄÄÄÄÄÅÕ’ôô•‡ÄÙÅlƒƒ∞Äƒ»∞ÄƒÕtπ•πç±’ëïÃ°°Ω±îÄîÄƒ¿¿§(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâ—†à(ÄÄÄÄÄÄÄÄÄÄÄÄËÅ°Ω±îÄîÄƒ¿ÄÙÙÙÄƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄâÕ–à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ°Ω±îÄîÄƒ¿ÄÙÙÙÄ»(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâπêà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ°Ω±îÄîÄƒ¿ÄÙÙÙÄÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâ…êà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÄâ—†àÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄëÌïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÅÖ‰ÄëÌëÖÂÙËÅÅÙëÌ°Ω±ïÙëÌÕ’ôô•·ıÄÏ(ÄÄÄÄÄÅÙ§π©Ω•∏†àÉ
+‹Äà§∞(ÄÄÄÄÄÅç°ïç≠ÃÄÙÅl(ÄÄÄÄÄÄÄÅÏÅΩ¨ËÅ	ΩΩ±ïÖ∏°ïŸïπ–ππÖµî§∞Å±Öâï∞ËÅÅŸïπ–Å9ÖµîËÄëÌïŸïπ–ππÖµïıÄÅÙ∞(ÄÄÄÄÄÄÄÅÏÅΩ¨ËÅ	ΩΩ±ïÖ∏°ïŸïπ–πëÖ—î§∞Å±Öâï∞ËÅÅM—Ö…–ÅÖ—îËÄëÌë•Õ¡±ÖÂÖ—î°ïŸïπ–πëÖ—î•ıÄÅÙ∞(ÄÄÄÄÄÄÄÄ∏∏π……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ—Ω’…ÕîÄÙÅçΩ’…Õî°ïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—•µï1Öâï∞ÄÙÅÕ—Ö…—5ï—°ΩëΩ»°ïŸïπ–∞ÅëÖ‰§ÄÙÙÙÄâÕ°Ω—ù’∏àÄ¸ÄâM°Ω—ù’∏ÅQ•µîàÄËÄâ•…Õ–ÅQïîÅQ•µîàÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅΩ¨ËÅ	ΩΩ±ïÖ∏°ïŸïπ—Ω’…Õî§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±Öâï∞ËÅÄëÌïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâΩ’…ÕîàÄËÅÅÖ‰ÄëÌëÖÂıÅÙËÄëÌïŸïπ—Ω’…Õî¸ππÖµîÅÒÄâ9Ω–ÅÕï±ïç—ïêâÙÉ
+‹ÄëÌ—•µï1Öâï±ÙËÄëÌÕ—Ö…—Q•µïÕΩ»°ïŸïπ–∞ÅëÖ‰•l¡uıÄ∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÅÏÅΩ¨ËÅ	ΩΩ±ïÖ∏°ô•…Õ—QïïQï·–§∞Å±Öâï∞ËÅÅ•…Õ–ÅQïîËÄëÌô•…Õ—QïïQï·—ıÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÅΩ¨ËÅçÖ…ëÕ°ïç≠ïê∞(ÄÄÄÄÄÄÄÄÄÅ±Öâï∞ËÄâΩ’…ÕîÅMçΩ…ïçÖ…êÅ°ïç≠ïêÅùÖ•πÕ–Å=ôô•ç•Ö∞ÅÖ…êËÅΩπô•…µïêà∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÅΩ¨ËÅçΩπô•…µïêπ±ïπù—†Ä¯Ä¿∞(ÄÄÄÄÄÄÄÄÄÅ±Öâï∞ËÅÅA±ÖÂï…ÃÅ%πŸ•—ïêËÄëÌ•πŸ•—ïêÅÒÅçΩπô•…µïêπ±ïπù—°ÙÉ
+‹ÅΩπô•…µïêËÄëÌçΩπô•…µïêπ±ïπù—°ıÄ∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄ∏∏π……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—ïïÃÄÙÅïπÖâ±ïëŸïπ—QïïÃ°ïŸïπ–∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡±ï—îÄÙÅ—ïïÃπïŸï…‰†°—ïî§ÄÙ¯Å—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°ëÖ‰∞Å—ïî∞ÅïŸïπ–§§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅΩ¨ËÅçΩµ¡±ï—î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±Öâï∞ËÅÄëÌïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÅÖ‰ÄëÌëÖÂÙÅÅÙëÌ—ïïÃπµÖ¿†°—ïî§ÄÙ¯ÅY9Q}Q}1	1Mm—ïït§π©Ω•∏†à∞Äà•ÙÅQïîÅ!Öπë•çÖ¡ÃËÅΩµ¡±ï—ïÄ∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÄÄÅΩ¨ËÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅëÖÂ•ï±ë%ëÃ°•πëï‡Ä¨Äƒ§π±ïπù—†Ä¯Ä¿∞(ÄÄÄÄÄÄÄÄÄÄ§πïŸï…‰°	ΩΩ±ïÖ∏§∞(ÄÄÄÄÄÄÄÄÄÅ±Öâï∞Ë(ÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ–πëÖÂÃÄÙÙÙÄƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅÖ•±‰Å•ï±êÅMï±ïç—ïêËÄëÌ—ïÖµQï·–°ëÖÂ•ï±ë%ëÃ†ƒ§•ıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÅÖ•±‰Å•ï±ëÃÅMï±ïç—ïêËÄëÌïŸïπ—ÖÂÃ°ïŸïπ–§πµÖ¿°ëÖ‰Ù˘ÅÖ‰ÄëÌëÖÂÙÉäPÄëÌ—ïÖµQï·–°ëÖÂ•ï±ë%ëÃ°ëÖ‰§•ıÄ§π©Ω•∏†àÏÄà•ıÄ∞(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÄ∏∏πëÖ•±ÂΩµ¡ï—•—•Ωπ°ïç≠Ã°ïŸïπ–§∞(ÄÄÄÄÄÄÄÄ∏∏∏†°ïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†âπ—¿à§(ÄÄÄÄÄÄÄÄÄÄ¸ÅmÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅΩ¨ËÅçΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à±ïŸïπ–§πïŸï…‰°ëÖ‰Ù¯°ïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰à≠ëÖÂuÒÒmt§π±ïπù—†¯¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±Öâï∞Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ–πëÖÂÃÄÙÙÙÄƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅ9Q@Å!Ω±ïÃÅMï±ïç—ïêËÄëÌ©Ω•π!Ω±ïÃ°ïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πëÖ‰ƒ•ıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÅ9Q@Å!Ω±ïÃÅMï±ïç—ïêËÄëÌçΩµ¡ï—•—•ΩπÖÂÃ†âπ—¿à±ïŸïπ–§πµÖ¿°ëÖ‰Ù˘ÅÖ‰ÄëÌëÖÂÙÉäPÄëÌ©Ω•π!Ω±ïÃ°ïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πlâëÖ‰à≠ëÖÂt•ıÄ§π©Ω•∏†àÏÄà•ıÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÅıt(ÄÄÄÄÄÄÄÄÄÄËÅmt§∞(ÄÄÄÄÄÅtπô•±—ï»†°ç°ïç¨§ÄÙ¯Åç°ïç¨πΩ¨§Ï(ÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâô•πÖ±°ïç¨Å—ïÖµÕ•πÖ±°ïç¨à¯Ò†–˘•πÖ∞Å°ïç¨ÉäPÅŸïπ–ÅMï—’¿ÅIïçΩ…êΩ†–¯Òë•ÿÅç±ÖÕÃÙâç°ïç≠1•Õ–à¯ëÌç°ïç≠ÃπµÖ¿†°ç°ïç¨§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâΩ¨à¯ÒÕ¡Ö∏˚ärLΩÕ¡Ö∏¯ëÌïÕå°ç°ïç¨π±Öâï∞•ÙΩë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…QïÖµÕAÖùî†§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç—ïÖµÕëµ•∏à§Ï(ÄÄÄÅ•òÄ†Ö°ΩÕ–§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÄÄÅ•òÄ†ê†àç—ïÖµÕAÖùï!ïÖë•πúà§§Äê†àç—ïÖµÕAÖùï!ïÖë•πúà§π—ï·—Ωπ—ïπ–ÄÙÄâ…Ω’¡ÃÅÖπêÅQïÖµÃàÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò†Ã˘9ºÅïŸïπ–Å¡±Ö∏Å•ÃÅ…ïÖë‰ÅÂï–∏Ω†Ã¯Ò¿˘…ïÖ—îÅÖπêÅÕÖŸîÅÖ∏ÅïŸïπ–Å¡±Ö∏Åô•…Õ–∏Ω¿¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ—ïÖµÕ9ï›Ÿïπ–à˘…ïÖ—îÅ9ï‹ÅŸïπ–Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÅ•òÄ†ê†àç—ïÖµÕ9ï›Ÿïπ–à§§Äê†àç—ïÖµÕ9ï›Ÿïπ–à§πΩπç±•ç¨ÄÙÅΩ¡ïπ]•ÈÖ…êÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•π•—•Ö±•Õï…Ω’¡Ã†§Ï(ÄÄÄÅçΩπÕ–Å±Ωç≠ïêÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–π±Ωç≠ïê§Ï(ÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅ5Ö—†πµ•∏†(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ∞(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒ∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ≠ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞(ÄÄÄÄÄÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¡m≠ïÂt∞(ÄÄÄÄÄÅù…Ω’¡ÃÄÙÅÕï—’¿πù…Ω’¡ÃÏ(ÄÄÄÅçΩπÕ–Å—ïÖµÕMÖŸïêÄÙÅ	ΩΩ±ïÖ∏°Õï—’¿πÕÖŸïê§Ï(ÄÄÄÅçΩπÕ–ÅçπÖµîÄÙ(ÄÄÄÄÄÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§¸ππÖµîÅÒ(ÄÄÄÄÄÄâΩ’…ÕîàÏ(ÄÄÄÅçΩπÕ–Åµï—°ΩêÄÙÅÕ—Ö…—5ï—°ΩëΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§∞(ÄÄÄÄÄÅ•ëÃÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§∞(ÄÄÄÄÄÅç—‡ÄÙÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸ÅÖµâ…ΩÕïQ°…ïïA±ÖÂï…Ωπ—ï·–°ù…Ω’¡Ã§(ÄÄÄÄÄÄÄÄËÅπΩAÖ…—πï…Ωπ—ï·–°ù…Ω’¡Ã∞ÅëÖ‰§Ï(ÄÄÄÅçΩπÕ–ÅŸ¿ÄÙÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»Ä¸Å¡±ÖÂï»°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§ÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Åï·—…ÑÄÙÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»Ä¸Å¡±ÖÂï»°Õï—’¿ππ—¡·—…ÖA±ÖÂï»§ÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÖµâ…ΩÕï·—…Ö——ïµ¡—ÃÄÙÅ=â©ïç–πïπ—…•ïÃ°Õï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙ§(ÄÄÄÄÄÄπµÖ¿†°m°Ω±î∞Å•ët§ÄÙ¯Ä°ÏÅ°Ω±îËÄ≠°Ω±î∞ÅπÖµîËÅïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»àÅÙ§§(ÄÄÄÄÄÄπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÑπ°Ω±îÄ¥Åàπ°Ω±î§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—Ωπ—…Ω∞ÄÙÄ°ù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâÕ°Ω—ù’∏à§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒ±Öâï∞Åç±ÖÕÃÙâÕ—Ö…—AΩÃà˘M—Ö…—•πúÅ!Ω±îÒÕï±ïç–ÅëÖ—Ñµù…Ω’¡Õ—Ö…–ÙàëÌù•ÙàÄëÌ±Ωç≠ïêÅÒÅ—ïÖµÕMÖŸïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ§Ä¨Ä≈ÙàÄëÏ≠Õï—’¿πÕ—Ö…—Õmù•tÄÙÙÙÅ§Ä¨ÄƒÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘!Ω±îÄëÌ§Ä¨Ä≈ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞˘ÄÏ(ÄÄÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâ—›ºà§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å—ïïÃÄÙÅÕ—Ω…îπïŸïπ–π—›ΩQïïM—Ö…—Ã¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅlƒ∞Äƒ¡tÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒ±Öâï∞Åç±ÖÕÃÙâÕ—Ö…—AΩÃà˘M—Ö…—•πúÅ!Ω±îÒÕï±ïç–ÅëÖ—Ñµù…Ω’¡Õ—Ö…–ÙàëÌù•ÙàÄëÌ±Ωç≠ïêÅÒÅ—ïÖµÕMÖŸïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌ—ïïÃπµÖ¿†°†§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ°ÙàÄëÏ≠Õï—’¿πÕ—Ö…—Õmù•tÄÙÙÙÄ≠†Ä¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘!Ω±îÄëÌ°ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞˘ÄÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°µï—°ΩêÄÙÙÙÄâÕ•πù±îà§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâÕ—Ö…—=…ëï»à˘M—Ö…—•πúÅ!Ω±îÄëÌÕ—Ö…—!Ω±ïÕΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰•l¡uÙΩÕ¡Ö∏˘ÄÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâÕ—Ö…—=…ëï»à˘QïîÅΩ…ëï»ÄëÌù§Ä¨Ä≈ÙΩÕ¡Ö∏˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡±ÖÂï…IΩ‹ÄÙÄ°¡•ê∞Åù§∞Å¡§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–Å¿ÄÙÅ¡±ÖÂï»°¡•ê§∞(ÄÄÄÄÄÄÄÅÕï±ïç—ïêÄÙÅM—…•πú°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÅÒÄàà§ÄÙÙÙÅM—…•πú°¡•ê§∞(ÄÄÄÄÄÄÄÅπ¿ÄÙÅM—…•πú°¡•ê§ÄÙÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄÄÄÄÅÖ›Ö•—•πúÄÙÅÕ—Ω…îπïŸïπ–π•πŸ•—Ö—•ΩπM—Ö—’Ã¸πmM—…•πú°¡•ê•tÄÙÙÙÄâÖ›Ö•—•πúàÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡A±ÖÂï»ÄëÌÕï±ïç—ïêÄ¸ÄâÕ›Ö¡Mï±ïç—ïêàÄËÄàâÙÄëÌπ¿Ä¸ÄâπΩAÖ…—πï……Ω’¡A±ÖÂï»àÄËÄàâÙÄëÌÖ›Ö•—•πúÄ¸ÄâÖ›Ö•—•πùA±ÖÂï»àÄËÄàâÙà¯(ÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÕ±Ω—9ºà¯ëÌ¡§Ä¨Ä≈ÙΩë•ÿ¯(ÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡A±ÖÂï…9Öµîà¯Òà¯ëÌïÕå°¿¸ππÖµîÅÒÄâUπ≠πΩ›∏à•ÙëÌÖ›Ö•—•πúÄ¸ÄàÄÒï¥˚ä^<Å›Ö•—•πúÅ…ï¡±‰Ωï¥¯àÄËÄàâÙΩà¯ÒÕµÖ±∞¯ëÌπ¿Ä¸Äâ5•ÕÕ•πúÅ¡±ÖÂï»Å¡ΩÕ•—•Ω∏àÄËÅïÕå°¿¸ππΩ=ôô•ç•Ö±!Öπë•çÖ¿Ä¸Äâ9ºÅ=ôô•ç•Ö∞Å!Öπë•çÖ¿àÄËÅ¿¸πùΩ±ô1•π¨ÅÒÄàà•ÙΩÕµÖ±∞¯Ωë•ÿ¯(ÄÄÄÄÄëÌ±Ωç≠ïêÅÒÅ—ïÖµÕMÖŸïêÅÒÅπ¿Ä¸ÄààÄËÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙàëÌÕï±ïç—ïêÄ¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙÅÕ›Ö¡	—∏ÄëÌÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄ¸ÄààÄËÄâµÖπ’Ö±=ôòâÙàÅëÖ—ÑµÕ›Ö¡¡±ÖÂï»ÙàëÌ¡•ëÙà¯ëÌÕï±ïç—ïêÄ¸ÄâMï±ïç—ïêàÄËÄâM›Ö¿âÙΩâ’——Ω∏˘ÅÙ(ÄÄÄΩë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡Ö•…9ÖµîÄÙÄ°•ê∞Åù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°M—…•πú°•ê§ÄÙÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâŸ¡9Öµîà¯ëÌïÕå°¡±ÖÂï»°Õï—’¡Ω…QïÖ¥°Õï—’¿±ù§§πŸ•…—’Ö±A±ÖÂï»§¸ππÖµîÅÒÄâY•…—’Ö∞ÅA±ÖÂï»à•ÙÄ°Y@§ΩÕ¡Ö∏˘ÄÏ(ÄÄÄÄÄÅ…ï—’…∏ÅïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà§Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡Ö•…	±Ωç¨ÄÙÄ°ú∞Åù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖçΩµ¡ï—•—•Ωπ%Õ=∏†âôΩ’…âÖ±∞à∞ÅëÖ‰§§Å…ï—’…∏ÄààÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩπîÄÙÅúπÕ±•çî†¿∞Ä»§πµÖ¿°•êÙ˘¡Ö•…9Öµî°•ê±ù§§§π©Ω•∏†àÄòÄà§∞(ÄÄÄÄÄÄÄÅ—›ºÄÙÅúπÕ±•çî†»∞Ä–§πµÖ¿°•êÙ˘¡Ö•…9Öµî°•ê±ù§§§π©Ω•∏†àÄòÄà§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâ¡Ö…—πï…	±Ωç¨à¯Òë•ÿÅç±ÖÕÃÙâ¡Ö…—πï…!ïÖë•πúà˘AÖ…—πï…ÃÅ•∏Ä—		Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡Ö•…M’µµÖ…‰à¯ÒÕ¡Ö∏¯ëÌΩπîÅÒÄãäPâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌ—›ºÅÒÄãäPâÙΩÕ¡Ö∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÖµâ…ΩÕïIΩ±ï	±Ωç¨ÄÙÄ°ú∞Åù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†ÖÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§§Å…ï—’…∏ÄààÏ(ÄÄÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅúπµÖ¿°M—…•πú§πô•±—ï»†°•ê§ÄÙ¯Å•êÄòòÅ•êÄÑÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÄÄÅ…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åù§§∞(ÄÄÄÄÄÄÄÅÕ—Ö…—ïêÄÙÅÖµâ…ΩÕïQïÖµ!ÖÕπ—…•ïÃ°ëÖ‰∞Åù§§∞(ÄÄÄÄÄÄÄÅΩ¡—•ΩπÃÄÙÄ°Õï±ïç—ïë%ê∞Åï·ç±’ëï%êÄÙÄàà§ÄÙ¯Å—ïÖ¥(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅï·ç±’ëï%ê§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ•ëÙàÄëÌ•êÄÙÙÙÅÕï±ïç—ïë%êÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩΩ¡—•Ω∏˘Ä§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕïQïÖµIΩ±ïÃÄëÌÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÙÙÄâÕçΩ…ï…=π±‰àÄ¸ÄâÕçΩ…ï…=π±‰àÄËÄàâÙà¯Ò±Öâï∞˘MçΩ…ï»ÒÕï±ïç–ÅëÖ—ÑµÖµâ…ΩÕïÕçΩ…ï»ÙàëÌù•ÙàÄëÌÕ—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌΩ¡—•ΩπÃ°…Ω±ïÃπÕçΩ…ï…%ê•ÙΩÕï±ïç–¯Ω±Öâï∞¯ëÌÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÙÙÄâÕçΩ…ï…=π±‰àÄ¸ÄààÄËÅÄÒ±Öâï∞˘5Ö…≠ï»ÒÕï±ïç–ÅëÖ—ÑµÖµâ…ΩÕïµÖ…≠ï»ÙàëÌù•ÙàÄëÌÕ—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌΩ¡—•ΩπÃ°…Ω±ïÃπµÖ…≠ï…%ê∞Å…Ω±ïÃπÕçΩ…ï…%ê•ÙΩÕï±ïç–¯Ω±Öâï∞˘ÅÙΩë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÖ±±MÖŸïêÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅÏÅ±ïπù—†ËÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÙ∞(ÄÄÄÄÄÄ°|∞Å§§ÄÙ¯ÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¡lâëÖ‰àÄ¨Ä°§Ä¨Äƒ•t¸πÕÖŸïê∞(ÄÄÄÄ§πïŸï…‰°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅçΩπÕ–Å°Öπë•çÖ¡ÕΩµ¡±ï—îÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅÏÅ±ïπù—†ËÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÙ∞(ÄÄÄÄÄÄ°|∞Å§§ÄÙ¯ÅïŸïπ—A±ÖÂï…Ö—ïùΩ…•ïÃ°§¨ƒ±Õ—Ω…îπïŸïπ–§πïŸï…‰°çÖ—ïùΩ…‰Ù˘ïπÖâ±ïëŸïπ—QïïÕΩ…Ö—ïùΩ…‰°Õ—Ω…îπïŸïπ–±§¨ƒ±çÖ—ïùΩ…‰§πïŸï…‰°—ïîÙ˘—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°§¨ƒ±—ïî±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§§§∞(ÄÄÄÄ§πïŸï…‰°	ΩΩ±ïÖ∏§Ï(ÄÄÄÅçΩπÕ–Å±Ωç≠IïÖë‰ÄÙÅÖ±±MÖŸïêÄòòÅ°Öπë•çÖ¡ÕΩµ¡±ï—îÏ(ÄÄÄÅçΩπÕ–ÅÖ›Ö•—•πù%ëÃÄÙÅ•ëÃπô•±—ï»†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅÕ—Ω…îπïŸïπ–π•πŸ•—Ö—•ΩπM—Ö—’Ã¸πmM—…•πú°•ê•tÄÙÙÙÄâÖ›Ö•—•πúà∞(ÄÄÄÄ§Ï(ÄÄÄÅïπÕ’…ïŸïπ—QïïA±Öππ•πú°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅçΩπÕ–Å—ïïÖ—ïùΩ…•ïÃıïŸïπ—A±ÖÂï…Ö—ïùΩ…•ïÃ°ëÖ‰±Õ—Ω…îπïŸïπ–§∞(ÄÄÄÄÄÅ—ïï•πÖ∞ÄÙÅ—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§∞(ÄÄÄÄÄÅÕçΩ…ïπ—…‰ÄÙÅô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§∞(ÄÄÄÄÄÅ—ïïMçΩ…•πùM—Ö…—ïêÄÙÅ	ΩΩ±ïÖ∏°ÕçΩ…ïπ—…‰§∞(ÄÄÄÄÄÅÕï±ïç—ïëQïïΩµ¡±ï—îÄÙÅ—ïïÖ—ïùΩ…•ïÃπïŸï…‰°çÖ—ïùΩ…‰Ù˘—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°ëÖ‰±Õï±ïç—ïëŸïπ—Qïî°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§§∞(ÄÄÄÄÄÅïŸïπ—Ω’…ÕîÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅïŸïπ—MçΩ…•πùM—Ö…—ïêÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯Åô•…Õ—ÖÂMçΩ…ïπ—…‰°•πëï‡Ä¨Äƒ§§πÕΩµî°	ΩΩ±ïÖ∏§∞(ÄÄÄÄÄÅµÖ…≠ï…%πç±’ëïêÄÙÅÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÑÙÙÄâÕçΩ…ï…=π±‰à∞(ÄÄÄÄÄÅµÖ…≠ï…°Ω•çîÄÙÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï5Ö…≠ï…°Ω•çîà¯Òà˘MçΩ…îÅ5Ö…≠ï»Ωà¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâ—Ωùù±ïµâ…ΩÕï5Ö…≠ï»àÅç±ÖÕÃÙàëÌµÖ…≠ï…%πç±’ëïêÄ¸Äâ•πç±’ëïêàÄËÄàâÙàÄëÌïŸïπ—MçΩ…•πùM—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌµÖ…≠ï…%πç±’ëïêÄ¸ÄãärLÅ5Ö…≠ï»Å%πç±’ëïêàÄËÄâ±•ç¨Å—ºÅ•πç±’ëîÅÑÅMçΩ…îÅ5Ö…≠ï»âÙΩâ’——Ω∏¯ÒÕµÖ±∞¯ëÌïŸïπ—MçΩ…•πùM—Ö…—ïêÄ¸ÄâMçΩ…•πúÅ°ÖÃÅÕ—Ö…—ïêÉäPÅÕï——•πúÅ±Ωç≠ïê∏àÄËÄâ¡¡±•ïÃÅ—ºÅïŸï…‰Å—ïÖ¥Å•∏Å—°•ÃÅïŸïπ–∏âÙΩÕµÖ±∞¯Ωë•ÿ˘ÄÄËÄàà∞(ÄÄÄÄÄÅ—ïï°ÖπùïΩπ—…Ω∞ÄÙÅ±Ωç≠ïêÄòòÅ—ïï•πÖ∞ÄòòÄÖ—ïïMçΩ…•πùM—Ö…—ïêÄ¸ÄúÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–Å…ïΩ¡ïπQïï	—∏àÅ•êÙâ…ïΩ¡ïπŸïπ—Qïîà˘°ÖπùîÅQïîÅ	ïôΩ…îÅMçΩ…•πúΩâ’——Ω∏¯úÄËÄàà∞(ÄÄÄÄÄÅ—ïïAÖπï∞ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâïŸïπ—QïïAÖπï∞ÄëÌÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸ÄâÖµâ…ΩÕïQïïAÖπï∞àÄËÄàâÙÄëÌ—ïï•πÖ∞Ä¸Äâô•πÖ∞àÄËÄàâÙà¯Òë•ÿ¯ÒÕµÖ±∞¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâA1e%9ÅQàÄËÅÅdÄëÌëÖÂÙÅA1e%9ÅQÅÙΩÕµÖ±∞¯Ò†Ã¯ëÌ—ïï•πÖ∞Ä¸ÄãärLÄàÄËÄàâÙëÌ—ïïÖ—ïùΩ…•ïÃπµÖ¿°çÖ—ïùΩ…‰Ù˘ÄëÌçÖ—ïùΩ…‰ÙÙÙâ›Ωµï∏à¸â]Ωµï∏àËâ5ï∏âÙËÄëÌïŸïπ—Qïï5Ö…≠ï…Ω±Ω’»°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰•ıÄ§π©Ω•∏†àÉ
+‹Äà•ÙΩ†Ã¯Ò¿¯ëÌ—ïï•πÖ∞Ä¸Äâ•πÖ±•ÕïêÅôΩ»ÅÕçΩ…•πú∏àÄËÅ±Ωç≠ïêÄ¸Äâ°ΩΩÕîÅ—°îÅ—ïîÅôΩ»ÅïÖç†ÅçÖ—ïùΩ…‰∞Å—°ï∏Åô•πÖ±•ÕîÅâïôΩ…îÅÖπÂΩπîÅÕ—Ö…—ÃÅÕçΩ…•πú∏àÄËÄâA…ΩŸ•Õ•ΩπÖ∞ÅÕï±ïç—•ΩπÃ∏Å±∞ÅçÖ±ç’±Ö—ïêÅ°Öπë•çÖ¿ÅÕï—ÃÅ…ïµÖ•∏ÅÕ—Ω…ïê∏âÙΩ¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâïŸïπ—QïïÖ—ïùΩ…Â…•êà¯ëÌ—ïïÖ—ïùΩ…•ïÃπµÖ¿°çÖ—ïùΩ…‰Ù˘ÄÒÕïç—•Ω∏Åç±ÖÕÃÙâçÖ—ïùΩ…ÂA±ÖÂ•πùQïîà¯Òà¯ëÌçÖ—ïùΩ…‰ÙÙÙâ›Ωµï∏à¸â]Ωµï∏ùÃàËâ5ï∏ùÃâÙÅ—ïîΩà¯Òë•ÿÅç±ÖÕÃÙâïŸïπ—Qïï	’——ΩπÃà¯ëÌïπÖâ±ïëŸïπ—QïïÕΩ…Ö—ïùΩ…‰°Õ—Ω…îπïŸïπ–±ëÖ‰±çÖ—ïùΩ…‰§πµÖ¿°—ïîÙ˘ÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—ÑµïŸïπ——ïîÙàëÌçÖ—ïùΩ…ÂıëÌ—ïïÙàÅç±ÖÕÃÙàëÌÕï±ïç—ïëŸïπ—Qïî°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§ÙÙı—ïî¸âÖç—•ŸîàËàâÙàÄëÌ—ïï•πÖ±ÒÒ—ïïMçΩ…•πùM—Ö…—ïê¸âë•ÕÖâ±ïêàËàâÙ¯ëÌïÕå°ïŸïπ—Qïï•Õ¡±ÖÂ9Öµî°ëÖ‰±—ïî±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰±ïŸïπ—Ω’…Õî§•ÙÒÕµÖ±∞¯ëÌ—ïï!Öπë•çÖ¡ÕΩµ¡±ï—î°ëÖ‰±—ïî±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§¸âIïÖë‰àËâ%πçΩµ¡±ï—îâÙΩÕµÖ±∞¯Ωâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯ΩÕïç—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯ëÌ—ïï°ÖπùïΩπ—…Ω±ÙëÌµÖ…≠ï…°Ω•çïÙëÌ±Ωç≠ïêÄòòÄÖ—ïï•πÖ∞Ä¸ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ¡…•µÖ…‰Åô•πÖ±•ÕïQïï	—∏àÅ•êÙâô•πÖ±•ÕïŸïπ—QïîàÄëÌÕï±ïç—ïëQïïΩµ¡±ï—îÄòòÄÖ—ïïMçΩ…•πùM—Ö…—ïêÄ¸ÄààÄËÄâë•ÕÖâ±ïêâÙ˘%91%MÅQÅM1Q%=8Ωâ’——Ω∏˘ÄÄËÄàâÙëÌ—ïïMçΩ…•πùM—Ö…—ïêÄòòÄÖ—ïï•πÖ∞Ä¸ÄúÒÕ—…ΩπúÅç±ÖÕÃÙâ—ïïMï±ïç—•Ωπ]Ö…π•πúà˘MçΩ…•πúÅ°ÖÃÅâïù’∏∏ÅQïîÅÕï±ïç—•Ω∏ÅçÖππΩ–ÅâîÅç°Öπùïê∏ΩÕ—…Ωπú¯úÄËÄàâÙΩë•ÿ˘Ä∞(ÄÄÄÄÄÅÕ—Ö…—•πù!Ω±îÄÙÄ¨°Õ—Ö…—!Ω±ïÕΩ»°Õ—Ω…îπïŸïπ–∞ÅëÖ‰•l¡tÅÒÄƒ§∞(ÄÄÄÄÄÅÕçΩ…•πù	±Ωç≠ï»ÄÙÅÕçΩ…ïπ—…‰(ÄÄÄÄÄÄÄÄ¸ÅÄëÌïŸïπ—A±ÖÂï»°ÕçΩ…ïπ—…‰πÕçΩ…ï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâÅ¡±ÖÂï»âÙÅ°ÖÃÅÖ∏Åïπ—…‰Å…ïçΩ…ëïêÅΩ∏Å!Ω±îÄëÌÕçΩ…ïπ—…‰π°Ω±ïÙπÄ(ÄÄÄÄÄÄÄÄËÄàà∞(ÄÄÄÄÄÅÕ—Ö…—•πù!Ω±ïAÖπï∞ÄÙ(ÄÄÄÄÄÄÄÅ±Ωç≠ïêÄòòÅµï—°ΩêÄÙÙÙÄâÕ•πù±îà(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâïŸïπ—QïïAÖπï∞ÅÕ—Ö…—•πù!Ω±ïAÖπï∞ÄëÌ—ïïMçΩ…•πùM—Ö…—ïêÄ¸Äâ±Ωç≠ïêàÄËÄàâÙà¯Òë•ÿ¯ÒÕµÖ±∞¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâMQIQ%9Å!=1àÄËÅÅdÄëÌëÖÂÙÅMQIQ%9Å!=1ÅÙΩÕµÖ±∞¯Ò†Ã˘!Ω±îÄëÌÕ—Ö…—•πù!Ω±ïÙΩ†Ã¯Ò¿¯ëÌ—ïïMçΩ…•πùM—Ö…—ïêÄ¸ÅÅM—Ö…—•πúÅ°Ω±îÅçÖππΩ–ÅâîÅç°Öπùïê∏ÄëÌïÕå°ÕçΩ…•πù	±Ωç≠ï»•ıÄÄËÄâ%òÅ—°îÅç±’àÅç°ÖπùïÃÅ—°îÅÕ—Ö…—•πúÅ°Ω±î∞Å’¡ëÖ—îÅ•–Å°ï…îÅâïôΩ…îÅÖπÂΩπîÅâïù•πÃÅÕçΩ…•πú∏âÙΩ¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâÕ—Ö…—•πù!Ω±ï°Öπùîà¯Ò±Öâï∞˘9ï‹ÅM—Ö…—•πúÅ!Ω±îÒÕï±ïç–Å•êÙâ±Ωç≠ïëM—Ö…—!Ω±îàÄëÌ—ïïMçΩ…•πùM—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ§Ä¨Ä≈ÙàÄëÌ§Ä¨ÄƒÄÙÙÙÅÕ—Ö…—•πù!Ω±îÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ˘!Ω±îÄëÌ§Ä¨Ä≈ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯Ω±Öâï∞¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâÖ¡¡±ÂM—Ö…—•πù!Ω±îàÄëÌ—ïïMçΩ…•πùM—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ˘AA1dÅMQIQ%9Å!=1Ωâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘Ä(ÄÄÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–ÅÖôôïç—ïêÄÙÅç—‡¸πÖôôïç—ïêÄ¸Å¡±ÖÂï»°ç—‡πÖôôïç—ïê§ÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–ÅÕ°Ω…—9Ω—•çîÄÙÅç—‡(ÄÄÄÄÄÄ¸ÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâŸ•…—’Ö±9Ω—•çîà¯Ò†–¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâQ°…ïîµA±ÖÂï»Åµâ…ΩÕîÅQïÖ¥àÄËÅÅQ°…ïîµA±ÖÂï»Åµâ…ΩÕîÅQïÖ¥ÉäPÅÖ‰ÄëÌëÖÂıÅÙΩ†–¯Ò¿˘Q°•ÃÅ—ïÖ¥Å¡±ÖÂÃÅ›•—†Å•—ÃÅ—°…ïîÅÖç—’Ö∞ÅùΩ±ôï…Ã∏Å9ºÅY•…—’Ö∞ÅA±ÖÂï»ÅÕçΩ…îÅ•ÃÅ’Õïê∏Ω¿¯ëÌÖµâ…ΩÕï·—…Ö——ïµ¡—Ãπ±ïπù—†Ä¸ÅÄÒ¿¯Òà˘9Q@Å·—…ÑÅM°Ω—ÃËΩà¯ÄëÌÖµâ…ΩÕï·—…Ö——ïµ¡—ÃπµÖ¿†°Ö——ïµ¡–§ÄÙ¯ÅÅ!Ω±îÄëÌÖ——ïµ¡–π°Ω±ïÙÉäPÄëÌïÕå°Ö——ïµ¡–ππÖµî•ıÄ§π©Ω•∏†àÏÄà•Ù∏ÅQ°îÅï·—…ÑÅÖ——ïµ¡–Å…Ω—Ö—ïÃÅ—ºÅÑÅë•ôôï…ïπ–ÅùΩ±ôï»Å›°ï∏Å—›ºÅ9Q@Å°Ω±ïÃÅÖ…îÅÕï±ïç—ïêÏÅï•—°ï»Å—ïîÅÕ°Ω–ÅµÖ‰Å≈’Ö±•ô‰∏Ω¿˘ÄÄËÄàâÙΩë•ÿ˘Ä(ÄÄÄÄÄÄÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâŸ•…—’Ö±9Ω—•çîà¯(ÄÄÄÒ†–¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâM°Ω…–ÅQïÖ¥Å……Öπùïµïπ–àÄËÅÅM°Ω…–ÅQïÖ¥Å……Öπùïµïπ–ÉäPÅÖ‰ÄëÌëÖÂıÅÙΩ†–¯(ÄÄÄÒ¿˘’îÅ—ºÅôï›ï»Å—°Ö∏Å—°îÅ¡±ÖππïêÅπ’µâï»ÅΩòÅ¡±ÖÂï…ÃÅâï•πúÅÖŸÖ•±Öâ±îÅôΩ»Å—°•ÃÅïŸïπ–∞ÄÒà¯ëÌïÕå°Öôôïç—ïê¸ππÖµîÅÒÄâ—°îÅ¡±ÖÂï»à•ÙΩà¯Å°ÖÃÅâïï∏Å¡±ÖçïêÅ•∏ÅÑÅ—ïÖ¥Å›•—†Å9ºÅAÖ…—πï»∏ÄÒÕ¡Ö∏Åç±ÖÕÃÙâŸ¡9Öµîà¯Òà¯ëÌïÕå°Ÿ¿¸ππÖµîÅÒÄâY•…—’Ö∞ÅA±ÖÂï»à•ÙÄ°Y@§Ωà¯ΩÕ¡Ö∏¯Å°ÖÃÅâïï∏Å…ÖπëΩµ±‰ÅÕï±ïç—ïêÅÖÃÅ—°îÅY•…—’Ö∞ÅA±ÖÂï»∏Ω¿¯(ÄÄÄÒ¿˘]°ï…îÅÑÅ¡Ö…—πï»ÅΩ»ÅôΩ’…—†Å—ïÖ¥Åµïµâï»ùÃÅÕçΩ…îÅ•ÃÅ…ï≈’•…ïê∞Å—°îÅY•…—’Ö∞ÅA±ÖÂï»ùÃÅÕçΩ…îÅ›•±∞ÅâîÅ’Õïê∏ÅQ°îÅY•…—’Ö∞ÅA±ÖÂï»Å…ïµÖ•πÃÅ•∏Å—°ï•»ÅΩ›∏Å¡±ÖÂ•πúÅù…Ω’¿ÅÖπêÅ•ÃÅπΩ–Åïπ—•—±ïêÅ—ºÅÖπ‰ÅÖëë•—•ΩπÖ∞Å¡…•ÈîÅΩ»Å…ï≈’•…ïêÅ—ºÅµÖ≠îÅÖπ‰ÅÖëë•—•ΩπÖ∞Å	ïÕ–ÄÃÅΩòÄ–Å1Ω——ï…‰ÅçΩπ—…•â’—•Ω∏ÅâïçÖ’ÕîÅ—°ï•»ÅÕçΩ…îÅ•ÃÅÖ±ÕºÅâï•πúÅ’ÕïêÅŸ•…—’Ö±±‰∏Ω¿¯(ÄÄÄëÌï·—…ÑÄ¸ÅÄÒ¿¯Òà˘9Q@Å·—…ÑÅM°Ω–ËΩà¯ÄëÌïÕå°ï·—…ÑππÖµî•ÙÅ°ÖÃÅâïï∏Å…ÖπëΩµ±‰ÅÕï±ïç—ïêÅô…Ω¥Å—°îÅ—°…ïîÅùΩ±ôï…ÃÅ•∏Å—°îÅÕ°Ω…–Å—ïÖ¥∏Å=∏ÅïÖç†Å9Q@Å°Ω±îÅ—°Ö–ÅëÖ‰∞ÄëÌïÕå°ï·—…ÑππÖµî•ÙÅµÖ‰Å¡±Ö‰Å—›ºÅ—ïîÅÕ°Ω—ÃÏÅï•—°ï»ÅÕ°Ω–ÅµÖ‰Å≈’Ö±•ô‰ÅôΩ»Å—°îÅ9Q@∏Ω¿˘ÄÄËÄàâÙ(ÄΩë•ÿ˘Ä(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅ•òÄ†ê†àç—ïÖµÕAÖùï!ïÖë•πúà§§Äê†àç—ïÖµÕAÖùï!ïÖë•πúà§π—ï·—Ωπ—ïπ–ÄÙÅÅ…Ω’¡ÃÅÖπêÅQïÖµÃÅÖ‰ÄëÌëÖÂÙÄëÌçπÖµïÙÉ
+‹ÄëÌ•ëÃπ±ïπù—°ÙÅ¡ΩÕ•—•ΩπÃÉ
+‹ÄëÌµï—°ΩêÄÙÙÙÄâÕ°Ω—ù’∏àÄ¸ÄâM°Ω—ù’∏àÄËÅµï—°ΩêÄÙÙÙÄâ—›ºàÄ¸ÄâQ›ºÅQïïÃàÄËÄâM•πù±îÅQïîâÙëÌ±Ωç≠ïêÄ¸ÄàÉ
+‹ÅY9PÅ1=-àÄËÄàâıÄÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ—ïÖµÕQΩ¿à¯(ÄÄÄÒë•ÿ¯Ò†Ã¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩ†Ã¯Ωë•ÿ¯(ÄÄÄÒë•ÿÅç±ÖÕÃÙâ—ïÖµÕQΩ¡ç—•ΩπÃà¯ëÌëÖÂQÖâÃ†âù…Ω’¡ëÖ‰à∞ÅëÖ‰•ÙëÌ±Ωç≠ïêÄ¸ÄààÄËÅÄÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–ÅâÖç≠QΩA±Ö∏àÅ•êÙââÖç≠QΩŸïπ—Mï—’¿à˚ä@Å	Öç¨Å—ºÅŸïπ–ÅMï—’¿Ωâ’——Ω∏˘ÅÙΩë•ÿ¯(ÄΩë•ÿ¯(ÄÄÄëÏ°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†âçÖ¡QïÖµÃà§Ä¸ÅçÖ¡QïÖµÕ!—µ∞°Õ—Ω…îπïŸïπ–∞ÅçÖ¡IΩÕ—ï»†§∞ÅçÖ¡QïÖµÕ1Ωç≠ïê†§§ÄËÄàâÙ(ÄëÌ±Ωç≠ïêÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâ±Ωç≠ïë	Öππï»à˚¬~RHÅŸïπ–Å1Ωç≠ïêÉäPÅ¡±ÖÂï…Ã∞ÅçΩµ¡ï—•—•ΩπÃÅÖπêÅ—ïÖµÃÅÖ…îÅô•·ïê∏ÅQ°îÅ¡±ÖÂ•πúÅ—ïîÅÖπêÅÕ•πù±îµ—ïîÅÕ—Ö…—•πúÅ°Ω±îÅ…ïµÖ•∏Åç°ÖπùïÖâ±îÅ’π—•∞ÅÕçΩ…•πúÅâïù•πÃ∏Ωë•ÿ˘ÄÄËÅ—ïÖµÕMÖŸïêÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâ±Ωç≠ïë	Öππï»Å—ïÖµÕMÖŸïë	Öππï»à˚¬~RHÄëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâQïÖµÃÅÖ…îàÄËÅÅÖ‰ÄëÌëÖÂÙÅ—ïÖµÃÅÖ…ïÅÙÅ±Ωç≠ïê∏ÅQ°ï‰Å›•±∞Å…ïµÖ•∏Å’πç°ÖπùïêÅ›°•±îÅÂΩ‘ÅµΩŸîÅ—°…Ω’ù†ÅŸïπ–ÅMï—’¿∏Ωë•ÿ˘ÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâ—ïÖµÕQΩΩ±âÖ»à¯Òë•ÿÅç±ÖÕÃÙâë…Ö›5ï—°ΩëÃà¯Òâ’——Ω∏Åç±ÖÕÃÙàëÌÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâ°•Õ—Ω…‰àÄ¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙàÅ•êÙâ°•Õ—Ω…Â	Ö±Öπçïêà˘!•Õ—Ω…‰Å	Ö±ÖπçïêΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙàëÌÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâ…ÖπëΩ¥àÄ¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙàÅ•êÙâ…ÖπëΩµ•Õï…Ω’¡Ãà˘IÖπëΩ¥Ωâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙàëÌÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâµÖπ’Ö∞àÄ¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙàÅ•êÙâµÖπ’Ö±5Ωëîà˘5Öπ’Ö∞Ωâ’——Ω∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ—ïÖµÕM—Ö—’Ãà¯ëÌÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»Ä¸Äâ•…Õ–Å¡±ÖÂï»ÅÕï±ïç—ïêÉäPÅπΩ‹Åç±•ç¨ÅM›Ö¿ÅâïÕ•ëîÅ—°îÅ¡±ÖÂï»Å—ºÅï·ç°ÖπùîÅ›•—†∏àÄËÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâµÖπ’Ö∞àÄ¸Äâ5Öπ’Ö∞ÅµΩëîÅÖç—•ŸîÉäPÅç±•ç¨ÅM›Ö¿ÅâïÕ•ëîÅÖπ‰Å¡±ÖÂï»Å—ºÅâïù•∏∏àÄËÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâ…ÖπëΩ¥àÄ¸ÄâIÖπëΩ¥Åë…Ö‹ÅÕï±ïç—ïê∏àÄËÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâµ•·•πúàÄ¸Äâ5Ö·•µ’¥ÅA±ÖÂï»Å5•·•πúÅ¡±ÖπÃÅ—°îÅ›°Ω±îÅïŸïπ–Å—Ωùï—°ï»∏àÄËÅÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äâ!•Õ—Ω…‰Å	Ö±ÖπçïêÅ’ÕïÃÅ¡…ïŸ•Ω’ÃÅ¡±ÖÂ•πúÅ°•Õ—Ω…‰Å—ºÅŸÖ…‰Å—°îÅù…Ω’¡ÃÅÖπêÅ¡Ö…—πï…Õ°•¡Ã∏àÄËÄâ!•Õ—Ω…‰Å	Ö±ÖπçïêÅ’ÕïÃÅ¡…ïŸ•Ω’ÃÅ¡±ÖÂ•πúÅ°•Õ—Ω…‰ÅÖπêÅïÖ…±•ï»ÅëÖÂÃÅΩòÅ—°•ÃÅïŸïπ–Å—ºÅ…ïë’çîÅ…ï¡ïÖ—ïêÅù…Ω’¡ÃÅÖπêÅ¡Ö…—πï…Ã∏âÙΩë•ÿ¯Ωë•ÿ˘ÅÙ(ÄëÏÖ±Ωç≠ïêÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡	Ω‡Åµ•·•πù°Ω•çîà¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙàëÌÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÙÙÄâµ•·•πúàÄ¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙàÅ•êÙâµÖ·•µ’µA±ÖÂï…5•·•πúàÄëÌïŸïπ—ÖÂÃ†§πÕΩµî°êÙ˘ô•…Õ—ÖÂMçΩ…ïπ—…‰°ê§ÅÒÅ=â©ïç–π≠ïÂÃ°Õ—Ω…îπïŸïπ–πµÖπ’Ö±MçΩ…ïçÖ…ëÃ¸πlâëÖ‰à≠ët¸πù…Ω’¡ÃÅÒÅÌÙ§π±ïπù—†§¸âë•ÕÖâ±ïêàËàâÙ˘5Ö·•µ’¥ÅA±ÖÂï»Å5•·•πúΩâ’——Ω∏¯ÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâ±Ωç≠±±Ÿïπ—QïÖµÃàÄëÌïŸïπ—ÖÂÃ†§πïŸï…‰°êÙ˘Õ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠ët¸πÕÖŸïê§¸âë•ÕÖâ±ïêàËàâÙ˘1Ωç¨Å±∞ÅQïÖµÃÅ±∞ÅÖÂÃΩâ’——Ω∏¯ëÌïŸïπ—ÖÂÃ†§πïŸï…‰°êÙ˘Õ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿¸πlâëÖ‰à≠ët¸πÕÖŸïê§¸úÒ¿¯Òà˘±∞ÅëÖÂœädÅ—ïÖµÃÅÖ…îÅÕÖŸïêÅÖπêÅ±Ωç≠ïê∏Ωà¯Ω¿¯úËúùÙÒ¿˘…Ö‹ÅÖ±∞ÅëÖÂÃÅ—Ωùï—°ï»Å—ºÅµÖ·•µ•ÕîÅë•ôôï…ïπ–Åù…Ω’¡µÖ—ïÃÅÖπêÅÖŸΩ•êÅ…ï¡ïÖ—ïêÄ—		Å¡Ö…—πï…Ã∏Å·•Õ—•πúÅÕÖŸïêÅëÖÂÃÅÖ…îÅ…ï¡±ÖçïêÅΩπ±‰ÅÖô—ï»ÅçΩπô•…µÖ—•Ω∏∏Ω¿¯Ωë•ÿ˘ÄÄËÄàâÙ(ÄëÌµ•·•πùM’µµÖ…Â!—µ∞†•Ù(ÄëÌëÖ‰Ä¯ÄƒÄòòÄÖ±Ωç≠ïêÄòòÄÖ—ïÖµÕMÖŸïêÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâëÖ‰…!•Õ—Ω…Â9Ω—îà¯Òà˘Ö‰ÄëÌëÖÂÙÅâÖ±Öπç•πúËΩà¯Å—ΩëÖ‰ùÃÅë…Ö‹Å—…ïÖ—ÃÅïÖ…±•ï»Åù…Ω’¡ÃÅÖπêÄ—		Å¡Ö…—πï…Õ°•¡ÃÅÖÃÅô…ïÕ†Å°•Õ—Ω…‰ÅÖπêÅù•ŸïÃÅ—°ï¥ÅÕ—…ΩπúÅ…ï¡ïÖ–Å¡ïπÖ±—•ïÃ∏Ωë•ÿ˘ÄÄËÄàâÙ(ÄëÌÖ›Ö•—•πù%ëÃπ±ïπù—†Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâ¡±Öππ•πù›Ö•—•πù9Ω—•çîà¯Òà¯ëÌÖ›Ö•—•πù%ëÃπ±ïπù—°ÙÅ¡±ÖÂï»ëÌÖ›Ö•—•πù%ëÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄàÅ•ÃàÄËÄâÃÅÖ…îâÙÅÕ—•±∞ÅÖ›Ö•—•πúÅÑÅ…ï¡±‰∏Ωà¯ÒÕ¡Ö∏˘Q°ï‰Å…ïµÖ•∏ÅÖµâï»Å•∏Å—°•ÃÅ¡…ΩŸ•Õ•ΩπÖ∞Å¡±Ö∏∏ÅIï—’…∏Å—ºÅŸïπ–ÅMï—’¿Å—ºÅµÖ…¨ÅïÖç†ÅÖççï¡—ÖπçîÅù…ïï∏ÅâïôΩ…îÅ±Ωç≠•πú∏ΩÕ¡Ö∏¯Ωë•ÿ˘ÄÄËÄàâÙ(ÄëÌ—ïïAÖπï±Ù(ÄëÌÕ—Ö…—•πù!Ω±ïAÖπï±Ù(ÄëÏÖ±Ωç≠ïêÄòòÄÖ—ïÖµÕMÖŸïêÄ¸ÅÄÒ¿Å…Ω±îÙâÕ—Ö—’Ãà¯ëÌÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿¸πëÖ‰ÄÙÙÙÅëÖ‰Ä¸ÅÅQïÖ¥ÄëÌÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿π•πëï‡Ä¨Ä≈ÙÅÕï±ïç—ïêÉäPÅç±•ç¨ÅM›Ö¿ÅΩ∏Å—°îÅ—ïÖ¥Å—ºÅï·ç°ÖπùîÅ—ïîÅÕ±Ω—ÃÅ›•—†∞ÅΩ»Åç±•ç¨Å—°îÅÕï±ïç—ïêÅâ’——Ω∏Å—ºÅçÖπçï∞πÄÄËÄâQºÅç°ÖπùîÅ—°îÅΩ…ëï»ÅΩòÅ¡±Ö‰∞Åç±•ç¨ÅM›Ö¿ÅâïÕ•ëîÅ—°îÅÕ—Ö…—•πúÅ°Ω±îÅΩ∏Å—›ºÅ—ïÖµÃ∏ÅA±ÖÂï…ÃÅÖπêÅ¡Ö…—πï…Õ°•¡ÃÅÕ—Ö‰Å—Ωùï—°ï»ÏÅ—°îÅ—ïÖµÃÅï·ç°ÖπùîÅπ’µâï…ÃÅÖπêÅ—ïîÅÕ±Ω—Ã∏âÙΩ¿˘ÄÄËÄàâÙ(ÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡…•êà¯ëÌù…Ω’¡Ã(ÄÄÄπµÖ¿†(ÄÄÄÄÄ°ú∞Åù§§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂ•πù…Ω’¿à¯(ÄÄÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡!ïÖêà¯Òë•ÿ¯Ò†–˘…Ω’¿ÄëÌù§Ä¨Ä≈ÙΩ†–¯ÒÕµÖ±∞¯ëÌúπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%§π±ïπù—°ÙÅÖç—’Ö∞Å¡±ÖÂï»ëÌúπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%§π±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙëÌúπÕΩµî†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÙÙÙÅ9=}AIQ9I}%§Ä¸ÄàÄ¨Å9ºÅAÖ…—πï»àÄËÄàâÙÉ
+‹ÅQïîÅ—•µîÄëÌù…Ω’¡QïïQ•µî°ëÖ‰∞Åù§•ÙΩÕµÖ±∞¯Ωë•ÿ¯ëÌÕ—Ö…—Ωπ—…Ω∞°ù§•ÙÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙàëÌÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿¸πëÖ‰ÄÙÙÙÅëÖ‰ÄòòÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿π•πëï‡ÄÙÙÙÅù§Ä¸Äâ¡…•µÖ…‰àÄËÄâÕΩô–âÙàÅëÖ—ÑµÕ›Ö¡—ïÖ¥ÙàëÌù•ÙàÅÖ…•Ñµ±Öâï∞ÙâM›Ö¿Å›°Ω±îÅ—ïÖ¥ÄëÌù§Ä¨Ä≈ÙàÄëÌ±Ωç≠ïêÅÒÅ—ïÖµÕMÖŸïêÅÒÅ—ïïMçΩ…•πùM—Ö…—ïêÄ¸Äâë•ÕÖâ±ïêàÄËÄàâÙ¯ëÌÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿¸πëÖ‰ÄÙÙÙÅëÖ‰ÄòòÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿π•πëï‡ÄÙÙÙÅù§Ä¸ÄâMï±ïç—ïêÉ
+‹ÅÖπçï∞àÄËÄâM›Ö¿âÙΩâ’——Ω∏¯Ωë•ÿ¯(ÄÄÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡A±ÖÂï…Ãà¯ëÌúπµÖ¿†°¡•ê∞Å¡§§ÄÙ¯Å¡±ÖÂï…IΩ‹°¡•ê∞Åù§∞Å¡§§§π©Ω•∏†àà•ÙΩë•ÿ¯(ÄÄÄëÌÖµâ…ΩÕïIΩ±ï	±Ωç¨°ú∞Åù§•Ù(ÄÄÄëÌÕï—’¿πÕ°Ω…—QïÖµÃ¸πmM—…•πú°ù§•tÄ¸Ä††§Ù˘ÌçΩπÕ–ÅÑıÕï—’¿πÕ°Ω…—QïÖµÕmM—…•πú°ù§•tÌ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâŸ¡ÕÕ•ùπµïπ–à¯Òà¯ëÌÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§¸ùQ°…ïîµ¡±ÖÂï»Åµâ…ΩÕîÅ—ïÖ¥úËùY•…—’Ö∞ÅA±ÖÂï»ËÄú≠ïÕå°ïŸïπ—A±ÖÂï»°ÑπŸ•…—’Ö±A±ÖÂï»∞ÅëÖ‰§¸ππÖµïÒù9Ω–ÅÕï±ïç—ïêú§¨úÄ°Y@§ùÙΩà¯ëÌ=â©ïç–πïπ—…•ïÃ°Ñππ—¡·—…ÖA±ÖÂï…ÕÒÒÌÙ§πµÖ¿†°m°Ω±î±•ët§Ù˘ÄÒÕ¡Ö∏Åç±ÖÕÃÙâπ—¡·—…Ñà¯Òà˘!Ω±îÄëÌ°Ω±ïÙÅ9Q@Å·—…ÑÅM°Ω–ËΩà¯ÄëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµïÒùA±ÖÂï»ú•ÙÉäPÅ—›ºÅÕ°Ω—ÃΩÕ¡Ö∏˘Ä§π©Ω•∏†úú•ÙëÌÑππ—¡·—…ÖA±ÖÂï»˝ÄÒÕ¡Ö∏Åç±ÖÕÃÙâπ—¡·—…Ñà˘9Q@Å·—…ÑÅM°Ω–ËÄëÌïÕå°ïŸïπ—A±ÖÂï»°Ñππ—¡·—…ÖA±ÖÂï»∞ÅëÖ‰§¸ππÖµïÒùA±ÖÂï»ú•ÙÉäPÅ—›ºÅÕ°Ω—ÃÅΩ∏ÅïÖç†Å9Q@Å°Ω±îΩÕ¡Ö∏˘ÄËúùÙΩë•ÿ˘ÄÌÙ§†§ËúùÙ(ÄÄÄëÏ(ÄÄÄÄÄÖ±Ωç≠ïêÄòòÄÖ—ïÖµÕMÖŸïêÄòò(ÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»Äòò(ÄÄÄÄÅúπÕΩµî†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅM—…•πú°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»§§(ÄÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâµÖπ’Ö±!•Õ—Ω…‰à¯ëÏ(ÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…!•Õ—Ω…ÂùÖ•πÕ—…Ω’¿°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»∞Åú§(ÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°†§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÄÒë•ÿ¯Òà¯ëÌïÕå°†ππÖµî•ÙΩà¯ÒÕ¡Ö∏˘A±ÖÂïêÅ—Ωùï—°ï»ÄëÌ†π¡±ÖÂïëÙÅ—•µîëÌ†π¡±ÖÂïêÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙëÌ†π¡Ö…—πï…ÃÄ¸ÅÄÉ
+‹Ä—		Å¡Ö…—πï…ÃÄëÌ†π¡Ö…—πï…ÕÙÅ—•µîëÌ†π¡Ö…—πï…ÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâıÄÄËÄàâÙΩÕ¡Ö∏¯Ωë•ÿ˘Ä∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§ÅÒÄàÒÕ¡Ö∏˘9ºÅ¡…ïŸ•Ω’ÃÅ¡Ö•…•πùÃÅ•∏Å—°•ÃÅù…Ω’¿∏ΩÕ¡Ö∏¯à(ÄÄÄÄÄÄÄÄÅÙΩë•ÿ˘Ä(ÄÄÄÄÄÄÄËÄàà(ÄÄÅÙ(ÄÄÄëÌ¡Ö•…	±Ωç¨°ú±ù§•Ù(ÄΩë•ÿ˘Ä∞(ÄÄÄ§(ÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯(ÄëÏ(ÄÄÄÖ±Ωç≠ïê(ÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâëÖ•±Â!Öπë•çÖ¡AÖπï∞à¯Òë•ÿÅç±ÖÕÃÙâëÖ•±Â!Öπë•çÖ¡!ïÖêà¯Òë•ÿ¯Òà¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâÖ•±‰Å!Öπë•çÖ¡ÃàÄËÅÅÖ•±‰Å!Öπë•çÖ¡ÃÉäPÅÖ‰ÄëÌëÖÂıÅÙΩà¯ÒÕ¡Ö∏˘π—ï»Å—°îÅ¡±ÖÂ•πúÅ°Öπë•çÖ¿Å’ÕïêÅôΩ»ÄëÌÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸Äâ—°îÅµâ…ΩÕîÅ—ïÖ¥Å°Öπë•çÖ¿àÄËÄâM—Öâ±ïôΩ…êâÙ∏ÅQ•ç¨ÅA±’ÃÅôΩ»ÅÑÅ¡±’Ãµ°Öπë•çÖ¿Å¡±ÖÂï»∏ΩÕ¡Ö∏¯Ωë•ÿ¯ÒÕ¡Ö∏¯ëÌ•ëÃπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%ÄòòÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°‡∞ÅëÖ‰§ÄÙÙÅπ’±∞§π±ïπù—†Ä¸ÄâΩµ¡±ï—îÅâïôΩ…îÅ1Ωç¨ÅŸïπ–àÄËÄãärLÅΩµ¡±ï—îâÙΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâëÖ•±Â!Öπë•çÖ¡…•êà¯ëÌ•ëÃ(ÄÄÄÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å†ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ¡±’ÃÄÙÅ9’µâï»°†§ÄÄ¿Ï(ÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâëÖ•±Â!ç¡IΩ‹à¯ÒÕ¡Ö∏¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà•ÙΩÕ¡Ö∏¯Òë•ÿÅç±ÖÕÃÙâ—ïÖµ!ç¡Ωπ—…Ω±Ãà¯Òë•ÿÅç±ÖÕÃÙâÕ•ùπïë!ç¡%π¡’–ÄëÌ¡±’ÃÄ¸Äâ¡±’ÃàÄËÄàâÙàÅëÖ—Ñµ—ïÖµÕ•ùπïêÙàëÌ•ëÙà¯Ò•π¡’–Å—Â¡îÙâπ’µâï»àÅ•π¡’—µΩëîÙâπ’µï…•åàÅµ•∏Ùà¿àÅµÖ‡Ùà‘–àÅÕ—ï¿ÙàƒàÅëÖ—ÑµëÖ•±Â°ç¿ÙàëÌ•ëÙàÅŸÖ±’îÙàëÌïÕå°°Öπë•çÖ¡5Öùπ•—’ëî°†§•ÙàÅ¡±Öçï°Ω±ëï»Ùâ!ç¿à¯Ωë•ÿ¯Ò±Öâï∞Åç±ÖÕÃÙâ—ïÖµA±’Õ°ïç¨à¯Ò•π¡’–Å—Â¡îÙâç°ïç≠âΩ‡àÅëÖ—ÑµëÖ•±Â¡±’ÃÙàëÌ•ëÙàÄëÌ¡±’ÃÄ¸Äâç°ïç≠ïêàÄËÄàâÙ¯ÅA±’ÃΩ±Öâï∞¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘Ä(ÄÄÄÄÄËÄàà(ÅÙ(ÄëÌÕ°Ω…—QïÖµI’±ï1•πïÃ°Õ—Ω…îπïŸïπ–±ëÖ‰§π±ïπù—†˝ÄÒë•ÿÅç±ÖÕÃÙâŸ•…—’Ö±9Ω—•çîà¯Ò†–˘M°Ω…–ÅQïÖ¥Å……Öπùïµïπ—ÃΩ†–¯ëÌÕ°Ω…—QïÖµI’±ï1•πïÃ°Õ—Ω…îπïŸïπ–±ëÖ‰§πµÖ¿°±•πîÙ˘ÄÒ¿¯ëÌïÕå°±•πî•ÙΩ¿˘Ä§π©Ω•∏†úú•ÙÒ¿˘Y•…—’Ö∞ÅÕçΩ…ïÃÅëºÅπΩ–Åç…ïÖ—îÅï·—…ÑÅ•πë•Ÿ•ë’Ö∞Å…ïÕ’±—ÃÅΩ»Åï·—…ÑÅ±Ω——ï…‰ÅçΩπ—…•â’—•ΩπÃ∏Åeï±±Ω‹Å	Ö±∞Å…Ω—Ö—ïÃÅ—°…Ω’ù†Å—°îÅ…ïÖ∞ÅùΩ±ôï…ÃÅΩπ±‰∏Ω¿¯Ωë•ÿ˘ÄÈÕ°Ω…—9Ω—•çïÙ(ÄëÏ(ÄÄÄÖ±Ωç≠ïêÄòòÄÖ—ïÖµÕMÖŸïêÄòòÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»(ÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâÕ›Ö¡ëŸ•çîà¯Òà˘5Öπ’Ö∞Å¡±Öçïµïπ–Å°•Õ—Ω…‰ÉäPÄëÌïÕå°ïŸïπ—A±ÖÂï»°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩà¯Òë•ÿÅç±ÖÕÃÙâÕ›Ö¡ëŸ•çï…•êà¯ëÌù…Ω’¡Ã(ÄÄÄÄÄÄÄÄÄπµÖ¿†°ú∞Åù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÅ±ï–Å…Ω›ÃÄÙÅ¡±ÖÂï…!•Õ—Ω…ÂùÖ•πÕ—…Ω’¿†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅúπô•±—ï»†°‡§ÄÙ¯ÅM—…•πú°‡§ÄÑÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ—Ω–ÄÙÅ…Ω›Ãπ…ïë’çî†°∏∞Å»§ÄÙ¯Å∏Ä¨Å»π¡±ÖÂïê∞Ä¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ¡–ÄÙÅ…Ω›Ãπ…ïë’çî†°∏∞Å»§ÄÙ¯Å∏Ä¨Å»π¡Ö…—πï…Ã∞Ä¿§Ï(ÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿ¯ÒÕ—…Ωπú˘…Ω’¿ÄëÌù§Ä¨Ä≈ÙΩÕ—…Ωπú¯ÒÕ¡Ö∏˘A±ÖÂïêÅ›•—†Å—°ïÕîÅ¡±ÖÂï…ÃÄëÌ—Ω—ÙÅ—•µîëÌ—Ω–ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙëÌ¡–Ä¸ÅÄÉ
+‹Ä—		Å¡Ö…—πï…ïêÄëÌ¡—ÙÅ—•µîëÌ¡–ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâıÄÄËÄàâÙΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘Ä(ÄÄÄÄÄËÄàà(ÅÙ(ÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡ÕΩΩ–à¯(ÄÄÄÒë•ÿÅç±ÖÕÃÙâù…Ω’¡MÖŸïM—Ö—îà¯ëÌ—ïÖµÕMÖŸïêÄ¸Ä°Õ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äã¬~RHÅQïÖµÃÅ±Ωç≠ïêàÄËÄã¬~RHÅÖ‰ÄàÄ¨ÅëÖ‰Ä¨ÄàÅ—ïÖµÃÅ±Ωç≠ïêà§ÄËÅÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâQïÖµÃÅπΩ–ÅÂï–ÅÕÖŸïêàÄËÄâÖ‰ÄàÄ¨ÅëÖ‰Ä¨ÄàÅ—ïÖµÃÅπΩ–ÅÂï–ÅÕÖŸïêâÙΩë•ÿ¯(ÄÄÄëÌ±Ωç≠ïêÄ¸ÄààÄËÅ—ïÖµÕMÖŸïêÄ¸ÅÄÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Å’π±Ωç≠…Ω’¡ÃàÅ•êÙâ’π±Ωç≠…Ω’¡Ãà¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâUπ±Ωç¨ÅQïÖµÃàÄËÅÅUπ±Ωç¨ÅÖ‰ÄëÌëÖÂÙÅQïÖµÕÅÙΩâ’——Ω∏˘ÄÄËÅÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰ÅÕÖŸï…Ω’¡ÃàÅ•êÙâÕÖŸï…Ω’¡Ãà¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄâMÖŸîÅQïÖµÃàÄËÅÅMÖŸîÅÖ‰ÄëÌëÖÂÙÅQïÖµÕÅÙΩâ’——Ω∏˘ÅÙ(ÄΩë•ÿ¯(ÄëÌ—ïÖµÕ•πÖ±°ïç≠!—µ∞†•Ù(ÄëÌ±Ωç≠ïêÄ¸ÄààÄËÅÄÒë•ÿÅç±ÖÕÃÙâ±Ωç≠Ÿïπ—AÖπï∞à¯Òë•ÿ¯Òà˘•πÖ∞ÅïŸïπ–ÅçΩπ—…Ω∞Ωà¯ÒÕ¡Ö∏˘MïπêÅ—°îÅçΩπô•…µïêÅù…Ω’¡Ã∞Å—ïîÅ—•µïÃ∞Å—ïîÅÖπêÅ°Öπë•çÖ¡ÃÅÖÃÅ—°îÅô•πÖ∞Å’¡ëÖ—î∏ΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâ±Ωç≠Ÿïπ—	—∏àÅ•êÙâ±Ωç≠Ÿïπ–àÄëÌ±Ωç≠IïÖë‰Ä¸ÄààÄËÄâë•ÕÖâ±ïêâÙ˘10ÅMPÉäPÅ%90ÅUAQΩâ’——Ω∏¯Ωë•ÿ˘ÅıÄÏ((ÄÄÄÄêê†âmëÖ—Ñµù…Ω’¡ëÖÂtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÄÙÄ≠àπëÖ—ÖÕï–πù…Ω’¡ëÖ‰Ï(ÄÄÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—ÑµïŸïπ——ïïtà§πôΩ…Öç††(ÄÄÄÄÄÄ°â’——Ω∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§ÅÒÅëÖÂ!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰§§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅmçÖ—ïùΩ…‰±—ïïtıâ’——Ω∏πëÖ—ÖÕï–πïŸïπ——ïîπÕ¡±•–†âà§Ï(ÄÄÄÄÄÄÄÄÄÅÕï±ïç—Ÿïπ—Qïî°ëÖ‰∞Å—ïî∞ÅÕ—Ω…îπïŸïπ–∞ÅçÖ—ïùΩ…‰§Ï(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àçô•πÖ±•ÕïŸïπ—Qïîà§§(ÄÄÄÄÄÄê†àçô•πÖ±•ÕïŸïπ—Qïîà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ëÖÂ!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰§§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âQ°îÅ—ïîÅçÖππΩ–ÅâîÅç°ÖπùïêÅâïçÖ’ÕîÅÕçΩ…•πúÅ°ÖÃÅâïù’∏∏à§Ï(ÄÄÄÄÄÄÄÅ•òÄ†ÖÕï±ïç—ïëQïïΩµ¡±ï—î§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÄÄÄâΩµ¡±ï—îÅïŸï…‰ÅÕï±ïç—ïêÅ5ï∏ùÃÅÖπêÅ]Ωµï∏ùÃÅ—ïîÅ°Öπë•çÖ¿ÅâïôΩ…îÅô•πÖ±•Õ•πú∏à∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄÄÅÅ•πÖ±•ÕîÅ—°îÅÕï±ïç—ïêÄëÌ—ïïÖ—ïùΩ…•ïÃπµÖ¿°çÖ—ïùΩ…‰Ù˘ÄëÌçÖ—ïùΩ…‰ÙÙÙâ›Ωµï∏à¸â]Ωµï∏ùÃàËâ5ï∏ùÃâÙÄëÌïŸïπ—Qïï5Ö…≠ï…Ω±Ω’»°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰•ıÄ§π©Ω•∏†àÅÖπêÄà•ÙÅ—ïîëÌ—ïïÖ—ïùΩ…•ïÃπ±ïπù—†¯ƒ¸âÃàËàâÙÅôΩ»ÄëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äâ—°•ÃÅïŸïπ–àÄËÅÅÖ‰ÄëÌëÖÂıÅÙ˝qπqπÖç†Å¡±ÖÂï»Å›•±∞Å’ÕîÅ—°îÅ°Öπë•çÖ¿ÅÖπêÅÕçΩ…ïçÖ…êÅôΩ»Å—°ï•»ÅçÖ—ïùΩ…‰πÄ∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π—ïïMï±ïç—•Ωπ•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂtÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅ—ïïÖ—ïùΩ…•ïÃπôΩ…Öç†°çÖ—ïùΩ…‰Ù˘Õï±ïç—Ÿïπ—Qïî°ëÖ‰±Õï±ïç—ïëŸïπ—Qïî°ëÖ‰±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§±Õ—Ω…îπïŸïπ–±çÖ—ïùΩ…‰§§Ï(ÄÄÄÄÄÄÄÅ…ïçΩ…ëŸïπ—!Öπë•çÖ¡!•Õ—Ω…‰°ëÖ‰§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç…ïΩ¡ïπŸïπ—Qïîà§§(ÄÄÄÄÄÄê†àç…ïΩ¡ïπŸïπ—Qïîà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ëÖÂ!ÖÕMçΩ…ïπ—…•ïÃ°ëÖ‰§§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âQ°îÅ—ïîÅçÖππΩ–ÅâîÅç°ÖπùïêÅâïçÖ’ÕîÅÕçΩ…•πúÅ°ÖÃÅâïù’∏∏à§Ï(ÄÄÄÄÄÄÄÅ•òÄ†ÖçΩπô•…¥†âIïΩ¡ï∏Å—°îÅ¡±ÖÂ•πúÅ—ïîÅÕï±ïç—•Ω∏ÅâïôΩ…îÅÕçΩ…•πú¸ÅA±ÖÂï…ÃÅ›•±∞ÅâîÅ°ï±êÅÖ–Å—°îÅÕ—Ö…–ÅÕç…ïï∏Å’π—•∞ÅÂΩ‘Åô•πÖ±•ÕîÅ•–ÅÖùÖ•∏∏à§§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π—ïïMï±ïç—•Ωπ•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂtÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçÖ¡¡±ÂM—Ö…—•πù!Ω±îà§§(ÄÄÄÄÄÄê†àçÖ¡¡±ÂM—Ö…—•πù!Ω±îà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åâ±Ωç≠ï»ÄÙÅô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§Ï(ÄÄÄÄÄÄÄÅ•òÄ°â±Ωç≠ï»§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÄÄÅÅQ°îÅÕ—Ö…—•πúÅ°Ω±îÅçÖππΩ–ÅâîÅç°Öπùïê∏ÄëÌïŸïπ—A±ÖÂï»°â±Ωç≠ï»πÕçΩ…ï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâÅ¡±ÖÂï»âÙÅ°ÖÃÅÖ∏Åïπ—…‰Å…ïçΩ…ëïêÅΩ∏Å!Ω±îÄëÌâ±Ωç≠ï»π°Ω±ïÙπÄ∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åπï·—!Ω±îÄÙÄ¨ê†àç±Ωç≠ïëM—Ö…—!Ω±îà§πŸÖ±’îÏ(ÄÄÄÄÄÄÄÅ•òÄ°πï·—!Ω±îÄÙÙÙÅÕ—Ö…—•πù!Ω±î§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄÄÅÅ°ÖπùîÄëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äâ—°îÅïŸïπ–àÄËÅÅÖ‰ÄëÌëÖÂıÅÙÅÕ—Ö…—•πúÅ°Ω±îÅô…Ω¥Å!Ω±îÄëÌÕ—Ö…—•πù!Ω±ïÙÅ—ºÅ!Ω±îÄëÌπï·—!Ω±ïÙ˝qπqπŸï…‰ÅçΩππïç—ïêÅÕçΩ…ïçÖ…êÅ›•±∞ÅΩ¡ï∏ÅÖ–Å!Ω±îÄëÌπï·—!Ω±ïÙπÄ∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö…—!Ω±ïÃÄÙÅÕ—Ω…îπïŸïπ–πÕ—Ö…—!Ω±ïÃÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö…—!Ω±ïÕm≠ïÂtÄÙÅmπï·—!Ω±ïtÏ(ÄÄÄÄÄÄÄÅÕï—’¿πÕ—Ö…—ÃÄÙÅÕï—’¿πù…Ω’¡ÃπµÖ¿††§ÄÙ¯Åπï·—!Ω±î§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö…—•πù!Ω±ïU¡ëÖ—îÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÄÄÅô…Ω¥ËÅÕ—Ö…—•πù!Ω±î∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±îËÅπï·—!Ω±î∞(ÄÄÄÄÄÄÄÄÄÅç°Öπùïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–ππ—¡Mï±ïç—•ΩπÃ¸πm≠ïÂt§(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–ππ—¡Mï±ïç—•ΩπÕm≠ïÂtÄÙÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëÖ‰§Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÕÖŸïµâ…ΩÕïIΩ±îÄÙÅÖÕÂπåÄ°ù…Ω’¡%πëï‡∞Åô•ï±ê∞Å¡±ÖÂï…%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°Öµâ…ΩÕïQïÖµ!ÖÕπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âQ°ïÕîÅÖ¡¡Ω•π—µïπ—ÃÅçÖππΩ–ÅâîÅç°ÖπùïêÅâïçÖ’ÕîÅ—°•ÃÅ—ïÖ¥Å°ÖÃÅÕ—Ö…—ïêÅÕçΩ…•πú∏à§Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïIΩ±ïÕÕ•ùπµïπ—ÃÅÒÙÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïIΩ±ïÕÕ•ùπµïπ—Õm≠ïÂtÅÒÙÅÌÙÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖÕÕ•ùπµïπ–ÄÙÅÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïIΩ±ïÕÕ•ùπµïπ—Õm≠ïÂumù…Ω’¡%πëï·tÅÒÙÅÌÙÏ(ÄÄÄÄÄÅÖÕÕ•ùπµïπ—mô•ï±ëtÄÙÅM—…•πú°¡±ÖÂï…%ê§Ï(ÄÄÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÅ…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅ•òÄ°ô•ï±êÄÙÙÙÄâÕçΩ…ï…%êàÄòòÅÖÕÕ•ùπµïπ–πµÖ…≠ï…%êÄÙÙÙÅÖÕÕ•ùπµïπ–πÕçΩ…ï…%ê§(ÄÄÄÄÄÄÄÅÖÕÕ•ùπµïπ–πµÖ…≠ï…%êÄÙÅ—ïÖ¥πô•πê†°•ê§ÄÙ¯Å•êÄÑÙÙÅÖÕÕ•ùπµïπ–πÕçΩ…ï…%ê§ÅÒÄààÏ(ÄÄÄÄÄÅ•òÄ°ô•ï±êÄÙÙÙÄâµÖ…≠ï…%êàÄòòÅÖÕÕ•ùπµïπ–πµÖ…≠ï…%êÄÙÙÙÅ…Ω±ïÃπÕçΩ…ï…%ê§(ÄÄÄÄÄÄÄÅÖÕÕ•ùπµïπ–πµÖ…≠ï…%êÄÙÅ—ïÖ¥πô•πê†°•ê§ÄÙ¯Å•êÄÑÙÙÅ…Ω±ïÃπÕçΩ…ï…%ê§ÅÒÄààÏ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄêê†ùmëÖ—ÑµÖµâ…ΩÕïÕçΩ…ï…tú§πôΩ…Öç††°Õï±ïç–§ÄÙ¯ÅÕï±ïç–πΩπç°ÖπùîÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÅÕÖŸïµâ…ΩÕïIΩ±î†≠Õï±ïç–πëÖ—ÖÕï–πÖµâ…ΩÕïÕçΩ…ï»∞ÄâÕçΩ…ï…%êà∞ÅÕï±ïç–πŸÖ±’î§§Ï(ÄÄÄÄêê†ùmëÖ—ÑµÖµâ…ΩÕïµÖ…≠ï…tú§πôΩ…Öç††°Õï±ïç–§ÄÙ¯ÅÕï±ïç–πΩπç°ÖπùîÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÅÕÖŸïµâ…ΩÕïIΩ±î†≠Õï±ïç–πëÖ—ÖÕï–πÖµâ…ΩÕïµÖ…≠ï»∞ÄâµÖ…≠ï…%êà∞ÅÕï±ïç–πŸÖ±’î§§Ï(ÄÄÄÅ•òÄ†ê†àç—Ωùù±ïµâ…ΩÕï5Ö…≠ï»à§§(ÄÄÄÄÄÄê†àç—Ωùù±ïµâ…ΩÕï5Ö…≠ï»à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ïŸïπ—MçΩ…•πùM—Ö…—ïê§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†âQ°îÅÕçΩ…îµµÖ…≠ï»ÅÕï——•πúÅçÖππΩ–ÅâîÅç°ÖπùïêÅâïçÖ’ÕîÅÕçΩ…•πúÅ°ÖÃÅâïù’∏∏à§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÅµÖ…≠ï…%πç±’ëïê(ÄÄÄÄÄÄÄÄÄÄ¸ÄâÕçΩ…ï…=π±‰à(ÄÄÄÄÄÄÄÄÄÄËÄâÕçΩ…ï…5Ö…≠ï»àÏ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°±Ωç≠ïê§Å…ï—’…∏Ï(ÄÄÄÄê†àçâÖç≠QΩŸïπ—Mï—’¿à§πΩπç±•ç¨ÄÙÅ…ïΩ¡ïπŸïπ—A±Ö∏Ï(ÄÄÄÅ•òÄ†ê†àç’π±Ωç≠…Ω’¡Ãà§§(ÄÄÄÄÄÄê†àç’π±Ωç≠…Ω’¡Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄÄÅÅUπ±Ωç¨ÄëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸Äâ—°ïÕîÅ—ïÖµÃàÄËÅÅÖ‰ÄëÌëÖÂÙÅ—ïÖµÕÅÙÅôΩ»Åïë•—•πú˝qπqπQ°ï‰Å›•±∞ÅÕ—Ö‰Å•∏Å—°ï•»Åç’……ïπ–Å¡ΩÕ•—•ΩπÃÅ’π—•∞ÅÂΩ‘ÅµÖ≠îÅÑÅç°ÖπùîπÄ∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç±Ωç≠±±Ÿïπ—QïÖµÃà§§Äê†àç±Ωç≠±±Ÿïπ—QïÖµÃà§πΩπç±•ç¨ÄÙÅ±Ωç≠±±Ÿïπ—QïÖµÃÏ(ÄÄÄÅ•òÄ†ê†àçµÖ·•µ’µA±ÖÂï…5•·•πúà§§Äê†àçµÖ·•µ’µA±ÖÂï…5•·•πúà§πΩπç±•ç¨ÄÙÅÖ¡¡±Â5Ö·•µ’µA±ÖÂï…5•·•πúÏ(ÄÄÄÅ•òÄ†ê†àç°•Õ—Ω…Â	Ö±Öπçïêà§§Äê†àç°•Õ—Ω…Â	Ö±Öπçïêà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÄâ°•Õ—Ω…‰àÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕï—’¿πù…Ω’¡ÃÄÙÅ°•Õ—Ω…Â	Ö±Öπçïë…Ω’¡Ã°•ëÃ∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÕï—’¿πÕ—Ö…—ÃÄÙÅëïôÖ’±—M—Ö…—Ã°Õï—’¿πù…Ω’¡Ã∞Åµï—°Ωê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç…ÖπëΩµ•Õï…Ω’¡Ãà§§Äê†àç…ÖπëΩµ•Õï…Ω’¡Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÄâ…ÖπëΩ¥àÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅÕï—’¿πù…Ω’¡ÃÄÙÅµÖ≠ï…Ω’¡Ã°Õ°’ôô±ïΩ¡‰°•ëÃ§∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÕï—’¿πÕ—Ö…—ÃÄÙÅëïôÖ’±—M—Ö…—Ã°Õï—’¿πù…Ω’¡Ã∞Åµï—°Ωê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçµÖπ’Ö±5Ωëîà§§Äê†àçµÖπ’Ö±5Ωëîà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÄâµÖπ’Ö∞àÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄÙÅ—…’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄêê†ùmëÖ—ÑµÕ›Ö¡—ïÖµtú§πôΩ…Öç†°â’——Ω∏ÄÙ¯Åâ’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°±Ωç≠ïêÅÒÅ—ïÖµÕMÖŸïêÅÒÅô•…Õ—ÖÂMçΩ…ïπ—…‰°ëÖ‰§§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–Åç°ΩÕï∏ÄÙÄ≠â’——Ω∏πëÖ—ÖÕï–πÕ›Ö¡—ïÖ¥Ï(ÄÄÄÄÄÅçΩπÕ–Å¡ïπë•πúÄÙÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅ•òÄ†Ö¡ïπë•πúÅÒÅ¡ïπë•πúπëÖ‰ÄÑÙÙÅëÖ‰§ÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿ÄÙÅÌëÖ‰∞Å•πëï‡ËÅç°ΩÕïπÙÏ(ÄÄÄÄÄÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅÕ›Ö¡]°Ω±ïQïÖµÃ°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Å¡ïπë•πúπ•πëï‡∞Åç°ΩÕï∏§Ï(ÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÄêê†âmëÖ—ÑµÕ›Ö¡¡±ÖÂï…tà§πôΩ…Öç††(ÄÄÄÄÄÄ°â—∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â—∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πë…Ö›5ΩëîÄÙÄâµÖπ’Ö∞àÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πµÖπ’Ö±5ΩëîÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅM—…•πú°â—∏πëÖ—ÖÕï–πÕ›Ö¡¡±ÖÂï»§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅ•êÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°M—…•πú°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»§ÄÙÙÙÅ•ê§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åô•…Õ–ÄÙÅM—…•πú°Õ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»§Ï(ÄÄÄÄÄÄÄÄÄÅ±ï–ÅÑÄÙÅπ’±∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅàÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Åù§ÄÙÄ¿ÏÅù§ÄÅù…Ω’¡Ãπ±ïπù—†ÏÅù§¨¨§(ÄÄÄÄÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å¡§ÄÙÄ¿ÏÅ¡§ÄÅù…Ω’¡Õmù•tπ±ïπù—†ÏÅ¡§¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¡•êÄÙÅM—…•πú°ù…Ω’¡Õmù•um¡•t§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°¡•êÄÙÙÙÅô•…Õ–§ÅÑÄÙÅÏÅù§∞Å¡§ÅÙÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°¡•êÄÙÙÙÅ•ê§ÅàÄÙÅÏÅù§∞Å¡§ÅÙÏ(ÄÄÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ÑÄòòÅà§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å—µ¿ÄÙÅù…Ω’¡ÕmÑπù•umÑπ¡•tÏ(ÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡ÕmÑπù•umÑπ¡•tÄÙÅù…Ω’¡Õmàπù•umàπ¡•tÏ(ÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡Õmàπù•umàπ¡•tÄÙÅ—µ¿Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—Ñµù…Ω’¡Õ—Ö…—tà§πôΩ…Öç††(ÄÄÄÄÄÄ°Ã§ÄÙ¯(ÄÄÄÄÄÄÄÄ°ÃπΩπç°ÖπùîÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°—ïÖµÕMÖŸïê§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅÕï—’¿πÕ—Ö…—Õl≠ÃπëÖ—ÖÕï–πù…Ω’¡Õ—Ö…—tÄÙÄ≠ÃπŸÖ±’îÏ(ÄÄÄÄÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—ÑµëÖ•±Â°ç¡tà§πôΩ…Öç††(ÄÄÄÄÄÄ°•π¿§ÄÙ¯(ÄÄÄÄÄÄÄÄ°•π¿πΩπç°ÖπùîÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅM—…•πú°•π¿πëÖ—ÖÕï–πëÖ•±Â°ç¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ†ÄÙÅïŸïπ—ÖÂ!Öπë•çÖ¡Ã°ëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡±’ÃÄÙÄê°ÅmëÖ—ÑµëÖ•±Â¡±’ÃÙàëÌ•ëÙâuÄ§¸πç°ïç≠ïê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ…Ö‹ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•π¿πŸÖ±’îÄÙÙÙÄàà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ5Ö—†πµÖ‡†¿∞Å5Ö—†πµ•∏†‘–∞Ä≠•π¿πŸÖ±’îÅÒÄ¿§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅŸÖ∞ÄÙÅ…Ö‹ÄÙÙÅπ’±∞Ä¸Åπ’±∞ÄËÅ¡±’ÃÄ¸Äµ…Ö‹ÄËÅ…Ö‹Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ŸÖ∞ÄÙÙÅπ’±∞§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ°m•ëtÄÙÄààÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ°m•ëtÄÙÅŸÖ∞Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ëÖ‰ÄÙÙÙÄƒÄòòÅÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄ»ÄòòÅM—…•πú°Õ—Ω…îπïŸïπ–πçΩ’…Õîƒ§ÄÙÙÙÅM—…•πú°Õ—Ω…îπïŸïπ–πçΩ’…Õî»§§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åê»ÄÙÅïŸïπ—ÖÂ!Öπë•çÖ¡Ã†»§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°ê…m•ëtÄÙÙÙÄààÅÒÅê…m•ëtÄÙÙÅπ’±∞§Åê…m•ëtÄÙÅŸÖ∞Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—ÑµëÖ•±Â¡±’Õtà§πôΩ…Öç††(ÄÄÄÄÄÄ°çà§ÄÙ¯(ÄÄÄÄÄÄÄÄ°çàπΩπç°ÖπùîÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•π¿ÄÙÄê°ÅmëÖ—ÑµëÖ•±Â°ç¿ÙàëÌçàπëÖ—ÖÕï–πëÖ•±Â¡±’ÕÙâuÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°•π¿§Å•π¿πΩπç°Öπùî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àçÕÖŸï…Ω’¡Ãà§§Äê†àçÕÖŸï…Ω’¡Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π—ïÖµ=…ëï…M›Ö¿Ï(ÄÄÄÄÄÅÕï—’¿πÕÖŸïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ›Ö¡A±ÖÂï»ÄÙÅπ’±∞Ï(ÄÄÄÄÄÅïπÕ’…ïM°Ω…—QïÖµMï±ïç—•ΩπÃ°Õï—’¿∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àç±Ωç≠Ÿïπ–à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†Ö±Ωç≠IïÖë‰§Å…ï—’…∏Ï(ÄÄÄÄÄÅ•òÄ°Ö›Ö•—•πù%ëÃπ±ïπù—†§ÅÏ(ÄÄÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÅÅQ°îÅïŸïπ–ÅçÖππΩ–ÅâîÅ±Ωç≠ïêÅÂï–∏ÄëÌÖ›Ö•—•πù%ëÃπ±ïπù—°ÙÅ¡±ÖÂï»ëÌÖ›Ö•—•πù%ëÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄàÅ•ÃàÄËÄâÃÅÖ…îâÙÅÕ—•±∞ÅÖ›Ö•—•πúÅÑÅ…ï¡±‰∏ÅIï—’…∏Å—ºÅŸïπ–ÅMï—’¿ÅÖπêÅµÖ…¨ÅïÖç†ÅçΩπô•…µïêÅ¡±ÖÂï»Åù…ïï∏πÄ∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄâ1Ωç¨ÅÖπêÅÕïπêÅ—°îÅô•πÖ∞ÅïŸïπ–ÅÕï—’¿˝qπqπ9Ω…µÖ∞Å¡±Öππ•πúÅëï—Ö•±ÃÅçÖππΩ–ÅâîÅç°ÖπùïêÅÖô—ï»Å—°•Ãπqπ	ïôΩ…îÅÕçΩ…•πúÅÕ—Ö…—Ã∞ÅÂΩ‘ÅçÖ∏ÅÕ—•±∞ÅµΩë•ô‰Å°Öπë•çÖ¡Ã∞Åç°ÖπùîÅ—°îÅÕï±ïç—ïêÅ—ïïÃÅÖπêÅÖëêÅÖ∏Åïµï…ùïπç‰Å…ï¡±Öçïµïπ–Å•òÅÕΩµïΩπîÅëΩïÃÅπΩ–Å—’…∏Å’¿πqπô—ï»ÅÕçΩ…•πúÅÕ—Ö…—Ã∞Åµï…ùïπç‰ÅMçΩ…îÅIïçΩŸï…‰Å…ïµÖ•πÃÅÖŸÖ•±Öâ±îÅ•òÅÑÅ¡±ÖÂï»ùÃÅ¡°ΩπîÅôÖ•±ÃÅë’…•πúÅ¡±Ö‰∏à∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄ§ÅÏ(ÄÄÄÄÄÄÄÅïπÕ’…ïŸïπ—QïïA±Öππ•πú°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÄÄÄÄÅïŸïπ—ÖÂÃ°Õ—Ω…îπïŸïπ–§πôΩ…Öç†°ïŸïπ—Ö‰ÄÙ¯Ålâµï∏à∞Äâ›Ωµï∏âtπôΩ…Öç†°çÖ—ïùΩ…‰ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅçÖ¡—’…ïŸïπ—Qïï9ÖµïÃ°Õ—Ω…îπïŸïπ–∞ÅïŸïπ—Ö‰∞ÅçÖ—ïùΩ…‰∞ÅÖ’—°Ω…•—Ö—•Ÿï5ÖÕ—ï…Ω’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅïŸïπ—ÖÂt§∞Å—…’î§∞(ÄÄÄÄÄÄÄÄ§§Ï(ÄÄÄÄÄÄÄÅ…ïô…ïÕ°Ÿïπ—Ω’…ÕïMπÖ¡Õ°Ω–°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±Ωç≠ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÄâ±Ωç≠ïêàÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕï—’¡M—ÖùîÄÙÄâô•πÖ∞àÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±Ωç≠ïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πô•πÖ±U¡ëÖ—ï–ÄÙÅÕ—Ω…îπïŸïπ–π±Ωç≠ïë–Ï(ÄÄÄÄÄÄÄÅôΩ»Ä°±ï–ÅïŸïπ—Ö‰ÄÙÄƒÏÅïŸïπ—Ö‰ÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÏÅïŸïπ—Ö‰¨¨§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π—ïïMï±ïç—•Ωπ•πÖ±•ÕïëlâëÖ‰àÄ¨ÅïŸïπ—ÖÂtÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅ…ïçΩ…ëŸïπ—!Öπë•çÖ¡!•Õ—Ω…‰°ïŸïπ—Ö‰§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’êπïŸïπ—%ê§ÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…QïÖµÕAÖùî†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†âçÖ¡QïÖµÃà§§Åâ•πëÖ¡QïÖµÃ°Õ—Ω…îπïŸïπ–∞ÅçÖ¡IΩÕ—ï»†§∞Å…ïπëï…QïÖµÕAÖùî§Ï(ÄÅÙ((ÄÅô’πç—•Ω∏ÅôΩ…µÖ—Ÿïπ—Ö—î°•Õº∞ÅëÖ‰ÄÙÄƒ§ÅÏ(ÄÄÄÅ•òÄ†Ö•Õº§Å…ï—’…∏ÄààÏ(ÄÄÄÅ±ï–ÅêÄÙÅπï‹ÅÖ—î†°•ÕºÄÙÙÙÅÕ—Ω…îπïŸïπ–¸πëÖ—îÄ¸ÅïŸïπ—Ö—î°ëÖ‰§ÄËÅ•Õº§Ä¨ÄâPƒ»Ë¿¿Ë¿¿à§Ï(ÄÄÄÅ•òÄ°•ÕºÄÑÙÙÅÕ—Ω…îπïŸïπ–¸πëÖ—î§ÅêπÕï—Ö—î°êπùï—Ö—î†§Ä¨ÅëÖ‰Ä¥Äƒ§Ï(ÄÄÄÅ…ï—’…∏Åêπ—Ω1ΩçÖ±ïÖ—ïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÅ›ïï≠ëÖ‰ËÄâ±Ωπúà∞(ÄÄÄÄÄÅëÖ‰ËÄâπ’µï…•åà∞(ÄÄÄÄÄÅµΩπ—†ËÄâ±Ωπúà∞(ÄÄÄÄÄÅÂïÖ»ËÄâπ’µï…•åà∞(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å°ΩµïŸïπ—Ö—î°ïŸïπ–§ÅÏ(ÄÄÄÅ•òÄ†ÖïŸïπ–¸πëÖ—î§Å…ï—’…∏Äâ9Ω–ÅÕï–àÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅπï‹ÅÖ—î°ïŸïπ–πëÖ—îÄ¨ÄâPƒ»Ë¿¿Ë¿¿à§∞(ÄÄÄÄÄÅëÖÂÃÄÙÅ5Ö—†πµÖ‡†ƒ∞Ä≠ïŸïπ–πëÖÂÃÅÒÄƒ§∞(ÄÄÄÄÄÅÕ°Ω…—AÖ…–ÄÙÄ°ëÖ—î§ÄÙ¯(ÄÄÄÄÄÄÄÅëÖ—îπ—Ω1ΩçÖ±ïÖ—ïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ›ïï≠ëÖ‰ËÄâÕ°Ω…–à∞(ÄÄÄÄÄÄÄÄÄÅëÖ‰ËÄâπ’µï…•åà∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°ëÖÂÃÄÙÙÙÄƒ§(ÄÄÄÄÄÅ…ï—’…∏ÅÕ—Ö…–π—Ω1ΩçÖ±ïÖ—ïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÄÄÅ›ïï≠ëÖ‰ËÄâÕ°Ω…–à∞(ÄÄÄÄÄÄÄÅëÖ‰ËÄâπ’µï…•åà∞(ÄÄÄÄÄÄÄÅµΩπ—†ËÄâÕ°Ω…–à∞(ÄÄÄÄÄÄÄÅÂïÖ»ËÄâπ’µï…•åà∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–ÅïπêÄÙÅπï‹ÅÖ—î°ïŸïπ—Ö—î°ëÖÂÃ∞ÅïŸïπ–§Ä¨ÄâPƒ»Ë¿¿Ë¿¿à§Ï(ÄÄÄÅ…ï—’…∏ÅÄëÌÕ°Ω…—AÖ…–°Õ—Ö…–•ÙÉäLÄëÌïπêπ—Ω1ΩçÖ±ïÖ—ïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÅ›ïï≠ëÖ‰ËÄâÕ°Ω…–à∞(ÄÄÄÄÄÅëÖ‰ËÄâπ’µï…•åà∞(ÄÄÄÄÄÅµΩπ—†ËÄâÕ°Ω…–à∞(ÄÄÄÄÄÅÂïÖ»ËÄâπ’µï…•åà∞(ÄÄÄÅÙ•ıÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï……Ω’¡Ωπ—ï·–°¡•ê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂtÏ(ÄÄÄÅ•òÄ†ÖÕï—’¿§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅôΩ»Ä°±ï–Åù§ÄÙÄ¿ÏÅù§ÄÅÕï—’¿πù…Ω’¡Ãπ±ïπù—†ÏÅù§¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅúÄÙÅÕï—’¿πù…Ω’¡Õmù•tπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÄÄÅ¡§ÄÙÅúπ•πëï·=ò°M—…•πú°¡•ê§§Ï(ÄÄÄÄÄÅ•òÄ°¡§Ä¯ÙÄ¿§Å…ï—’…∏ÅÏÅÕï—’¿ÈÕï—’¡Ω…QïÖ¥°Õï—’¿±ù§§∞Åù…Ω’¿ËÅú∞Åù…Ω’¡%πëï‡ËÅù§∞Å¡±ÖÂï…%πëï‡ËÅ¡§ÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕï%Õ=∏°ïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–∞ÅëÖ‰ÄÙÅïŸïπ–¸πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ§ÅÏ(ÄÄÄÅ…ï—’…∏ÅçΩµ¡ï—•—•Ωπ%Õ=∏†âÖµâ…ΩÕîà∞ÅëÖ‰∞ÅïŸïπ–§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅ…ï—’…∏Ä°ïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt¸πù…Ω’¡Ã¸πmù…Ω’¡%πëï·tÅÒÅmt§(ÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄòòÅ•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÖÕÕ•ùπïêÄÙÅÕ—Ω…îπïŸïπ–¸πÖµâ…ΩÕïIΩ±ïÕÕ•ùπµïπ—Ã¸πlâëÖ‰àÄ¨ÅëÖÂt¸πmù…Ω’¡%πëï·tÅÒÅÌÙ∞(ÄÄÄÄÄÅÖÕÕ•ùπïëMçΩ…ï»ÄÙÅM—…•πú°ÖÕÕ•ùπïêπÕçΩ…ï…%êÅÒÄàà§∞(ÄÄÄÄÄÅÕçΩ…ï…%êÄÙÅ—ïÖ¥π•πç±’ëïÃ°ÖÕÕ•ùπïëMçΩ…ï»§Ä¸ÅÖÕÕ•ùπïëMçΩ…ï»ÄËÅ—ïÖµl¡tÅÒÄàà∞(ÄÄÄÄÄÅÖÕÕ•ùπïë5Ö…≠ï»ÄÙÅM—…•πú°ÖÕÕ•ùπïêπµÖ…≠ï…%êÅÒÄàà§∞(ÄÄÄÄÄÅëïôÖ’±—5Ö…≠ï»ÄÙÅ—ïÖ¥πô•πê†°•ê§ÄÙ¯Å•êÄÑÙÙÅÕçΩ…ï…%ê§ÅÒÄààÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕçΩ…ï…%ê∞(ÄÄÄÄÄÅµÖ…≠ï…%êË(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–¸πÖµâ…ΩÕïMçΩ…•πù5ΩëîÄÙÙÙÄâÕçΩ…ï…=π±‰à(ÄÄÄÄÄÄÄÄÄÄ¸Äàà(ÄÄÄÄÄÄÄÄÄÄËÅ—ïÖ¥π•πç±’ëïÃ°ÖÕÕ•ùπïë5Ö…≠ï»§ÄòòÅÖÕÕ•ùπïë5Ö…≠ï»ÄÑÙÙÅÕçΩ…ï…%ê(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÖÕÕ•ùπïë5Ö…≠ï»(ÄÄÄÄÄÄÄÄÄÄÄÄËÅëïôÖ’±—5Ö…≠ï»∞(ÄÄÄÄÄÅ—ïÖ¥∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïQïÖµ!ÖÕπ—…•ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡§πÕΩµî†°¡±ÖÂï…%ê§ÄÙ¯(ÄÄÄÄÄÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯Å•πëï‡Ä¨Äƒ§πÕΩµî†°°Ω±î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…ïçΩ…êÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å¡±ÖÂï…%ê§¸πmM—…•πú°°Ω±î•tÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕçΩ…ïπ—ï…ïê°…ïçΩ…ê¸πÕï±ò¸πù…ΩÕÃ§ÅÒÅ	ΩΩ±ïÖ∏°…ïçΩ…ê¸πÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%ê§Ï(ÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïπ—…‰°ëÖ‰∞ÅÕçΩ…ï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–Å…ïåÄÙÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÕçΩ…ï…%ê∞Å°Ω±î§Ï(ÄÄÄÅ…ïåπÖµâ…ΩÕîÄÙÅ…ïåπÖµâ…ΩÕîÅÒÅÏÅë…•ŸïA±ÖÂï…%êËÄààÅÙÏ(ÄÄÄÅ…ï—’…∏Å…ïåÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïQïÖµ!Öπë•çÖ¿°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅŸÖ±’ïÃÄÙÅ—ïÖ¥πµÖ¿†°•ê§ÄÙ¯Å¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëÖ‰§§Ï(ÄÄÄÅ•òÄ†Ö—ïÖ¥π±ïπù—†ÅÒÅŸÖ±’ïÃπÕΩµî†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÙÙÅπ’±∞§§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏ÅŸÖ±’ïÃπ…ïë’çî†°Õ’¥∞ÅŸÖ±’î§ÄÙ¯ÅÕ’¥Ä¨Ä≠ŸÖ±’î∞Ä¿§ÄºÄ°—ïÖ¥π±ïπù—†Ä®Ä»§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕçΩ…ï»ÄÙÅÖµâ…ΩÕïπ—…‰°ëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê∞Å°Ω±î§∞(ÄÄÄÄÄÅµÖ…≠ï»ÄÙÅ…Ω±ïÃπµÖ…≠ï…%ê(ÄÄÄÄÄÄÄÄ¸ÅÖµâ…ΩÕïπ—…‰°ëÖ‰∞Å…Ω±ïÃπµÖ…≠ï…%ê∞Å°Ω±î§(ÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅÕçΩ…ï…ΩπîÄÙ(ÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ÕçΩ…ï»πÕï±ò¸πù…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°ÕçΩ…ï»πÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%ê§∞(ÄÄÄÄÄÅµÖ…≠ï…ΩπîÄÙ(ÄÄÄÄÄÄÄÄÖµÖ…≠ï»ÅÒ(ÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°µÖ…≠ï»πÕï±ò¸πù…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°µÖ…≠ï»πÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%ê§§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅÕçΩ…ï»∞(ÄÄÄÄÄÅµÖ…≠ï»∞(ÄÄÄÄÄÅÕçΩ…ï…Ωπî∞(ÄÄÄÄÄÅµÖ…≠ï…Ωπî∞(ÄÄÄÄÄÅçΩµ¡±ï—îËÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅÕçΩ…ï…ΩπîÄòò(ÄÄÄÄÄÄÄÄÄÅµÖ…≠ï…ΩπîÄòò(ÄÄÄÄÄÄÄÄÄÄ†ÖµÖ…≠ï»ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ†≠ÕçΩ…ï»πÕï±òπù…ΩÕÃÄÙÙÙÄ≠µÖ…≠ï»πÕï±òπù…ΩÕÃÄòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°ÕçΩ…ï»πÖµâ…ΩÕîπë…•ŸïA±ÖÂï…%ê§ÄÙÙÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°µÖ…≠ï»πÖµâ…ΩÕîπë…•ŸïA±ÖÂï…%ê§§§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅµ•ÕµÖ—ç†ËÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅµÖ…≠ï»Äòò(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…ΩπîÄòò(ÄÄÄÄÄÄÄÄÄÅµÖ…≠ï…ΩπîÄòò(ÄÄÄÄÄÄÄÄÄÄ†≠ÕçΩ…ï»πÕï±òπù…ΩÕÃÄÑÙÙÄ≠µÖ…≠ï»πÕï±òπù…ΩÕÃÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°ÕçΩ…ï»πÖµâ…ΩÕîπë…•ŸïA±ÖÂï…%ê§ÄÑÙÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°µÖ…≠ï»πÖµâ…ΩÕîπë…•ŸïA±ÖÂï…%ê§§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕïQïÖµΩµ¡±ï—î°ëÖ‰∞Åù…Ω’¡%πëï‡§ÅÏ(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯Å•πëï‡Ä¨Äƒ§πïŸï…‰†(ÄÄÄÄÄÄ°°Ω±î§ÄÙ¯ÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î§πçΩµ¡±ï—î∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÖµâ…ΩÕï…•ŸïΩ’π—Ã°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅÕçΩ…ï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩ’π—ÃÄÙÅ=â©ïç–πô…Ωµπ—…•ïÃ†(ÄÄÄÄÄÅÖµâ…ΩÕïQïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡§πµÖ¿†°•ê§ÄÙ¯Åm•ê∞Ä¡t§∞(ÄÄÄÄ§Ï(ÄÄÄÅôΩ»Ä°±ï–Å°Ω±îÄÙÄƒÏÅ°Ω±îÄÙÄƒ‡ÏÅ°Ω±î¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕçΩ…ï…%ê§¸πmM—…•πú°°Ω±î•t¸πÖµâ…ΩÕî(ÄÄÄÄÄÄÄÄ¸πë…•ŸïA±ÖÂï…%êÏ(ÄÄÄÄÄÅ•òÄ°•êÄòòÅçΩ’π—Õm•ëtÄÑÙÅπ’±∞§ÅçΩ’π—Õm•ët¨¨Ï(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏ÅçΩ’π—ÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±%Õ=∏°ëÖ‰∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅ•òÄ†Ñ°ïŸïπ–¸πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†âÂï±±Ω›	Ö±∞à§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅ•òÄ†°ïŸïπ–πëÖÂÃÅÒÄƒ§ÄÙÙÙÄƒ§Å…ï—’…∏Ä≠ëÖ‰ÄÙÙÙÄƒÏ(ÄÄÄÅ…ï—’…∏ÅçΩµ¡ï—•—•ΩπÖÂÃ†âÂï±±Ω›	Ö±∞à∞ÅïŸïπ–§π•πç±’ëïÃ†≠ëÖ‰§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±QïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅïŸïπ–¸πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅù…Ω’¿ÄÙÅÕï—’¿¸πù…Ω’¡Ã¸πmù…Ω’¡%πëï·tÅÒÅmtÏ(ÄÄÄÅ…ï—’…∏Åù…Ω’¿(ÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄòòÅ•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÂï±±Ω›	Ö±±QïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–§Ï(ÄÄÄÅ•òÄ†Ö—ïÖ¥π±ïπù—†§Å…ï—’…∏ÄààÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°ïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅ¡ΩÕ•—•Ω∏ÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§π•πëï·=ò†≠°Ω±î§Ï(ÄÄÄÅ…ï—’…∏Å¡ΩÕ•—•Ω∏ÄÄ¿Ä¸ÄààÄËÅ—ïÖµm¡ΩÕ•—•Ω∏ÄîÅ—ïÖ¥π±ïπù—°tÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±1ΩÕÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Å¡Ö¡ï»ÄÙÅïŸïπ–¸πµÖπ’Ö±MçΩ…ïçÖ…ëÃ¸πlùëÖ‰úÄ¨ÅëÖÂt¸πù…Ω’¡Ã¸πmM—…•πú°ù…Ω’¡%πëï‡•tÏ(ÄÄÄÅ•òÄ°¡Ö¡ï»¸πÕ—Ö—’ÃÄÙÙÙÄâÕ’âµ•——ïêàÄòòÅ¡Ö¡ï»π—ïÖ¥¸πÂï±±Ω›	Ö±∞¸π±ΩÕÕ!Ω±î§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙÅ¡Ö¡ï»π—ïÖ¥πÂï±±Ω›	Ö±∞Ï(ÄÄÄÄÄÅ•òÄ°…ïÕ’±–π±ΩÕÕ!Ω±îÄÙÙÙÄâ9=9à§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–Å°Ω±îÄÙÄ≠…ïÕ’±–π±ΩÕÕ!Ω±î∞Å¡ΩÕ•—•Ω∏ÄÙÅÕçΩ…ïMï≈’ïπçî°ù…Ω’¡M—Ö…—•πù!Ω±î°ïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§§π•πëï·=ò°°Ω±î§Ï(ÄÄÄÄÄÅ…ï—’…∏Å¡ΩÕ•—•Ω∏ÄÄ¿Ä¸Åπ’±∞ÄËÅÌ°Ω±î∞Å¡ΩÕ•—•Ω∏∞Å¡±ÖÂï…%êËÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î∞ÅïŸïπ–§∞ÅÕΩ’…çîËÄâ¡Ö¡ï»µ—ïÖ¥µçÖ…êâÙÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÂï±±Ω›	Ö±±QïÖ¥°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°ïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§∞(ÄÄÄÄÄÅ…Ω’πëÃÄÙÅïŸïπ–¸πÕçΩ…•πú¸πlâëÖ‰àÄ¨ÅëÖÂtÅÒÅÌÙÏ(ÄÄÄÅ±ï–Å±ΩÕÃÄÙÅπ’±∞Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÕçΩ…ï…%ê∞Å…Ω’πëtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πëÃ§§ÅÏ(ÄÄÄÄÄÅ•òÄ†Ö—ïÖ¥π•πç±’ëïÃ°M—…•πú°ÕçΩ…ï…%ê§§§ÅçΩπ—•π’îÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Åm°Ω±ïQï·–∞Å…ïçΩ…ëtÅΩòÅ=â©ïç–πïπ—…•ïÃ°…Ω’πêÅÒÅÌÙ§§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å°Ω±îÄÙÄ≠°Ω±ïQï·–∞(ÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•Ω∏ÄÙÅÕï≈’ïπçîπ•πëï·=ò°°Ω±î§Ï(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•Ω∏ÄÄ¿ÅÒ(ÄÄÄÄÄÄÄÄÄÄÖ…ïçΩ…ê¸πÂï±±Ω›	Ö±∞¸π±ΩÕ–ÅÒ(ÄÄÄÄÄÄÄÄÄÅM—…•πú°…ïçΩ…êπÂï±±Ω›	Ö±∞π¡±ÖÂï…%êÅÒÄàà§ÄÑÙÙ(ÄÄÄÄÄÄÄÄÄÄÄÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î∞ÅïŸïπ–§(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÅçΩπ—•π’îÏ(ÄÄÄÄÄÄÄÅ•òÄ†Ö±ΩÕÃÅÒÅ¡ΩÕ•—•Ω∏ÄÅ±ΩÕÃπ¡ΩÕ•—•Ω∏§(ÄÄÄÄÄÄÄÄÄÅ±ΩÕÃÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡ΩÕ•—•Ω∏∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°…ïçΩ…êπÂï±±Ω›	Ö±∞π¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ï…%êËÅM—…•πú°ÕçΩ…ï…%ê§∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å±ΩÕÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±!Ω±ïM—Ö—î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î∞Å…ïçΩ…ê∞ÅïŸïπ–ÄÙÅÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÅçΩπÕ–Å¡±ÖÂï…%êÄÙÅÂï±±Ω›	Ö±±%Õ=∏°ëÖ‰∞ÅïŸïπ–§Ä¸ÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åù…Ω’¡%πëï‡∞Å°Ω±î∞ÅïŸïπ–§ÄËÄààÏ(ÄÄÄÅçΩπÕ–Å¡ΩÕ•—•Ω∏ÄÙÅÕçΩ…ïMï≈’ïπçî°ù…Ω’¡M—Ö…—•πù!Ω±î°ïŸïπ–∞ÅëÖ‰∞Åù…Ω’¡%πëï‡§§π•πëï·=ò†≠°Ω±î§Ï(ÄÄÄÅçΩπÕ–Å±ΩÕÃÄÙÅ¡±ÖÂï…%êÄ¸ÅÂï±±Ω›	Ö±±1ΩÕÃ°ëÖ‰∞Åù…Ω’¡%πëï‡∞ÅïŸïπ–§ÄËÅπ’±∞Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ¡±ÖÂï…%ê∞(ÄÄÄÄÄÅÖç—•ŸîËÅ	ΩΩ±ïÖ∏°¡±ÖÂï…%êÄòòÅ¡ΩÕ•—•Ω∏Ä¯ÙÄ¿ÄòòÄ†Ö±ΩÕÃÅÒÅ¡ΩÕ•—•Ω∏ÄÅ±ΩÕÃπ¡ΩÕ•—•Ω∏§§∞(ÄÄÄÄÄÅçÖπIïçΩ…êËÅ	ΩΩ±ïÖ∏°¡±ÖÂï…%êÄòòÅ¡ΩÕ•—•Ω∏Ä¯ÙÄ¿ÄòòÄ†Ö±ΩÕÃÅÒÅ¡ΩÕ•—•Ω∏ÄÙÅ±ΩÕÃπ¡ΩÕ•—•Ω∏§§∞(ÄÄÄÄÄÅ±ΩÕ—!ï…îËÅ	ΩΩ±ïÖ∏°…ïçΩ…ê¸πÂï±±Ω›	Ö±∞¸π±ΩÕ–ÄòòÅM—…•πú°…ïçΩ…êπÂï±±Ω›	Ö±∞π¡±ÖÂï…%êÅÒÄàà§ÄÙÙÙÅM—…•πú°¡±ÖÂï…%ê§§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅçΩ……ïç—•Ω∏ÄÙÅΩ…ùÖπ•Õï…Ω……ïç—•ΩπΩ»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§Ï(ÄÄÄÅ•òÄ°çΩ……ïç—•Ω∏§Å…ï—’…∏ÅÏÄ∏∏πçΩ……ïç—•Ω∏∞ÅÖ’—°Ω…•—Ö—•ŸîËÅ—…’îÅÙÏ(ÄÄÄÅçΩπÕ–ÅêÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§∞(ÄÄÄÄÄÅ¡•êÄÙÅM—…•πú°¡±ÖÂï…%ê§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÕçΩ…ï…%ê∞Å°Ω±ïÕtÅΩòÅ=â©ïç–πïπ—…•ïÃ°ê§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å»ÄÙÅ°Ω±ïÃ¸πmM—…•πú°°Ω±î•tÏ(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÅM—…•πú°»¸πΩôô•ç•Ö∞¸π¡±ÖÂï…%êÅÒÄàà§ÄÙÙÙÅ¡•êÄòò(ÄÄÄÄÄÄÄÅ»πΩôô•ç•Ö∞πù…ΩÕÃÄÑÙÙÄààÄòò(ÄÄÄÄÄÄÄÅ»πΩôô•ç•Ö∞πù…ΩÕÃÄÑÙÅπ’±∞(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÄ∏∏π»πΩôô•ç•Ö∞∞ÅÕçΩ…ï…%êÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Åπ’±∞Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…!Ω±ïπ—…‰°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ›∏ÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmM—…•πú°¡±ÖÂï…%ê•t¸πmM—…•πú°°Ω±î•t¸πÕï±òÏ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅΩ›∏Äòò(ÄÄÄÄÄÄ†°Ω›∏πù…ΩÕÃÄÑÙÙÄààÄòòÅΩ›∏πù…ΩÕÃÄÑÙÅπ’±∞§ÅÒ(ÄÄÄÄÄÄÄÄ°Ω›∏π¡’——ÃÄÑÙÙÄààÄòòÅΩ›∏π¡’——ÃÄÑÙÅπ’±∞§§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏ÅΩ›∏Ï(ÄÄÄÅ…ï—’…∏Åô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å°Ω±î§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…M’…πÖµî°•ê§ÅÏ(ÄÄÄÅçΩπÕ–Å∏ÄÙÅM—…•πú°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à§(ÄÄÄÄÄÄπ—…•¥†§(ÄÄÄÄÄÄπÕ¡±•–†ΩqÃ¨º§Ï(ÄÄÄÅ…ï—’…∏Åπm∏π±ïπù—†Ä¥Ä≈tÅÒÄâA±ÖÂï»àÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…•…Õ—9Öµî°•ê§ÅÏ(ÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÅM—…•πú°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à§(ÄÄÄÄÄÄÄÄπ—…•¥†§(ÄÄÄÄÄÄÄÄπÕ¡±•–†ΩqÃ¨º•l¡tÅÒÄâA±ÖÂï»à(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å›ï±çΩµï-ï‰°¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÅÖ›ÖÂΩ±ô]ï±çΩµïXƒËëÌÕ—Ω…îπç±Ω’ê¸πïŸïπ—%êÅÒÅÕ—Ω…îπïŸïπ–¸ππÖµîÅÒÄâïŸïπ–âÙËëÌ¡±ÖÂï…%ëıÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å¡±ÖÂï…!ÖÕMïïπ]ï±çΩµî°¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ…ï—’…∏Å±ΩçÖ±M—Ω…Öùîπùï—%—ï¥°›ï±çΩµï-ï‰°¡±ÖÂï…%ê§§ÄÙÙÙÄâÂïÃàÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïµïµâï…A±ÖÂï…]ï±çΩµî°¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅ±ΩçÖ±M—Ω…ÖùîπÕï—%—ï¥°›ï±çΩµï-ï‰°¡±ÖÂï…%ê§∞ÄâÂïÃà§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅΩ¡ïπA±ÖÂï…I’±ïÕ…Ωµ]ï±çΩµî°¡±ÖÂï…%ê§ÅÏ(ÄÄÄÄººÅQ°îÅ›ï±çΩµîÅÕç…ïï∏Å•ÃÅ±ΩçÖ∞Å—ºÅÑÅ¡±ÖÂï»ùÃÅ¡°Ωπî∏ÅºÅπΩ–Å’ÕîÅ—°îÅâ…ΩÖê(ÄÄÄÄººÅÕÖŸî†§Å¡Ö—†Å°ï…îËÅ—°Ö–ÅÖ±ÕºÅ…ïπëï…ÃÅΩ…ùÖπ•Õï»Å¡ÖùïÃÅÖπêÅçÖ∏Å•π—ï……’¡–(ÄÄÄÄººÅ—°îÅô•…Õ–Å¡±ÖÂï»µΩπ±‰ÅπÖŸ•ùÖ—•Ω∏ÅΩ∏ÅÑÅ©Ω•πïêÅëïŸ•çî∏(ÄÄÄÅ…ïµïµâï…A±ÖÂï…]ï±çΩµî°¡±ÖÂï…%ê§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…I’±ïÕ=¡ï∏ÄÙÅ—…’îÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…Ωµ¡±ï—ïëMçΩ…ïçÖ…ê°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§Ï(ÄÄÄÅ•òÄ†Ö…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞ÅÕï±ïç—ïê§§ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Åπï·—Ö‰ÄÙÅïŸïπ—ÖÂÃ†§πô•πê°πï·–ÄÙ¯Åπï·–Ä¯ÅëÖ‰ÄòòÅëÖÂ•ï±ë%ëÃ°πï·–§π•πç±’ëïÃ°M—…•πú°Õï±ïç—ïê§§ÄòòÄÖïŸïπ—ÖÂΩµ¡±ï—î°πï·–§§Ï(ÄÄÄÅçΩπÕ–Å¿ÄÙÅïŸïπ—A±ÖÂï»°Õï±ïç—ïê±ëÖ‰§∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±Õï±ïç—ïê§∞(ÄÄÄÄÄÅ°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅç—‡¸πÕï—’¿¸πÕ—Ö…—Ã¸πmç—‡πù…Ω’¡%πëï·tÅÒÄƒ∞(ÄÄÄÄÄÅÕïƒÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅÕïƒπµÖ¿†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅ†Ä¥Äƒ∞(ÄÄÄÄÄÄÄÅîÄÙÅ¡±ÖÂï…!Ω±ïπ—…‰°ëÖ‰∞ÅÕï±ïç—ïê∞Å†§ÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅù…ΩÕÃÄÙÅîπù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅîπ¡’——ÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅ¡Ö»ÄÙÄ¨°ÿπ¡Ö»¸πm•tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÅ•πëï·YÖ∞ÄÙÅÿπ•πëï‡¸πm•tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅÖë©’Õ—µïπ–ÄÙÅÕ—Öâ±ïôΩ…ëM—…Ω≠ïΩ’π–°•πëï·YÖ∞∞Å°ç¿§∞(ÄÄÄÄÄÄÄÅ¡Ω•π—ÃÄÙÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°ù…ΩÕÃ∞Å¡Ö»∞Å•πëï·YÖ∞∞Å°ç¿§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏÅ†∞Å¡Ö»∞Å•πëï·YÖ∞∞Åù…ΩÕÃ∞Å¡’——Ã∞ÅÖë©’Õ—µïπ–∞Å¡Ω•π—ÃÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÄ°±•Õ–§ÄÙ¯(ÄÄÄÄÄÅ±•Õ–π…ïë’çî†(ÄÄÄÄÄÄÄÄ°–∞Å»§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°M—…•πú°»πù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à§(ÄÄÄÄÄÄÄÄÄÄÄÅ–πù…ΩÕÃÄ¨ÙÅ»π¡Ö»Ä¨Ä»Ä¨Å»πÖë©’Õ—µïπ–Ï(ÄÄÄÄÄÄÄÄÄÅï±ÕîÅ•òÄ°ÕçΩ…ïπ—ï…ïê°»πù…ΩÕÃ§§Å–πù…ΩÕÃÄ¨ÙÄ≠»πù…ΩÕÃÅÒÄ¿Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°ÕçΩ…ïπ—ï…ïê°»π¡’——Ã§§Å–π¡’——ÃÄ¨ÙÄ≠»π¡’——ÃÅÒÄ¿Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°»π¡Ω•π—ÃÄÑÙÅπ’±∞§Å–π¡Ω•π—ÃÄ¨ÙÅ»π¡Ω•π—ÃÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å–Ï(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏÅù…ΩÕÃËÄ¿∞Å¡’——ÃËÄ¿∞Å¡Ω•π—ÃËÄ¿ÅÙ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Åô…Ωπ–ÄÙÅ—Ω—Ö±Ã°…Ω›Ãπô•±—ï»†°»§ÄÙ¯Å»π†ÄÙÄ‰§§∞(ÄÄÄÄÄÅâÖç¨ÄÙÅ—Ω—Ö±Ã°…Ω›Ãπô•±—ï»†°»§ÄÙ¯Å»π†Ä¯ÙÄƒ¿§§∞(ÄÄÄÄÄÅÖ±∞ÄÙÅ—Ω—Ö±Ã°…Ω›Ã§∞(ÄÄÄÄÄÅÕ•ùπïêÄÙÄ°∏§ÄÙ¯Ä°∏Ä¯Ä¿Ä¸ÅÄ¨ëÌπıÄÄËÅ∏ÄÄ¿Ä¸ÅÉä"HëÌ5Ö—†πÖâÃ°∏•ıÄÄËÄãäPà§Ï(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëÖ…ëAÖùîà¯Òë•ÿÅç±ÖÕÃÙâ…Ω’πëQΩ¿à¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠…ΩµΩµ¡±ï—ïëÖ…êà˚ä@Å	Öç¨Å—ºÅA±ÖÂï»ÅY•ï‹Ωâ’——Ω∏¯Òë•ÿ¯Ò†»˘Ωµ¡±ï—ïêÅMçΩ…ïçÖ…êΩ†»¯Ò¿¯ëÌïÕå°¿¸ππÖµîÅÒÄâA±ÖÂï»à•ÙëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉ
+‹ÅÖ‰ÄëÌëÖÂıÅÙÉ
+‹ÄëÌïÕå°å¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩ¿¯Ωë•ÿ¯Ò•µúÅç±ÖÕÃÙâçΩµ¡±ï—ïë5ÖÕçΩ–àÅÕ…åÙâÖ›Ö‰µùΩ±òµµÖÕçΩ–µµ•π§π¡πúàÅÖ±–Ùâ›Ö‰ÅΩ±òÅùΩ±ôï»à¯Ωë•ÿ¯((ÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëÖ…ë	Öππï»à¯Òë•ÿ¯ÒÕµÖ±∞˘%1dÅ!9%@ΩÕµÖ±∞¯Òà¯ëÌïÕå°ôΩ…µÖ—A±ÖÂ•πù!Öπë•çÖ¿°°ç¿§•ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘MQIQ%9ÅQΩÕµÖ±∞¯Òà˘!Ω±îÄëÌÕ—Ö…—ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘MQQULΩÕµÖ±∞¯Òà˚ärLÅ•πÖ±•ÕïêΩà¯Ωë•ÿ¯Ωë•ÿ¯(ÄëÌ…ïçΩŸï…ïëIΩ’πëççï¡—ïê°ëÖ‰∞ÅÕï±ïç—ïê§Ä¸ÄúÒ¿Åç±ÖÕÃÙâçΩµ¡±ï—ïëÖ…ë!ï±¿à˘eΩ’»ÅΩ…ùÖπ•Õï»ÅÖççï¡—ïêÅ—°•ÃÅ…Ω’πêÅÖô—ï»Åïµï…ùïπç‰Å…ïçΩŸï…‰∏ÅeΩ’»ÅÕçΩ…ïçÖ…êÅ•ÃÅçΩµ¡±ï—î∏Ω¿¯úÄËÄàâÙÒëï—Ö•±ÃÅç±ÖÕÃÙâçΩµ¡±ï—ïëÖ…ë!ï±¿à¯ÒÕ’µµÖ…‰˘âΩ’–Å—°•ÃÅÕçΩ…ïçÖ…êΩÕ’µµÖ…‰¯Ò¿˘IïÖêµΩπ±‰ÅçÖ…ê∏ÄÒà˘!ç¿Ä¨º¥Ωà¯ÅÕ°Ω›ÃÅ—°îÅ°Öπë•çÖ¿ÅÖë©’Õ—µïπ–ÅΩ∏ÅïÖç†Å°Ω±î∏ÅÅµ•π’ÃÅµïÖπÃÅÑÅ¡±’Ãµ°Öπë•çÖ¿ÅùΩ±ôï»Åù•ŸïÃÅÑÅÕ—…Ω≠îÅâÖç¨∏Ω¿¯Ωëï—Ö•±Ã¯(ÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëMçΩ…ïQÖâ±îà¯Òë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëMçΩ…ï!ïÖêà¯ÒÕ¡Ö∏˘!Ω±îΩÕ¡Ö∏¯ÒÕ¡Ö∏˘AÖ»ΩÕ¡Ö∏¯ÒÕ¡Ö∏˘%πëï‡ΩÕ¡Ö∏¯ÒÕ¡Ö∏˘MçΩ…îΩÕ¡Ö∏¯ÒÕ¡Ö∏˘!ç¿Ä¨º¥ΩÕ¡Ö∏¯ÒÕ¡Ö∏˘AΩ•π—ÃΩÕ¡Ö∏¯ÒÕ¡Ö∏˘A’——ÃΩÕ¡Ö∏¯Ωë•ÿ¯ëÌ…Ω›ÃπµÖ¿†°»§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëMçΩ…ïIΩ‹ÄëÌ»πÖë©’Õ—µïπ–ÄÄ¿Ä¸Äâù•ŸïÕM—…Ω≠îàÄËÄàâÙà¯Òà¯ëÌ»π°ÙΩà¯ÒÕ¡Ö∏¯ëÌ»π¡Ö»ÅÒÄãäPâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌïÕå°»π•πëï·YÖ∞ÅÒÄãäPà•ÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌ»πù…ΩÕÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅïÕå°»πù…ΩÕÃ•ÙΩÕ¡Ö∏¯ÒÕ—…Ωπú¯ëÌÕ•ùπïê°»πÖë©’Õ—µïπ–•ÙΩÕ—…Ωπú¯ÒÕ¡Ö∏¯ëÌ»π¡Ω•π—ÃÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅ»π¡Ω•π—ÕÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌ»π¡’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»π¡’——ÕÙΩÕ¡Ö∏¯Ωë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëQΩ—Ö±Ãà¯Òë•ÿ¯ÒÕµÖ±∞˘I=9PÄ‰ΩÕµÖ±∞¯Òà¯ëÌô…Ωπ–πù…ΩÕÕÙÅÕ—…Ω≠ïÃÉ
+‹ÄëÌô…Ωπ–π¡Ω•π—ÕÙÅ¡—ÃÉ
+‹ÄëÌô…Ωπ–π¡’——ÕÙÅ¡’——ÃΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘	,Ä‰ΩÕµÖ±∞¯Òà¯ëÌâÖç¨πù…ΩÕÕÙÅÕ—…Ω≠ïÃÉ
+‹ÄëÌâÖç¨π¡Ω•π—ÕÙÅ¡—ÃÉ
+‹ÄëÌâÖç¨π¡’——ÕÙÅ¡’——ÃΩà¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâù…Öπêà¯ÒÕµÖ±∞¯ƒ‡µ!=1ÅQ=Q0ΩÕµÖ±∞¯Òà¯ëÌÖ±∞πù…ΩÕÕÙÅÕ—…Ω≠ïÃÉ
+‹ÄëÌÖ±∞π¡Ω•π—ÕÙÅ¡—ÃÉ
+‹ÄëÌÖ±∞π¡’——ÕÙÅ¡’——ÃΩà¯Ωë•ÿ¯Ωë•ÿ¯(ÄëÌπï·—Ö‰Ä¸ÅÄÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâπï·—…ΩµΩµ¡±ï—ïëÖ…êà˘Y%\ÅdÄëÌπï·—ÖÂÙΩâ’——Ω∏˘ÄÄËÄàâÙÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙââÖç≠…ΩµΩµ¡±ï—ïëÖ…ë	Ω——Ω¥à˘	,ÅQ<ÅA1eHÅY%\Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–ÅùΩ	Öç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçâÖç≠…ΩµΩµ¡±ï—ïëÖ…êà§πΩπç±•ç¨ÄÙÅùΩ	Öç¨Ï(ÄÄÄÄê†àçâÖç≠…ΩµΩµ¡±ï—ïëÖ…ë	Ω——Ω¥à§πΩπç±•ç¨ÄÙÅùΩ	Öç¨Ï(ÄÄÄÅ•òÄ°πï·—Ö‰§Äê†àçπï·—…ΩµΩµ¡±ï—ïëÖ…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÄÙÅπï·—Ö‰Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÄ¿Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ïçÖ…ëYï…•ô•çÖ—•ΩπIΩ›Ã°ëÖ‰∞Å¡±ÖÂï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅµ•πîÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å¡±ÖÂï…%ê§∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅ°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡±ÖÂï…%ê∞ÅëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§πµÖ¿†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±òÄÙÅµ•πïmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅΩôòÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡±ÖÂï…%ê∞Å†§∞(ÄÄÄÄÄÄÄÅÕï±ô…ΩÕÃÄÙÅÕï±òπù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅΩôô…ΩÕÃÄÙÅΩôò¸πù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅÕï±ôA’——ÃÄÙÅÕï±òπ¡’——ÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅΩôôA’——ÃÄÙÅΩôò¸π¡’——ÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅâΩ—°π—ï…ïêÄÙÅÕçΩ…ïπ—ï…ïê°Õï±ô…ΩÕÃ§ÄòòÅÕçΩ…ïπ—ï…ïê°Ωôô…ΩÕÃ§∞(ÄÄÄÄÄÄÄÅÕçΩ…ï5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÅâΩ—°π—ï…ïêÄòò(ÄÄÄÄÄÄÄÄÄÅM—…•πú°Ωôô…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅM—…•πú°Õï±ô…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ¡’——Õ5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÄÖ¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°ΩôôA’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°Õï±ôA’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ≠ΩôôA’——ÃÄÙÙÙÄ≠Õï±ôA’——Ã§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅ†∞(ÄÄÄÄÄÄÄÅÕï±òËÅÕï±ô…ΩÕÃ∞(ÄÄÄÄÄÄÄÅΩôòËÅΩôô…ΩÕÃ∞(ÄÄÄÄÄÄÄÅÕï±ôA’——Ã∞(ÄÄÄÄÄÄÄÅΩôôA’——Ã∞(ÄÄÄÄÄÄÄÅÕï±ôA—ÃËÅâΩ—°π—ï…ïê(ÄÄÄÄÄÄÄÄÄÄ¸ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°Õï±ô…ΩÕÃ∞Ä¨°ÿπ¡Ö»¸πm†Ä¥Ä≈tÅÒÄ¿§∞Åÿπ•πëï‡¸πm†Ä¥Ä≈tÄ¸¸Äàà∞Å°ç¿§(ÄÄÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅΩôôA—ÃËÅâΩ—°π—ï…ïê(ÄÄÄÄÄÄÄÄÄÄ¸ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°Ωôô…ΩÕÃ∞Ä¨°ÿπ¡Ö»¸πm†Ä¥Ä≈tÅÒÄ¿§∞Åÿπ•πëï‡¸πm†Ä¥Ä≈tÄ¸¸Äàà∞Å°ç¿§(ÄÄÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÄÄÅÕçΩ…ï5Ö—ç†∞(ÄÄÄÄÄÄÄÅ¡’——Õ5Ö—ç†∞(ÄÄÄÄÄÄÄÅµÖ—ç†ËÅÕçΩ…ï5Ö—ç†ÄòòÅ¡’——Õ5Ö—ç†∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖ…≠ïëMçΩ…ïçÖ…ëYï…•ô•çÖ—•Ω∏°ëÖ‰∞ÅÕçΩ…ï…%ê§ÅÏ(ÄÄÄÅçΩπÕ–Å—Ö…ùï—%êÄÙÅµÖ…≠ï…QÖ…ùï—Ω»°ÕçΩ…ï…%ê∞ÅëÖ‰§∞(ÄÄÄÄÄÅµÖ…≠ï…IΩ’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕçΩ…ï…%ê§∞(ÄÄÄÄÄÅ¡±ÖÂï…IΩ’πêÄÙÅ—Ö…ùï—%êÄ¸ÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å—Ö…ùï—%ê§ÄËÅÌÙ∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯Å§Ä¨Äƒ§πµÖ¿†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅµÖ…≠ïêÄÙÅµÖ…≠ï…IΩ’πëmM—…•πú°†•t¸πΩôô•ç•Ö∞ÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅç°ïç≠ïêÄÙÅ¡±ÖÂï…IΩ’πëmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅµÖ…≠ïë…ΩÕÃÄÙÅµÖ…≠ïêπù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅç°ïç≠ïë…ΩÕÃÄÙÅç°ïç≠ïêπù…ΩÕÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅµÖ…≠ïëA’——ÃÄÙÅµÖ…≠ïêπ¡’——ÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅç°ïç≠ïëA’——ÃÄÙÅç°ïç≠ïêπ¡’——ÃÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅÕçΩ…ï5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°µÖ…≠ïë…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ç°ïç≠ïë…ΩÕÃ§Äòò(ÄÄÄÄÄÄÄÄÄÅM—…•πú°µÖ…≠ïë…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÅM—…•πú°ç°ïç≠ïë…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§∞(ÄÄÄÄÄÄÄÅ¡’——Õ5Ö—ç†ÄÙ(ÄÄÄÄÄÄÄÄÄÄÖ¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°µÖ…≠ïëA’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°ç°ïç≠ïëA’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ≠µÖ…≠ïëA’——ÃÄÙÙÙÄ≠ç°ïç≠ïëA’——Ã§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅ†∞(ÄÄÄÄÄÄÄÅµÖ…≠ïêËÅµÖ…≠ïë…ΩÕÃ∞(ÄÄÄÄÄÄÄÅç°ïç≠ïêËÅç°ïç≠ïë…ΩÕÃ∞(ÄÄÄÄÄÄÄÅµÖ…≠ïëA’——Ã∞(ÄÄÄÄÄÄÄÅç°ïç≠ïëA’——Ã∞(ÄÄÄÄÄÄÄÅÕçΩ…ï5Ö—ç†∞(ÄÄÄÄÄÄÄÅ¡’——Õ5Ö—ç†∞(ÄÄÄÄÄÄÄÅµÖ—ç†ËÅÕçΩ…ï5Ö—ç†ÄòòÅ¡’——Õ5Ö—ç†∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏ÅÏÅ—Ö…ùï—%ê∞Å…Ω›Ã∞Åµ•ÕµÖ—ç°ïÃËÅ…Ω›Ãπô•±—ï»†°»§ÄÙ¯ÄÖ»πµÖ—ç†§ÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅ…ï≈’ïÕ—IΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅÕï—’¿ÄÙÅç—‡¸πÕï—’¿∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§Ï(ÄÄÄÅ•òÄ†Öç—‡§Å…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕïƒÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅΩ›πIΩ›ÃÄÙÅÕçΩ…ïçÖ…ëYï…•ô•çÖ—•ΩπIΩ›Ã°ëÖ‰∞ÅÕï±ïç—ïê§∞(ÄÄÄÄÄÅΩ›π5•ÕµÖ—ç°ïÃÄÙÅΩ›πIΩ›Ãπô•±—ï»†°»§ÄÙ¯ÄÖ»πµÖ—ç†§∞(ÄÄÄÄÄÅÕ—ÖùîÄÙÅΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—†(ÄÄÄÄÄÄÄÄ¸Äâµ•πîà(ÄÄÄÄÄÄÄÄËÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÙÙÄâµÖ…≠ïêà(ÄÄÄÄÄÄÄÄÄÄ¸ÄâµÖ…≠ïêà(ÄÄÄÄÄÄÄÄÄÄËÄâµ•πîà∞(ÄÄÄÄÄÅµÖ…≠ïêÄÙÅµÖ…≠ïëMçΩ…ïçÖ…ëYï…•ô•çÖ—•Ω∏°ëÖ‰∞ÅÕï±ïç—ïê§∞(ÄÄÄÄÄÅ—Ö…ùï—9ÖµîÄÙÅïŸïπ—A±ÖÂï»°µÖ…≠ïêπ—Ö…ùï—%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ—°îÅ¡±ÖÂï»ÅÂΩ‘ÅµÖ…≠ïêàÏ(ÄÄÄÅçΩπÕ–ÅÖ±±Ö…ëÕù…ïîÄÙ(ÄÄÄÄÄÅΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—†ÄÙÙÙÄ¿Äòò(ÄÄÄÄÄÅµÖ…≠ïêπµ•ÕµÖ—ç°ïÃπ±ïπù—†ÄÙÙÙÄ¿Äòò(ÄÄÄÄÄÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞ÅÕï±ïç—ïê§πçΩµ¡±ï—îÏ(ÄÄÄÅçΩπÕ–ÅÕÖŸïM—Ö—îÄÙÅ›ÖÂ±Ω’êπ…Ω’πëMÖŸïM—Ö—î¸∏†(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ê¸πïŸïπ—%ê∞(ÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÅÕï±ïç—ïê∞(ÄÄÄÄ§ÅÒÅÌÙÏ(ÄÄÄÅ•òÄ°…ïçΩŸï…ïëIΩ’πëççï¡—ïê°ëÖ‰∞ÅÕï±ïç—ïê§ÅÒÄ†(ÄÄÄÄÄÅÖ±±Ö…ëÕù…ïîÄòò(ÄÄÄÄÄÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§¸π}µï—Ñ¸πô•πÖ±•Õïë–Äòò(ÄÄÄÄÄÅÕÖŸïM—Ö—îπÖç≠πΩ›±ïëùïêÄòò(ÄÄÄÄÄÄÖÕÖŸïM—Ö—îπ¡ïπë•πúÄòò(ÄÄÄÄÄÄÖÕÖŸïM—Ö—îπçΩπô±•ç–Äòò(ÄÄÄÄÄÄÖÕÖŸïM—Ö—îπâ±Ωç≠ïê(ÄÄÄÄ§§ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµ•πîàÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâçΩµ¡±ï—ïêàÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖççï¡—ïêıÕçΩ…ï…M—Ω…î°ëÖ‰±Õï±ïç—ïê§Ï(ÄÄÄÄÄÅ•ò†ÖÖççï¡—ïêπ}µï—Ñ¸πô•πÖ±•Õïë–§ÅÏ(ÄÄÄÄÄÄÄÅÖççï¡—ïêπ}µï—ÑıÏ∏∏∏°Öççï¡—ïêπ}µï—ÖÒÒÌÙ§±ô•πÖ±•Õïë–Èπï‹ÅÖ—î†§π—Ω%M=M—…•πú†•ÙÏ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ì≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰±Õï±ïç—ïê§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï±ïÖÕïIΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…Ωµ¡±ï—ïëMçΩ…ïçÖ…ê°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Ö±±Ö…ëÕù…ïî§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å›Ö•—•πúÄÙÅ	ΩΩ±ïÖ∏°ÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§¸π}µï—Ñ¸πô•πÖ±•Õïë–§Ï(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ…Ω’πëQΩ¿à¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠QΩù…ïïëIΩ’πêà˚ä@Å	Öç¨Å—ºÅIΩ’πêΩâ’——Ω∏¯Òë•ÿ¯Ò†»˘Ö…ëÃÅù…ïîΩ†»¯Ò¿¯ëÌïÕå°ïŸïπ—A±ÖÂï»°Õï±ïç—ïê∞ÅëÖ‰§¸ππÖµîÅÒÄàà•ÙëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉ
+‹ÅÖ‰ÄëÌëÖÂıÅÙÉ
+‹ÄëÌïÕå°å¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩ¿¯Ωë•ÿ¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâŸï…•ôÂÖ…êà¯Ò†Ã˚ärLÅ	Ω—†Äƒ‡µ°Ω±îÅçÖ…ëÃÅÖù…ïîΩ†Ã¯Ò¿¯ëÌ›Ö•—•πúÄ¸ÄâeΩ’»ÅçΩµ¡±ï—îÅÖù…ïïêÅçÖ…êÅ•ÃÅÕ—•±∞Å¡…Ω—ïç—ïêÅΩ∏Å—°•ÃÅ¡°ΩπîÅÖπêÅ•ÃÅ›Ö•—•πúÅ—ºÅâîÅÖççï¡—ïêÅΩπ±•πî∏àÄËÄâQ°îÅçÖ…êÅ›•±∞Åç±ΩÕîÅΩπ±‰ÅÖô—ï»Å—°•ÃÅçΩµ¡±ï—îÅÖù…ïïêÅçΩ¡‰Å°ÖÃÅâïï∏ÅÖççï¡—ïêÅΩπ±•πî∏âÙΩ¿¯ëÌÕÖŸïM—Ö—îπçΩπô±•ç–ÅÒÅÕÖŸïM—Ö—îπâ±Ωç≠ïêÄ¸ÄúÒ¿Åç±ÖÕÃÙâŸï…•ô•çÖ—•ΩπëŸ•çîà¯Òà˘=…ùÖπ•Õï»Å…ïŸ•ï‹Å…ï≈’•…ïê∏Ωà¯ÅÕ¨Å—°îÅΩ…ùÖπ•Õï»Å—ºÅΩ¡ï∏ÅIïŸ•ï‹ÅMÖŸïêÅΩ¡•ïÃ∏ÅQ°•ÃÅÕçΩ…ïçÖ…êÅ…ïµÖ•πÃÅÖççïÕÕ•â±î∏Ω¿¯úÄËÄàâÙÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâô•πÖ±•Õïù…ïïëIΩ’πêà¯ëÌ›Ö•—•πúÄ¸ÄâIQIdÅ%90ÅUA1=àÄËÄâMYÅ9Å%91%MÅIÅILâÙΩâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄê†àçâÖç≠QΩù…ïïëIΩ’πêà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâÕçΩ…•πúàÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄê†àçô•πÖ±•Õïù…ïïëIΩ’πêà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åâ’——Ω∏ÄÙÄê†àçô•πÖ±•Õïù…ïïëIΩ’πêà§Ï(ÄÄÄÄÄÄÄÅâ’——Ω∏πë•ÕÖâ±ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅâ’——Ω∏π—ï·—Ωπ—ïπ–ÄÙÄâMY%9Å=5A1QÅIäòàÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÖççï¡—ïêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄÄÅÖççï¡—ïêπ}µï—ÑÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄ∏∏∏°Öççï¡—ïêπ}µï—ÑÅÒÅÌÙ§∞(ÄÄÄÄÄÄÄÄÄÅô•πÖ±•Õïë–ËÅÖççï¡—ïêπ}µï—Ñ¸πô•πÖ±•Õïë–ÅÒÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°›…•—ï1ΩçÖ±M—Ω…î†§ÄÙÙÙÅôÖ±Õî§ÅÏ(ÄÄÄÄÄÄÄÄÄÅëï±ï—îÅÖççï¡—ïêπ}µï—Ñπô•πÖ±•Õïë–Ï(ÄÄÄÄÄÄÄÄÄÅÖ±ï…–†âQ°•ÃÅ¡°ΩπîÅçΩ’±êÅπΩ–Å¡…Ω—ïç–Å—°îÅçΩµ¡±ï—îÅçÖ…ê∏Å-ïï¿Å—°îÅ¡¿ÅΩ¡ï∏ÅÖπêÅô…ïîÅ¡¿ÅM—Ω…ÖùîÅâïôΩ…îÅ—…Â•πúÅÖùÖ•∏∏à§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅçΩπÕ–Å’¡±ΩÖëïêÄÙÅÖ›Ö•–Åô±’Õ°±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åç’……ïπ–ÄÙÅ›ÖÂ±Ω’êπ…Ω’πëMÖŸïM—Ö—î¸∏°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ê∞ÅëÖ‰∞ÅÕï±ïç—ïê§ÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°’¡±ΩÖëïêÄòòÅç’……ïπ–πÖç≠πΩ›±ïëùïêÄòòÄÖç’……ïπ–π¡ïπë•πúÄòòÄÖç’……ïπ–πçΩπô±•ç–ÄòòÄÖç’……ïπ–πâ±Ωç≠ïê§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâçΩµ¡±ï—ïêàÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµ•πîàÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÅ…ï±ïÖÕïIΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…Ωµ¡±ï—ïëMçΩ…ïçÖ…ê°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅΩ›πÖ…êÄÙÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ôÂÖ…êà¯Ò†Ã¯ëÌΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—†Ä¸ÅÄëÌΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—°ÙÅ°Ω±îëÌΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅπïïêÅÖ——ïπ—•ΩπÄÄËÅ¡’——ÕIï≈’•…ïêÄ¸ÄãärLÅeΩ’»ÅçÖ…êËÅÖ±∞Äƒ‡ÅÕçΩ…ïÃÅÖπêÅ¡’——ÃÅÖù…ïîàÄËÄãärLÅeΩ’»ÅçÖ…êËÅÖ±∞Äƒ‡ÅÕçΩ…ïÃÅÖù…ïîâÙΩ†Ã¯Ò¿˘eΩ’»ÄëÌ¡’——ÕIï≈’•…ïêÄ¸ÄâÕçΩ…ïÃÅÖπêÅ¡’——ÃÅÖ…îàÄËÄâÕçΩ…ïÃÅÖ…îâÙÅçΩµ¡Ö…ïêÅ›•—†Å—°îÅΩôô•ç•Ö∞Åïπ—…•ïÃÅµÖëîÅâ‰ÅÂΩ’»ÅµÖ…≠ï»∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâŸï…•ôÂIΩ›Ãà¯ëÌΩ›πIΩ›ÃπµÖ¿†°»§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ôÂIΩ‹ÄëÌ»πµÖ—ç†Ä¸ÄâµÖ—ç†àÄËÄâµ•ÕµÖ—ç†âÙà¯Òà˘!Ω±îÄëÌ»π°ÙΩà¯ÒÕ¡Ö∏˘5Ö…≠ï»ËÄëÌ»πΩôòÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πΩôôÙëÌ»πΩôôA—ÃÄÑÙÅπ’±∞Ä¸ÅÄÄ†ëÌ»πΩôôA—ÕÙÅ¡–ëÌ»πΩôôA—ÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙ•ÄÄËÄàâÙëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒÕµÖ±∞˘A’——ÃËÄëÌ»πΩôôA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πΩôôA’——ÕÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏˘eΩ‘ËÄëÌ»πÕï±òÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πÕï±ôÙëÌ»πÕï±ôA—ÃÄÑÙÅπ’±∞Ä¸ÅÄÄ†ëÌ»πÕï±ôA—ÕÙÅ¡–ëÌ»πÕï±ôA—ÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙ•ÄÄËÄàâÙëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒÕµÖ±∞˘A’——ÃËÄëÌ»πÕï±ôA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πÕï±ôA’——ÕÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ—…Ωπú¯ëÌ»πµÖ—ç†Ä¸ÄãärLàÄËÄàÑâÙΩÕ—…Ωπú¯ëÏÖ»πÕçΩ…ï5Ö—ç†Ä¸ÅÄÒï¥Åç±ÖÕÃÙâŸï…•ôÂ%ÕÕ’îà˘MçΩ…îÅµ•ÕµÖ—ç†ÉäPÅ5Ö…≠ï»ÄëÌ»πΩôòÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πΩôôÙ∞ÅeΩ‘ÄëÌ»πÕï±òÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πÕï±ôÙΩï¥˘ÄÄËÄàâÙëÌ¡’——ÕIï≈’•…ïêÄòòÄÖ»π¡’——Õ5Ö—ç†Ä¸ÅÄÒï¥Åç±ÖÕÃÙâŸï…•ôÂ%ÕÕ’îà˘A’——ÃÅµ•ÕµÖ—ç†ÉäPÅ5Ö…≠ï»ÄëÌ»πΩôôA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πΩôôA’——ÕÙ∞ÅeΩ‘ÄëÌ»πÕï±ôA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πÕï±ôA’——ÕÙΩï¥˘ÄÄËÄàâÙΩë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–ÅµÖ…≠ïëÖ…êÄÙÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ôÂÖ…êÅµÖ…≠ïëYï…•ôÂÖ…êà¯Ò†Ã¯ëÌµÖ…≠ïêπµ•ÕµÖ—ç°ïÃπ±ïπù—†Ä¸ÅÅÖ…êÅµÖ…≠ïêÅôΩ»ÄëÌïÕå°—Ö…ùï—9Öµî•ÙÉäPÄëÌµÖ…≠ïêπµ•ÕµÖ—ç°ïÃπ±ïπù—°ÙÅ°Ω±îëÌµÖ…≠ïêπµ•ÕµÖ—ç°ïÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÅπïïêÅÖ——ïπ—•ΩπÄÄËÅÉärLÅÖ…êÅµÖ…≠ïêÅôΩ»ÄëÌïÕå°—Ö…ùï—9Öµî•ÙËÅÖ±∞Äƒ‡ÅÖù…ïïÅÙΩ†Ã¯Ò¿˘eΩ’»ÅµÖ…≠ï»Åïπ—…•ïÃÅÖ…îÅçΩµ¡Ö…ïêÅ›•—†ÄëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°µÖ…≠ïêπ—Ö…ùï—%ê§•˜äeÃÅç°ïç≠•πúÅïπ—…•ïÃ∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâŸï…•ôÂIΩ›Ãà¯ëÌµÖ…≠ïêπ…Ω›ÃπµÖ¿†°»§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ôÂIΩ‹ÄëÌ»πµÖ—ç†Ä¸ÄâµÖ—ç†àÄËÄâµ•ÕµÖ—ç†âÙàÄëÌ»πµÖ—ç†Ä¸ÄààÄËÅÅëÖ—Ñµô•·µÖ…≠ïêÙàëÌ»π°ÙàÅ…Ω±îÙââ’——Ω∏àÅ—Öâ•πëï‡Ùà¿âÅÙ¯Òà˘!Ω±îÄëÌ»π°ÙΩà¯ÒÕ¡Ö∏˘eΩ‘ËÄëÌ»πµÖ…≠ïêÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πµÖ…≠ïëÙëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒÕµÖ±∞˘A’——ÃËÄëÌ»πµÖ…≠ïëA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πµÖ…≠ïëA’——ÕÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°µÖ…≠ïêπ—Ö…ùï—%ê§•ÙËÄëÌ»πç°ïç≠ïêÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πç°ïç≠ïëÙëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒÕµÖ±∞˘A’——ÃËÄëÌ»πç°ïç≠ïëA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πç°ïç≠ïëA’——ÕÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ—…Ωπú¯ëÌ»πµÖ—ç†Ä¸ÄãärLàÄËÄàÑâÙΩÕ—…Ωπú¯ëÏÖ»πÕçΩ…ï5Ö—ç†Ä¸ÅÄÒï¥Åç±ÖÕÃÙâŸï…•ôÂ%ÕÕ’îà˘MçΩ…îÅµ•ÕµÖ—ç†ÉäPÅeΩ‘ÄëÌ»πµÖ…≠ïêÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πµÖ…≠ïëÙ∞ÄëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°µÖ…≠ïêπ—Ö…ùï—%ê§•ÙÄëÌ»πç°ïç≠ïêÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πç°ïç≠ïëÙΩï¥˘ÄÄËÄàâÙëÌ¡’——ÕIï≈’•…ïêÄòòÄÖ»π¡’——Õ5Ö—ç†Ä¸ÅÄÒï¥Åç±ÖÕÃÙâŸï…•ôÂ%ÕÕ’îà˘A’——ÃÅµ•ÕµÖ—ç†ÉäPÅeΩ‘ÄëÌ»πµÖ…≠ïëA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πµÖ…≠ïëA’——ÕÙ∞ÄëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°µÖ…≠ïêπ—Ö…ùï—%ê§•ÙÄëÌ»πç°ïç≠ïëA’——ÃÄÙÙÙÄààÄ¸ÄãäPàÄËÅ»πç°ïç≠ïëA’——ÕÙΩï¥˘ÄÄËÄàâÙΩë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ…Ω’πëQΩ¿à¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠QΩIΩ’πêà˚ä@Å	Öç¨Å—ºÅIΩ’πêΩâ’——Ω∏¯Òë•ÿ¯Ò†»˘IΩ’πêÅYï…•ô•çÖ—•Ω∏Ω†»¯Ò¿¯ëÌïÕå°ïŸïπ—A±ÖÂï»°Õï±ïç—ïê∞ÅëÖ‰§¸ππÖµîÅÒÄàà•ÙëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉ
+‹ÅÖ‰ÄëÌëÖÂıÅÙÉ
+‹ÄëÌïÕå°å¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩ¿¯Ωë•ÿ¯Ωë•ÿ¯ëÌÕ—ÖùîÄÙÙÙÄâµ•πîàÄ¸ÅΩ›πÖ…êÄËÅµÖ…≠ïëÖ…ëÙ(ÄëÌÕ—ÖùîÄÙÙÙÄâµ•πîàÄòòÅΩ›π5•ÕµÖ—ç°ïÃπ±ïπù—†Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ô•çÖ—•ΩπëŸ•çîà˘Iï—’…∏Å—ºÅ—°îÅ…ï±ïŸÖπ–Å°Ω±îÅΩ»ÅÖÕ¨ÅÂΩ’»ÅµÖ…≠ï»Å—ºÅçΩ……ïç–Å—°îÅΩôô•ç•Ö∞Åïπ—…‰∏Å±∞Äƒ‡Å°Ω±ïÃÅµ’Õ–ÅÖù…ïîÅâïôΩ…îÅçΩπ—•π’•πú∏Ωë•ÿ˘ÄÄËÅÕ—ÖùîÄÙÙÙÄâµ•πîàÄ¸ÅÄÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâçΩπ—•π’ïQΩ5Ö…≠ïëÖ…êà˘=9Q%9UÉäPÅ!,ÅIÅ$Å5I-Ωâ’——Ω∏˘ÄÄËÅÄÒë•ÿÅç±ÖÕÃÙâŸï…•ô•çÖ—•ΩπëŸ•çîà¯Òà˘QÖ¿ÅÑÅ…ïêÅ°Ω±îΩà¯Å—ºÅç°ïç¨Å—°îÅÕçΩ…îÅÂΩ‘Åïπ—ï…ïê∏Å%òÅÂΩ’»Åïπ—…‰Å•ÃÅçΩ……ïç–∞Å›Ö•–ÅôΩ»ÄëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°µÖ…≠ïêπ—Ö…ùï—%ê§•ÙÅ—ºÅçΩ……ïç–Å—°ï•»Åç°ïç≠•πúÅÕçΩ…î∞Å—°ï∏Å¡…ïÕÃÅIïô…ïÕ†∏Ωë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–ÅŸï…•ôÂIïô…ïÕ†àÅ•êÙâ…ïô…ïÕ°5Ö…≠ïëÖ…êà˘Iïô…ïÕ†Ωâ’——Ω∏˘ÅıÄÏ(ÄÄÄÄê†àçâÖç≠QΩIΩ’πêà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµ•πîàÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâÕçΩ…•πúàÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àççΩπ—•π’ïQΩ5Ö…≠ïëÖ…êà§§(ÄÄÄÄÄÄê†àççΩπ—•π’ïQΩ5Ö…≠ïëÖ…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµÖ…≠ïêàÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄêê†ùmëÖ—Ñµô•·µÖ…≠ïëtú§πôΩ…Öç††°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩ¡ïπ!Ω±îÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅÕïƒπ•πëï·=ò†≠…Ω‹πëÖ—ÖÕï–πô•·µÖ…≠ïê§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâÕçΩ…•πúàÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ…Ω‹πΩπç±•ç¨ÄÙÅΩ¡ïπ!Ω±îÏ(ÄÄÄÄÄÅ…Ω‹πΩπ≠ïÂëΩ›∏ÄÙÄ°ïŸïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ïŸïπ–π≠ï‰ÄÙÙÙÄâπ—ï»àÅÒÅïŸïπ–π≠ï‰ÄÙÙÙÄàÄà§ÅÏ(ÄÄÄÄÄÄÄÄÄÅïŸïπ–π¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÄÄÅΩ¡ïπ!Ω±î†§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†ê†àç…ïô…ïÕ°5Ö…≠ïëÖ…êà§§(ÄÄÄÄÄÄê†àç…ïô…ïÕ°5Ö…≠ïëÖ…êà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–ÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅ…ï≈’ïÕ—IΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ†Öç—‡§Å…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅçΩπÕ–Å…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅïë•—Öâ±îÄÙÅm…Ω±ïÃπÕçΩ…ï…%ê∞Å…Ω±ïÃπµÖ…≠ï…%ëtπ•πç±’ëïÃ°M—…•πú°Õï±ïç—ïê§§∞(ÄÄÄÄÄÅïπ—…ÂMçΩ…ï…%êÄÙÅïë•—Öâ±îÄ¸ÅM—…•πú°Õï±ïç—ïê§ÄËÅ…Ω±ïÃπÕçΩ…ï…%ê∞(ÄÄÄÄÄÅ•ÕA…•µÖ…‰ÄÙÅM—…•πú°Õï±ïç—ïê§ÄÙÙÙÅ…Ω±ïÃπÕçΩ…ï…%ê∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§∞(ÄÄÄÄÄÅ¡ΩÕ•—•Ω∏ÄÙÅ5Ö—†πµÖ‡†¿∞Å5Ö—†πµ•∏†ƒ‹∞Ä¨°Õ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÅÒÄ¿§§§∞(ÄÄÄÄÄÅ°Ω±îÄÙÅÕï≈’ïπçïm¡ΩÕ•—•Ωπt∞(ÄÄÄÄÄÅ•πëï‡ÄÙÅ°Ω±îÄ¥Äƒ∞(ÄÄÄÄÄÅ¡Ö»ÄÙÄ¨°ÿπ¡Ö»¸πm•πëï·tÅÒÄ–§∞(ÄÄÄÄÄÅµï—…ïÃÄÙÅçΩ’…Õï!Ω±ï•Õ—Öπçî°ÿ∞Å•πëï‡§ÅÒÄãäPà∞(ÄÄÄÄÄÅÖù…ïïµïπ–ÄÙÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å°Ω±î§∞(ÄÄÄÄÄÅ…ïçΩ…êÄÙÅÖµâ…ΩÕïπ—…‰°ëÖ‰∞Åïπ—…ÂMçΩ…ï…%ê∞Å°Ω±î§∞(ÄÄÄÄÄÅù…ΩÕÃÄÙÅ…ïçΩ…êπÕï±ò¸πù…ΩÕÃ∞(ÄÄÄÄÄÅë…•Ÿï%êÄÙÅM—…•πú°…ïçΩ…êπÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%êÅÒÄàà§∞(ÄÄÄÄÄÅπ—¿ÄÙÅπ—¡!Ω±ïÕΩ»°ëÖ‰§π•πç±’ëïÃ°°Ω±î§∞(ÄÄÄÄÄÅ°Ω±ëï»ÄÙÅπ—¿Ä¸Åç’……ïπ—9—¡!Ω±ëï»°ëÖ‰∞Å°Ω±î§ÄËÅπ’±∞∞(ÄÄÄÄÄÅï·—…Ö9—¡A±ÖÂï…%êÄÙÅ…Ω±ïÃπ—ïÖ¥π±ïπù—†ÄÙÙÙÄÃ(ÄÄÄÄÄÄÄÄ¸ÅM—…•πú†(ÄÄÄÄÄÄÄÄÄÄÄÅç—‡πÕï—’¿ππ—¡·—…ÖA±ÖÂï…Ã¸πmM—…•πú°°Ω±î•tÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅç—‡πÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄàà∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄËÄàà∞(ÄÄÄÄÄÅ°Öπë•çÖ¿ÄÙÅÖµâ…ΩÕïQïÖµ!Öπë•çÖ¿°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅçΩ’π—ÃÄÙÅÖµâ…ΩÕï…•ŸïΩ’π—Ã°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å…Ω±ïÃπÕçΩ…ï…%ê§∞(ÄÄÄÄÄÅµ•π•µ’¥ÄÙÄ≠Õ—Ω…îπïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃÅÒÄ¿∞(ÄÄÄÄÄÅçΩµ¡±ï—ïΩ’π–ÄÙÅÕï≈’ïπçîπô•±—ï»†°†§ÄÙ¯(ÄÄÄÄÄÄÄÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å†§πçΩµ¡±ï—î∞(ÄÄÄÄÄÄ§π±ïπù—†Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö—’ÕΩ»ÄÙÄ°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åç°ïç¨ÄÙÅÖµâ…ΩÕï!Ω±ïù…ïïµïπ–°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å†§Ï(ÄÄÄÄÄÅ…ï—’…∏Å†ÄÙÙÙÅ°Ω±î(ÄÄÄÄÄÄÄÄ¸Äâç’……ïπ–à(ÄÄÄÄÄÄÄÄËÅç°ïç¨πµ•ÕµÖ—ç†(ÄÄÄÄÄÄÄÄÄÄ¸Äâµ•ÕµÖ—ç†à(ÄÄÄÄÄÄÄÄÄÄËÅç°ïç¨πçΩµ¡±ï—î(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄâçΩµ¡±ï—îà(ÄÄÄÄÄÄÄÄÄÄÄÄËÄâ’¡çΩµ•πúàÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å—ïÖµ…ΩÕÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê§¸πmM—…•πú°§Ä¨Äƒ•t¸πÕï±ò¸πù…ΩÕÃÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÕçΩ…ïπ—ï…ïê°ŸÖ±’î§Ä¸Ä≠ŸÖ±’îÄËÅπ’±∞Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅçΩπÕ–Åù…ΩÕÕQΩ—Ö∞ÄÙÅ—ïÖµ…ΩÕÃπ…ïë’çî†(ÄÄÄÄÄÄ°Õ’¥∞ÅŸÖ±’î§ÄÙ¯ÅÕ’¥Ä¨Ä°ŸÖ±’îÄÙÙÅπ’±∞Ä¸Ä¿ÄËÅŸÖ±’î§∞(ÄÄÄÄÄÄ¿∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å…Ω±ï1Öâï∞ÄÙÄÖïë•—Öâ±î(ÄÄÄÄÄÄ¸ÅÅY•ï›•πúÄëÌïÕå°ïŸïπ—A±ÖÂï»°…Ω±ïÃπÕçΩ…ï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ—°îÅÕçΩ…ï»à•ÙùÃÅ—ïÖ¥ÅçÖ…ëÄ(ÄÄÄÄÄÄËÅ•ÕA…•µÖ…‰(ÄÄÄÄÄÄÄÄ¸ÄâQ4ÅM=IHà(ÄÄÄÄÄÄÄÄËÄâQ4Å5I-HÉäPÅ!-%9ÅIàÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…•πùA°ΩπîÅÖµâ…ΩÕïA°Ωπîà¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕïIΩ±îà¯Òë•ÿ¯ÒÕµÖ±∞˘5	I=MÉ
+‹ÅQ4ÄëÌç—‡πù…Ω’¡%πëï‡Ä¨Ä≈ÙΩÕµÖ±∞¯Ò†»¯ëÌ…Ω±ï1Öâï±ÙΩ†»¯Ωë•ÿ¯ÒÕ¡Ö∏¯ëÌçΩµ¡±ï—ïΩ’π—Ùºƒ‡ÅÖù…ïïêΩÕ¡Ö∏¯Ωë•ÿ¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï»àÅÖ…•Ñµ±Öâï∞Ùâµâ…ΩÕîÅ°Ω±îÅÕ—Ö—’Ãà¯Òë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï…-ï‰à¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâçΩµ¡±ï—îà˚ärLΩ§¯Åù…ïïêΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâµ•ÕµÖ—ç†à¯ÑΩ§¯Å°ïç¨ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâç’……ïπ–à¯Ω§¯Å’……ïπ–ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï……•êà¯ëÌÕï≈’ïπçîπµÖ¿†°†∞Å§§ÄÙ¯ÅÏÅçΩπÕ–ÅÕ—Ö—îÄÙÅÕ—Ö—’ÕΩ»°†§ÏÅ…ï—’…∏ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ°Ω±ïQ…Öç¨ÄëÌÕ—Ö—ïÙàÅëÖ—ÑµÖµâ…ΩÕï°Ω±îÙàëÌ•Ùà¯Òà¯ëÌ°ÙΩà¯ëÌÕ—Ö—îÄÙÙÙÄâçΩµ¡±ï—îàÄ¸ÄàÒÕµÖ±∞˚ärLΩÕµÖ±∞¯àÄËÅÕ—Ö—îÄÙÙÙÄâµ•ÕµÖ—ç†àÄ¸ÄàÒÕµÖ±∞¯ÑΩÕµÖ±∞¯àÄËÄàâÙΩâ’——Ω∏˘ÄÏÅÙ§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄëÌÖù…ïïµïπ–πµ•ÕµÖ—ç†Ä¸ÄúÒë•ÿÅç±ÖÕÃÙâµ•ÕµÖ—ç°!Ω±ï±ï…–à¯Òë•ÿ¯ÒÕ—…Ωπú˘MçΩ…îÅΩ»ÅÕï±ïç—ïêÅë…•ŸîÅëΩïÃÅπΩ–ÅÖù…ïîΩÕ—…Ωπú¯ÒÕ¡Ö∏˘Q°îÅÕçΩ…ï»ÅÖπêÅµÖ…≠ï»ÅÕ°Ω’±êÅç°ïç¨Å—°•ÃÅ°Ω±î∏ΩÕ¡Ö∏¯Ωë•ÿ¯Ωë•ÿ¯úÄËÄàâÙ(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâ°Ω±ï!ï…ºÄëÌπ—¿Ä¸Äâ•Õ9—¿àÄËÄàâÙà¯Òë•ÿ¯ÒÕµÖ±∞˘!=1ΩÕµÖ±∞¯ÒÕ—…Ωπú¯ëÌ°Ω±ïÙΩÕ—…Ωπú¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘AHΩÕµÖ±∞¯Òà¯ëÌ¡Ö…ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘%9`ΩÕµÖ±∞¯Òà¯ëÌïÕå°ÿπ•πëï‡¸πm•πëï·tÅÒÄãäPà•ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞¯ëÌçΩ’…Õï•Õ—ÖπçïUπ•–°ÿ§π—ΩU¡¡ï…ÖÕî†•ÙΩÕµÖ±∞¯Òà¯ëÌµï—…ïÕÙΩà¯Ωë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…ÂÖ…êÅÖµâ…ΩÕïMçΩ…ïÖ…êà¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…Â!ïÖêà¯Òë•ÿ¯ÒÕµÖ±∞˘Q4ÅM=IΩÕµÖ±∞¯Ò†Ã¯ëÌïë•—Öâ±îÄ¸ÅïÕå°ïŸïπ—A±ÖÂï»°Õï±ïç—ïê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à§ÄËÄâIïÖêÅΩπ±‰âÙΩ†Ã¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïM’µµÖ…‰à¯Òë•ÿÅç±ÖÕÃÙâ…’ππ•πùMçΩ…îà¯ÒÕ¡Ö∏¯Òï¥˘…ΩÕÃΩï¥¯Òà¯ëÌù…ΩÕÕQΩ—Ö∞ÅÒÄãäPâÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Òï¥˘!ç¿Ωï¥¯Òà¯ëÌ°Öπë•çÖ¿ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅ°Öπë•çÖ¿π—Ω•·ïê†ƒ•ÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏Å—•—±îÙâ•πÖ∞Åπï–ÅÖ¡¡ïÖ…ÃÅÖô—ï»ÅÖ±∞Äƒ‡Å°Ω±ïÃà¯Òï¥˘•πÖ∞Å9ï–Ωï¥¯Òà¯ëÌ—ïÖµ…ΩÕÃπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§π±ïπù—†ÄÙÙÙÄƒ‡ÄòòÅ°Öπë•çÖ¿ÄÑÙÅπ’±∞Ä¸Ä°ù…ΩÕÕQΩ—Ö∞Ä¥Å°Öπë•çÖ¿§π—Ω•·ïê†ƒ§ÄËÄãäPâÙΩà¯ΩÕ¡Ö∏¯Ωë•ÿ¯Ωë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï…ΩÕÃà¯ÒÕµÖ±∞˘M—…Ω≠ïÃÅ—Ö≠ï∏ÅΩ∏Å!Ω±îÄëÌ°Ω±ïÙΩÕµÖ±∞¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï»ÄëÌÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Ä¸ÄâÕï–àÄËÄâ’πÕï–âÙà¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâÖµâ…ΩÕï5•π’ÃàÄëÌïë•—Öâ±îÄ¸ÄààÄËÄâë•ÕÖâ±ïêâÙ˚ä"HΩâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕ—ï¡YÖ±’îàÅ•êÙâÖµâ…ΩÕï…ΩÕÃàÄëÌïë•—Öâ±îÄ¸ÄààÄËÄâë•ÕÖâ±ïêâÙ¯ëÌÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Ä¸Åù…ΩÕÃÄËÅ¡Ö…ÙΩâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâÖµâ…ΩÕïA±’ÃàÄëÌïë•—Öâ±îÄ¸ÄààÄËÄâë•ÕÖâ±ïêâÙ¯¨Ωâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï…•Ÿîà¯Òë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï…•Ÿï!ïÖë•πúà¯Òà˘…•ŸîÅ—Ö≠ï∏¸Ωà¯ÒÕµÖ±∞˘QÖ¿ÅçΩ……ïç–Å¡±ÖÂï»Å—ºÅçΩ……ïç–ÅÖ∏Åï……Ω»∏ΩÕµÖ±∞¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï…•Ÿï°Ω•çïÃà¯ëÌ…Ω±ïÃπ—ïÖ¥πµÖ¿†°•ê§ÄÙ¯ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—ÑµÖµâ…ΩÕïë…•ŸîÙàëÌ•ëÙàÅç±ÖÕÃÙàëÌë…•Ÿï%êÄÙÙÙÅ•êÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙàÄëÌïë•—Öâ±îÄ¸ÄààÄËÄâë•ÕÖâ±ïêâÙ¯ÒÕ¡Ö∏¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩÕ¡Ö∏¯ÒÕµÖ±∞¯Òà¯¨Ωà¯ÒÕ—…Ωπú¯ëÌçΩ’π—Õm•ëtÅÒÄ¡ÙΩÕ—…Ωπú¯Òï¥˘ΩòΩï¥¯ÒÕ—…Ωπú¯ëÌµ•π•µ’µÙΩÕ—…Ωπú¯ΩÕµÖ±∞¯Ωâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ¯(ÄÄÄÄÄÄΩë•ÿ¯(ÄÄÄÄÄÄëÌπ—¿Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡A±ÖÂÖ…êÅÖµâ…ΩÕï9—¿à¯Òë•ÿ¯Òà˘9ïÖ…ïÕ–Å—°îÅA•∏ÉäPÅ!Ω±îÄëÌ°Ω±ïÙΩà¯ëÌï·—…Ö9—¡A±ÖÂï…%êÄ¸ÅÄÒÕ—…ΩπúÅç±ÖÕÃÙâÖµâ…ΩÕï·—…ÖM°Ω–à˘Q]<ÅM!=QLËÄëÌïÕå°ïŸïπ—A±ÖÂï»°ï·—…Ö9—¡A±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ=πîÅ¡±ÖÂï»à•ÙΩÕ—…Ωπú˘ÄÄËÄàâÙÒÕ¡Ö∏¯ëÌ°Ω±ëï»Ä¸ÅÅ’……ïπ–Å°Ω±ëï»ËÄëÌïÕå°ïŸïπ—A±ÖÂï»°°Ω±ëï»π•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ıÄÄËÄâ9ºÅπÖµîÅ…ïçΩ…ëïêÅÂï–âÙΩÕ¡Ö∏¯ÒÕ—…Ωπú˘]°ºÅÕ•ùπïêÅ—°îÅ9Q@ÅçÖ…ê¸ΩÕ—…Ωπú¯Ωë•ÿ¯ëÌ•ÕA…•µÖ…‰Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï9—¡9ÖµïÃà¯ëÌ…Ω±ïÃπ—ïÖ¥πµÖ¿†°•ê§ÄÙ¯ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—ÑµÖµâ…ΩÕïπ—¿ÙàëÌ•ëÙàÅç±ÖÕÃÙàëÌM—…•πú°…ïçΩ…êππ—¿¸πïπ—…Öπ—%êÅÒÄàà§ÄÙÙÙÅ•êÄòòÅ…ïçΩ…êππ—¿¸πçΩπô•…µïë–Ä¸ÄâÕï±ïç—ïêàÄËÄàâÙà¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙëÌ…ïçΩ…êππ—¿¸πçΩπô•…µïë–Ä¸ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕΩô–àÅ•êÙâ’πëΩµâ…ΩÕï9—¿à˘UπëºΩâ’——Ω∏¯ÒÕµÖ±∞˘IïçΩ…ëïêÄëÌπï‹ÅÖ—î°…ïçΩ…êππ—¿πçΩπô•…µïë–§π—Ω1ΩçÖ±ïQ•µïM—…•πú†âï∏µTà∞ÅÏÅ°Ω’»ËÄâπ’µï…•åà∞Åµ•π’—îËÄà»µë•ù•–àÅÙ•ÙΩÕµÖ±∞˘ÄÄËÄàâÙΩë•ÿ˘ÄÄËÄàÒÕµÖ±∞˘Q°îÅ—ïÖ¥ÅÕçΩ…ï»Å…ïçΩ…ëÃÅ—°îÅ9Q@ÅçÖ…êÅïπ—…‰∏ΩÕµÖ±∞¯âÙΩë•ÿ˘ÄÄËÄàâÙ(ÄÄÄÄÄÄÒë•ÿÅç±ÖÕÃÙâ°Ω±ï9Öÿà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ¡…ïŸ!Ω±îàÄëÌ¡ΩÕ•—•Ω∏ÄÙÙÙÄ¿Ä¸Äâë•ÕÖâ±ïêàÄËÄàâÙ˚ä@ÅA…ïŸ•Ω’ÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâπï·—!Ω±îà¯ëÌ¡ΩÕ•—•Ω∏ÄÙÙÙÄƒ‹Ä¸Äâ%9%M ÅQ4ÅIàÄËÄâ9ï·–Å!Ω±îÉäHâÙΩâ’——Ω∏¯Ωë•ÿ¯(ÄÄÄÄΩë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–Å’¡ëÖ—îÄÙÄ°πï·—…ΩÕÃÄÙÅù…ΩÕÃ∞Åπï·—…•ŸîÄÙÅë…•Ÿï%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ…ïçΩ…êπÕï±òÄÙÅ…ïçΩ…êπÕï±òÅÒÅÌÙÏ(ÄÄÄÄÄÅ…ïçΩ…êπÕï±òπ¡±ÖÂï…%êÄÙÅïπ—…ÂMçΩ…ï…%êÏ(ÄÄÄÄÄÅ…ïçΩ…êπÕï±òπù…ΩÕÃÄÙÅπï·—…ΩÕÃÏ(ÄÄÄÄÄÅ…ïçΩ…êπÖµâ…ΩÕîπë…•ŸïA±ÖÂï…%êÄÙÅπï·—…•ŸîÏ(ÄÄÄÄÄÅçΩπÕ–Åïπ—…ÂIΩ’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Åïπ—…ÂMçΩ…ï…%ê§Ï(ÄÄÄÄÄÅ•òÄ°ïπ—…ÂIΩ’πêπ}µï—Ñ¸πô•πÖ±•Õïë–§Åëï±ï—îÅïπ—…ÂIΩ’πêπ}µï—Ñπô•πÖ±•Õïë–Ï(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Åïπ—…ÂMçΩ…ï…%ê§Ï(ÄÄÄÄÄÅ…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçÖµâ…ΩÕï5•π’Ãà§§Äê†àçÖµâ…ΩÕï5•π’Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å’¡ëÖ—î°5Ö—†πµÖ‡†ƒ∞Ä°ÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Ä¸Ä≠ù…ΩÕÃÄËÅ¡Ö»§Ä¥Äƒ§§Ï(ÄÄÄÅ•òÄ†ê†àçÖµâ…ΩÕïA±’Ãà§§Äê†àçÖµâ…ΩÕïA±’Ãà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å’¡ëÖ—î°5Ö—†πµ•∏†Ã¿∞Ä°ÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§Ä¸Ä≠ù…ΩÕÃÄËÅ¡Ö»§Ä¨Äƒ§§Ï(ÄÄÄÅ•òÄ†ê†àçÖµâ…ΩÕï…ΩÕÃà§§Äê†àçÖµâ…ΩÕï…ΩÕÃà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏÅ•òÄ†ÖÕçΩ…ïπ—ï…ïê°ù…ΩÕÃ§§Å’¡ëÖ—î°¡Ö»§ÏÅÙÏ(ÄÄÄÄêê†ùmëÖ—ÑµÖµâ…ΩÕïë…•Ÿïtú§πôΩ…Öç††°â’——Ω∏§ÄÙ¯Åâ’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯Å’¡ëÖ—î°ù…ΩÕÃ∞Åâ’——Ω∏πëÖ—ÖÕï–πÖµâ…ΩÕïë…•Ÿî§§Ï(ÄÄÄÅçΩπÕ–Åç’……ïπ—π—…ÂΩµ¡±ï—îÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄÖïë•—Öâ±îÅÒÄ°ÕçΩ…ïπ—ï…ïê°…ïçΩ…êπÕï±ò¸πù…ΩÕÃ§ÄòòÅ	ΩΩ±ïÖ∏°…ïçΩ…êπÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%ê§§Ï(ÄÄÄÅçΩπÕ–Å›Ö…π%πçΩµ¡±ï—ïπ—…‰ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°ç’……ïπ—π—…ÂΩµ¡±ï—î†§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÄÄÅçΩπÕ–Åµ•ÕÕ•πúÄÙÅl(ÄÄÄÄÄÄÄÄÖÕçΩ…ïπ—ï…ïê°…ïçΩ…êπÕï±ò¸πù…ΩÕÃ§Ä¸Äâ—°îÅ—ïÖ¥ÅÕçΩ…îàÄËÄàà∞(ÄÄÄÄÄÄÄÄÖ…ïçΩ…êπÖµâ…ΩÕî¸πë…•ŸïA±ÖÂï…%êÄ¸Äâ›°ΩÕîÅë…•ŸîÅ›ÖÃÅÕï±ïç—ïêàÄËÄàà∞(ÄÄÄÄÄÅtπô•±—ï»°	ΩΩ±ïÖ∏§π©Ω•∏†àÅÖπêÄà§Ï(ÄÄÄÄÄÅÖ±ï…–°Å!Ω±îÄëÌ°Ω±ïÙÅ•ÃÅ•πçΩµ¡±ï—î∏ÅA±ïÖÕîÅïπ—ï»ÄëÌµ•ÕÕ•πùÙÅâïôΩ…îÅµΩŸ•πúÅΩ∏πÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Å—…’îÏ(ÄÄÄÅÙÏ(ÄÄÄÄêê†ùmëÖ—ÑµÖµâ…ΩÕï°Ω±ïtú§πôΩ…Öç††°â’——Ω∏§ÄÙ¯Åâ’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—Ö…ùï—AΩÕ•—•Ω∏ÄÙÄ≠â’——Ω∏πëÖ—ÖÕï–πÖµâ…ΩÕï°Ω±îÏ(ÄÄÄÄÄÅ•òÄ°—Ö…ùï—AΩÕ•—•Ω∏Ä¯Å¡ΩÕ•—•Ω∏ÄòòÅ›Ö…π%πçΩµ¡±ï—ïπ—…‰†§§Å…ï—’…∏Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅ—Ö…ùï—AΩÕ•—•Ω∏Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÄêê†ùmëÖ—ÑµÖµâ…ΩÕïπ—¡tú§πôΩ…Öç††°â’——Ω∏§ÄÙ¯Åâ’——Ω∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ…ïçΩ…êππ—¿ÄÙÅÏÅïπ—…Öπ—%êËÅâ’——Ω∏πëÖ—ÖÕï–πÖµâ…ΩÕïπ—¿∞ÅçΩπô•…µïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞Å±Ωç≠ïêËÅôÖ±ÕîÅÙÏ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§ÏÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê§ÏÅ…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ†ê†àç’πëΩµâ…ΩÕï9—¿à§§Äê†àç’πëΩµâ…ΩÕï9—¿à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏÅ…ïçΩ…êππ—¿ÄÙÅÌÙÏÅ›…•—ï1ΩçÖ±M—Ω…î†§ÏÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê§ÏÅ…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§ÏÅÙÏ(ÄÄÄÄê†àç¡…ïŸ!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅ5Ö—†πµÖ‡†¿∞Å¡ΩÕ•—•Ω∏Ä¥Äƒ§Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçπï·—!Ω±îà§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°›Ö…π%πçΩµ¡±ï—ïπ—…‰†§§Å…ï—’…∏Ï(ÄÄÄÄÄÅ•òÄ°ïë•—Öâ±î§ÅÏÅ›…•—ï1ΩçÖ±M—Ω…î†§ÏÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Åïπ—…ÂMçΩ…ï…%ê§ÏÅÙ(ÄÄÄÄÄÅ•òÄ°¡ΩÕ•—•Ω∏ÄÄƒ‹§ÅÏÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅ¡ΩÕ•—•Ω∏Ä¨ÄƒÏÅÕÖŸî†§ÏÅ…ï—’…∏Å…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§ÏÅÙ(ÄÄÄÄÄÅ•òÄ†Öïë•—Öâ±î§Å…ï—’…∏ÅÖ±ï…–†â=π±‰Å—°îÅ—ïÖ¥ÅÕçΩ…ï»ÅΩ»Åç°ïç≠•πúÅµÖ…≠ï»ÅçÖ∏ÅçΩµ¡±ï—îÅ—°îÅµâ…ΩÕîÅ—ïÖ¥ÅçÖ…ê∏à§Ï(ÄÄÄÄÄÅ•òÄ†ÖÖµâ…ΩÕïQïÖµΩµ¡±ï—î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§§Å…ï—’…∏ÅÖ±ï…–†âQ°îÅ—ïÖ¥ÅçÖ…êÅçÖππΩ–ÅâîÅçΩµ¡±ï—ïêÅÂï–∏ÅŸï…‰Å°Ω±îÅπïïëÃÅÑÅ—ïÖ¥ÅÕçΩ…îÅÖπêÅÕï±ïç—ïêÅë…•ŸîàÄ¨Ä°…Ω±ïÃπµÖ…≠ï…%êÄ¸Äà∞ÅÖπêÅâΩ—†ÅçÖ…ëÃÅµ’Õ–ÅÖù…ïî∏àÄËÄà∏à§§Ï(ÄÄÄÄÄÅçΩπÕ–ÅÕ°Ω…–ÄÙÅ=â©ïç–πïπ—…•ïÃ°çΩ’π—Ã§πô•±—ï»†°l∞ÅçΩ’π—t§ÄÙ¯ÅçΩ’π–ÄÅµ•π•µ’¥§Ï(ÄÄÄÄÄÅ•òÄ°Õ°Ω…–π±ïπù—†ÄòòÄÖçΩπô•…¥°ÅIEU%IÅI%YLÅ9=PÅI=Iqπq∏ëÌÕ°Ω…–πµÖ¿†°m•ê∞ÅçΩ’π—t§ÄÙ¯ÅÄëÌïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»âÙËÄëÌçΩ’π—ÙÅΩòÄëÌµ•π•µ’µÙÅë…•ŸïÕÄ§π©Ω•∏†âq∏à•ıqπqπM’âµ•–Å—°•ÃÅçÖ…êÅÖÃÅπΩ∏µçΩµ¡±•Öπ–ÅÖπêÅï·ç±’ëîÅ—°îÅ—ïÖ¥Åô…Ω¥Å—°îÅµâ…ΩÕîÅ…ïÕ’±–˝Ä§§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–ÅÖ–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÄÙÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂtÅÒÙÅÌÙÏ(ÄÄÄÄÄÅ…Ω±ïÃπ—ïÖ¥πôΩ…Öç††°•ê§ÄÙ¯ÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂum•ëtÄÙÅÖ–§Ï(ÄÄÄÄÄÅm…Ω±ïÃπÕçΩ…ï…%ê∞Å…Ω±ïÃπµÖ…≠ï…%ëtπô•±—ï»°	ΩΩ±ïÖ∏§πôΩ…Öç††°•ê§ÄÙ¯ÅÏÅçΩπÕ–Å…Ω’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å•ê§ÏÅ…Ω’πêπ}µï—ÑÄÙÅÏÄ∏∏∏°…Ω’πêπ}µï—ÑÅÒÅÌÙ§∞Åô•πÖ±•Õïë–ËÅÖ–∞ÅÖµâ…ΩÕïQïÖ¥ËÅç—‡πù…Ω’¡%πëï‡∞ÅÖµâ…ΩÕï…•ŸïΩµ¡±•Öπ–ËÄÖÕ°Ω…–π±ïπù—†ÅÙÏÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞Å•ê§ÏÅÙ§Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâçΩµ¡±ï—ïêàÏ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§ÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§ÏÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÅïπÖâ±ï!Ω±ïM›•¡î†ê†àπÕçΩ…•πùA°Ωπîà§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…µâ…ΩÕïΩµ¡±ï—ïê°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ†Öç—‡§Å…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅçΩπÕ–Å…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅ°Öπë•çÖ¿ÄÙÅÖµâ…ΩÕïQïÖµ!Öπë•çÖ¿°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅ°Ω±ïÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê§¸πmM—…•πú°•πëï‡Ä¨Äƒ•t¸πÕï±ò¸πù…ΩÕÃÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕçΩ…ïπ—ï…ïê°ŸÖ±’î§Ä¸Ä≠ŸÖ±’îÄËÅπ’±∞Ï(ÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÅù…ΩÕÃÄÙÅ±ïÖëï…M’¥°°Ω±ïÃ§∞(ÄÄÄÄÄÅçΩ’π—ÃÄÙÅÖµâ…ΩÕï…•ŸïΩ’π—Ã°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å…Ω±ïÃπÕçΩ…ï…%ê§∞(ÄÄÄÄÄÅµ•π•µ’¥ÄÙÄ≠Õ—Ω…îπïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃÅÒÄ¿∞(ÄÄÄÄÄÅçΩµ¡±•Öπ–ÄÙÅ…Ω±ïÃπ—ïÖ¥πïŸï…‰†°•ê§ÄÙ¯Ä°çΩ’π—Õm•ëtÅÒÄ¿§Ä¯ÙÅµ•π•µ’¥§Ï(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâçΩµ¡±ï—ïëÖ…êÅÖµâ…ΩÕïΩµ¡±ï—ïêÄëÌçΩµ¡±•Öπ–Ä¸ÄààÄËÄâÖµâ…ΩÕï9ΩπΩµ¡±•Öπ–âÙà¯Òë•ÿÅç±ÖÕÃÙâ…Ω’πëQΩ¿à¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠…Ωµµâ…ΩÕïΩµ¡±ï—îà˚ä@Å	Öç¨Ωâ’——Ω∏¯Òë•ÿ¯Ò†»˘µâ…ΩÕîÅQïÖ¥ÅÖ…êÅM’âµ•——ïêΩ†»¯Ò¿˘QïÖ¥ÄëÌç—‡πù…Ω’¡%πëï‡Ä¨Ä≈ÙëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉ
+‹ÅÖ‰ÄëÌëÖÂıÅÙΩ¿¯Ωë•ÿ¯Ωë•ÿ¯ëÌçΩµ¡±•Öπ–Ä¸ÄààÄËÄúÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕïΩµ¡±•ÖπçïM—Öµ¿à˘IEU%IÅI%YLÅ9=PÅI=IΩë•ÿ¯ùÙÒë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï•πÖ±MçΩ…îà¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘I=MLΩÕµÖ±∞¯ÒÕ—…Ωπú¯ëÌù…ΩÕÕÙΩÕ—…Ωπú¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘!9%@ΩÕµÖ±∞¯ÒÕ—…Ωπú¯ëÌ°Öπë•çÖ¿ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅ°Öπë•çÖ¿π—Ω•·ïê†ƒ•ÙΩÕ—…Ωπú¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ÒÕµÖ±∞˘9PΩÕµÖ±∞¯ÒÕ—…Ωπú¯ëÌ°Öπë•çÖ¿ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÄ°ù…ΩÕÃÄ¥Å°Öπë•çÖ¿§π—Ω•·ïê†ƒ•ÙΩÕ—…Ωπú¯ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâÖµâ…ΩÕï…•ŸïM’µµÖ…‰à¯Òà˘ççï¡—ïêÅë…•ŸïÃÉäPÄëÌçΩµ¡±•Öπ–Ä¸Äâµ•π•µ’¥ÅÕÖ—•Õô•ïêÉärLàÄËÄâµ•π•µ’¥ÅπΩ–ÅÕÖ—•Õô•ïêâÙΩà¯ëÌ…Ω±ïÃπ—ïÖ¥πµÖ¿†°•ê§ÄÙ¯ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙàëÏ°çΩ’π—Õm•ëtÅÒÄ¿§Ä¯ÙÅµ•π•µ’¥Ä¸Äâ…ïÖë‰àÄËÄâÕ°Ω…–âÙà¯Òï¥¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙËΩï¥¯ÒÕ—…Ωπú¯ëÌçΩ’π—Õm•ëtÅÒÄ¡ÙÄÒÕµÖ±∞˘ΩòÄëÌµ•π•µ’µÙΩÕµÖ±∞¯ΩÕ—…Ωπú¯ΩÕ¡Ö∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò¿˘Q°îÅ—ïÖ¥ÅÕçΩ…îÅÖπêÅÕï±ïç—ïêÅë…•ŸïÃÅ°ÖŸîÅâïï∏ÅÕ’âµ•——ïêëÌ…Ω±ïÃπµÖ…≠ï…%êÄ¸ÄàÅÖπêÅ—°îÅÕçΩ…ï»ÅÖπêÅµÖ…≠ï»ÅçÖ…ëÃÅÖù…ïîàÄËÄàâÙ∏ÄëÌçΩµ¡±•Öπ–Ä¸ÄâQ°îÅ—ïÖ¥Å•ÃÅï±•ù•â±îÅôΩ»Å—°îÅµâ…ΩÕîÅ…ïÕ’±–∏àÄËÄâQ°îÅΩ…ùÖπ•Õï»Å°ÖÃÅ…ïçï•ŸïêÅ—°îÅçÖ…ê∞Åâ’–Å—°îÅ—ïÖ¥Å•ÃÅï·ç±’ëïêÅô…Ω¥Å—°îÅµâ…ΩÕîÅ…ïÕ’±–∏âÙΩ¿¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àçâÖç≠…Ωµµâ…ΩÕïΩµ¡±ï—îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏÅÕÖŸî†§ÏÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§ÏÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ïπ—…ÂΩπ—…Ω±Ã°¡’——•πù=∏∞ÅÕïç—•Ω∏∞Åïπ—…‰∞Å¡Ö»∞ÅÕ—ï¡¡ï»∞Å¡•ç≠’¿§ÅÏ(ÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅÕ—ï¡¡ï»°Õïç—•Ω∏Ä¨Äâ…ΩÕÃà∞ÄâMçΩ…îà∞Åïπ—…‰πù…ΩÕÃ∞Å¡Ö»ÅÒÄ–∞Äƒ∞Ä»¿§Ï(ÄÄÄÅ•òÄ°¡’——•πù=∏§(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï…Ãà¯ëÌù…ΩÕÕÙëÌÕ—ï¡¡ï»°Õïç—•Ω∏Ä¨ÄâA’——Ãà∞ÄâA’——Ãà∞Åïπ—…‰π¡’——Ã∞Ä»∞Ä¿∞Ä‰•ÙΩë•ÿ¯ëÌ¡•ç≠’¿°Õïç—•Ω∏Ä¨Äâ…ΩÕÃà∞Åïπ—…‰πù…ΩÕÃ•ıÄÏ(ÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï…ÃÅπΩA’——•πúà¯ëÌù…ΩÕÕÙÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï…]…Ö¿Å¡•ç≠’¡Ωπ—…Ω∞à¯ÒÕµÖ±∞˘A•ç¨µ’¿ΩÕµÖ±∞¯ëÌ¡•ç≠’¿°Õïç—•Ω∏Ä¨Äâ…ΩÕÃà∞Åïπ—…‰πù…ΩÕÃ∞Å—…’î•ÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕçΩ…ïπ—…•ïÕ5•ÕµÖ—ç†°±ïô–∞Å…•ù°–∞Å¡’——ÕIï≈’•…ïê§ÅÏ(ÄÄÄÅ•òÄ†ÖÕçΩ…ïπ—ï…ïê°±ïô–¸πù…ΩÕÃ§ÅÒÄÖÕçΩ…ïπ—ï…ïê°…•ù°–¸πù…ΩÕÃ§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅ•òÄ°¡’——ÕIï≈’•…ïêÄòòÄ†ÖÕçΩ…ïπ—ï…ïê°±ïô–¸π¡’——Ã§ÅÒÄÖÕçΩ…ïπ—ï…ïê°…•ù°–¸π¡’——Ã§§§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅ…ï—’…∏ÅM—…•πú°±ïô–πù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÄÑÙÙÅM—…•πú°…•ù°–πù…ΩÕÃ§π—ΩU¡¡ï…ÖÕî†§ÅÒ(ÄÄÄÄÄÄ°¡’——ÕIï≈’•…ïêÄòòÅ9’µâï»°±ïô–π¡’——Ã§ÄÑÙÙÅ9’µâï»°…•ù°–π¡’——Ã§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅ…ï≈’ïÕ—IΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞(ÄÄÄÄÄÅ¿ÄÙÅïŸïπ—A±ÖÂï»°Õï±ïç—ïê±ëÖ‰§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ†Ö¿ÅÒÄÖç—‡§Å…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅç—‡πÕï—’¿∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±Õï±ïç—ïê§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕïƒÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§Ï(ÄÄÄÅ±ï–Å¡ΩÃÄÙÅ5Ö—†πµÖ‡†¿∞Å5Ö—†πµ•∏†ƒ‹∞ÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÅÒÄ¿§§∞(ÄÄÄÄÄÅ°Ω±îÄÙÅÕï≈m¡ΩÕt∞(ÄÄÄÄÄÅ•ë‡ÄÙÅ°Ω±îÄ¥Äƒ∞(ÄÄÄÄÄÅ…ïåÄÙÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÕï±ïç—ïê∞Å°Ω±î§∞(ÄÄÄÄÄÅ—Ö…ùï—%êÄÙÅµÖ…≠ï…QÖ…ùï—Ω»°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅ—Ö…ùï—Ö…êÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±—Ö…ùï—%ê§∞(ÄÄÄÄÄÅ—Ö…ùï–ÄÙÅïŸïπ—A±ÖÂï»°—Ö…ùï—%ê±ëÖ‰§∞(ÄÄÄÄÄÅ°ç¡Mï±òÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅ°ç¡QÖ…ùï–ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°—Ö…ùï—%ê∞ÅëÖ‰§Ï(ÄÄÄÅ…ïåπΩôô•ç•Ö∞π¡±ÖÂï…%êÄÙÅ—Ö…ùï—%êÏ(ÄÄÄÅ…ïåπÕï±òπ¡±ÖÂï…%êÄÙÅÕï±ïç—ïêÏ(ÄÄÄÅçΩπÕ–Å¡Ö»ÄÙÄ≠ÿπ¡Ö»¸πm•ë·tÅÒÄàà∞(ÄÄÄÄÄÅ•πëï·YÖ∞ÄÙÅÿπ•πëï‡¸πm•ë·tÄ¸¸Äàà∞(ÄÄÄÄÄÅµï—…ïÃÄÙÅçΩ’…Õï!Ω±ï•Õ—Öπçî°ÿ∞Å•ë‡§ÅÒÄààÏ(ÄÄÄÅçΩπÕ–Åπ—¿ÄÙÅπ—¡!Ω±ïÕΩ»°ëÖ‰§π•πç±’ëïÃ°°Ω±î§∞(ÄÄÄÄÄÅ°Ω±ëï»ÄÙÅç’……ïπ—9—¡!Ω±ëï»°ëÖ‰∞Å°Ω±î§∞(ÄÄÄÄÄÅ°Ω±ëï…9ÖµîÄÙÅ°Ω±ëï»Ä¸ÅïŸïπ—A±ÖÂï»°°Ω±ëï»π•ê∞ÅëÖ‰§¸ππÖµîÄËÄàà∞(ÄÄÄÄÄÅπ—¡M—Ö—îÄÙÅπ—¿Ä¸Åπ—¡)Öç≠¡Ω—M—Ö—î°ëÖ‰∞Å°Ω±î§ÄËÅπ’±∞∞(ÄÄÄÄÄÅπ—¡A…•ÈîÄÙÅπ—¿Ä¸Åπ—¡A…•ÈïQï·–°ëÖ‰∞Å°Ω±î§ÄËÄàà∞(ÄÄÄÄÄÅπ—¡A…•ÈïM—Ö—’ÃÄÙÅπ—¡A…•Èî(ÄÄÄÄÄÄÄÄ¸ÅÄëÌπ—¡A…•ÈïÙëÌπ—¡M—Ö—î¸πçÖ……•ïêÄ¸ÅÄÄ†ëÌπ—¡M—Ö—îπâÖÕïÙÄ¨ÄëÌπ—¡M—Ö—îπçÖ……•ïëÙÅ©Öç≠¡Ω–•ÄÄËÄàâıÄ(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Å—Ö…ùï—!Ω±ï%πôºıïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±Õï±ïç—ïê§ÑÙıïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±—Ö…ùï—%ê§˝ÄÒ¿Åç±ÖÕÃÙâÕçΩ…•πùÖ—ïùΩ…Â%πôºà¯ëÌïÕå°—Ö…ùï–¸ππÖµïÒâ5Ö…≠ïêÅ¡±ÖÂï»à•ÙÉ
+‹ÄëÌïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±—Ö…ùï—%ê§ÙÙÙâ›Ωµï∏à¸â]Ωµï∏àËâ5ï∏âÙÉ
+‹ÅAÖ»ÄëÌ—Ö…ùï—Ö…êπ¡Ö»¸πm•ë·uÒãäPâÙÉ
+‹Å%πëï‡ÄëÌïÕå°—Ö…ùï—Ö…êπ•πëï‡¸πm•ë·uÒãäPà•ÙÉ
+‹ÄëÌçΩ’…Õï!Ω±ï•Õ—Öπçî°—Ö…ùï—Ö…ê±•ë‡•ÒãäPâÙÄëÌçΩ’…Õï•Õ—Öπçïââ…ïÿ°—Ö…ùï—Ö…ê•ÙΩ¿˘ÄËààÏ(ÄÄÄÅçΩπÕ–ÅÕô=ôòÄÙÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÅ…ïåπΩôô•ç•Ö∞πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄ≠—Ö…ùï—Ö…êπ¡Ö»¸πm•ë·uÒ¿∞(ÄÄÄÄÄÄÄÅ—Ö…ùï—Ö…êπ•πëï‡¸πm•ë·t¸¸àà∞(ÄÄÄÄÄÄÄÅ°ç¡QÖ…ùï–∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅÕôMï±òÄÙÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°…ïåπÕï±òπù…ΩÕÃ∞Å¡Ö»∞Å•πëï·YÖ∞∞Å°ç¡Mï±ò§Ï(ÄÄÄÅçΩπÕ–Å¡±ÖÂïë!Ω±ïÃÄÙÅÕïƒπÕ±•çî†¿∞Å¡ΩÃÄ¨Äƒ§∞(ÄÄÄÄÄÅ…Ω’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÅçΩπÕ–Å…’ππ•πúÄÙÄ°Õïç—•Ω∏∞Å°ç¿∞Å¡±ÖÂï…%ê§ÄÙ¯(ÄÄÄÄÄÅ¡±ÖÂïë!Ω±ïÃπ…ïë’çî†(ÄÄÄÄÄÄÄÄ°—Ω—Ö∞∞Å†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•—ï¥ÄÙÅ…Ω’πëmM—…•πú°†•t¸πmÕïç—•ΩπtÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅÕïç—•Ω∏ÄÙÙÙÄâΩôô•ç•Ö∞àÄòò(ÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°•—ï¥π¡±ÖÂï…%êÅÒÄàà§ÄÑÙÙÅM—…•πú°¡±ÖÂï…%êÅÒÄàà§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅ†Ä¥Äƒ±çÖ…êıïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡—ÃÄÙÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•—ï¥πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¨°çÖ…êπ¡Ö»¸πm•tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖ…êπ•πëï‡¸πm•tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°ç¿∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡’——ÃÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•—ï¥π¡’——ÃÄÙÙÙÄààÅÒÅ•—ï¥π¡’——ÃÄÙÙÅπ’±∞Ä¸Ä¿ÄËÄ≠•—ï¥π¡’——ÃÅÒÄ¿Ï(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö∞π¡Ω•π—ÃÄ¨ÙÅ¡—ÃÄÙÙÅπ’±∞Ä¸Ä¿ÄËÅ¡—ÃÏ(ÄÄÄÄÄÄÄÄÄÅ—Ω—Ö∞π¡’——ÃÄ¨ÙÅ¡’——ÃÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÏÅ¡Ω•π—ÃËÄ¿∞Å¡’——ÃËÄ¿ÅÙ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å—Ω—Ö±=ôòÄÙÅ…’ππ•πú†âΩôô•ç•Ö∞à∞Å°ç¡QÖ…ùï–∞Å—Ö…ùï—%ê§∞(ÄÄÄÄÄÅ—Ω—Ö±Mï±òÄÙÅ…’ππ•πú†âÕï±òà∞Å°ç¡Mï±ò∞ÅÕï±ïç—ïê§Ï(ÄÄÄÅçΩπÕ–Åïç±ïç—•ç…Ω’¿ÄÙÄ°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt§π•πç±’ëïÃ†âïç±ïç—•åà§(ÄÄÄÄÄÄ¸ÅÕï±ïç—ïëç±ïç—•ç…Ω’¡Ã°Õ—Ω…îπïŸïπ–§πô•πê†°ù…Ω’¿§ÄÙ¯Åù…Ω’¿πëÖÂÃπ•πç±’ëïÃ°ëÖ‰§ÄòòÅëÖ‰ÄÑÙÙÅù…Ω’¿πëÖÂÕl¡t§(ÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅïç±ïç—•ç=∏ÄÙÅ	ΩΩ±ïÖ∏°ïç±ïç—•ç…Ω’¿§Ï(ÄÄÄÅçΩπÕ–Åïç±ïç—•çÖ—ÑÄÙÄ°¡±ÖÂï…%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†Öïç±ïç—•ç=∏§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖÕïÖ‰ÄÙÅïç±ïç—•ç…Ω’¿πëÖÂÕl¡t∞ÅçΩµ¡±ï—ïëÖÂÃÄÙÅïç±ïç—•ç…Ω’¿πëÖÂÃπô•±—ï»†°…Ω’πëÖ‰§ÄÙ¯Å…Ω’πëÖ‰ÄÙÅëÖ‰§∞(ÄÄÄÄÄÄÄÅâÖÕïYï…Õ•Ω∏ÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°âÖÕïÖ‰±Õ—Ω…îπïŸïπ–±¡±ÖÂï…%ê§∞ÅâÖÕï!ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡±ÖÂï…%ê∞ÅâÖÕïÖ‰§Ï(ÄÄÄÄÄÅçΩπÕ–ÅâÖÕïAΩ•π—ÃÄÙÄ°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅîÄÙÅ¡±ÖÂï…!Ω±ïπ—…‰°âÖÕïÖ‰∞Å¡±ÖÂï…%ê∞Å†§∞(ÄÄÄÄÄÄÄÄÄÅ§ÄÙÅ†Ä¥ÄƒÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÄÄÅî¸πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄ¨°âÖÕïYï…Õ•Ω∏π¡Ö»¸πm•tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÄÄÅâÖÕïYï…Õ•Ω∏π•πëï‡¸πm•tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÄÄÅâÖÕï!ç¿∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅçΩπÕ–ÅâÖÕï!Ω±îÄÙÅâÖÕïAΩ•π—Ã°°Ω±î§∞(ÄÄÄÄÄÄÄÅŸÖ±’ïÃÄÙÅ¡±ÖÂïë!Ω±ïÃπµÖ¿†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω’πëYÖ±’ïÃÄÙÅçΩµ¡±ï—ïëÖÂÃπµÖ¿†°…Ω’πëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åïπ—…‰ÄÙÅ¡±ÖÂï…!Ω±ïπ—…‰°…Ω’πëÖ‰∞Å¡±ÖÂï…%ê∞Å†§∞ÅçÖ…êÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°…Ω’πëÖ‰±Õ—Ω…îπïŸïπ–±¡±ÖÂï…%ê§∞Å§ÄÙÅ†Ä¥ÄƒÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°ïπ—…‰¸πù…ΩÕÃ∞Ä¨°çÖ…êπ¡Ö»¸πm•tÅÒÄ¿§∞ÅçÖ…êπ•πëï‡¸πm•tÄ¸¸Äàà∞Å¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡±ÖÂï…%ê∞Å…Ω’πëÖ‰§§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§πô•±—ï»†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω’πëYÖ±’ïÃπ±ïπù—†Ä¸Å5Ö—†πµÖ‡†∏∏π…Ω’πëYÖ±’ïÃ§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅâÖÕïÖ‰∞(ÄÄÄÄÄÄÄÅâÖÕï!Ω±î∞(ÄÄÄÄÄÄÄÅ—Ω—Ö∞ËÅŸÖ±’ïÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄÄÄ¸ÅŸÖ±’ïÃπ…ïë’çî†°Ñ∞Åà§ÄÙ¯ÅÑÄ¨Åà∞Ä¿§(ÄÄÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÕçΩ…ïM’µµÖ…‰ÄÙÄ°ç’……ïπ–∞Å—Ω—Ö∞∞Å¡±ÖÂï…%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅïåÄÙÅïç±ïç—•çÖ—Ñ°¡±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÅÕ°Ω—ÃÄÙÅÕ—Öâ±ïôΩ…ëM—…Ω≠ïΩ’π–†(ÄÄÄÄÄÄÄÄÄÅ•πëï·YÖ∞∞(ÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡±ÖÂï…%ê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïM’µµÖ…‰ÄëÌïåÄ¸Äâ°ÖÕç±ïç—•åàÄËÄàâÙà¯Òë•ÿÅç±ÖÕÃÙâ…’ππ•πùMçΩ…îà¯ÒÕ¡Ö∏¯Òï¥˘M°Ω—ÃΩï¥¯Òà¯ëÌÕ°Ω—ÕÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Òï¥˘MçΩ…îΩï¥¯Òà¯ëÌç’……ïπ–ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅç’……ïπ—ÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Òï¥˘QΩ—Ö∞Ωï¥¯Òà¯ëÌ—Ω—Ö±ÙΩà¯ΩÕ¡Ö∏¯ëÌïåÄ¸ÅÄÒÕ¡Ö∏¯Òï¥˘Ö‰ÄëÌïåπâÖÕïÖÂÙΩï¥¯Òà¯ëÌïåπâÖÕï!Ω±îÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅïåπâÖÕï!Ω±ïÙΩà¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Òï¥˘ç±ïç—•åΩï¥¯Òà¯ëÌïåπ—Ω—Ö∞ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅïåπ—Ω—Ö±ÙΩà¯ΩÕ¡Ö∏˘ÄÄËÄàâÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡Ö•…M—Ö…–ÄÙÅç—‡π¡±ÖÂï…%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»∞(ÄÄÄÄÄÅ¡Ö•…%ëÃÄÙÅç—‡πù…Ω’¿(ÄÄÄÄÄÄÄÄπÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§∞(ÄÄÄÄÄÅ—ïÖµ%ëÃÄÙÅç—‡πù…Ω’¿πµÖ¿°M—…•πú§πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅ¡Ö•…%ëÃπ±ïπù—†ÄÄ»Äòò(ÄÄÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»Äòò(ÄÄÄÄÄÄÖ¡Ö•…%ëÃπ•πç±’ëïÃ°M—…•πú°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§§(ÄÄÄÄ§(ÄÄÄÄÄÅ¡Ö•…%ëÃπ¡’Õ†°M—…•πú°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅ—ïÖµ%ëÃπ±ïπù—†ÄÄ–Äòò(ÄÄÄÄÄÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»Äòò(ÄÄÄÄÄÄÖ—ïÖµ%ëÃπ•πç±’ëïÃ°M—…•πú°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§§(ÄÄÄÄ§(ÄÄÄÄÄÅ—ïÖµ%ëÃπ¡’Õ†°M—…•πú°Õï—’¿πŸ•…—’Ö±A±ÖÂï»§§Ï(ÄÄÄÅçΩπÕ–Å¡’——ÕQ°…Ω’ù†ÄÙÄ°¡•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ±ï–ÅÕ’¥ÄÙÄ¿Ï(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å†ÅΩòÅ¡±ÖÂïë!Ω±ïÃ§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅîÄÙÅ¡±ÖÂï…!Ω±ïπ—…‰°ëÖ‰∞Å¡•ê∞Å†§±çÖ…êıïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡•ê§Ï(ÄÄÄÄÄÄÄÅ•òÄ°î¸π¡’——ÃÄÙÙÙÄààÅÒÅî¸π¡’——ÃÄÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÄÄÅÕ’¥Ä¨ÙÄ≠îπ¡’——ÃÅÒÄ¿Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏ÅÕ’¥Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡Ö•…•Õ¡±Ö‰ÄÙÅmM—…•πú°—Ö…ùï—%ê§∞ÅM—…•πú°Õï±ïç—ïê•tπô•±—ï»†(ÄÄÄÄÄÄÄÄ°•ê∞Å§∞ÅÑ§ÄÙ¯Å•êÄòòÅÑπ•πëï·=ò°•ê§ÄÙÙÙÅ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ•πë•Ÿ•ë’Ö±A’——ÃÄÙÅ¡Ö•…•Õ¡±Ö‰πµÖ¿†°•ê§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÅ—Ω—Ö∞ËÅ¡’——ÕQ°…Ω’ù†°•ê§∞(ÄÄÄÄÄÅÙ§§Ï(ÄÄÄÅçΩπÕ–Å¡’——•πù=∏ÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅ¡’——•πùΩ…µÖ–ÄÙÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸Äâ¡Ö•…ÃàÄËÄâ—ïÖ¥à∞(ÄÄÄÄÄÅ¡’——•πù%ëÃÄÙÅ¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸Å¡Ö•…%ëÃÄËÅ—ïÖµ%ëÃ∞(ÄÄÄÄÄÅ¡’——•πùYÖ±’ïÃÄÙÅ¡’——•πù%ëÃπµÖ¿°¡’——ÕQ°…Ω’ù†§∞(ÄÄÄÄÄÅ¡’——•πùQΩ—Ö∞ÄÙÅ¡’——•πùYÖ±’ïÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄ¸Å¡’——•πùYÖ±’ïÃπ…ïë’çî†°Ñ∞Åà§ÄÙ¯ÅÑÄ¨Åà∞Ä¿§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅçΩπÕ–Å¡’——Õ1•πîÄÙÅÄÒà˘A’——ÃËΩà¯ÄëÌ•πë•Ÿ•ë’Ö±A’——ÃπµÖ¿†°‡§ÄÙ¯ÅÄÒÕ¡Ö∏¯ëÌïÕå°¡±ÖÂï…M’…πÖµî°‡π•ê§•ÙÄÒÕ—…Ωπú¯ëÌ‡π—Ω—Ö∞ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅ‡π—Ω—Ö±ÙΩÕ—…Ωπú¯ΩÕ¡Ö∏˘Ä§π©Ω•∏†àÄà•ÙëÌ¡’——•πù=∏Ä¸ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâ¡’——•πùùù…ïùÖ—îà¯ëÌ¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸ÄâAÖ•…ÃàÄËÄâQïÖ¥âÙÅQΩ—Ö∞ÄÒÕ—…Ωπú¯ëÌ¡’——•πùQΩ—Ö∞ÄÙÙÅπ’±∞Ä¸ÄãäPàÄËÅ¡’——•πùQΩ—Ö±ÙΩÕ—…Ωπú¯ΩÕ¡Ö∏˘ÄÄËÄàâÙëÌπ—¿Ä¸ÄàÒï¥˘9Q@Ωï¥¯àÄËÄàâıÄÏ(ÄÄÄÅçΩπÕ–ÅâïÕ–Õ!Ω±îÄÙÄ°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å§ÄÙÅ†Ä¥Äƒ∞(ÄÄÄÄÄÄÄÅŸÖ±’ïÃÄÙÅ—ïÖµ%ëÃ(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°¡•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅîÄÙÅ¡±ÖÂï…!Ω±ïπ—…‰°ëÖ‰∞Å¡•ê∞Å†§±çÖ…êıïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡•ê§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅî¸πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¨°çÖ…êπ¡Ö»¸πm•tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçÖ…êπ•πëï‡¸πm•tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡•ê∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄÄÄπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅàÄ¥ÅÑ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±’ïÃπ±ïπù—†Ä¯ÙÄÃ(ÄÄÄÄÄÄÄÄ¸ÅŸÖ±’ïÃπÕ±•çî†¿∞ÄÃ§π…ïë’çî†°Ñ∞Åà§ÄÙ¯ÅÑÄ¨Åà∞Ä¿§(ÄÄÄÄÄÄÄÄËÅπ’±∞Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅâïÕ–Õ’……ïπ–ÄÙÅâïÕ–Õ!Ω±î°°Ω±î§∞(ÄÄÄÄÄÅâïÕ–ÕYÖ±’ïÃÄÙÅ¡±ÖÂïë!Ω±ïÃπµÖ¿°âïÕ–Õ!Ω±î§∞(ÄÄÄÄÄÅâïÕ–ÕQΩ—Ö∞ÄÙÅâïÕ–ÕYÖ±’ïÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄ¸ÅâïÕ–ÕYÖ±’ïÃπ…ïë’çî†°Ñ∞Åà§ÄÙ¯ÅÑÄ¨Åà∞Ä¿§(ÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅâïÕ–Õ=∏ÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†ââïÕ–ÕΩò–à∞ÅëÖ‰§∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±M—Ö—îÄÙÅÂï±±Ω›	Ö±±!Ω±ïM—Ö—î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞Å°Ω±î∞Å…ïå§∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±A±ÖÂï…%êÄÙÅÂï±±Ω›	Ö±±M—Ö—îπ¡±ÖÂï…%ê∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±ç—•ŸîÄÙÅÂï±±Ω›	Ö±±M—Ö—îπÖç—•Ÿî∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±1ΩÕ—!ï…îÄÙÅÂï±±Ω›	Ö±±M—Ö—îπ±ΩÕ—!ï…î∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±	’——Ω∏ÄÙÄ°¡±ÖÂï…%ê§ÄÙ¯ÅÂï±±Ω›	Ö±±M—Ö—îπçÖπIïçΩ…êÄòòÅM—…•πú°¡±ÖÂï…%ê§ÄÙÙÙÅM—…•πú°Âï±±Ω›	Ö±±A±ÖÂï…%ê§(ÄÄÄÄÄÄÄÄ¸ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÂï±±Ω›	Ö±±1ΩÕ—	—∏ÄëÌÂï±±Ω›	Ö±±1ΩÕ—!ï…îÄ¸Äâ±ΩÕ–àÄËÄàâÙàÅ•êÙâÂï±±Ω›	Ö±±1ΩÕ–à¯ëÌÂï±±Ω›	Ö±±1ΩÕ—!ï…îÄ¸ÄâU9<Å	10Å1=MPàÄËÄâ	10Å1=MPâÙΩâ’——Ω∏˘ÄÄËÄàà∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±±ÖÕÃÄÙÄ°¡±ÖÂï…%ê§ÄÙ¯(ÄÄÄÄÄÄÄÅÂï±±Ω›	Ö±±ç—•ŸîÄòòÅM—…•πú°¡±ÖÂï…%ê§ÄÙÙÙÅM—…•πú°Âï±±Ω›	Ö±±A±ÖÂï…%ê§(ÄÄÄÄÄÄÄÄÄÄ¸ÄâÂï±±Ω›	Ö±±Q’…∏à(ÄÄÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Å•Õ·—…ÑÄÙÅM—…•πú°Õï—’¿ππ—¡·—…ÖA±ÖÂï…Ã¸πmM—…•πú°°Ω±î•tÅÒÅÕï—’¿ππ—¡·—…ÖA±ÖÂï»ÅÒÄàà§ÄÙÙÙÅM—…•πú°Õï±ïç—ïê§Ï(ÄÄÄÅçΩπÕ–ÅÕ—ï¡¡ï»ÄÙÄ°•ê∞Å±Öâï∞∞ÅŸÖ±’î∞ÅâÖÕî∞Åµ•∏∞ÅµÖ‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å°ÖÃÄÙÅŸÖ±’îÄÑÙÙÄààÄòòÅŸÖ±’îÄÑÙÅπ’±∞∞(ÄÄÄÄÄÄÄÅ•Õ…ΩÕÃÄÙÅ•êπïπëÕ]•—††â…ΩÕÃà§∞(ÄÄÄÄÄÄÄÅ¡•ç≠ïêÄÙÅ•Õ…ΩÕÃÄòòÅM—…•πú°ŸÖ±’î§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à∞(ÄÄÄÄÄÄÄÅŸÖ∞ÄÙÅ¡•ç≠ïêÄ¸Äâ@àÄËÅ°ÖÃÄ¸Ä≠ŸÖ±’îÄËÄ≠âÖÕîÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï…]…Ö¿ÄëÌ•Õ…ΩÕÃÄ¸Äâù…ΩÕÕΩπ—…Ω∞àÄËÄâ¡’——ÕΩπ—…Ω∞âÙà¯ÒÕµÖ±∞¯ëÌ±Öâï±ÙΩÕµÖ±∞¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïM—ï¡¡ï»ÄëÌ°ÖÃÄ¸ÄâÕï–àÄËÄâ’πÕï–âÙà¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—ÑµÕ—ï¿ÙàëÌ•ëÙàÅëÖ—Ñµëï±—ÑÙà¥ƒà˚ä"HΩâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâÕ—ï¡YÖ±’îàÅëÖ—ÑµçΩπô•…¥ÙàëÌ•ëÙàÅëÖ—ÑµâÖÕîÙàëÌâÖÕïÙà¯ëÌŸÖ±ÙΩâ’——Ω∏¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅëÖ—ÑµÕ—ï¿ÙàëÌ•ëÙàÅëÖ—Ñµëï±—ÑÙàƒà¯¨Ωâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å¡•ç≠’¿ÄÙÄ°•ê∞ÅŸÖ±’î∞ÅçΩµ¡Öç–ÄÙÅôÖ±Õî§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡•ç≠ïêÄÙÅM—…•πú°ŸÖ±’î§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@àÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ¡•ç≠’¡IΩ‹ÄëÌ¡•ç≠ïêÄ¸Äâ¡•ç≠ïêàÄËÄàâÙàÅëÖ—Ñµ¡•ç≠’¿ÙàëÌ•ëÙà¯ëÌ¡•ç≠ïêÄ¸ÅçΩµ¡Öç–Ä¸ÄãärLÅA%,µU@Ä°@§àÄËÄãärLÅA%,µU@ÅI=IÄ°@§àÄËÄâ@ÉäPÅA%,µU@âÙΩâ’——Ω∏˘ÄÏ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å—•µïQï·–ÄÙÅ…ïåππ—¿¸πçΩπô•…µïë–(ÄÄÄÄÄÄ¸Åπï‹ÅÖ—î°…ïåππ—¿πçΩπô•…µïë–§π—Ω1ΩçÖ±ïQ•µïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ°Ω’»ËÄâπ’µï…•åà∞(ÄÄÄÄÄÄÄÄÄÅµ•π’—îËÄà»µë•ù•–à∞(ÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Å°Ω±ïΩµ¡±ï—îÄÙÄ°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å»ÄÙÅ…Ω’πëmM—…•πú°†•tÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅù…ΩÕÕΩπîÄÙ(ÄÄÄÄÄÄÄÄÄÅÕçΩ…ïπ—ï…ïê°»πΩôô•ç•Ö∞¸πù…ΩÕÃ§ÄòòÅÕçΩ…ïπ—ï…ïê°»πÕï±ò¸πù…ΩÕÃ§Ï(ÄÄÄÄÄÅçΩπÕ–Å¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§Ï(ÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÅù…ΩÕÕΩπîÄòò(ÄÄÄÄÄÄÄÄ†Ö¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄ°ÕçΩ…ïπ—ï…ïê°»πΩôô•ç•Ö∞¸π¡’——Ã§ÄòòÅÕçΩ…ïπ—ï…ïê°»πÕï±ò¸π¡’——Ã§§§(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å±•Ÿï5•ÕµÖ—ç†ÄÙÄ°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩ›∏ÄÙÅ…Ω’πëmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅΩ›π=ôô•ç•Ö∞ÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞ÅÕï±ïç—ïê∞Å†§∞(ÄÄÄÄÄÄÄÅµÖ…≠ïêÄÙÅ…Ω’πëmM—…•πú°†•t¸πΩôô•ç•Ö∞ÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅµÖ…≠ïëA±ÖÂï»ÄÙÅM—…•πú°µÖ…≠ïêπ¡±ÖÂï…%êÅÒÅ—Ö…ùï—%êÅÒÄàà§∞(ÄÄÄÄÄÄÄÅµÖ…≠ïë°ïç¨ÄÙÅÕçΩ…•πùÖÂM—Ω…î°ëÖ‰§¸πmµÖ…≠ïëA±ÖÂï…t¸πmM—…•πú°†•t¸πÕï±òÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅ¡’——•πù=∏Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÕçΩ…ïπ—…•ïÕ5•ÕµÖ—ç†°Ω›∏∞ÅΩ›π=ôô•ç•Ö∞∞Å¡’——ÕIï≈’•…ïê§ÅÒ(ÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°µÖ…≠ïëA±ÖÂï»ÄòòÅÕçΩ…ïπ—…•ïÕ5•ÕµÖ—ç†°µÖ…≠ïê∞ÅµÖ…≠ïë°ïç¨∞Å¡’——ÕIï≈’•…ïê§§Ï(ÄÄÄÅÙÏ(ÄÄÄÅ…Ω’πêπ}µï—ÑÄÙÅ…Ω’πêπ}µï—ÑÅÒÅÌÙÏ(ÄÄÄÅçΩπÕ–Åô’…—°ïÕ—AΩÃÄÙÅ5Ö—†πµÖ‡°¡ΩÃ∞Ä≠…Ω’πêπ}µï—Ñπô’…—°ïÕ—AΩÃÅÒÄ¿§Ï(ÄÄÄÅ…Ω’πêπ}µï—Ñπô’…—°ïÕ—AΩÃÄÙÅô’…—°ïÕ—AΩÃÏ(ÄÄÄÅçΩπÕ–Åµ•ÕÕ•πù!Ω±ïÃÄÙÅÕïƒ(ÄÄÄÄÄÄπÕ±•çî†¿∞Åô’…—°ïÕ—AΩÃ§(ÄÄÄÄÄÄπô•±—ï»†°†§ÄÙ¯ÄÖ°Ω±ïΩµ¡±ï—î°†§§Ï(ÄÄÄÅçΩπÕ–Åµ•ÕµÖ—ç°!Ω±ïÃÄÙÅÕïƒπô•±—ï»†°†§ÄÙ¯Å±•Ÿï5•ÕµÖ—ç†°†§§Ï(ÄÄÄÅçΩπÕ–Å°Ω±ïM—Ö—’ÃÄÙÄ°†§ÄÙ¯(ÄÄÄÄÄÅ†ÄÙÙÙÅ°Ω±î(ÄÄÄÄÄÄÄÄ¸Äâç’……ïπ–à(ÄÄÄÄÄÄÄÄËÅ±•Ÿï5•ÕµÖ—ç†°†§(ÄÄÄÄÄÄÄÄÄÄ¸Äâµ•ÕµÖ—ç†à(ÄÄÄÄÄÄÄÄÄÄËÅ°Ω±ïΩµ¡±ï—î°†§(ÄÄÄÄÄÄÄÄÄÄ¸ÄâçΩµ¡±ï—îà(ÄÄÄÄÄÄÄÄÄÄËÅÕïƒπ•πëï·=ò°†§ÄÅô’…—°ïÕ—AΩÃ(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâµ•ÕÕ•πúà(ÄÄÄÄÄÄÄÄÄÄÄÄËÄâ’¡çΩµ•πúàÏ(ÄÄÄÅçΩπÕ–Å°Ω±ïQ…Öç≠ï»ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï»àÅÖ…•Ñµ±Öâï∞ÙâIΩ’πêÅ°Ω±îÅÕ—Ö—’Ãà¯Òë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï…-ï‰à¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâçΩµ¡±ï—îà˚ärLΩ§¯Åù…ïïêΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâµ•ÕµÖ—ç†à¯ÑΩ§¯Å°ïç¨ΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâµ•ÕÕ•πúà¯ÑΩ§¯Å5•ÕÕ•πúΩÕ¡Ö∏¯ÒÕ¡Ö∏¯Ò§Åç±ÖÕÃÙâç’……ïπ–à¯Ω§¯Å’……ïπ–ΩÕ¡Ö∏¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ°Ω±ïQ…Öç≠ï……•êà¯ëÌÕïƒ(ÄÄÄÄÄÄπµÖ¿†°†∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö—îÄÙÅ°Ω±ïM—Ö—’Ã°†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅç±ÖÕÃÙâ°Ω±ïQ…Öç¨ÄëÌÕ—Ö—ïÙàÅëÖ—ÑµùΩ—Ω°Ω±îÙàëÌ•ÙàÅÖ…•Ñµ±Öâï∞Ùâ!Ω±îÄëÌ°Ù∞ÄëÌÕ—Ö—ïÙà¯Òà¯ëÌ°ÙΩà¯ëÌÕ—Ö—îÄÙÙÙÄâçΩµ¡±ï—îàÄ¸ÄàÒÕµÖ±∞˚ärLΩÕµÖ±∞¯àÄËÅlâµ•ÕÕ•πúà∞Äâµ•ÕµÖ—ç†âtπ•πç±’ëïÃ°Õ—Ö—î§Ä¸ÄàÒÕµÖ±∞¯ÑΩÕµÖ±∞¯àÄËÄàâÙΩâ’——Ω∏˘ÄÏ(ÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–Åµ•ÕÕ•πù±ï…–ÄÙÅµ•ÕÕ•πù!Ω±ïÃπ±ïπù—†(ÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâµ•ÕÕ•πù!Ω±ï±ï…–à¯Òë•ÿ¯ÒÕ—…Ωπú¯ëÌµ•ÕÕ•πù!Ω±ïÃπ±ïπù—°ÙÅµ•ÕÕ•πúÅ°Ω±îëÌµ•ÕÕ•πù!Ω±ïÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙËÄëÌµ•ÕÕ•πù!Ω±ïÃπ©Ω•∏†à∞Äà•ÙΩÕ—…Ωπú¯ÒÕ¡Ö∏˘Q°ïÕîÅ°Ω±ïÃÅ°ÖŸîÅâïï∏Å¡ÖÕÕïêÅ›•—°Ω’–ÅçΩµ¡±ï—îÅÕçΩ…ïÃ∏ΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâô•…Õ—5•ÕÕ•πù!Ω±îà˘ºÅ—ºÅô•…Õ–Åµ•ÕÕ•πúÅ°Ω±îΩâ’——Ω∏¯Ωë•ÿ˘Ä(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Åµ•ÕµÖ—ç°±ï…–ÄÙÅµ•ÕµÖ—ç°!Ω±ïÃπ±ïπù—†(ÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâµ•ÕµÖ—ç°!Ω±ï±ï…–à¯Òë•ÿ¯ÒÕ—…Ωπú˘!Ω±îëÌµ•ÕµÖ—ç°!Ω±ïÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÄëÌµ•ÕµÖ—ç°!Ω±ïÃπ©Ω•∏†à∞Äà•ÙÅπïïêëÌµ•ÕµÖ—ç°!Ω±ïÃπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄâÃàÄËÄàâÙÅç°ïç≠•πúΩÕ—…Ωπú¯ÒÕ¡Ö∏˘eΩ’»ÄëÌ¡’——•πù=∏Ä¸ÄâÕçΩ…îÅΩ»Å¡’——ÃÅëΩïÃàÄËÄâÕçΩ…îÅëΩïÃâÙÅπΩ–ÅÖù…ïîÅ›•—†Å—°îÅΩ—°ï»ÅçÖ…ê∏ÅA±ïÖÕîÅç°ïç¨Å•–ÅπΩ‹∏ΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâô•…Õ—5•ÕµÖ—ç°!Ω±îà˘°ïç¨ÅπΩ‹Ωâ’——Ω∏¯Ωë•ÿ˘Ä(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Åïµï…ùïπç‰ÄÙÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅÕ°Ω›Y•…—’Ö±±ÖπçîÄÙÅïµï…ùïπç‰ÄòòÄ≠ïµï…ùïπç‰πù…Ω’¡%πëï‡ÄÙÙÙÄ≠ç—‡πù…Ω’¡%πëï‡∞(ÄÄÄÄÄÅŸ•…—’Ö±π—…‰ÄÙÅÕ°Ω›Y•…—’Ö±±ÖπçîÄ¸Å¡±ÖÂï…!Ω±ïπ—…‰°ëÖ‰∞Åïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%ê∞Å°Ω±î§ÄËÅπ’±∞∞(ÄÄÄÄÄÅŸ•…—’Ö±AΩ•π—ÃÄÙÅÕ°Ω›Y•…—’Ö±±Öπçî(ÄÄÄÄÄÄÄÄ¸ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã°Ÿ•…—’Ö±π—…‰¸πù…ΩÕÃ∞Å¡Ö»∞Å•πëï·YÖ∞∞Å¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°ïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%ê∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÄËÅπ’±∞∞(ÄÄÄÄÄÅŸ•…—’Ö±±ÖπçîÄÙÅÕ°Ω›Y•…—’Ö±±Öπçî(ÄÄÄÄÄÄÄÄ¸ÅÄÒëï—Ö•±ÃÅç±ÖÕÃÙâŸ•…—’Ö±±Öπçîà¯ÒÕ’µµÖ…‰¯ëÌïÕå°ïŸïπ—A±ÖÂï»°ïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâY•…—’Ö∞ÅA±ÖÂï»à•ÙÉäPÅY•…—’Ö∞ÅA±ÖÂï»ÅôΩ»ÄëÌïÕå°ïŸïπ—A±ÖÂï»°ïµï…ùïπç‰πµ•ÕÕ•πùA±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâµ•ÕÕ•πúÅ¡±ÖÂï»à•ÙΩÕ’µµÖ…‰¯Òë•ÿ¯ëÌŸ•…—’Ö±π—…‰ÄòòÅÕçΩ…ïπ—ï…ïê°Ÿ•…—’Ö±π—…‰πù…ΩÕÃ§Ä¸ÅÄÒà˘!Ω±îÄëÌ°Ω±ïÙÅŸï…•ô•ïêËÄëÌŸ•…—’Ö±AΩ•π—ÃÄ¸¸ÄãäPâÙÅ¡Ω•π–ëÌŸ•…—’Ö±AΩ•π—ÃÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙëÌŸ•…—’Ö±π—…‰π¡’——ÃÄÙÙÅπ’±∞ÅÒÅŸ•…—’Ö±π—…‰π¡’——ÃÄÙÙÙÄààÄ¸ÄààÄËÅÄÉ
+‹ÄëÌŸ•…—’Ö±π—…‰π¡’——ÕÙÅ¡’——ÕÅÙΩà¯ÒÕ¡Ö∏˘Q°•ÃÅâΩ……Ω›ïêÅÕçΩ…îÅ•ÃÅπΩ‹Å•πç±’ëïêÅÖ’—ΩµÖ—•çÖ±±‰Å•∏Å—°îÅÖôôïç—ïêÅ¡Ö•»ÅÖπêÅ—ïÖ¥Å—Ω—Ö±Ã∏ΩÕ¡Ö∏˘ÄÄËÅÄÒà˘]Ö•—•πúÅôΩ»ÄëÌïÕå°ïŸïπ—A±ÖÂï»°ïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ—°îÅŸ•…—’Ö∞Å¡±ÖÂï»à•ÙùÃÅŸï…•ô•ïêÅÕçΩ…îÅΩ∏Å!Ω±îÄëÌ°Ω±ïÙΩà¯ÒÕ¡Ö∏˘Q°îÅÖôôïç—ïêÅ¡Ö•»ÅÖπêÅ—ïÖ¥Å—Ω—Ö±ÃÅ›•±∞Å’¡ëÖ—îÅ›°ï∏Å—°Ö–ÅÕçΩ…îÅÖ……•ŸïÃ∏ΩÕ¡Ö∏˘ÅÙΩë•ÿ¯Ωëï—Ö•±Ã˘Ä(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—•πù!Ω±ï9Ω—•çîÄÙÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…M—Ö…—•πù!Ω±ï9Ω—•çî∞(ÄÄÄÄÄÅÕ°Ω›M—Ö…—•πù!Ω±ï9Ω—•çîÄÙ(ÄÄÄÄÄÄÄÄ≠Õ—Ö…—•πù!Ω±ï9Ω—•çî¸πëÖ‰ÄÙÙÙÄ≠ëÖ‰Äòò(ÄÄÄÄÄÄÄÄ≠Õ—Ö…—•πù!Ω±ï9Ω—•çî¸π°Ω±îÄÙÙÙÄ≠Õ—Ö…–Ï(ÄÄÄÅçΩπÕ–ÅÕ—Ö…—•πù!Ω±ï±ï…–ÄÙÅÕ°Ω›M—Ö…—•πù!Ω±ï9Ω—•çî(ÄÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâÕ—Ö…—•πù!Ω±ï±ï…–à¯Òë•ÿ¯ÒÕ—…Ωπú˘M—Ö…—•πúÅ°Ω±îÅç°ÖπùïêÅ—ºÅ!Ω±îÄëÌÕ—Ö…—ÙΩÕ—…Ωπú¯ÒÕ¡Ö∏˘Q°îÅΩ…ùÖπ•Õï»Å°ÖÃÅ’¡ëÖ—ïêÅ—°•ÃÅÕçΩ…ïçÖ…ê∏Å	ïù•∏ÅÂΩ’»Å…Ω’πêÅ°ï…î∏ΩÕ¡Ö∏¯Ωë•ÿ¯Òâ’——Ω∏Å—Â¡îÙââ’——Ω∏àÅ•êÙâë•Õµ•ÕÕM—Ö…—•πù!Ω±ï±ï…–à˘Ω–Å•–Ωâ’——Ω∏¯Ωë•ÿ˘Ä(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄëÌÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏Ä¸ÄúÒë•ÿÅç±ÖÕÃÙâ…ï—’…πMï—’¡	Ö»ÅŸï…•ô•çÖ—•ΩπIï—’…π	Ö»à¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏à˚ä@ÅIï—’…∏Å—ºÅ°ïç≠•πúΩâ’——Ω∏¯Ωë•ÿ¯úÄËÄàâÙÒë•ÿÅç±ÖÕÃÙâÕçΩ…•πùA°Ωπîà¯ëÌÕ—Ö…—•πù!Ω±ï±ï…—ÙëÌ°Ω±ïQ…Öç≠ï…ÙëÌµ•ÕµÖ—ç°±ï…—ÙëÌµ•ÕÕ•πù±ï…—Ù(ÄëÌ—Ö…ùï—!Ω±ï%πôΩÙÒë•ÿÅç±ÖÕÃÙâ°Ω±ï!ï…ºÄëÌπ—¿Ä¸Äâ•Õ9—¿àÄËÄàâÙà¯Òë•ÿ¯ÒÕµÖ±∞˘!=1ΩÕµÖ±∞¯ÒÕ—…Ωπú¯ëÌ°Ω±ïÙΩÕ—…Ωπú¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘AHΩÕµÖ±∞¯Òà¯ëÌ¡Ö»ÅÒÄãäPâÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘%9`ΩÕµÖ±∞¯Òà¯ëÌïÕå°•πëï·YÖ∞ÅÒÄãäPà•ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞¯ëÌçΩ’…Õï•Õ—ÖπçïUπ•–°ÿ§π—ΩU¡¡ï…ÖÕî†•ÙΩÕµÖ±∞¯Òà¯ëÌµï—…ïÃÅÒÄãäPâÙΩà¯Ωë•ÿ¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…ÂÖ…êÅΩôô•ç•Ö∞à¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…Â!ïÖêà¯Òë•ÿ¯ÒÕµÖ±∞˘A1eHΩÕµÖ±∞¯Òë•ÿÅç±ÖÕÃÙâÂï±±Ω›	Ö±±9Öµï1•πîà¯Ò†ÃÅç±ÖÕÃÙàëÌÂï±±Ω›	Ö±±±ÖÕÃ°—Ö…ùï—%ê•Ùà¯ëÌïÕå°—Ö…ùï–¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩ†Ã¯ëÌÂï±±Ω›	Ö±±	’——Ω∏°—Ö…ùï—%ê•ÙÒÕ¡Ö∏Åç±ÖÕÃÙâ¡±ÖÂï…!Ω±ï!Öπë•çÖ¿à˘!ç¿ÄëÌïÕå°ôΩ…µÖ—A±ÖÂ•πù!Öπë•çÖ¿°¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°—Ö…ùï—%ê∞ÅëÖ‰§§•ÙΩÕ¡Ö∏¯Ωë•ÿ¯Ωë•ÿ¯ëÌÕçΩ…ïM’µµÖ…‰°Õô=ôò∞Å—Ω—Ö±=ôòπ¡Ω•π—Ã∞Å—Ö…ùï—%ê•ÙΩë•ÿ¯ëÌÕçΩ…ïπ—…ÂΩπ—…Ω±Ã°¡’——•πù=∏∞ÄâΩôô•ç•Ö∞à∞Å…ïåπΩôô•ç•Ö∞∞Ä≠—Ö…ùï—Ö…êπ¡Ö»¸πm•ë·uÒÒ¡Ö»∞ÅÕ—ï¡¡ï»∞Å¡•ç≠’¿•ÙΩë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…ÂÖ…êÅÕï±òà¯Òë•ÿÅç±ÖÕÃÙâÕçΩ…ïπ—…Â!ïÖêà¯Òë•ÿ¯ÒÕµÖ±∞˘5I-HΩÕµÖ±∞¯Òë•ÿÅç±ÖÕÃÙâÂï±±Ω›	Ö±±9Öµï1•πîà¯Ò†ÃÅç±ÖÕÃÙàëÌÂï±±Ω›	Ö±±±ÖÕÃ°Õï±ïç—ïê•Ùà¯ëÌïÕå°¿ππÖµî•ÙΩ†Ã¯ëÌÂï±±Ω›	Ö±±	’——Ω∏°Õï±ïç—ïê•ÙÒÕ¡Ö∏Åç±ÖÕÃÙâ¡±ÖÂï…!Ω±ï!Öπë•çÖ¿à˘!ç¿ÄëÌïÕå°ôΩ…µÖ—A±ÖÂ•πù!Öπë•çÖ¿°¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õï±ïç—ïê∞ÅëÖ‰§§•ÙΩÕ¡Ö∏¯Ωë•ÿ¯Ωë•ÿ¯ëÌÕçΩ…ïM’µµÖ…‰°ÕôMï±ò∞Å—Ω—Ö±Mï±òπ¡Ω•π—Ã∞ÅÕï±ïç—ïê•ÙΩë•ÿ¯ëÌÕçΩ…ïπ—…ÂΩπ—…Ω±Ã°¡’——•πù=∏∞ÄâÕï±òà∞Å…ïåπÕï±ò∞Å¡Ö»∞ÅÕ—ï¡¡ï»∞Å¡•ç≠’¿•ÙΩë•ÿ¯(ÄëÌπ—¿Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡A±ÖÂÖ…êà¯Òë•ÿ¯Òà˘9ïÖ…ïÕ–Å—°îÅA•∏ÉäPÅ!Ω±îÄëÌ°Ω±ïÙΩà¯ÒÕ¡Ö∏¯ëÌ°Ω±ëï»Ä¸ÅÅ’……ïπ–Å°Ω±ëï»ËÄëÌïÕå°°Ω±ëï…9ÖµîÅÒÄâA±ÖÂï»à•ıÄÄËÄâ9ºÅπÖµîÅ…ïçΩ…ëïêÅÂï–âÙëÌπ—¡A…•ÈïM—Ö—’ÃÄ¸ÅÄÉ
+‹ÅA…•ÈîËÄëÌïÕå°π—¡A…•ÈïM—Ö—’Ã•ıÄÄËÄàâÙëÌ•Õ·—…ÑÄ¸ÄàÉ
+‹ÅeΩ‘Å°ÖŸîÅ—°îÅ9Q@Åï·—…ÑÅÕ°Ω–Å—ΩëÖ‰∏àÄËÄàâÙΩÕ¡Ö∏¯ÒÕ—…Ωπú˘•êÄëÌïÕå°—Ö…ùï–¸ππÖµîÅÒÄâÂΩ’»ÅµÖ…≠ï»Å¡Ö…—πï»à•ÙÅ…ïçΩ…êÅ—°ï•»ÅπÖµîÅΩ∏Å—°îÅ9Q@ÅµÖ…≠ï»¸ΩÕ—…Ωπú¯Ωë•ÿ¯ëÌ…ïåππ—¿¸π±Ωç≠ïêÄ¸ÅÄÒâ’——Ω∏Åë•ÕÖâ±ïê˘π—…‰Å±Ωç≠ïêΩâ’——Ω∏˘ÄÄËÅ…ïåππ—¿¸πçΩπô•…µïë–Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡Ωπô•…µïêà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâπ—¡Q•µîà˚¬~RHÄëÌïÕå°—•µïQï·–•ÙΩÕ¡Ö∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ’πëΩ9—¿à˘UπëºΩâ’——Ω∏¯Ωë•ÿ˘ÄÄËÅÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰ÄëÌ…ïåππ—¿¸π¡ïπë•πúÄ¸ÄâçΩπô•…µ•πúàÄËÄàâÙàÅ•êÙâÂïÕ9—¿à¯ëÌ…ïåππ—¿¸π¡ïπë•πúÄ¸Äâ=9%I4ÅeLàÄËÄâeLâÙΩâ’——Ω∏˘ÅÙΩë•ÿ˘ÄÄËÄàâÙ(ÄÒë•ÿÅç±ÖÕÃÙâ°Ω±ï9Öÿà¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙâ¡…ïŸ!Ω±îàÄëÌ¡ΩÃÄÙÙÙÄ¿Ä¸Äâë•ÕÖâ±ïêàÄËÄàâÙ˚ä@ÅA…ïŸ•Ω’ÃΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâ¡…•µÖ…‰àÅ•êÙâπï·—!Ω±îà¯ëÌ¡ΩÃÄÙÙÙÄƒ‹Ä¸Äâ%9%M ÅI=U9àÄËÄâ9ï·–Å!Ω±îÉäHâÙΩâ’——Ω∏¯Ωë•ÿ¯ëÌŸ•…—’Ö±±ÖπçïÙΩë•ÿ˘ÄÏ(ÄÄÄÅ•òÄ†ê†àçô•…Õ—5•ÕµÖ—ç°!Ω±îà§§(ÄÄÄÄÄÄê†àçô•…Õ—5•ÕµÖ—ç°!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅÕïƒπ•πëï·=ò°µ•ÕµÖ—ç°!Ω±ïÕl¡t§Ï(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçë•Õµ•ÕÕM—Ö…—•πù!Ω±ï±ï…–à§§(ÄÄÄÄÄÄê†àçë•Õµ•ÕÕM—Ö…—•πù!Ω±ï±ï…–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…M—Ö…—•πù!Ω±ï9Ω—•çîÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å’¡ëÖ—ïMçΩ…ïΩπ—…Ω∞ÄÙÄ°•ê∞ÅŸÖ∞§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’ï	’——Ω∏ÄÙÅëΩç’µïπ–π≈’ï…ÂMï±ïç—Ω»°ÅmëÖ—ÑµçΩπô•…¥ÙàëÌ•ëÙâuÄ§∞(ÄÄÄÄÄÄÄÅÕ—ï¡¡ï…Ωπ—…Ω∞ÄÙÅŸÖ±’ï	’——Ω∏¸πç±ΩÕïÕ–†àπÕçΩ…ïM—ï¡¡ï»à§∞(ÄÄÄÄÄÄÄÅ¡•ç≠’¡	’——Ω∏ÄÙÅëΩç’µïπ–π≈’ï…ÂMï±ïç—Ω»°ÅmëÖ—Ñµ¡•ç≠’¿ÙàëÌ•ëÙâuÄ§∞(ÄÄÄÄÄÄÄÅ¡•ç≠ïêÄÙÅM—…•πú°ŸÖ∞§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@àÏ(ÄÄÄÄÄÅ•òÄ°ŸÖ±’ï	’——Ω∏§ÅŸÖ±’ï	’——Ω∏π—ï·—Ωπ—ïπ–ÄÙÅ¡•ç≠ïêÄ¸Äâ@àÄËÅM—…•πú°ŸÖ∞§Ï(ÄÄÄÄÄÅ•òÄ°Õ—ï¡¡ï…Ωπ—…Ω∞§ÅÏ(ÄÄÄÄÄÄÄÅÕ—ï¡¡ï…Ωπ—…Ω∞πç±ÖÕÕ1•Õ–π…ïµΩŸî†â’πÕï–à§Ï(ÄÄÄÄÄÄÄÅÕ—ï¡¡ï…Ωπ—…Ω∞πç±ÖÕÕ1•Õ–πÖëê†âÕï–à§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°¡•ç≠’¡	’——Ω∏§ÅÏ(ÄÄÄÄÄÄÄÅ¡•ç≠’¡	’——Ω∏πç±ÖÕÕ1•Õ–π—Ωùù±î†â¡•ç≠ïêà∞Å¡•ç≠ïê§Ï(ÄÄÄÄÄÄÄÅ¡•ç≠’¡	’——Ω∏π—ï·—Ωπ—ïπ–ÄÙÅ¡•ç≠ïê(ÄÄÄÄÄÄÄÄÄÄ¸Å¡•ç≠’¡	’——Ω∏πç±ΩÕïÕ–†àπ¡•ç≠’¡Ωπ—…Ω∞à§(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄãärLÅA%,µU@Ä°@§à(ÄÄÄÄÄÄÄÄÄÄÄÄËÄãärLÅA%,µU@ÅI=IÄ°@§à(ÄÄÄÄÄÄÄÄÄÄËÄâ@ÉäPÅA%,µU@àÏ(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–ÅÕï—•ï±êÄÙÄ°•ê∞ÅŸÖ∞§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅmÕïç—•Ω∏∞Å≠ïÂtÄÙÅ•êπÕ—Ö…—Õ]•—††âΩôô•ç•Ö∞à§(ÄÄÄÄÄÄÄÄ¸ÅlâΩôô•ç•Ö∞à∞Å•êÄÙÙÙÄâΩôô•ç•Ö±…ΩÕÃàÄ¸Äâù…ΩÕÃàÄËÄâ¡’——Ãât(ÄÄÄÄÄÄÄÄËÅlâÕï±òà∞Å•êÄÙÙÙÄâÕï±ô…ΩÕÃàÄ¸Äâù…ΩÕÃàÄËÄâ¡’——ÃâtÏ(ÄÄÄÄÄÅ…ïçmÕïç—•Ωπum≠ïÂtÄÙÅŸÖ∞Ï(ÄÄÄÄÄÅçΩπÕ–Å…Ω’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÅ•òÄ°…Ω’πêπ}µï—Ñ¸πô•πÖ±•Õïë–§Åëï±ï—îÅ…Ω’πêπ}µï—Ñπô•πÖ±•Õïë–Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•Õïê¸πlâëÖ‰àÄ¨ÅëÖÂt§(ÄÄÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëlâëÖ‰àÄ¨ÅëÖÂumÕï±ïç—ïëtÏ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄººÅ-ïï¿Å—°îÅÖç—’Ö∞ÅÕçΩ…îÅâ’——ΩπÃÅ•∏Å¡±ÖçîÅ’π—•∞Å—°îÅ¡±ÖÂï»Åç°ΩΩÕïÃÅ—°î(ÄÄÄÄÄÄººÅπï·–Å°Ω±î∏ÅIï¡±Öç•πúÅ—°îÅ›°Ω±îÅÕçΩ…•πúÅ=4ÅÖô—ï»ÅïŸï…‰ÅŸÖ±’îÅçÖ∏Å…ïµΩŸî(ÄÄÄÄÄÄººÅ—°îÅπï·–Åâ’——Ω∏Åâï—›ïï∏Å—Ω’ç†µëΩ›∏ÅÖπêÅç±•ç¨ÅΩ∏ÅÑÅôÖÕ–Å¡°ΩπîÅïπ—…‰∏(ÄÄÄÄÄÅ’¡ëÖ—ïMçΩ…ïΩπ—…Ω∞°•ê∞ÅŸÖ∞§Ï(ÄÄÄÅÙÏ(ÄÄÄÄêê†âmëÖ—ÑµÕ—ï¡tà§πôΩ…Öç††(ÄÄÄÄÄÄ°â—∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â—∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅâ—∏πëÖ—ÖÕï–πÕ—ï¿∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕïç—•Ω∏ÄÙÅ•êπÕ—Ö…—Õ]•—††âΩôô•ç•Ö∞à§Ä¸ÄâΩôô•ç•Ö∞àÄËÄâÕï±òà∞(ÄÄÄÄÄÄÄÄÄÄÄÅ≠ï‰ÄÙÅ•êπïπëÕ]•—††â…ΩÕÃà§Ä¸Äâù…ΩÕÃàÄËÄâ¡’——Ãà∞(ÄÄÄÄÄÄÄÄÄÄÄÅâÖÕîÄÙÅ≠ï‰ÄÙÙÙÄâù…ΩÕÃàÄ¸Å¡Ö»ÅÒÄ–ÄËÄ»∞(ÄÄÄÄÄÄÄÄÄÄÄÅµ•∏ÄÙÅ≠ï‰ÄÙÙÙÄâù…ΩÕÃàÄ¸ÄƒÄËÄ¿∞(ÄÄÄÄÄÄÄÄÄÄÄÅµÖ‡ÄÙÅ≠ï‰ÄÙÙÙÄâù…ΩÕÃàÄ¸Ä»¿ÄËÄ‰∞(ÄÄÄÄÄÄÄÄÄÄÄÅç’……ïπ–ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïçmÕïç—•Ωπum≠ïÂtÄÙÙÙÄààÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ïçmÕïç—•Ωπum≠ïÂtÄÙÙÅπ’±∞ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°…ïçmÕïç—•Ωπum≠ïÂt§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅâÖÕî(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÄ≠…ïçmÕïç—•Ωπum≠ïÂtÏ(ÄÄÄÄÄÄÄÄÄÅÕï—•ï±ê†(ÄÄÄÄÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ5Ö—†πµÖ‡°µ•∏∞Å5Ö—†πµ•∏°µÖ‡∞Åç’……ïπ–Ä¨Ä≠â—∏πëÖ—ÖÕï–πëï±—Ñ§§∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—Ñµ¡•ç≠’¡tà§πôΩ…Öç††(ÄÄÄÄÄÄ°â—∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â—∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕï—•ï±ê°â—∏πëÖ—ÖÕï–π¡•ç≠’¿∞Äâ@à§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—ÑµçΩπô•…µtà§πôΩ…Öç††(ÄÄÄÄÄÄ°â—∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â—∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅâ—∏πëÖ—ÖÕï–πçΩπô•…¥∞(ÄÄÄÄÄÄÄÄÄÄÄÅÕïç—•Ω∏ÄÙÅ•êπÕ—Ö…—Õ]•—††âΩôô•ç•Ö∞à§Ä¸ÄâΩôô•ç•Ö∞àÄËÄâÕï±òà∞(ÄÄÄÄÄÄÄÄÄÄÄÅ≠ï‰ÄÙÅ•êπïπëÕ]•—††â…ΩÕÃà§Ä¸Äâù…ΩÕÃàÄËÄâ¡’——ÃàÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°…ïçmÕïç—•Ωπum≠ïÂtÄÙÙÙÄààÅÒÅ…ïçmÕïç—•Ωπum≠ïÂtÄÙÙÅπ’±∞§(ÄÄÄÄÄÄÄÄÄÄÄÅÕï—•ï±ê°•ê∞Ä≠â—∏πëÖ—ÖÕï–πâÖÕî§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àçÂïÕ9—¿à§§(ÄÄÄÄÄÄê†àçÂïÕ9—¿à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Öπ—¡MçΩ…ïM’¡¡Ω…—Õ±Ö•¥°ëÖ‰∞Å…ïå§§ÅÏ(ÄÄÄÄÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÄÄÅÅ9Q@ÅçÖππΩ–ÅâîÅ…ïçΩ…ëïêÅôΩ»ÄëÌ—Ö…ùï–¸ππÖµîÅÒÄâ—°•ÃÅ¡±ÖÂï»âÙ∏ÅQ°îÅÕçΩ…îÅµ’Õ–ÅÕ°Ω‹Å—°Ö–Å—°îÅ—ïîÅÕ°Ω–Å…ïÖç°ïêÅ—°îÅù…ïï∏ËÅ¡’——ÃÅµ’Õ–Åï≈’Ö∞Å—Ω—Ö∞ÅÕ—…Ω≠ïÃÅµ•π’ÃÅΩπîÄ°ôΩ»Åï·Öµ¡±îÄ»ÅÕ—…Ω≠ïÃÅÖπêÄƒÅ¡’—–∞ÅΩ»Ä–ÅÕ—…Ω≠ïÃÅÖπêÄÃÅ¡’——Ã§πÄ∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ•òÄ†Ö…ïåππ—¿π¡ïπë•πú§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ…ïåππ—¿π¡ïπë•πúÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÄÄÅ…ïåππ—¿π¡ïπë•πúÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÅ…ïåππ—¿πïπ—…Öπ—%êÄÙÅ—Ö…ùï—%êÏ(ÄÄÄÄÄÄÄÄÄÅ…ïåππ—¿πçΩπô•…µïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç’πëΩ9—¿à§§(ÄÄÄÄÄÄê†àç’πëΩ9—¿à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ…ïåππ—¿πçΩπô•…µïë–ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÅ…ïåππ—¿πïπ—…Öπ—%êÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÅ…ïåππ—¿π¡ïπë•πúÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçÂï±±Ω›	Ö±±1ΩÕ–à§§(ÄÄÄÄÄÄê†àçÂï±±Ω›	Ö±±1ΩÕ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°Âï±±Ω›	Ö±±1ΩÕ—!ï…î§ÅÏ(ÄÄÄÄÄÄÄÄÄÅëï±ï—îÅ…ïåπÂï±±Ω›	Ö±∞Ï(ÄÄÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÅΩπô•…¥Å—°Ö–ÄëÌïŸïπ—A±ÖÂï»°Âï±±Ω›	Ö±±A±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ—°îÅπΩµ•πÖ—ïêÅ¡±ÖÂï»âÙÅ±ΩÕ–Å—°îÅeï±±Ω‹Å	Ö±∞ÅΩ∏Å!Ω±îÄëÌ°Ω±ïÙ¸Åeï±±Ω‹Å	Ö±∞ÅÕçΩ…•πúÅôΩ»Å—°•ÃÅ—ïÖ¥Å›•±∞ÅÕ—Ω¿ÅâïôΩ…îÅ—°•ÃÅ°Ω±îπÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅ…ïåπÂï±±Ω›	Ö±∞ÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ±ΩÕ–ËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡±ÖÂï…%êËÅM—…•πú°Âï±±Ω›	Ö±±A±ÖÂï…%ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÖ–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄêê†âmëÖ—ÑµùΩ—Ω°Ω±ïtà§πôΩ…Öç††(ÄÄÄÄÄÄ°â—∏§ÄÙ¯(ÄÄÄÄÄÄÄÄ°â—∏πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÄ≠â—∏πëÖ—ÖÕï–πùΩ—Ω°Ω±îÏ(ÄÄÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àçô•…Õ—5•ÕÕ•πù!Ω±îà§§(ÄÄÄÄÄÄê†àçô•…Õ—5•ÕÕ•πù!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅÕïƒπ•πëï·=ò°µ•ÕÕ•πù!Ω±ïÕl¡t§Ï(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àç…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏à§§(ÄÄÄÄÄÄê†àç…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµÖ…≠ïêàÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâŸï…•ô‰àÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄê†àç¡…ïŸ!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅ5Ö—†πµÖ‡†¿∞Å¡ΩÃÄ¥Äƒ§Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçπï·—!Ω±îà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄê†àçπï·—!Ω±îà§πë•ÕÖâ±ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅ•òÄ°π—¿ÄòòÅ…ïåππ—¿πçΩπô•…µïë–§Å…ïåππ—¿π±Ωç≠ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÅ•òÄ°¡ΩÃÄÙÙÙÄƒ‹§ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…Yï…•ô•çÖ—•ΩπM—ÖùîÄÙÄâµ•πîàÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…ï—’…πQΩ5Ö…≠ïëYï…•ô•çÖ—•Ω∏ÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâŸï…•ô‰àÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÅ¡ΩÃÄ¨ÄƒÏ(ÄÄÄÄÄÄÄÅ…Ω’πêπ}µï—ÑÄÙÅ…Ω’πêπ}µï—ÑÅÒÅÌÙÏ(ÄÄÄÄÄÄÄÅ…Ω’πêπ}µï—Ñπô’…—°ïÕ—AΩÃÄÙÅ5Ö—†πµÖ‡†(ÄÄÄÄÄÄÄÄÄÄ≠…Ω’πêπ}µï—Ñπô’…—°ïÕ—AΩÃÅÒÄ¿∞(ÄÄÄÄÄÄÄÄÄÅ¡ΩÃÄ¨Äƒ∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÏ(ÄÄÄÅïπÖâ±ï!Ω±ïM›•¡î†ê†àπÕçΩ…•πùA°Ωπîà§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïπÖâ±ï!Ω±ïM›•¡î°°ΩÕ–§ÅÏ(ÄÄÄÅ•òÄ†Ö°ΩÕ–§Å…ï—’…∏Ï(ÄÄÄÅ±ï–ÅÕ—Ö…—`ÄÙÄ¿∞ÅÕ—Ö…—dÄÙÄ¿∞ÅÕ—Ö…—ïë=πΩπ—…Ω∞ÄÙÅôÖ±ÕîÏ(ÄÄÄÅ°ΩÕ–πÖëëŸïπ—1•Õ—ïπï»†â—Ω’ç°Õ—Ö…–à∞Ä°ïŸïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°ïŸïπ–π—Ω’ç°ïÃπ±ïπù—†ÄÑÙÙÄƒ§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ö…ùï–ÄÙÅïŸïπ–π—Ö…ùï–Ï(ÄÄÄÄÄÅÕ—Ö…—ïë=πΩπ—…Ω∞ÄÙÅ	ΩΩ±ïÖ∏°—Ö…ùï–πç±ΩÕïÕ–†ââ’——Ω∏∞Å•π¡’–∞ÅÕï±ïç–∞Å—ï·—Ö…ïÑ∞ÅÑ∞ÅmçΩπ—ïπ—ïë•—Öâ±ït∞Åëï—Ö•±Ã∞ÅÕ’µµÖ…‰à§§Ï(ÄÄÄÄÄÅÕ—Ö…—`ÄÙÅïŸïπ–π—Ω’ç°ïÕl¡tπç±•ïπ—`Ï(ÄÄÄÄÄÅÕ—Ö…—dÄÙÅïŸïπ–π—Ω’ç°ïÕl¡tπç±•ïπ—dÏ(ÄÄÄÅÙ∞ÅÏÅ¡ÖÕÕ•ŸîËÅ—…’îÅÙ§Ï(ÄÄÄÅ°ΩÕ–πÖëëŸïπ—1•Õ—ïπï»†â—Ω’ç°ïπêà∞Ä°ïŸïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°Õ—Ö…—ïë=πΩπ—…Ω∞ÅÒÄÖïŸïπ–πç°ÖπùïëQΩ’ç°ïÃπ±ïπù—†§Å…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–Åë‡ÄÙÅïŸïπ–πç°ÖπùïëQΩ’ç°ïÕl¡tπç±•ïπ—`Ä¥ÅÕ—Ö…—`∞(ÄÄÄÄÄÄÄÅë‰ÄÙÅïŸïπ–πç°ÖπùïëQΩ’ç°ïÕl¡tπç±•ïπ—dÄ¥ÅÕ—Ö…—dÏ(ÄÄÄÄÄÅ•òÄ°5Ö—†πÖâÃ°ë‡§ÄÄÿ¿ÅÒÅ5Ö—†πÖâÃ°ë‡§ÄÅ5Ö—†πÖâÃ°ë‰§Ä®Äƒ∏–§Å…ï—’…∏Ï(ÄÄÄÄÄÅ•òÄ°ë‡ÄÄ¿§Äê†àçπï·—!Ω±îà§¸πç±•ç¨†§Ï(ÄÄÄÄÄÅï±ÕîÄê†àç¡…ïŸ!Ω±îà§¸πç±•ç¨†§Ï(ÄÄÄÅÙ∞ÅÏÅ¡ÖÕÕ•ŸîËÅ—…’îÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ëA±ÖÂï…AΩ•π—Ã°ëÖ‰∞Å¡•ê§ÅÏ(ÄÄÄÅçΩπÕ–ÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±¡•ê§∞(ÄÄÄÄÄÅ°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°¡•ê∞ÅëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅîÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡•ê∞Å§Ä¨Äƒ§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÕ—Öâ±ïôΩ…ëAΩ•π—Ã†(ÄÄÄÄÄÄÄÅî¸πù…ΩÕÃ∞(ÄÄÄÄÄÄÄÄ¨°ÿπ¡Ö»¸πm•tÅÒÄ¿§∞(ÄÄÄÄÄÄÄÅÿπ•πëï‡¸πm•tÄ¸¸Äàà∞(ÄÄÄÄÄÄÄÅ°ç¿∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ëA±ÖÂï……ΩÕÃ°ëÖ‰∞Å¡•ê§ÅÏ(ÄÄÄÅ…ï—’…∏Å……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅúÄÙÅô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëÖ‰∞Å¡•ê∞Å§Ä¨Äƒ§¸πù…ΩÕÃÏ(ÄÄÄÄÄÅ…ï—’…∏ÅM—…•πú°ú§π—ΩU¡¡ï…ÖÕî†§ÄÙÙÙÄâ@àÅÒÅúÄÙÙÙÄààÅÒÅúÄÙÙÅπ’±∞(ÄÄÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄÄÄËÄ≠úÏ(ÄÄÄÅÙ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ëUπ•—Ã°ëÖ‰∞Å—Â¡î∞ÅÖùù…ïùÖ—îÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï—’¿ÄÙÅÕ—Ω…îπïŸïπ–πù…Ω’¡Mï—’¿¸πlâëÖ‰àÄ¨ÅëÖÂt∞(ÄÄÄÄÄÅΩ’–ÄÙÅmtÏ(ÄÄÄÅ•òÄ†ÖÕï—’¿§Å…ï—’…∏ÅΩ’–Ï(ÄÄÄÄ°Õï—’¿πù…Ω’¡ÃÅÒÅmt§πôΩ…Öç††°…Ö‹∞Åù§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åù…Ω’¿ÄÙÅ…Ö‹πµÖ¿°•êÙ˘Öùù…ïùÖ—îÄ¸ÅÕ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§ÄËÅM—…•πú°•ê§§∞(ÄÄÄÄÄÄÄÅ…ï¡±Öçïµïπ—9ÖµîÄÙÄ°•ê∞ÅΩ…•ù•πÖ±%ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅΩ…•ù•πÖ±%êÄÙÙÙÅ9=}AIQ9I}%(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâY•…—’Ö∞ÅA±ÖÂï»âÙÄ°Y@ÅôΩ»ÄëÌïŸïπ—A±ÖÂï»°Õï—’¿πµ•ÕÕ•πùA±ÖÂï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâµ•ÕÕ•πúÅ¡±ÖÂï»âÙ•Ä(ÄÄÄÄÄÄÄÄÄÄÄÄËÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅÖùù…ïùÖ—îÄ¸Åπ’±∞ÄËÅëÖ‰§∞(ÄÄÄÄÄÄÄÅô•±±ïêÄÙÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄÄÄ¸Åù…Ω’¿πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄÄÄËÅù…Ω’¿(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•êÄÙÙÙÅ9=}AIQ9I}%Ä¸ÅM—…•πú°Õï—’¡Ω…QïÖ¥°Õï—’¿±ù§§πŸ•…—’Ö±A±ÖÂï»ÅÒÄàà§ÄËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÄÄÅ•òÄ°—Â¡îÄÙÙÙÄâ—ïÖ¥à§(ÄÄÄÄÄÄÄÅΩ’–π¡’Õ†°Ï(ÄÄÄÄÄÄÄÄÄÅ•êËÅÅêëÌëÖÂıúëÌù•ıÄ∞(ÄÄÄÄÄÄÄÄÄÅ•ëÃËÅl∏∏ππï‹ÅMï–°ô•±±ïê•t∞(ÄÄÄÄÄÄÄÄÄÅπÖµîËÅÅ…Ω’¿ÄëÌù§Ä¨Ä≈ıÄ∞(ÄÄÄÄÄÄÄÄÄÅëï—Ö•∞ËÅô•±±ïê(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê∞Å•πëï‡§ÄÙ¯Å…ï¡±Öçïµïπ—9Öµî°•ê∞Åù…Ω’¡m•πëï·t§§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†à∞Äà§∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅï±Õî(ÄÄÄÄÄÄÄÅôΩ»Ä°±ï–Å∏ÄÙÄ¿ÏÅ∏ÄÄ–ÏÅ∏Ä¨ÙÄ»§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å•ëÃÄÙÅù…Ω’¿(ÄÄÄÄÄÄÄÄÄÄÄÄπÕ±•çî°∏∞Å∏Ä¨Ä»§(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•êÄÙÙÙÅ9=}AIQ9I}%Ä¸ÅM—…•πú°Õï—’¡Ω…QïÖ¥°Õï—’¿±ù§§πŸ•…—’Ö±A±ÖÂï»ÅÒÄàà§ÄËÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»°	ΩΩ±ïÖ∏§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°•ëÃπ±ïπù—†§(ÄÄÄÄÄÄÄÄÄÄÄÅΩ’–π¡’Õ†°Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•êËÅÅêëÌëÖÂıúëÌù•ı¿ëÌ∏ÄºÄ…ıÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•ëÃËÅl∏∏ππï‹ÅMï–°•ëÃ•t∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπÖµîËÅ•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê∞Å•πëï‡§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï¡±Öçïµïπ—9Öµî°•ê∞Åù…Ω’¿πÕ±•çî°∏∞Å∏Ä¨Ä»•m•πëï·t§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àÄòÄà§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëï—Ö•∞Ë(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πëÖÂÃÄÙÙÙÄƒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅ…Ω’¿ÄëÌù§Ä¨Ä≈ıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÅÖ‰ÄëÌëÖÂÙÉ
+‹Å…Ω’¿ÄëÌù§Ä¨Ä≈ıÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏ÅΩ’–Ï(ÄÅÙ(ÄÅçΩπÕ–Å±ïÖëï…M’¥ÄÙÄ°ŸÖ±’ïÃ§ÄÙ¯(ÄÄÄÅŸÖ±’ïÃπ…ïë’çî†°∏∞Å‡§ÄÙ¯Å∏Ä¨Ä°‡ÄÙÙÅπ’±∞Ä¸Ä¿ÄËÄ≠‡ÅÒÄ¿§∞Ä¿§Ï(ÄÅô’πç—•Ω∏Å±ïÖëï…IΩ‹°•ê∞ÅπÖµî∞Åëï—Ö•∞∞Å°Ω±ïÃ∞Å—Ö…ùï–ÄÙÄƒ‡§ÅÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÅπÖµî∞(ÄÄÄÄÄÅëï—Ö•∞∞(ÄÄÄÄÄÅ°Ω±ïÃ∞(ÄÄÄÄÄÅ—Ω—Ö∞ËÅ±ïÖëï…M’¥°°Ω±ïÃ§∞(ÄÄÄÄÄÅ—°…‘ËÅ°Ω±ïÃπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§π±ïπù—†∞(ÄÄÄÄÄÅ—Ö…ùï–∞(ÄÄÄÄÄÅçâ!Ω±ïÃËÅ°Ω±ïÃ∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅµÖπ’Ö±1ïÖëï…IΩ‹°•ê∞ÅπÖµî∞Åëï—Ö•∞∞ÅÕ’µµÖ…‰∞Å—Ö…ùï–ÄÙÄƒ‡§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ’µµÖ…‰ÅÒÅÕ’µµÖ…‰π—Ω—Ö∞ÄÙÙÙÄààÅÒÅÕ’µµÖ…‰π—Ω—Ö∞ÄÙÙÅπ’±∞§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅÏ(ÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÅπÖµî∞(ÄÄÄÄÄÅëï—Ö•∞∞(ÄÄÄÄÄÅ°Ω±ïÃËÅmt∞(ÄÄÄÄÄÅ—Ω—Ö∞ËÄ≠Õ’µµÖ…‰π—Ω—Ö∞∞(ÄÄÄÄÄÅ—°…‘ËÅ—Ö…ùï–∞(ÄÄÄÄÄÅ—Ö…ùï–∞(ÄÄÄÄÄÅçâ!Ω±ïÃËÅmt∞(ÄÄÄÄÄÅµÖπ’Ö∞ËÅ—…’î∞(ÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°mÕ’µµÖ…‰πâÖç¨‰∞ÅÕ’µµÖ…‰π±ÖÕ–ÿ∞ÅÕ’µµÖ…‰π±ÖÕ–ÕtπÕΩµî†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÙÄààÄòòÅŸÖ±’îÄÑÙÅπ’±∞§§(ÄÄÄÄÄÅ…Ω‹πçâQΩ—Ö±ÃÄÙÅÏ(ÄÄÄÄÄÄÄÅâÖç¨‰ËÄ¨°Õ’µµÖ…‰πâÖç¨‰ÅÒÄ¿§∞(ÄÄÄÄÄÄÄÅ±ÖÕ–ÿËÄ¨°Õ’µµÖ…‰π±ÖÕ–ÿÅÒÄ¿§∞(ÄÄÄÄÄÄÄÅ±ÖÕ–ÃËÄ¨°Õ’µµÖ…‰π±ÖÕ–ÃÅÒÄ¿§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åô•πÖ±π—…Â1ïÖëï…IΩ‹°ëÖ‰∞Å•ê∞Å≠•πê§ÅÏ(ÄÄÄÅçΩπÕ–Åïπ—…‰ÄÙÅô•πÖ±MçΩ…ïπ—…‰°ëÖ‰∞Å•ê§Ï(ÄÄÄÅ•òÄ†Öïπ—…‰ÅÒÅïπ—…‰π≠•πêÄÑÙÙÅ≠•πêÅÒÄÖ9’µâï»π•Õ•π•—î†≠ïπ—…‰π—Ω—Ö∞§ÅÒÄÖïπ—…‰πçΩπô•…µïë–§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÅ…ï—’…∏ÅÌ•êÈM—…•πú°•ê§∞ÅπÖµîÈïŸïπ—A±ÖÂï…9Öµî°•ê±ëÖ‰§∞Åëï—Ö•∞Ëâ•πÖ∞ÅÕçΩ…îÅïπ—ï…ïêà∞Å°Ω±ïÃÈmt∞Å—Ω—Ö∞Ë≠ïπ—…‰π—Ω—Ö∞∞Å—°…‘Ëƒ‡∞Å—Ö…ùï–Ëƒ‡∞Åçâ!Ω±ïÃÈmt∞Åô•πÖ±π—…‰È—…’ïÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ—…Ω≠ï!Ω±ïMçΩ…ïÃ°ëÖ‰∞Å•ê§ÅÏ(ÄÄÄÅçΩπÕ–Å…Ö‹ÄÙÅ±ïÖëï…âΩÖ…ëA±ÖÂï……ΩÕÃ°ëÖ‰±•ê§∞ÅçÖ…êÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±•ê§∞ÅµΩëîÄÙÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïMçΩ…•πù5ΩëîÅÒÄâÖ±±M—…Ω≠ïÃàÏ(ÄÄÄÅ•òÄ°µΩëîÄÙÙÙÄâÖ±±M—…Ω≠ïÃà§Å…ï—’…∏Å…Ö‹Ï(ÄÄÄÅçΩπÕ–Åï·—…ÑÄÙÅµΩëîÄÙÙÙÄâµÖ·Q…•¡±ï	Ωùï‰àÄ¸ÄÃÄËÄ»Ï(ÄÄÄÅ…ï—’…∏Å…Ö‹πµÖ¿†°ù…ΩÕÃ±•πëï‡§ÄÙ¯Åù…ΩÕÃÄÙÙÅπ’±∞Ä¸Åπ’±∞ÄËÅ5Ö—†πµ•∏°ù…ΩÕÃ∞†≠çÖ…êπ¡Ö»¸πm•πëï·uÒ¿§≠ï·—…Ñ§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…Ω’π—âÖç¨°Ñ∞Åà∞Å°•ù°ï»ÄÙÅ—…’î§ÅÏ(ÄÄÄÅ•òÄ°Ñπ—…•¡Ω’π—âÖç¨ÄòòÅàπ—…•¡Ω’π—âÖç¨§ÅÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å•πëï‡Ù¿Ì•πëï‡Ò5Ö—†πµ•∏°Ñπ—…•¡Ω’π—âÖç¨π±ïπù—†±àπ—…•¡Ω’π—âÖç¨π±ïπù—†§Ì•πëï‡¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åë•ôòıàπ—…•¡Ω’π—âÖç≠m•πëï·tµÑπ—…•¡Ω’π—âÖç≠m•πëï·tÏÅ•ò°ë•ôò§Å…ï—’…∏Åë•ôòÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Ä¿Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†°ÑπµÖπ’Ö∞ÄòòÄÖÑπçâQΩ—Ö±Ã§ÅÒÄ°àπµÖπ’Ö∞ÄòòÄÖàπçâQΩ—Ö±Ã§§Å…ï—’…∏Ä¿Ï(ÄÄÄÅ•òÄ°ÑπçâQΩ—Ö±ÃÅÒÅàπçâQΩ—Ö±Ã§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö±ÃÄÙÄ°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ°…Ω‹πçâQΩ—Ö±Ã§Å…ï—’…∏Å…Ω‹πçâQΩ—Ö±ÃÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’ïÃÄÙÅ…Ω‹πçâ!Ω±ïÃÅÒÅ…Ω‹π°Ω±ïÃÅÒÅmtÏ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅâÖç¨‰ËÅ±ïÖëï…M’¥°ŸÖ±’ïÃπÕ±•çî†‰∞Äƒ‡§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ–ÿËÅ±ïÖëï…M’¥°ŸÖ±’ïÃπÕ±•çî†ƒ»∞Äƒ‡§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ–ÃËÅ±ïÖëï…M’¥°ŸÖ±’ïÃπÕ±•çî†ƒ‘∞Äƒ‡§§∞(ÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ∞(ÄÄÄÄÄÄÄÅÖ–ÄÙÅ—Ω—Ö±Ã°Ñ§∞(ÄÄÄÄÄÄÄÅâ–ÄÙÅ—Ω—Ö±Ã°à§∞(ÄÄÄÄÄÄÄÅçµ¿ÄÙÄ°‡∞Å‰§ÄÙ¯Ä°°•ù°ï»Ä¸Å‰Ä¥Å‡ÄËÅ‡Ä¥Å‰§Ï(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–Å≠ï‰ÅΩòÅlââÖç¨‰à∞Äâ±ÖÕ–ÿà∞Äâ±ÖÕ–Ãât§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅåÄÙÅçµ¿†¨°Ö—m≠ïÂtÅÒÄ¿§∞Ä¨°â—m≠ïÂtÅÒÄ¿§§Ï(ÄÄÄÄÄÄÄÅ•òÄ°å§Å…ï—’…∏ÅåÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ…ï—’…∏Ä¿Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅÖÿÄÙÅÑπçâ!Ω±ïÃÅÒÅÑπ°Ω±ïÃ∞(ÄÄÄÄÄÅâÿÄÙÅàπçâ!Ω±ïÃÅÒÅàπ°Ω±ïÃ∞(ÄÄÄÄÄÅçµ¿ÄÙÄ°‡∞Å‰§ÄÙ¯Ä°°•ù°ï»Ä¸Å‰Ä¥Å‡ÄËÅ‡Ä¥Å‰§Ï(ÄÄÄÅôΩ»Ä°çΩπÕ–ÅmÃ∞ÅïtÅΩòÅl(ÄÄÄÄÄÅl‰∞Äƒ·t∞(ÄÄÄÄÄÅlƒ»∞Äƒ·t∞(ÄÄÄÄÄÅlƒ‘∞Äƒ·t∞(ÄÄÄÅt§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅåÄÙÅçµ¿°±ïÖëï…M’¥°ÖÿπÕ±•çî°Ã∞Åî§§∞Å±ïÖëï…M’¥°âÿπÕ±•çî°Ã∞Åî§§§Ï(ÄÄÄÄÄÅ•òÄ°å§Å…ï—’…∏ÅåÏ(ÄÄÄÅÙ(ÄÄÄÅôΩ»Ä°±ï–Å§ÄÙÄƒ‹ÏÅ§Ä¯ÙÄ¿ÏÅ§¥¥§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅåÄÙÅçµ¿°ÖŸm•tÄ¸¸Ä¿∞ÅâŸm•tÄ¸¸Ä¿§Ï(ÄÄÄÄÄÅ•òÄ°å§Å…ï—’…∏ÅåÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Ä¿Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…Öπ≠1ïÖëï…IΩ›Ã°…Ω›Ã∞Å°•ù°ï»ÄÙÅ—…’î∞Å’ÕïΩ’π—âÖç¨ÄÙÅôÖ±Õî§ÅÏ(ÄÄÄÅ…Ω›ÃπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—Ö…—ïêÄÙÄ°àπ—°…‘Ä¯Ä¿§Ä¥Ä°Ñπ—°…‘Ä¯Ä¿§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ö…—ïê§Å…ï—’…∏ÅÕ—Ö…—ïêÏ(ÄÄÄÄÄÅçΩπÕ–ÅåÄÙÅ°•ù°ï»Ä¸Åàπ—Ω—Ö∞Ä¥ÅÑπ—Ω—Ö∞ÄËÅÑπ—Ω—Ö∞Ä¥Åàπ—Ω—Ö∞Ï(ÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÅåÅÒ(ÄÄÄÄÄÄÄÄ°’ÕïΩ’π—âÖç¨Ä¸Å±ïÖëï…Ω’π—âÖç¨°Ñ∞Åà∞Å°•ù°ï»§ÄËÄ¿§ÅÒ(ÄÄÄÄÄÄÄÅÑππÖµîπ±ΩçÖ±ïΩµ¡Ö…î°àππÖµî§(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…Ω›ÃπôΩ…Öç††°»∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡…ïÿÄÙÅ…Ω›Õm§Ä¥Ä≈t∞(ÄÄÄÄÄÄÄÅπï·–ÄÙÅ…Ω›Õm§Ä¨Ä≈t∞(ÄÄÄÄÄÄÄÅÕÖµîÄÙ(ÄÄÄÄÄÄÄÄÄÅ¡…ïÿÄòò(ÄÄÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°¡…ïÿπ—°…‘§ÄÙÙÙÅ	ΩΩ±ïÖ∏°»π—°…‘§Äòò(ÄÄÄÄÄÄÄÄÄÅ¡…ïÿπ—Ω—Ö∞ÄÙÙÙÅ»π—Ω—Ö∞Äòò(ÄÄÄÄÄÄÄÄÄÄ†Ö’ÕïΩ’π—âÖç¨ÅÒÅ±ïÖëï…Ω’π—âÖç¨°¡…ïÿ∞Å»∞Å°•ù°ï»§ÄÙÙÙÄ¿§Ï(ÄÄÄÄÄÅ»π…Öπ¨ÄÙÅÕÖµîÄ¸Å¡…ïÿπ…Öπ¨ÄËÅ§Ä¨ÄƒÏ(ÄÄÄÄÄÅ»π—•ïêÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅÕÖµîÅÒ(ÄÄÄÄÄÄÄÄÄÄ°πï·–Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°πï·–π—°…‘§ÄÙÙÙÅ	ΩΩ±ïÖ∏°»π—°…‘§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÅπï·–π—Ω—Ö∞ÄÙÙÙÅ»π—Ω—Ö∞Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄ†Ö’ÕïΩ’π—âÖç¨ÅÒÅ±ïÖëï…Ω’π—âÖç¨°»∞Åπï·–∞Å°•ù°ï»§ÄÙÙÙÄ¿§§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ»πçàÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅ’ÕïΩ’π—âÖç¨Äòò(ÄÄÄÄÄÄÄÄÄÅ»π—°…‘Äòò(ÄÄÄÄÄÄÄÄÄÅ§ÄÙÙÙÄ¿Äòò(ÄÄÄÄÄÄÄÄÄÅ…Ω›Õl≈t¸π—°…‘Äòò(ÄÄÄÄÄÄÄÄÄÅ…Ω›Õl≈tπ—Ω—Ö∞ÄÙÙÙÅ»π—Ω—Ö∞Äòò(ÄÄÄÄÄÄÄÄÄÅ±ïÖëï…Ω’π—âÖç¨°»∞Å…Ω›Õl≈t∞Å°•ù°ï»§ÄÑÙÙÄ¿∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ëïô•π•—•ΩπÃ†§ÅÏ(ÄÄÄÅçΩπÕ–ÅÕï±ïç—ïêÄÙÅπï‹ÅMï–°Õ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt§∞(ÄÄÄÄÄÅëÖÂÃÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒ∞(ÄÄÄÄÄÅëïôÃÄÙÅmt∞(ÄÄÄÄÄÅÖëêÄÙÄ°•ê∞Å±Öâï∞∞Å—Â¡î∞ÅëÖ‰ÄÙÄ¿∞ÅΩ¡—ÃÄÙÅÌÙ§ÄÙ¯(ÄÄÄÄÄÄÄÅëïôÃπ¡’Õ†°ÏÅ•ê∞Å±Öâï∞∞Å—Â¡î∞ÅëÖ‰∞ÅÕçΩ¡îËÅëÖ‰ÅÒÄâΩŸï…Ö±∞à∞Ä∏∏πΩ¡—ÃÅÙ§Ï(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÅëÖÂÃÄÙÙÙÄƒÄòò(ÄÄÄÄÄÄ°Õï±ïç—ïêπ°ÖÃ†âÕ•πù±îà§ÅÒÅÕï±ïç—ïêπ°ÖÃ†âçΩµâ•πïêà§§(ÄÄÄÄ§(ÄÄÄÄÄÅÖëê†âÕ•πù±îµêƒà∞ÄâM•πù±îÅM—Öâ±ïôΩ…êà∞ÄâÕ•πù±îà∞Äƒ∞ÅÏÅçΩ’π—âÖç¨ËÅ—…’îÅÙ§Ï(ÄÄÄÅ•òÄ°ëÖÂÃÄ¯ÄƒÄòòÄ°Õï±ïç—ïêπ°ÖÃ†âçΩµâ•πïêà§ÅÒÅÕï±ïç—ïêπ°ÖÃ†âÕ•πù±îà§§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•êÄÙÅÕï±ïç—ïêπ°ÖÃ†âçΩµâ•πïêà§Ä¸ÄâçΩµâ•πïêàÄËÄâÕ•πù±îà∞(ÄÄÄÄÄÄÄÅôΩ…µÖ–ÄÙÅ•êÄÙÙÙÄâçΩµâ•πïêàÄ¸ÅÕ—Ω…îπïŸïπ–πÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ÅÒÄâÖùù…ïùÖ—îàÄËÄâëÖ•±‰à∞(ÄÄÄÄÄÄÄÅÕï±ïç—ïëÖÂÃÄÙÅçΩµ¡ï—•—•ΩπÖÂÃ°•ê§∞ÅÖùù…ïùÖ—ï=π±‰ÄÙÅôΩ…µÖ–ÄÙÙÙÄâÖùù…ïùÖ—îàÏ(ÄÄÄÄÄÅôΩ»Ä°çΩπÕ–ÅëÖ‰ÅΩòÅÕï±ïç—ïëÖÂÃ§ÅÖëê°ÅçΩµâ•πïêµ±ïúµêëÌëÖÂıÄ∞ÅÅM•πù±îÅM—Öâ±ïôΩ…êÉäPÅÖ‰ÄëÌëÖÂıÄ∞ÄâÕ•πù±îà∞ÅëÖ‰∞ÅÏ(ÄÄÄÄÄÄÄÅçΩ’π—âÖç¨ËÅ—…’î∞ÅÖ›Ö…ëÖâ±îËÄÖÖùù…ïùÖ—ï=π±‰∞ÅÖùù…ïùÖ—ï1ïúËÅÖùù…ïùÖ—ï=π±‰∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°ôΩ…µÖ–ÄÑÙÙÄâëÖ•±‰à§ÅÖëê†âçΩµâ•πïêà∞ÅÅM•πù±îÅM—Öâ±ïôΩ…êÉäPÅ	ïÕ–ÄëÌçΩ’π—•πùIΩ’πëÃ†•ÙÅΩòÄëÌÕï±ïç—ïëÖÂÃπ±ïπù—°ıÄ∞ÄâçΩµâ•πïêà∞Ä¿∞ÅÏ(ÄÄÄÄÄÄÄÅçΩ’π—âÖç¨ËÅ—…’î∞ÅÖùù…ïùÖ—ïIïÕ’±–ËÅ—…’î∞ÅëÖÂÃËÅÕï±ïç—ïëÖÂÃ∞(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅôΩ»Ä°±ï–ÅëÖ‰ÄÙÄƒÏÅëÖ‰ÄÙÅëÖÂÃÏÅëÖ‰¨¨§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ’ôô•‡ÄÙÅëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉäPÅÖ‰ÄëÌëÖÂıÄÏ(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âÕ—…Ω≠îà∞ÅëÖ‰§ÄòòÄ°—Â¡ïΩòÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïÖ•±ÂIïÕ’±—ÃÄÙÙÙÄââΩΩ±ïÖ∏àÄ¸ÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïÖ•±ÂIïÕ’±—ÃÄËÄ°Õ—Ω…îπïŸïπ–πÕ—…Ω≠ïΩ’π—•πù5ΩëîÅÒÄâëÖ•±‰à§ÄÙÙÙÄâëÖ•±‰à§§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åô•πÖ±=π±‰ÄÙÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÙÙÙÄâô•πÖ±…ΩÕÃàÏ(ÄÄÄÄÄÄÄÅÖëê°ÅÕ—…Ω≠îµπï–µêëÌëÖÂıÄ∞ÅÅM—…Ω≠îÅ9ï–ëÌÕ’ôô•·ıÄ∞ÄâÕ—…Ω≠ï9ï–à∞ÅëÖ‰∞ÅÌ±Ω›ï»È—…’î±çΩ’π—âÖç¨ËÖô•πÖ±=π±ÂÙ§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âÖµâ…ΩÕîà∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê°ÅÖµâ…ΩÕîµêëÌëÖÂıÄ∞ÅÅµâ…ΩÕîëÌÕ’ôô•·ıÄ∞ÄâÖµâ…ΩÕîà∞ÅëÖ‰∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ±Ω›ï»ËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÅçΩ’π—âÖç¨ËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âôΩ’…âÖ±∞à∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê°ÅôΩ’…âÖ±∞µêëÌëÖÂıÄ∞ÅÄ—		ëÌÕ’ôô•·ıÄ∞ÄâôΩ’…âÖ±∞à∞ÅëÖ‰∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩ’π—âÖç¨ËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê†(ÄÄÄÄÄÄÄÄÄÅÅ¡’——ÃµêëÌëÖÂıÄ∞(ÄÄÄÄÄÄÄÄÄÅÄëÌÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸ÄâAÖ•…ÃàÄËÄâQïÖ¥âÙÅA’——•πúëÌÕ’ôô•·ıÄ∞(ÄÄÄÄÄÄÄÄÄÄâ¡’——Ãà∞(ÄÄÄÄÄÄÄÄÄÅëÖ‰∞(ÄÄÄÄÄÄÄÄÄÅÏÅ±Ω›ï»ËÅ—…’î∞ÅçΩ’π—âÖç¨ËÅ—…’îÅÙ∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†ââïÕ–ÕΩò–à∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê°ÅâïÕ–ÃµêëÌëÖÂıÄ∞ÅÅ	ïÕ–ÄÃÅΩòÄ–ëÌÕ’ôô•·ıÄ∞ÄââïÕ–Ãà∞ÅëÖ‰∞ÅÏÅçΩ’π—âÖç¨ËÅ—…’îÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†âÂï±±Ω›	Ö±∞à§ÄòòÅÂï±±Ω›	Ö±±%Õ=∏°ëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê°ÅÂï±±Ω‹µâÖ±∞µêëÌëÖÂıÄ∞ÅÅeï±±Ω‹Å	Ö±∞ëÌÕ’ôô•·ıÄ∞ÄâÂï±±Ω›	Ö±∞à∞ÅëÖ‰§Ï(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âÕç…Ö—ç†à∞ÅëÖ‰§ÄòòÄÖlâÖùù…ïùÖ—îà∞ÄââïÕ—ùù…ïùÖ—îâtπ•πç±’ëïÃ°Õ—Ω…îπïŸïπ–πÕç…Ö—ç°Ω…µÖ–§§(ÄÄÄÄÄÄÄÅÖëê°ÅÕç…Ö—ç†µêëÌëÖÂıÄ∞ÅÅMç…Ö—ç†ëÌÕ’ôô•·ıÄ∞ÄâÕç…Ö—ç†à∞ÅëÖ‰∞ÅÏ(ÄÄÄÄÄÄÄÄÄÅ±Ω›ï»ËÅ—…’î∞(ÄÄÄÄÄÄÄÄÄÅçΩ’π—âÖç¨ËÅ—…’î∞(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âπ—¿à∞ÅëÖ‰§§(ÄÄÄÄÄÄÄÅÖëê°Åπ—¿µêëÌëÖÂıÄ∞ÅÅ9ïÖ…ïÕ–Å—°îÅA•∏ëÌÕ’ôô•·ıÄ∞Äâπ—¿à∞ÅëÖ‰§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†âÕ—…Ω≠îà§ÄòòÄ°—Â¡ïΩòÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïêÄÙÙÙÄââΩΩ±ïÖ∏àÄ¸ÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ïπÖâ±ïêÄËÄ°Õ—Ω…îπïŸïπ–πÕ—…Ω≠ïΩ’π—•πù5ΩëîÅÒÄâëÖ•±‰à§ÄÑÙÙÄâëÖ•±‰à§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕ—…Ω≠ïÖÂÃÄÙÅçΩµ¡ï—•—•ΩπÖÂÃ†âÕ—…Ω≠îà§∞ÅâïÕ–ÄÙÄ°Õ—Ω…îπïŸïπ–πÕ—…Ω≠ïùù…ïùÖ—ï5ΩëîÅÒÅÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïΩ’π—•πù5Ωëî§ÄÙÙÙÄââïÕ—ùù…ïùÖ—îà∞(ÄÄÄÄÄÄÄÅçΩ’π–ÄÙÅâïÕ–Ä¸Å5Ö—†πµÖ‡†ƒ∞ÅÕ—…Ω≠ïÖÂÃπ±ïπù—†Ä¥Äƒ§ÄËÅÕ—…Ω≠ïÖÂÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÅ±Öâï∞ÄÙÅâïÕ–Ä¸ÅÅ	ïÕ–ÄëÌçΩ’π—ÙÅΩòÄëÌÕ—…Ω≠ïÖÂÃπ±ïπù—°ıÄÄËÅÅ±∞ÄëÌÕ—…Ω≠ïÖÂÃπ±ïπù—°ÙÅ…Ω’πëÕÄÏ(ÄÄÄÄÄÅÖëê†âÕ—…Ω≠îµπï–µÖùúà∞ÅÅM—…Ω≠îÅ9ï–ÉäPÄëÌ±Öâï±ıÄ∞ÄâÕ—…Ω≠ïùù…ïùÖ—ï9ï–à∞Ä¿∞ÅÏÅ±Ω›ï»ËÅ—…’î∞ÅçΩ’π—âÖç¨ËÅ—…’î∞ÅëÖÂÃËÅÕ—…Ω≠ïÖÂÃ∞ÅçΩ’π–ÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†âÕç…Ö—ç†à§ÄòòÅlâÖùù…ïùÖ—îà∞ÄââïÕ—ùù…ïùÖ—îâtπ•πç±’ëïÃ°Õ—Ω…îπïŸïπ–πÕç…Ö—ç°Ω…µÖ–§§ÅÖëê†âÕç…Ö—ç†µÖùúà∞ÅÕ—Ω…îπïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÄÙÙÙÄââïÕ—ùù…ïùÖ—îàÄ¸ÅÅMç…Ö—ç†ÉäPÅ	ïÕ–ÄëÌ5Ö—†πµÖ‡†ƒ∞ÅëÖÂÃÄ¥Äƒ•ÙÅΩòÄëÌëÖÂÕÙÅ…Ω’πëÕÄÄËÄâMç…Ö—ç†ÉäPÅùù…ïùÖ—îÅΩŸï»ÅÖ±∞ÅëÖÂÃà∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îà∞Ä¿∞ÅÌ±Ω›ï»È—…’î∞ÅçΩ’π—âÖç¨È—…’î∞ÅëÖÂÃÈïŸïπ—ÖÂÃ†•Ù§Ï(ÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†âçÖ¡QïÖµÃà§§ÅÖëê†âçÖ¿µ—ïÖµÃà∞Äâ	±Öç¨ÅÖ¿ÉäLÅ]°•—îÅÖ¿à∞ÄâçÖ¡QïÖµÃà∞Ä¿∞ÅÌëÖÂÃÈïŸïπ—ÖÂÃ†•Ù§Ï(ÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†â¡Ö»Ãà§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅµΩëîÄÙÅ¡Ö»Õ5Ωëî†§Ï(ÄÄÄÄÄÅ•òÄ°lâΩŸï…Ö±±A±ÖÂï…Ãà∞ÄâΩŸï…Ö±±AÖ•…Ãâtπ•πç±’ëïÃ°µΩëî§§ÅÖëê†â¡Ö»ÃµÖùúà∞ÅµΩëîÄÙÙÙÄâΩŸï…Ö±±AÖ•…ÃàÄ¸ÅÅAÖ»ÄÃÅAÖ•…ÃÉäPÄëÌëÖÂÕÙÅÖÂÃÄ°Ö‰ÄëÌëÖÂÕÙÅ¡Ö…—πï…Ã•ÄÄËÅÅAÖ»ÄÃÅ%πë•Ÿ•ë’Ö∞ÉäPÄëÌëÖÂÕÙÅÖÂÕÄ∞ÅµΩëîÄÙÙÙÄâΩŸï…Ö±±AÖ•…ÃàÄ¸Äâ¡Ö»ÕÖùù…ïùÖ—îàÄËÄâ¡Ö»Õ•πë•Ÿ•ë’Ö±Öùù…ïùÖ—îà∞Ä¿∞ÅÌçΩ’π—âÖç¨È—…’î∞ÅëÖÂÃÈïŸïπ—ÖÂÃ†•Ù§Ï(ÄÄÄÄÄÅï±ÕîÅôΩ»Ä°çΩπÕ–ÅëÖ‰ÅΩòÅçΩµ¡ï—•—•ΩπÖÂÃ†â¡Ö»Ãà§§ÅÖëê°Å¡Ö»ÃµêëÌëÖÂıÄ∞ÅÅAÖ»ÄÃÄëÌµΩëîÄÙÙÙÄâëÖ•±ÂQïÖµÃàÄ¸ÄâQïÖµÃàÄËÄâAÖ•…ÃâÙëÌëÖÂÃÄÙÙÙÄƒÄ¸ÄààÄËÅÄÉäPÅÖ‰ÄëÌëÖÂıÅıÄ∞ÅµΩëîÄÙÙÙÄâëÖ•±ÂQïÖµÃàÄ¸Äâ¡Ö»Õ—ïÖ¥àÄËÄâ¡Ö»Ãà∞ÅëÖ‰∞ÅÌçΩ’π—âÖç¨È—…’ïÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õï±ïç—ïêπ°ÖÃ†âïç±ïç—•åà§§(ÄÄÄÄÄÅÕï±ïç—ïëç±ïç—•ç…Ω’¡Ã°Õ—Ω…îπïŸïπ–§πôΩ…Öç††°ù…Ω’¿§ÄÙ¯(ÄÄÄÄÄÄÄÅÖëê°Åïç±ïç—•å¥ëÌù…Ω’¿π≠ï‰π…ï¡±Öçî†ΩmyÑµË¿¥Ât¨Ωù§∞Äà¥à•ıÄ∞ÅÅç±ïç—•åÉäPÄëÌù…Ω’¿πçΩ’…Õï9ÖµïÙÉ
+‹ÅÖÂÃÄëÌù…Ω’¿πëÖÂÃπ©Ω•∏†àÅÖπêÄà•ıÄ∞Äâïç±ïç—•åà∞Ä¿∞ÅÏÅçΩ’π—âÖç¨ËÅ—…’î∞ÅëÖÂÃËÅù…Ω’¿πëÖÂÃ∞ÅçΩ’…Õï-ï‰ËÅù…Ω’¿π≠ï‰ÅÙ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅëïôÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅçÖ±ç’±Ö—ï1ïÖëï…âΩÖ…ê°ëïò§ÅÏ(ÄÄÄÅçΩπÕ–Åô•ï±êÄÙÄ°ëÖ‰§ÄÙ¯(ÄÄÄÄÄÄÄÅëÖÂ•ï±ë%ëÃ°ëÖ‰§(ÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿°•êÙ˘ëïòπëÖ‰Ä¸ÅM—…•πú°•ê§ÄËÅÕ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§§∞(ÄÄÄÄÄÅ¡Ω•π—ÃÄÙÄ°ëÖ‰∞Å•ê§ÄÙ¯Å±ïÖëï…âΩÖ…ëA±ÖÂï…AΩ•π—Ã°ëÖ‰∞ÅÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§§∞(ÄÄÄÄÄÅù…ΩÕÃÄÙÄ°ëÖ‰∞Å•ê§ÄÙ¯Å±ïÖëï…âΩÖ…ëA±ÖÂï……ΩÕÃ°ëÖ‰∞ÅÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§§∞Åô•πÖ±π—…‰ÄÙÄ°ëÖ‰±•ê§ÄÙ¯ÅÕ—Ω…îπïŸïπ–¸πô•πÖ±MçΩ…ïÃ¸πlâëÖ‰à≠ëÖÂt¸πmM—…•πú°•ê•tÅÒÅÕ—Ω…îπïŸïπ–¸πÕçΩ…•πú¸πlâëÖ‰à≠ëÖÂt¸πmM—…•πú°•ê•t¸π}ô•πÖ±MçΩ…îÅÒÅπ’±∞Ï(ÄÄÄÅ±ï–Å…Ω›ÃÄÙÅmtÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÕ•πù±îà§(ÄÄÄÄÄÅ…Ω›ÃÄÙÅô•ï±ê°ëïòπëÖ‰§πµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêıô•πÖ±π—…‰°ëïòπëÖ‰±•ê§Ì•ò°ÕÖŸïê¸π≠•πêÙÙÙâÕ—Öâ±ïôΩ…êàòôÕÖŸïêπçΩπô•…µïë–òô9’µâï»π•Õ•π•—î†≠ÕÖŸïêπ—Ω—Ö∞§•…ï—’…∏ÅÌ•êÈM—…•πú°•ê§±πÖµîÈïŸïπ—A±ÖÂï…9Öµî°•ê±ëïòπëÖ‰§±ëï—Ö•∞Ëâ•πÖ∞ÅÕçΩ…îÅïπ—ï…ïêà±°Ω±ïÃÈmt±—Ω—Ö∞Ë≠ÕÖŸïêπ—Ω—Ö∞±—°…‘Ëƒ‡±—Ö…ùï–Ëƒ‡±çâ!Ω±ïÃÈmt±ô•πÖ±π—…‰È—…’ïÙÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±A±ÖÂï…M’µµÖ…‰°ëïòπëÖ‰∞Å•ê∞ÄâÕ•πù±îà§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÅµÖπ’Ö±1ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞Äàà∞ÅµÖπ’Ö∞§ÅÒ(ÄÄÄÄÄÄÄÄÄÅ±ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞Äàà∞Å¡Ω•π—Ã°ëïòπëÖ‰∞Å•ê§§(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°lâÕ—…Ω≠ï…ΩÕÃà∞âÕ—…Ω≠ï9ï–âtπ•πç±’ëïÃ°ëïòπ—Â¡î§§(ÄÄÄÄÄÅ…Ω›ÃÄÙÅô•ï±ê°ëïòπëÖ‰§πµÖ¿°•êÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêıô•πÖ±π—…‰°ëïòπëÖ‰±•ê§Ì±ï–Å…Ω‹Ï(ÄÄÄÄÄÄÄÅ•òÄ°ÕÖŸïê¸π≠•πêÙÙÙâù…ΩÕÃàòôÕÖŸïêπçΩπô•…µïë–òô9’µâï»π•Õ•π•—î†≠ÕÖŸïêπ—Ω—Ö∞§§Å…Ω‹ıÌ•êÈM—…•πú°•ê§±πÖµîÈïŸïπ—A±ÖÂï…9Öµî°•ê±ëïòπëÖ‰§±ëï—Ö•∞Ëâ•πÖ∞ÅÕçΩ…îÅïπ—ï…ïêà±°Ω±ïÃÈmt±—Ω—Ö∞Ë≠ÕÖŸïêπ—Ω—Ö∞±—°…‘Ëƒ‡±—Ö…ùï–Ëƒ‡±çâ!Ω±ïÃÈmt±ô•πÖ±π—…‰È—…’ïÙÏ(ÄÄÄÄÄÄÄÅï±ÕîÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹°•ê±ïŸïπ—A±ÖÂï…9Öµî°•ê±ëïòπëÖ‰§∞àà±Õ—…Ω≠ï!Ω±ïMçΩ…ïÃ°ëïòπëÖ‰±Õ°Ö…ïëç—’Ö±%ê°•ê±ëïòπëÖ‰§§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÕQΩ—Ö∞ÄÙÅ…Ω‹π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÅ…Ω‹π°Öπë•çÖ¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õ°Ö…ïëç—’Ö±%ê°•ê±ëïòπëÖ‰§±ëïòπëÖ‰§ÅÒÄ¿Ï(ÄÄÄÄÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÕ—…Ω≠ï9ï–à§Å…Ω‹π—Ω—Ö∞ÄÙÅ…Ω‹πù…ΩÕÕQΩ—Ö∞Ä¥Å…Ω‹π°Öπë•çÖ¿Ï(ÄÄÄÄÄÄÄÅ…Ω‹πëï—Ö•∞ÄÙÅÄëÌëïòπ—Â¡îÄÙÙÙÄâÕ—…Ω≠ï9ï–àÄ¸ÅÅ…ΩÕÃÄëÌ…Ω‹πù…ΩÕÕQΩ—Ö±ÙÉ
+‹Å!ç¿ÄëÌôΩ…µÖ—A±ÖÂ•πù!Öπë•çÖ¿°…Ω‹π°Öπë•çÖ¿•ıÄÄËÄâ…ΩÕÃÅÕ—…Ω≠ïÃâÙëÌ…Ω‹πô•πÖ±π—…‰Ä¸ÄàÉ
+‹Åô•πÖ∞ÅÕçΩ…îÅïπ—…‰àÄËÄàâıÄÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°lâÕ—…Ω≠ïùù…ïùÖ—ï…ΩÕÃà∞ÄâÕ—…Ω≠ïùù…ïùÖ—ï9ï–âtπ•πç±’ëïÃ°ëïòπ—Â¡î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±ïç—ïëÖÂÃÄÙÅëïòπëÖÂÃÅÒÅçΩµ¡ï—•—•ΩπÖÂÃ†âÕ—…Ω≠îà§∞ÅçΩ’π–ÄÙÅëïòπçΩ’π–ÅÒÅÕï±ïç—ïëÖÂÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÅπï–ÄÙÅëïòπ—Â¡îÄÙÙÙÄâÕ—…Ω≠ïùù…ïùÖ—ï9ï–à∞Åô•π•Õ°ïêÄÙÅÕï±ïç—ïëÖÂÃπïŸï…‰°ïŸïπ—ÖÂΩµ¡±ï—î§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅl∏∏ππï‹ÅMï–°Õï±ïç—ïëÖÂÃπô±Ö—5Ö¿°ô•ï±ê§•tπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω’πëÃÄÙÅÕï±ïç—ïëÖÂÃπô•±—ï»†°ëÖ‰§ÄÙ¯Åô•ï±ê°ëÖ‰§π•πç±’ëïÃ°•ê§§πµÖ¿†°ëÖ‰§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÖç—’Ö∞ÄÙÅÕ°Ö…ïëç—’Ö±%ê°•ê∞ÅëÖ‰§∞ÅÕÖŸïêÄÙÅô•πÖ±π—…‰°ëÖ‰∞ÅÖç—’Ö∞§∞Åô•πÖ±…ΩÕÃÄÙÅÕÖŸïê¸π≠•πêÄÙÙÙÄâù…ΩÕÃàÄòòÅÕÖŸïêπçΩπô•…µïë–ÄòòÅ9’µâï»π•Õ•π•—î†≠ÕÖŸïêπ—Ω—Ö∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃÄÙÅô•πÖ±…ΩÕÃÄ¸ÅmtÄËÅÕ—…Ω≠ï!Ω±ïMçΩ…ïÃ°ëÖ‰∞ÅÖç—’Ö∞§∞Åù…ΩÕÕQΩ—Ö∞ÄÙÅô•πÖ±…ΩÕÃÄ¸Ä≠ÕÖŸïêπ—Ω—Ö∞ÄËÅ±ïÖëï…M’¥°°Ω±ïÃ§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ°Öπë•çÖ¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Öç—’Ö∞∞ÅëÖ‰§ÅÒÄ¿∞ÅçΩµ¡±ï—îÄÙÅô•πÖ±…ΩÕÃÅÒÅ°Ω±ïÃπïŸï…‰†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—Ω—Ö∞ÄÙÅù…ΩÕÕQΩ—Ö∞Ä¥Ä°πï–Ä¸Å°Öπë•çÖ¿ÄËÄ¿§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅëÖ‰∞Å°Ω±ïÃ∞Åù…ΩÕÕQΩ—Ö∞∞Å°Öπë•çÖ¿∞Å—Ω—Ö∞∞ÅçΩµ¡±ï—î∞Å—°…‘ËÅô•πÖ±…ΩÕÃÄ¸Äƒ‡ÄËÅ°Ω±ïÃπô•±—ï»†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§π±ïπù—†∞Åô•πÖ±…ΩÕÃÅÙÏ(ÄÄÄÄÄÄÄÅÙ§∞Å…Öπ≠ïêÄÙÅl∏∏π…Ω’πëÕtπÕΩ…–†°Ñ∞Åà§ÄÙ¯Å9’µâï»°àπçΩµ¡±ï—î§Ä¥Å9’µâï»°ÑπçΩµ¡±ï—î§ÅÒÅÑπ—Ω—Ö∞Ä¥Åàπ—Ω—Ö∞ÅÒÅàπëÖ‰Ä¥ÅÑπëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÅçΩ’π—ïêÄÙÅ…Öπ≠ïêπô•±—ï»†°…Ω’πê§ÄÙ¯Å…Ω’πêπçΩµ¡±ï—îÅÒÅ…Ω’πêπ—°…‘Ä¯Ä¿§πÕ±•çî†¿∞ÅçΩ’π–§∞ÅçΩµ¡±ï—ïêÄÙÅ…Ω’πëÃπô•±—ï»†°…Ω’πê§ÄÙ¯Å…Ω’πêπçΩµ¡±ï—î§π±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÅ±Ö—ïÕ–ÄÙÅl∏∏πçΩ’π—ïëtπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅàπëÖ‰Ä¥ÅÑπëÖ‰•l¡t∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê§∞ÅÄëÌçΩ’π–ÄÙÙÙÅÕï±ïç—ïëÖÂÃπ±ïπù—†Ä¸Äâ±∞Å…Ω’πëÃàÄËÅÅ	ïÕ–ÄëÌçΩ’π—ÙÅΩòÄëÌÕï±ïç—ïëÖÂÃπ±ïπù—°ıÅÙÉ
+‹ÄëÌçΩµ¡±ï—ïëÙÅçΩµ¡±ï—îÉ
+‹ÅΩ’π—•πúÅëÖÂÃÄëÌçΩ’π—ïêπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πêπëÖ‰§πÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅÑÄ¥Åà§π©Ω•∏†à∞Äà§ÅÒÄãäPâıÄ∞Åmt∞ÅçΩ’π–Ä®Äƒ‡§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—Ω—Ö∞ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πêπ—Ω—Ö∞§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÕQΩ—Ö∞ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πêπù…ΩÕÕQΩ—Ö∞§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π°Öπë•çÖ¿ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πêπ°Öπë•çÖ¿§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—°…‘ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πêπ—°…‘§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πçâ!Ω±ïÃÄÙÅ±Ö—ïÕ–¸π°Ω±ïÃÅÒÅmtÏ(ÄÄÄÄÄÄÄÅ…Ω‹πµÖπ’Ö∞ÄÙÅçΩ’π—ïêπÕΩµî†°…Ω’πê§ÄÙ¯Å…Ω’πêπô•πÖ±…ΩÕÃ§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π•πÕ’ôô•ç•ïπ—IΩ’πëÃÄÙÅçΩµ¡±ï—ïêÄÅçΩ’π–Ï(ÄÄÄÄÄÄÄÅ•òÄ°ô•π•Õ°ïêÄòòÅçΩµ¡±ï—ïêÄÅçΩ’π–§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•çÖ—•ΩπIïÖÕΩ∏ÄÙÅÄëÌçΩµ¡±ï—ïëÙÅçΩµ¡±ï—ïêÅ…Ω’πëÃÏÄëÌçΩ’π—ÙÅ…ï≈’•…ïëÄÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâçΩµâ•πïêà§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕï±ïç—ïëÖÂÃÄÙÅëïòπëÖÂÃÅÒÅçΩµ¡ï—•—•ΩπÖÂÃ†âçΩµâ•πïêà§∞ÅçΩ’π–ÄÙÅçΩ’π—•πùIΩ’πëÃ†§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅl∏∏ππï‹ÅMï–°Õï±ïç—ïëÖÂÃπô±Ö—5Ö¿°ô•ï±ê§•tπµÖ¿°•êÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω’πëÃÄÙÅÕï±ïç—ïëÖÂÃπô•±—ï»°ëÖ‰ÄÙ¯Åô•ï±ê°ëÖ‰§π•πç±’ëïÃ°•ê§§πµÖ¿°ëÖ‰ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÖç—’Ö∞ıÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§∞Åô•πÖ∞ıô•πÖ±π—…‰°ëÖ‰±Öç—’Ö∞§∞ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±A±ÖÂï…M’µµÖ…‰°ëÖ‰∞ÅÖç—’Ö∞∞ÄâÕ•πù±îà§∞Å°Ω±ïÃÄÙÅ¡Ω•π—Ã°ëÖ‰∞Å•ê§∞Åô•πÖ±M—Öâ±ïôΩ…êıô•πÖ∞¸π≠•πêÙÙÙâÕ—Öâ±ïôΩ…êàòôô•πÖ∞πçΩπô•…µïë–Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÌëÖ‰∞ÅµÖπ’Ö∞∞Åô•πÖ∞Èô•πÖ±M—Öâ±ïôΩ…ê∞Å°Ω±ïÃ∞Å—Ω—Ö∞ËÅô•πÖ±M—Öâ±ïôΩ…êÄ¸Ä≠ô•πÖ∞π—Ω—Ö∞ÄËÅµÖπ’Ö∞Ä¸Ä≠µÖπ’Ö∞π—Ω—Ö∞ÄËÅ±ïÖëï…M’¥°°Ω±ïÃ§∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡±ï—îËÅ	ΩΩ±ïÖ∏°ô•πÖ±M—Öâ±ïôΩ…ëÒÒµÖπ’Ö∞§ÅÒÅ°Ω±ïÃπïŸï…‰°ŸÖ±’îÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—°…‘ËÅô•πÖ±M—Öâ±ïôΩ…ëÒÒµÖπ’Ö∞Ä¸Äƒ‡ÄËÅ°Ω±ïÃπô•±—ï»°ŸÖ±’îÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§π±ïπù—°ÙÏ(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å…Öπ≠ïêÄÙÅl∏∏π…Ω’πëÕtπÕΩ…–†°Ñ±à§ÄÙ¯Å9’µâï»°àπçΩµ¡±ï—î§µ9’µâï»°ÑπçΩµ¡±ï—î§ÅÒÅàπ—Ω—Ö∞µÑπ—Ω—Ö∞ÅÒÅàπëÖ‰µÑπëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÅçΩ’π—ïêÄÙÅ…Öπ≠ïêπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπçΩµ¡±ï—îÅÒÅ…Ω’πêπ—°…‘Ä¯Ä¿§πÕ±•çî†¿±çΩ’π–§∞ÅçΩµ¡±ï—ïêÄÙÅ…Ω’πëÃπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπçΩµ¡±ï—î§π±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÅ±ÖÕ–ÄÙÅl∏∏πçΩ’π—ïëtπÕΩ…–†°Ñ±à§ÄÙ¯ÅàπëÖ‰µÑπëÖ‰•l¡t∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞ÅÅ	ïÕ–ÄëÌçΩ’π—ÙÅΩòÄëÌÕï±ïç—ïëÖÂÃπ±ïπù—°ÙÉ
+‹ÄëÌçΩµ¡±ï—ïëÙÅçΩµ¡±ï—îÉ
+‹ÅΩ’π—•πúÅëÖÂÃÄëÌçΩ’π—ïêπµÖ¿°»Ù˘»πëÖ‰§πÕΩ…–†°Ñ±à§Ù˘Ñµà§π©Ω•∏†à∞Äà§ÅÒÄãäPâıÄ∞Åmt∞ÅçΩ’π–®ƒ‡§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—Ω—Ö∞ÄÙÅçΩ’π—ïêπ…ïë’çî†°—Ω—Ö∞±…Ω’πê§ÄÙ¯Å—Ω—Ö∞≠…Ω’πêπ—Ω—Ö∞∞¿§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—°…‘ÄÙÅçΩ’π—ïêπ…ïë’çî†°—Ω—Ö∞±…Ω’πê§ÄÙ¯Å—Ω—Ö∞≠…Ω’πêπ—°…‘∞¿§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πçâ!Ω±ïÃÄÙÅ±ÖÕ–¸π°Ω±ïÃÅÒÅmtÏ(ÄÄÄÄÄÄÄÅ•òÄ°±ÖÕ–¸πµÖπ’Ö∞§Å…Ω‹πçâQΩ—Ö±ÃÄÙÅÌâÖç¨‰Ë≠±ÖÕ–πµÖπ’Ö∞πâÖç¨ÂÒ¿±±ÖÕ–ÿË≠±ÖÕ–πµÖπ’Ö∞π±ÖÕ–ŸÒ¿±±ÖÕ–ÃË≠±ÖÕ–πµÖπ’Ö∞π±ÖÕ–ÕÒ¡ÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°ïŸïπ—ÖÂÃ†§π±ïπù—†Ä¯Ä»§Å…Ω‹π—…•¡Ω’π—âÖç¨ÄÙÅçΩ’π—ïêπô•±—ï»°…Ω’πêÙ˘…Ω’πêπçΩµ¡±ï—î§πµÖ¿°…Ω’πêÙ˘…Ω’πêπ—Ω—Ö∞§πÕΩ…–†°Ñ±à§Ù˘Ñµà§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πµÖπ’Ö∞ÄÙÅçΩ’π—ïêπÕΩµî°…Ω’πêÙ˘…Ω’πêπµÖπ’Ö±ÒÒ…Ω’πêπô•πÖ∞§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π•πÕ’ôô•ç•ïπ—IΩ’πëÃÄÙÅçΩµ¡±ï—ïêÄÅçΩ’π–Ï(ÄÄÄÄÄÄÄÄººÅÅùΩ±ôï»Å›°ºÅÕÖ–ÅΩ’–Å—ΩºÅµÖπ‰ÅëÖÂÃÅ…ïµÖ•πÃÅŸ•Õ•â±î∞Åâ’–Å•ÃÅ•πï±•ù•â±îÅôΩ»Å—°îÅΩŸï…Ö±∞Å¡…•Èî∏(ÄÄÄÄÄÄÄÅ•òÄ°Õï±ïç—ïëÖÂÃπïŸï…‰°ïŸïπ—ÖÂΩµ¡±ï—î§ÄòòÅçΩµ¡±ï—ïêÄÅçΩ’π–§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•ïêÄÙÅ—…’îÏÅ…Ω‹πë•Õ≈’Ö±•ô•çÖ—•ΩπIïÖÕΩ∏ÄÙÅÄëÌçΩµ¡±ï—ïëÙÅçΩµ¡±ï—ïêÅ…Ω’πëÃÏÄëÌçΩ’π—ÙÅ…ï≈’•…ïëÄÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîà§(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Äâ—ïÖ¥à§πµÖ¿†°’π•–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åù…Ω’¡%πëï‡ÄÙÄ≠M—…•πú°’π•–π•ê§π…ï¡±Öçî†Ωyëqê≠úº∞Äàà§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±’îÄÙÅÕçΩ…ï…M—Ω…î°ëïòπëÖ‰∞Å…Ω±ïÃπÕçΩ…ï…%ê§¸πl(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅM—…•πú°•πëï‡Ä¨Äƒ§(ÄÄÄÄÄÄÄÄÄÄÄÅt¸πÕï±ò¸πù…ΩÕÃÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÕçΩ…ïπ—ï…ïê°ŸÖ±’î§Ä¸Ä≠ŸÖ±’îÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹°’π•–π•ê∞Å’π•–ππÖµî∞Å’π•–πëï—Ö•∞∞Å°Ω±ïÃ§∞(ÄÄÄÄÄÄÄÄÄÅ°Öπë•çÖ¿ÄÙÅÖµâ…ΩÕïQïÖµ!Öπë•çÖ¿°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅµ•π•µ’¥ÄÙÄ≠Õ—Ω…îπïŸïπ–πÖµâ…ΩÕï5•π•µ’µ…•ŸïÃÅÒÄ¿∞(ÄÄÄÄÄÄÄÄÄÅë…•ŸïΩ’π—ÃÄÙÅÖµâ…ΩÕï…•ŸïΩ’π—Ã°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡∞Å…Ω±ïÃπÕçΩ…ï…%ê§∞(ÄÄÄÄÄÄÄÄÄÅÕ°Ω…—…•ŸïÃÄÙÅ…Ω±ïÃπ—ïÖ¥πô•±—ï»†°•ê§ÄÙ¯Ä°ë…•ŸïΩ’π—Õm•ëtÅÒÄ¿§ÄÅµ•π•µ’¥§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÕQΩ—Ö∞ÄÙÅ…Ω‹π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÅ…Ω‹π°Öπë•çÖ¿ÄÙÅ°Öπë•çÖ¿Ï(ÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•ïêÄÙÅ…Ω‹π—°…‘ÄÙÙÙÄƒ‡ÄòòÅÕ°Ω…—…•ŸïÃπ±ïπù—†Ä¯Ä¿Ï(ÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•çÖ—•ΩπIïÖÕΩ∏ÄÙÅÕ°Ω…—…•ŸïÃ(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÄëÌïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞•ÙÄëÌë…•ŸïΩ’π—Õm•ëtÅÒÄ¡ÙºëÌµ•π•µ’µıÄ§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àÉ
+‹Äà§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—Ω—Ö∞ÄÙ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π—°…‘ÄÙÙÙÄƒ‡ÄòòÅ°Öπë•çÖ¿ÄÑÙÅπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Å…Ω‹πù…ΩÕÕQΩ—Ö∞Ä¥Å°Öπë•çÖ¿(ÄÄÄÄÄÄÄÄÄÄÄÄËÅ…Ω‹πù…ΩÕÕQΩ—Ö∞Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâçÖ¡QïÖµÃà§Å…Ω›ÃÄÙÅçÖ¡QïÖµIΩ›Ã†§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÕç…Ö—ç°Öùù…ïùÖ—îà§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅëïòπëÖÂÃÅÒÅïŸïπ—ÖÂÃ†§∞ÅµÖ‡ÄÙÅÕç…Ö—ç°!Öπë•çÖ¡1•µ•–†§∞(ÄÄÄÄÄÄÄÅâïÕ–ÄÙÅÕ—Ω…îπïŸïπ–πÕç…Ö—ç°Ω…µÖ–ÄÙÙÙÄââïÕ—ùù…ïùÖ—îà∞(ÄÄÄÄÄÄÄÅçΩ’π–ÄÙÅâïÕ–Ä¸Å5Ö—†πµÖ‡†ƒ∞ÅëÖÂÃπ±ïπù—†Ä¥Äƒ§ÄËÅëÖÂÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÅô•π•Õ°ïêÄÙÅëÖÂÃπïŸï…‰°ïŸïπ—ÖÂΩµ¡±ï—î§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅl∏∏ππï‹ÅMï–°ëÖÂÃπô±Ö—5Ö¿°ô•ï±ê§•tπô•±—ï»°•êÄÙ¯ÅëÖÂÃπÕΩµî°ëÖ‰ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§∞ÅëÖ‰§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Åô•ï±ê°ëÖ‰§π•πç±’ëïÃ°•ê§ÄòòÄ°µÖ‡ÄÙÙÅπ’±∞ÅÒÄ°°ç¿ÄÑÙÅπ’±∞ÄòòÅ°ç¿ÄÙÅµÖ‡§§Ï(ÄÄÄÄÄÅÙ§§πµÖ¿°•êÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω’πëÃÄÙÅëÖÂÃπµÖ¿°ëÖ‰ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅçÖ…êÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰±Õ—Ω…îπïŸïπ–±•ê§∞Å°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§∞ÅëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÄÄÅï±•ù•â±îÄÙÅô•ï±ê°ëÖ‰§π•πç±’ëïÃ°•ê§ÄòòÄ°µÖ‡ÄÙÙÅπ’±∞ÅÒÄ°°ç¿ÄÑÙÅπ’±∞ÄòòÅ°ç¿ÄÙÅµÖ‡§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡•ç≠’¿ÄÙÅÕ—Ω…îπïŸïπ–πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰àÄ¸Åπ’±∞ÄËÅÕç…Ö—ç°A•ç≠’¡!Ω±î°ëÖ‰∞ÅÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃÄÙÅï±•ù•â±îÄòòÄÖ¡•ç≠’¿Ä¸ÅÕç…Ö—ç°…ΩÕÕMçΩ…ïÃ°ëÖ‰∞ÅÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§∞ÅçÖ…ê§ÄËÅ……Ö‰†ƒ‡§πô•±∞°π’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—ΩAÖ…!Ω±ïÃÄÙÅ°Ω±ïÃπµÖ¿†°ù…ΩÕÃ∞Å§§ÄÙ¯Åù…ΩÕÃÄÙÙÅπ’±∞Ä¸Åπ’±∞ÄËÅù…ΩÕÃÄ¥Ä†≠çÖ…êπ¡Ö»¸πm•tÅÒÄ¿§§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÏÅëÖ‰∞Åï±•ù•â±î∞Å¡•ç≠’¿∞Å°Ω±ïÃ∞Å—ΩAÖ…!Ω±ïÃ∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡±ï—îËÅ°Ω±ïÃπïŸï…‰°ù…ΩÕÃÄÙ¯Åù…ΩÕÃÄÑÙÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—°…‘ËÅ°Ω±ïÃπô•±—ï»°ù…ΩÕÃÄÙ¯Åù…ΩÕÃÄÑÙÅπ’±∞§π±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÄÄÅù…ΩÕÃËÅ±ïÖëï…M’¥°°Ω±ïÃ§∞Å—Ω—Ö∞ËÅ±ïÖëï…M’¥°—ΩAÖ…!Ω±ïÃ§ÅÙÏ(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÖŸÖ•±Öâ±îÄÙÅ…Ω’πëÃπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπï±•ù•â±îÄòòÄÖ…Ω’πêπ¡•ç≠’¿§∞(ÄÄÄÄÄÄÄÄÄÅçΩµ¡±ï—ïêÄÙÅÖŸÖ•±Öâ±îπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπçΩµ¡±ï—î§π±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÅ…Öπ≠ïêÄÙÅâïÕ–Ä¸Ål∏∏πÖŸÖ•±Öâ±ïtπÕΩ…–†°Ñ±à§ÄÙ¯Å9’µâï»°àπçΩµ¡±ï—î§Ä¥Å9’µâï»°ÑπçΩµ¡±ï—î§ÅÒÅÑπ—Ω—Ö∞Ä¥Åàπ—Ω—Ö∞ÅÒÅàπëÖ‰Ä¥ÅÑπëÖ‰§ÄËÅÖŸÖ•±Öâ±î∞(ÄÄÄÄÄÄÄÄÄÅçΩ’π—ïêÄÙÅ…Öπ≠ïêπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπ—°…‘Ä¯Ä¿§πÕ±•çî†¿∞ÅçΩ’π–§πÕΩ…–†°Ñ±à§ÄÙ¯ÅÑπëÖ‰Ä¥ÅàπëÖ‰§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞ÅâïÕ–(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅ	ïÕ–ÄëÌçΩ’π—ÙÅΩòÄëÌëÖÂÃπ±ïπù—°ÙÉ
+‹ÄëÌçΩµ¡±ï—ïëÙÅçΩµ¡±ï—îÉ
+‹ÅΩ’π—•πúÅëÖÂÃÄëÌçΩ’π—ïêπµÖ¿°…Ω’πêÄÙ¯Å…Ω’πêπëÖ‰§π©Ω•∏†à∞Äà§ÅÒÄãäPâıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄËÄâ±∞ÅëÖÂÃÉ
+‹ÅïŸï…‰Å…Ω’πêÅ…ï≈’•…ïêà∞ÅçΩ’π—ïêπô±Ö—5Ö¿°…Ω’πêÄÙ¯Å…Ω’πêπ°Ω±ïÃ§∞ÅçΩ’π–Ä®Äƒ‡§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÕQΩ—Ö∞ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿°…Ω’πêÄÙ¯Å…Ω’πêπù…ΩÕÃ§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹π—Ω—Ö∞ÄÙÅ±ïÖëï…M’¥°çΩ’π—ïêπµÖ¿°…Ω’πêÄÙ¯Å…Ω’πêπ—Ω—Ö∞§§Ï(ÄÄÄÄÄÄÄÅ…Ω‹πÕç…Ö—ç°QΩAÖ»ÄÙÅ…Ω‹π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÅ…Ω‹π•πÕ’ôô•ç•ïπ—IΩ’πëÃÄÙÅçΩµ¡±ï—ïêÄÅçΩ’π–Ï(ÄÄÄÄÄÄÄÄººÅΩ’π–ÅâÖç¨ÅΩ∏Å—°îÅ±Ö—ïÕ–ÅçΩ’π—•πúÅ…Ω’πê∞Å’Õ•πúÅÕçΩ…ïÃÅ…ï±Ö—•ŸîÅ—ºÅ¡Ö»(ÄÄÄÄÄÄÄÄººÅÕºÅë•ôôï…ïπ–ÅçΩ’…ÕîÅ¡Ö…ÃÅëºÅπΩ–Åç°ÖπùîÅ—°îÅ—•îµâ…ïÖ¨ÅçΩµ¡Ö…•ÕΩ∏∏(ÄÄÄÄÄÄÄÅ•òÄ°âïÕ–ÅÒÄÖ…ï—Ö•πïë1ïùÖçÂMçΩ…•πùI’±ïÃ†§§Å…Ω‹πçâ!Ω±ïÃÄÙÅçΩ’π—ïêπÖ–†¥ƒ§¸π—ΩAÖ…!Ω±ïÃÅÒÅmtÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡Ω—ïπ—•Ö∞ÄÙÅÖŸÖ•±Öâ±îπô•±—ï»°…Ω’πêÄÙ¯Å…Ω’πêπçΩµ¡±ï—îÅÒÄÖïŸïπ—ÖÂΩµ¡±ï—î°…Ω’πêπëÖ‰§§π±ïπù—†∞(ÄÄÄÄÄÄÄÄÄÅôÖ•±ïêÄÙÅâïÕ–Ä¸Å¡Ω—ïπ—•Ö∞ÄÅçΩ’π–ÅÒÄ°ô•π•Õ°ïêÄòòÅçΩµ¡±ï—ïêÄÅçΩ’π–§ÄËÅÖŸÖ•±Öâ±îπ±ïπù—†ÄÅçΩ’π–Ï(ÄÄÄÄÄÄÄÅ•òÄ°ôÖ•±ïê§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¡•ç≠’¡IΩ’πêÄÙÅ…Ω’πëÃπô•πê°…Ω’πêÄÙ¯Å…Ω’πêπ¡•ç≠’¿§Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π¡•ç≠’¡!Ω±îÄÙÅ¡•ç≠’¡IΩ’πê¸π¡•ç≠’¿ÅÒÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πë•Õ≈’Ö±•ô•çÖ—•ΩπIïÖÕΩ∏ÄÙÅâïÕ–(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌçΩµ¡±ï—ïëÙÅ≈’Ö±•ôÂ•πúÅçΩµ¡±ï—ïêÅ…Ω’πëÃÏÄëÌçΩ’π—ÙÅ…ï≈’•…ïëÄ(ÄÄÄÄÄÄÄÄÄÄÄÄËÅ¡•ç≠’¡IΩ’πêÄ¸ÅÅA•ç¨µ’¿ÅΩ∏ÅÖ‰ÄëÌ¡•ç≠’¡IΩ’πêπëÖÂÙ∞Å!Ω±îÄëÌ¡•ç≠’¡IΩ’πêπ¡•ç≠’¡ıÄÄËÄâÅ≈’Ö±•ôÂ•πúÅMç…Ö—ç†Å…Ω’πêÅ•ÃÅ…ï≈’•…ïêÅΩ∏ÅïŸï…‰ÅëÖ‰àÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÕç…Ö—ç†à§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÿÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëïòπëÖ‰§∞(ÄÄÄÄÄÄÄÅµÖ‡ÄÙÅÕç…Ö—ç°!Öπë•çÖ¡1•µ•–†§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅô•ï±ê°ëïòπëÖ‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°•ê∞ÅëïòπëÖ‰§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖ‡ÄÙÙÅπ’±∞ÅÒÄ°°ç¿ÄÑÙÅπ’±∞ÄòòÅ°ç¿ÄÙÅµÖ‡§Ï(ÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅçÖ…êıïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëïòπëÖ‰±Õ—Ω…îπïŸïπ–±•ê§±ÕçΩ…ïÃÄÙÅÕç…Ö—ç°…ΩÕÕMçΩ…ïÃ°ëïòπëÖ‰∞Å•ê∞ÅçÖ…ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ»ÄÙÅ±ïÖëï…IΩ‹°•ê∞ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞Äàà∞ÅÕçΩ…ïÃ§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ¡•ç≠’¿ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–¸πÕç…Ö—ç°MçΩ…•πù5ΩëîÄÙÙÙÄâµÖ·Ω’â±ï	Ωùï‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Åπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÕç…Ö—ç°A•ç≠’¡!Ω±î°ëïòπëÖ‰∞Å•ê§Ï(ÄÄÄÄÄÄÄÄÄÅ»πù…ΩÕÕQΩ—Ö∞ÄÙÅ»π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÄÄÅ»π—Ω—Ö∞ÄÙÅÕçΩ…ïÃπ…ïë’çî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°∏∞Åú∞Å§§ÄÙ¯Å∏Ä¨Ä°úÄÙÙÅπ’±∞Ä¸Ä¿ÄËÅúÄ¥Ä†≠çÖ…êπ¡Ö»¸πm•tÅÒÄ¿§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ¿∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ»πÕç…Ö—ç°QΩAÖ»ÄÙÅ»π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ°¡•ç≠’¿§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ»πë•Õ≈’Ö±•ô•ïêÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ»π¡•ç≠’¡!Ω±îÄÙÅ¡•ç≠’¿Ï(ÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å»Ï(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâôΩ’…âÖ±∞à§(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Äâ¡Ö•»à§πµÖ¿†°‘§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±AÖ•…M’µµÖ…‰°ëïòπëÖ‰∞Å‘π•ê∞ÄâôΩ’…âÖ±∞à§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÅµÖπ’Ö±1ïÖëï…IΩ‹°‘π•ê∞Å‘ππÖµî∞Å‘πëï—Ö•∞∞ÅµÖπ’Ö∞§ÅÒ(ÄÄÄÄÄÄÄÄÄÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘ππÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘πëï—Ö•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅ‘π•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯Å¡Ω•π—Ã°ëïòπëÖ‰∞Å•ê•m•t§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±Ãπ±ïπù—†Ä¸Å5Ö—†πµÖ‡†∏∏πŸÖ±Ã§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâ¡’——Ãà§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å≠•πêÄÙÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸Äâ¡Ö•»àÄËÄâ—ïÖ¥àÏ(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Å≠•πê§πµÖ¿†°‘§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ±ï–ÅµÖπ’Ö∞ÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åô•πÖ±A’——Ãı‘π•ëÃπµÖ¿°•êÙ˘ô•πÖ±MçΩ…ïπ—…‰°ëïòπëÖ‰±•ê§¸π¡’——Ã§Ï(ÄÄÄÄÄÄÄÅ•ò°ô•πÖ±A’——Ãπ±ïπù—†òôô•πÖ±A’——ÃπïŸï…‰°ŸÖ±’îÙ˘ŸÖ±’îÑÙÙààòôŸÖ±’îÑıπ’±∞òô9’µâï»π•Õ•π•—î†≠ŸÖ±’î§§§ÅµÖπ’Ö∞ıÌ—Ω—Ö∞È±ïÖëï…M’¥°ô•πÖ±A’——Ã•ÙÏ(ÄÄÄÄÄÄÄÅ•òÄ°≠•πêÄÙÙÙÄâ—ïÖ¥à§(ÄÄÄÄÄÄÄÄÄÅµÖπ’Ö∞ÄÙÅµÖπ’Ö∞ÅÒÅµÖπ’Ö±QïÖµM’µµÖ…‰°ëïòπëÖ‰∞Å‘π•ê∞Äâ¡’——Ãà§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÕ’µµÖ…•ïÃÄÙÅ‘π•ëÃπµÖ¿†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅµÖπ’Ö±A±ÖÂï…M’µµÖ…‰°ëïòπëÖ‰∞Å•ê∞Äâ¡’——Ãà§∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ•òÄ†ÖµÖπ’Ö∞ÄòòÅÕ’µµÖ…•ïÃπïŸï…‰°	ΩΩ±ïÖ∏§§(ÄÄÄÄÄÄÄÄÄÄÄÅµÖπ’Ö∞ÄÙÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—Ω—Ö∞ËÅ±ïÖëï…M’¥°Õ’µµÖ…•ïÃπµÖ¿†°‡§ÄÙ¯Ä≠‡π—Ω—Ö∞§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅâÖç¨‰ËÅ±ïÖëï…M’¥°Õ’µµÖ…•ïÃπµÖ¿†°‡§ÄÙ¯Ä≠‡πâÖç¨‰§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ–ÿËÅ±ïÖëï…M’¥°Õ’µµÖ…•ïÃπµÖ¿†°‡§ÄÙ¯Ä≠‡π±ÖÕ–ÿ§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±ÖÕ–ÃËÅ±ïÖëï…M’¥°Õ’µµÖ…•ïÃπµÖ¿†°‡§ÄÙ¯Ä≠‡π±ÖÕ–Ã§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÅµÖπ’Ö±1ïÖëï…IΩ‹°‘π•ê∞Å‘ππÖµî∞Å‘πëï—Ö•∞∞ÅµÖπ’Ö∞§ÅÒ(ÄÄÄÄÄÄÄÄÄÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘ππÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘πëï—Ö•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅ‘π•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯Åô•πë=ôô•ç•Ö±Ω…A±ÖÂï»°ëïòπëÖ‰∞Å•ê∞Å§Ä¨Äƒ§¸π¡’——Ã§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°‡§ÄÙ¯Ä°‡ÄÙÙÙÄààÅÒÅ‡ÄÙÙÅπ’±∞Ä¸Åπ’±∞ÄËÄ≠‡§§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±ÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§Ä¸Å±ïÖëï…M’¥°ŸÖ±Ã§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄââïÕ–Ãà§(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Äâ—ïÖ¥à§πµÖ¿†°‘§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±QïÖµM’µµÖ…‰°ëïòπëÖ‰∞Å‘π•ê∞ÄââïÕ–Ãà§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÄÄÅµÖπ’Ö±1ïÖëï…IΩ‹°‘π•ê∞Å‘ππÖµî∞Å‘πëï—Ö•∞∞ÅµÖπ’Ö∞§ÅÒ(ÄÄÄÄÄÄÄÄÄÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘ππÖµî∞(ÄÄÄÄÄÄÄÄÄÄÄÅ‘πëï—Ö•∞∞(ÄÄÄÄÄÄÄÄÄÄÄÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅ‘π•ëÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯Å¡Ω•π—Ã°ëïòπëÖ‰∞Å•ê•m•t§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπÕΩ…–†°Ñ∞Åà§ÄÙ¯ÅàÄ¥ÅÑ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±Ãπ±ïπù—†Ä¯ÙÄÃÄ¸Å±ïÖëï…M’¥°ŸÖ±ÃπÕ±•çî†¿∞ÄÃ§§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à§ÅÏ(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Äâ—ïÖ¥à§πµÖ¿†°‘∞Åù…Ω’¡%πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å—ïÖ¥ÄÙÅÂï±±Ω›	Ö±±QïÖ¥°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëïòπëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅÕï≈’ïπçîÄÙÅÕçΩ…ïMï≈’ïπçî°Õ—Ö…–§∞(ÄÄÄÄÄÄÄÄÄÅ±ΩÕÃÄÙÅÂï±±Ω›	Ö±±1ΩÕÃ°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃÄÙÅÕï≈’ïπçîπµÖ¿†°°Ω±î∞Å¡ΩÕ•—•Ω∏§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°±ΩÕÃÄòòÅ¡ΩÕ•—•Ω∏Ä¯ÙÅ±ΩÕÃπ¡ΩÕ•—•Ω∏§Å…ï—’…∏Åπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅπΩµ•πÖ—ïêÄÙÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïòπëÖ‰∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅù…Ω’¡%πëï‡∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±î∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å±ïÖëï…âΩÖ…ëA±ÖÂï…AΩ•π—Ã°ëïòπëÖ‰∞ÅπΩµ•πÖ—ïê•m°Ω±îÄ¥Ä≈tÏ(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅÅQïÖ¥ÄëÌù…Ω’¡%πëï‡Ä¨Ä≈ıÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ—ïÖ¥πµÖ¿†°•ê§ÄÙ¯ÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰§§π©Ω•∏†à∞Äà§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃ∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅÕ’âµ•——ïë5Öπ’Ö±Ö…ê°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§¸π—ïÖ¥¸πÂï±±Ω›	Ö±∞Ï(ÄÄÄÄÄÄÄÅ•òÄ°µÖπ’Ö∞¸π±ΩÕÕ!Ω±îÄòòÅµÖπ’Ö∞π—Ω—Ö∞ÄÑÙÙÄààÄòòÅµÖπ’Ö∞π—Ω—Ö∞ÄÑÙÅπ’±∞§ÅÏ(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π—Ω—Ö∞ÄÙÄ≠µÖπ’Ö∞π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π—°…‘ÄÙÅ±ΩÕÃÄ¸Å±ΩÕÃπ¡ΩÕ•—•Ω∏ÄËÄƒ‡Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹π¡ïπë•πúÄÙÄ¿Ï(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πµÖπ’Ö∞ÄÙÅ—…’îÏ(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…Ω‹π±ΩÕÃÄÙÅ±ΩÕÃÏ(ÄÄÄÄÄÄÄÅ…Ω‹πÕ’…Ÿ•ŸïêÄÙÅ±ΩÕÃÄ¸Å±ΩÕÃπ¡ΩÕ•—•Ω∏ÄËÅ…Ω‹π—°…‘Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…Ω‹Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ…Ω›ÃπÕΩ…–†(ÄÄÄÄÄÄÄÄ°Ñ∞Åà§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅàπÕ’…Ÿ•ŸïêÄ¥ÅÑπÕ’…Ÿ•ŸïêÅÒ(ÄÄÄÄÄÄÄÄÄÅàπ—Ω—Ö∞Ä¥ÅÑπ—Ω—Ö∞ÅÒ(ÄÄÄÄÄÄÄÄÄÅÑππÖµîπ±ΩçÖ±ïΩµ¡Ö…î°àππÖµî§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…Ω›ÃπôΩ…Öç††°…Ω‹∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’ÃÄÙÅ…Ω›Õm•πëï‡Ä¥Ä≈t∞(ÄÄÄÄÄÄÄÄÄÅπï·–ÄÙÅ…Ω›Õm•πëï‡Ä¨Ä≈t∞(ÄÄÄÄÄÄÄÄÄÅÕÖµîÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•Ω’ÃÄòò(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•Ω’ÃπÕ’…Ÿ•ŸïêÄÙÙÙÅ…Ω‹πÕ’…Ÿ•ŸïêÄòò(ÄÄÄÄÄÄÄÄÄÄÄÅ¡…ïŸ•Ω’Ãπ—Ω—Ö∞ÄÙÙÙÅ…Ω‹π—Ω—Ö∞Ï(ÄÄÄÄÄÄÄÅ…Ω‹π…Öπ¨ÄÙÅÕÖµîÄ¸Å¡…ïŸ•Ω’Ãπ…Öπ¨ÄËÅ•πëï‡Ä¨ÄƒÏ(ÄÄÄÄÄÄÄÅ…Ω‹π—•ïêÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÄÄÅÕÖµîÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°πï·–Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπï·–πÕ’…Ÿ•ŸïêÄÙÙÙÅ…Ω‹πÕ’…Ÿ•ŸïêÄòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπï·–π—Ω—Ö∞ÄÙÙÙÅ…Ω‹π—Ω—Ö∞§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏Å…Ω›ÃÏ(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°lâ¡Ö»Ãà∞Äâ¡Ö»Õ—ïÖ¥âtπ•πç±’ëïÃ°ëïòπ—Â¡î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•‡ıµÖπ’Ö±AÖ»Õ!Ω±ïÃ°ëïòπëÖ‰§πµÖ¿°†Ù˘†¥ƒ§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëïòπëÖ‰∞Åëïòπ—Â¡îÄÙÙÙÄâ¡Ö»Õ—ïÖ¥àÄ¸Äâ—ïÖ¥àÄËÄâ¡Ö•»à§πµÖ¿†°‘§ÄÙ¯(ÄÄÄÄÄÄÄÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÅ‘ππÖµî∞(ÄÄÄÄÄÄÄÄÄÅ‘πëï—Ö•∞∞(ÄÄÄÄÄÄÄÄÄÅ•‡πµÖ¿†°§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅ‘π•ëÃπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•ò†≠ïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëïòπëÖ‰±Õ—Ω…îπïŸïπ–±•ê§π¡Ö»¸πm•tÑÙÙÃ•…ï—’…∏Ä¿Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±AÖ»ÕAΩ•π–°ëïòπëÖ‰∞Å•ê∞Å§Ä¨Äƒ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖπ’Ö∞ÄÙÙÅπ’±∞Ä¸Å¡Ω•π—Ã°ëïòπëÖ‰∞Å•ê•m•tÄËÅµÖπ’Ö∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±ÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§Ä¸Å±ïÖëï…M’¥°ŸÖ±Ã§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÅ•‡π±ïπù—†∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°lâ¡Ö»ÕÖùù…ïùÖ—îà∞Äâ¡Ö»Õ•πë•Ÿ•ë’Ö±Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åïôôïç—•ŸïA±ÖÂï»ÄÙÄ°ëÖ‰∞Å•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•êıÕ°Ö…ïëç—’Ö±%ê°•ê±ëÖ‰§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åïµï…ùïπç‰ÄÙÅÕ—Ω…îπïŸïπ–πïµï…ùïπçÂIï¡±Öçïµïπ—Ã¸πlâëÖ‰àÄ¨ÅëÖÂtÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏Åïµï…ùïπç‰ÄòòÅM—…•πú°ïµï…ùïπç‰πµ•ÕÕ•πùA±ÖÂï…%ê§ÄÙÙÙÅM—…•πú°•ê§(ÄÄÄÄÄÄÄÄÄÄ¸ÅM—…•πú°ïµï…ùïπç‰πŸ•…—’Ö±A±ÖÂï…%êÅÒÅ•ê§(ÄÄÄÄÄÄÄÄÄÄËÅM—…•πú°•ê§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅçΩπÕ–Å•‡ÄÙÄ°ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖπ’Ö±AÖ»Õ!Ω±ïÃ°ê§πµÖ¿°†Ù˘†¥ƒ§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅçΩπÕ–Å’π•—ÃÄÙÅëïòπ—Â¡îÄÙÙÙÄâ¡Ö»ÕÖùù…ïùÖ—îàÄ¸Å±ïÖëï…âΩÖ…ëUπ•—Ã°Õ—Ω…îπïŸïπ–πëÖÂÃ∞Äâ¡Ö•»à∞Å—…’î§ÄËÅl∏∏ππï‹ÅMï–°ïŸïπ—ÖÂÃ†§πô±Ö—5Ö¿°ô•ï±ê§•tπµÖ¿°•êÄÙ¯Ä°Ì•ê∞ÅπÖµîÈïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞Å•ëÃÈm•ëuÙ§§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅ’π•—ÃπµÖ¿†°‘§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å°Ω±ïÃÄÙÅmtÏ(ÄÄÄÄÄÄÄÅôΩ»Ä°çΩπÕ–ÅêÅΩòÅïŸïπ—ÖÂÃ†§§ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åïôôïç—•Ÿï%ëÃÄÙÅ‘π•ëÃπµÖ¿†°•ê§ÄÙ¯Åïôôïç—•ŸïA±ÖÂï»°ê∞Å•ê§§∞(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπô±•ç—•πùY•…—’Ö±AÖ•»ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅπï‹ÅMï–°ïôôïç—•Ÿï%ëÃ§πÕ•ÈîÄÑÙÙÅïôôïç—•Ÿï%ëÃπ±ïπù—†Ï(ÄÄÄÄÄÄÄÄÄÅ•‡°ê§πôΩ…Öç††°§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°çΩπô±•ç—•πùY•…—’Ö±AÖ•»§ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃπ¡’Õ†°π’±∞§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅïôôïç—•Ÿï%ëÃπµÖ¿†°ïôôïç—•Ÿï%ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•ò†≠ïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ê±Õ—Ω…îπïŸïπ–±ïôôïç—•Ÿï%ê§π¡Ö»¸πm•tÑÙÙÃ•…ï—’…∏Ä¿Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ†Öô•ï±ê°ê§π•πç±’ëïÃ°Õ°Ö…ïëAΩÕ•—•Ωπ%ê°ïôôïç—•Ÿï%ê§§§Å…ï—’…∏Ä¿ÏÄººÅÅÕç°ïë’±ïêÅ…ïÕ–ÅëÖ‰Å°ÖÃÅπºÅÕçΩ…îÏÅ¡ïπë•πúÅ¡±ÖÂ•πúµëÖ‰ÅÕçΩ…ïÃÅ…ïµÖ•∏Åπ’±∞∏(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅµÖπ’Ö∞ÄÙÅµÖπ’Ö±AÖ»ÕAΩ•π–°ê∞Åïôôïç—•Ÿï%ê∞Å§Ä¨Äƒ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅµÖπ’Ö∞ÄÙÙÅπ’±∞Ä¸Å¡Ω•π—Ã°ê∞Åïôôïç—•Ÿï%ê•m•tÄËÅµÖπ’Ö∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃπ¡’Õ†°ŸÖ±ÃπïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§Ä¸Å±ïÖëï…M’¥°ŸÖ±Ã§ÄËÅπ’±∞§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅ…ï—’…∏Å±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÅ‘π•ê∞(ÄÄÄÄÄÄÄÄÄÅ‘ππÖµî∞(ÄÄÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâ¡Ö»ÕÖùù…ïùÖ—îàÄ¸ÅÅÖ‰ÄëÌÕ—Ω…îπïŸïπ–πëÖÂÕÙÅ¡Ö…—πï…Õ°•¿É
+‹ÅÖ±∞Å…Ω’πëÕÄÄËÄâ%πë•Ÿ•ë’Ö∞É
+‹ÅÖ±∞Å…Ω’πëÃà∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃ∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ïÃπ±ïπù—†∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâïç±ïç—•åà§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åïç±ïç—•çÖÂÃÄÙÅëïòπëÖÂÃÅÒÅlƒ∞Ä…t∞Åô•…Õ—Ö‰ÄÙÅïç±ïç—•çÖÂÕl¡t∞Å±ÖÕ—Ö‰ÄÙÅïç±ïç—•çÖÂÃπÖ–†¥ƒ§Ï(ÄÄÄÄÄÅ…Ω›ÃÄÙÅô•ï±ê°ô•…Õ—Ö‰§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯Åïç±ïç—•çÖÂÃπïŸï…‰†°ëÖ‰§ÄÙ¯Åô•ï±ê°ëÖ‰§π•πç±’ëïÃ°•ê§§§(ÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω’πëÃÄÙÅïç±ïç—•çÖÂÃπµÖ¿†°ëÖ‰§ÄÙ¯Å¡Ω•π—Ã°ëÖ‰∞Å•ê§§∞ÅâÖÕï±•πîÄÙÅ…Ω’πëÕl¡t∞Å±Ö—ïÕ–ÄÙÅ…Ω’πëÃπÖ–†¥ƒ§∞(ÄÄÄÄÄÄÄÄÄÄÄÅ»ÄÙÅ±ïÖëï…IΩ‹†(ÄÄÄÄÄÄÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÄÄÄÄÄÄÅïŸïπ—A±ÖÂï…9Öµî°•ê∞ÅëïòπëÖ‰ÅÒÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÅÄëÌëïòπëÖÂÃ¸π±ïπù—†ÅÒÄ…ÙÅ…Ω’πëÃÉ
+‹ÅÖÂÃÄëÌïç±ïç—•çÖÂÃπ©Ω•∏†àÅÖπêÄà•ıÄ∞(ÄÄÄÄÄÄÄÄÄÄÄÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅŸÖ±ÃÄÙÅ…Ω’πëÃπµÖ¿†°…Ω’πê§ÄÙ¯Å…Ω’πëm•t§πô•±—ï»†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅŸÖ±Ãπ±ïπù—†Ä¸Å5Ö—†πµÖ‡†∏∏πŸÖ±Ã§ÄËÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ»π¡Ω•π—ÕÖ•πïêÄÙÅ»π°Ω±ïÃπ…ïë’çî†(ÄÄÄÄÄÄÄÄÄÄÄÄ°—Ω—Ö∞∞ÅŸÖ±’î∞Å§§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—Ω—Ö∞Ä¨(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ŸÖ±’îÄÙÙÅπ’±∞ÅÒÅâÖÕï±•πïm•tÄÙÙÅπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Ä¿(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ5Ö—†πµÖ‡†¿∞ÅŸÖ±’îÄ¥ÅâÖÕï±•πïm•t§§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ¿∞(ÄÄÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÄÄÄÄÅ»π—°…‘ÄÙÅ±Ö—ïÕ–πô•±—ï»†°ŸÖ±’î§ÄÙ¯ÅŸÖ±’îÄÑÙÅπ’±∞§π±ïπù—†Ï(ÄÄÄÄÄÄÄÄÄÅ»π±ÖÕ—Ö‰ÄÙÅ±ÖÕ—Ö‰Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Å»Ï(ÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°lâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îà∞ÄâÖµâ…ΩÕîà∞ÄâçΩµâ•πïêà∞ÄâÕ—…Ω≠ïùù…ïùÖ—ï…ΩÕÃà∞ÄâÕ—…Ω≠ïùù…ïùÖ—ï9ï–âtπ•πç±’ëïÃ°ëïòπ—Â¡î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖç—•ŸîÄÙÅ…Öπ≠1ïÖëï…IΩ›Ã†(ÄÄÄÄÄÄÄÅ…Ω›Ãπô•±—ï»†°»§ÄÙ¯ÄÖ»πë•Õ≈’Ö±•ô•ïê§∞(ÄÄÄÄÄÄÄÄÖëïòπ±Ω›ï»∞(ÄÄÄÄÄÄÄÅ	ΩΩ±ïÖ∏°ëïòπçΩ’π—âÖç¨§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Åë•Õ≈’Ö±•ô•ïêÄÙÅ…Ω›Ã(ÄÄÄÄÄÄÄÄπô•±—ï»†°»§ÄÙ¯Å»πë•Õ≈’Ö±•ô•ïê§(ÄÄÄÄÄÄÄÄπÕΩ…–†(ÄÄÄÄÄÄÄÄÄÄ°Ñ∞Åà§ÄÙ¯ÅlâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÑπ¡•ç≠’¡!Ω±îÄ¥Åàπ¡•ç≠’¡!Ω±îÅÒÅÑππÖµîπ±ΩçÖ±ïΩµ¡Ö…î°àππÖµî§(ÄÄÄÄÄÄÄÄÄÄÄÄËÅÑππÖµîπ±ΩçÖ±ïΩµ¡Ö…î°àππÖµî§∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅë•Õ≈’Ö±•ô•ïêπôΩ…Öç††°»§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ»π…Öπ¨ÄÙÄààÏ(ÄÄÄÄÄÄÄÅ»π—•ïêÄÙÅôÖ±ÕîÏ(ÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ål∏∏πÖç—•Ÿî∞Ä∏∏πë•Õ≈’Ö±•ô•ïëtÏ(ÄÄÄÅÙ(ÄÄÄÅ…ï—’…∏Å…Öπ≠1ïÖëï…IΩ›Ã°…Ω›Ã∞ÄÖëïòπ±Ω›ï»∞Å	ΩΩ±ïÖ∏°ëïòπçΩ’π—âÖç¨§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§ÅÏ(ÄÄÄÅ•òÄ°µÖπ’Ö±ÖÂ•πÖ±•Õïê°ëÖ‰§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅçΩπÕ–Åô•ï±êÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÙÙÙÄâô’±±Ö…ëA±ÖÂï»à§(ÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅô•ï±êπ±ïπù—†ÄòòÅô•ï±êπïŸï…‰†°•ê§ÄÙ¯Å…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞Å•ê§§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÑÙÙÄâ°Ω±ï	Â!Ω±îà§(ÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ô•ï±êπ±ïπù—†ÄòòÅô•ï±êπïŸï…‰°•êÙ˘ô•πÖ±MçΩ…ïΩµ¡±ï—î°ëÖ‰±•ê§§§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅô•ï±êπ±ïπù—†ÄòòÅô•ï±êπïŸï…‰†°•ê§ÄÙ¯Å±•ŸïA±ÖÂï…M—Ö—’Ã°ëÖ‰∞Å•ê§πô•πÖ±•Õïê§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÂï±±Ω›	Ö±±IïÕ’±—ÕIïÖë‰°ëÖ‰§ÅÏ(ÄÄÄÅ•òÄ°ïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅ•òÄ°ëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÑÙÙÄâ°Ω±ï	Â!Ω±îà§Å…ï—’…∏ÅôÖ±ÕîÏ(ÄÄÄÅçΩπÕ–Åô•ï±êÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»†(ÄÄÄÄÄÄ°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÅô•ï±êπ±ïπù—†Äòò(ÄÄÄÄÄÄÄÅô•ï±êπïŸï…‰†(ÄÄÄÄÄÄÄÄÄÄ°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÅΩôô•ç•Ö±Ö…ëA…Ωù…ïÕÃ°ëÖ‰∞Å•ê§πçΩµ¡±ï—îÄòò(ÄÄÄÄÄÄÄÄÄÄÄÅŸï…•ô•çÖ—•Ωπ%ÕÕ’ï!Ω±ïÃ°ëÖ‰∞Å•ê§π±ïπù—†ÄÙÙÙÄ¿∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Å…Ω›Ã§ÅÏ(ÄÄÄÅçΩπÕ–Åô•πÖ±•ÕïêÄÙÅëïòπëÖ‰(ÄÄÄÄÄÄ¸ÅïŸïπ—ÖÂΩµ¡±ï—î°ëïòπëÖ‰§(ÄÄÄÄÄÄËÄ°ëïòπëÖÂÃÅÒÅïŸïπ—ÖÂÃ†§§πïŸï…‰°ïŸïπ—ÖÂΩµ¡±ï—î§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâπ—¿à§(ÄÄÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÄÄÅô•πÖ±•ÕïêÄòò(ÄÄÄÄÄÄÄÄ°µÖπ’Ö±ÖÂM—Ω…î°ëïòπëÖ‰∞ÅôÖ±Õî§¸ππ—¡•πÖ±•ÕïêÅÒ(ÄÄÄÄÄÄÄÄÄÅëÖÂ•ï±ë%ëÃ°ëïòπëÖ‰§(ÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄÄÄÄÄπïŸï…‰†°•ê§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ±ïÖëï…âΩÖ…ëA±ÖÂï…AΩ•π—Ã°ëïòπëÖ‰∞Å•ê§πïŸï…‰†°‡§ÄÙ¯Å‡ÄÑÙÅπ’±∞§∞(ÄÄÄÄÄÄÄÄÄÄÄÄ§§(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°lâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅÖç—•ŸîÄÙÅ…Ω›Ãπô•±—ï»†°»§ÄÙ¯ÄÖ»πë•Õ≈’Ö±•ô•ïê§Ï(ÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅô•πÖ±•ÕïêÄòòÅÖç—•Ÿîπ±ïπù—†ÄòòÅÖç—•ŸîπïŸï…‰†°»§ÄÙ¯Å»π—°…‘ÄÙÙÙÅ»π—Ö…ùï–§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à§(ÄÄÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°Âï±±Ω›	Ö±±IïÕ’±—ÕIïÖë‰°ëïòπëÖ‰§ÄòòÅ…Ω›Ãπ±ïπù—†§Ï(ÄÄÄÅçΩπÕ–Åï±•ù•â±îÄÙÅ…Ω›Ãπô•±—ï»°…Ω‹ÄÙ¯ÄÖ…Ω‹πë•Õ≈’Ö±•ô•ïê§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâçΩµâ•πïêàÄòòÅô•πÖ±•ÕïêÄòòÅ…Ω›Ãπ±ïπù—†ÄòòÄÖï±•ù•â±îπ±ïπù—†§Å…ï—’…∏Å—…’îÏ(ÄÄÄÅ…ï—’…∏Å	ΩΩ±ïÖ∏°ô•πÖ±•ÕïêÄòòÅï±•ù•â±îπ±ïπù—†ÄòòÅï±•ù•â±îπïŸï…‰°…Ω‹ÄÙ¯Å…Ω‹π—°…‘ÄÙÙÙÅ…Ω‹π—Ö…ùï–§§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ’µµÖ…ÂΩµ¡ï—•—•ΩπIïÕ’±–°ëïò§ÅÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâπ—¿à§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å°Ω±ëï…ÃÄÙÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëïòπëÖ‰§πµÖ¿†°†§ÄÙ¯Ä°Ï(ÄÄÄÄÄÄÄÄÄÅ°Ω±îËÅ†∞(ÄÄÄÄÄÄÄÄÄÅ°Ω±ëï»ËÅç’……ïπ—9—¡!Ω±ëï»°ëïòπëÖ‰∞Å†§∞(ÄÄÄÄÄÄÄÅÙ§§∞(ÄÄÄÄÄÄÄÅçΩµ¡±ï—îÄÙÅ±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Åmt§∞(ÄÄÄÄÄÄÄÅ°ÖÕ]•ππï»ÄÙÅ°Ω±ëï…ÃπÕΩµî†°‡§ÄÙ¯Å	ΩΩ±ïÖ∏°‡π°Ω±ëï»§§Ï(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅçΩµ¡±ï—î∞(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÅçΩµ¡±ï—îÄ¸ÄâΩµ¡±ï—ïêàÄËÄâ%∏ÅA…Ωù…ïÕÃà∞(ÄÄÄÄÄÄÄÅ—ï·–ËÅ°Ω±ëï…Ãπ±ïπù—†(ÄÄÄÄÄÄÄÄÄÄ¸Å°Ω±ëï…ÃπµÖ¿†°‡§ÄÙ¯Åπ—¡M’µµÖ…Â1•πî°ëïòπëÖ‰∞Å‡π°Ω±î∞ÅçΩµ¡±ï—î§§π©Ω•∏†àÉ
+‹Äà§(ÄÄÄÄÄÄÄÄÄÄËÄâAïπë•πúà∞(ÄÄÄÄÄÄÄÅÖ›Ö…ëÖâ±îËÅ°ÖÕ]•ππï»∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅçÖ±ç’±Ö—ï1ïÖëï…âΩÖ…ê°ëïò§∞(ÄÄÄÄÄÅ—Ω¿ÄÙÅ…Ω›Ãπô•πê†°»§ÄÙ¯ÄÖ»πë•Õ≈’Ö±•ô•ïê§∞(ÄÄÄÄÄÅçΩµ¡±ï—îÄÙÅ±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Å…Ω›Ã§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÄòòÄÖçΩµ¡±ï—î§(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅçΩµ¡±ï—îËÅôÖ±Õî∞(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÄâ%∏ÅA…Ωù…ïÕÃà∞(ÄÄÄÄÄÄÄÅ—ï·–ËÄâIïÕ’±–ÅÖππΩ’πçïêÅÖ–Å—°îÅïπêÅΩòÅ¡±Ö‰à∞(ÄÄÄÄÄÄÄÅÖ›Ö…ëÖâ±îËÅëïòπÖ›Ö…ëÖâ±îÄÑÙÙÅôÖ±Õî∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâçΩµâ•πïêàÄòòÅçΩµ¡±ï—îÄòòÄÖ—Ω¿§Å…ï—’…∏ÅÌçΩµ¡±ï—îÈ—…’î±Õ—Ö—’ÃËâΩµ¡±ï—ïêà±—ï·–Ëâ9ºÅùΩ±ôï»ÅçΩµ¡±ï—ïêÅ—°îÅ…ï≈’•…ïêÅπ’µâï»ÅΩòÅ…Ω’πëÃà±Ö›Ö…ëÖâ±îÈôÖ±ÕïÙÏ(ÄÄÄÅ•òÄ†Ö—Ω¿ÅÒÄ†Ö—Ω¿π—°…‘ÄòòÅëïòπ—Â¡îÄÑÙÙÄâÂï±±Ω›	Ö±∞à§§(ÄÄÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÄÄÅçΩµ¡±ï—îËÅôÖ±Õî∞(ÄÄÄÄÄÄÄÅÕ—Ö—’ÃËÄâ9Ω–ÅM—Ö…—ïêà∞(ÄÄÄÄÄÄÄÅ—ï·–Ë(ÄÄÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÕç…Ö—ç†àÄòòÅ…Ω›ÃπÕΩµî†°»§ÄÙ¯Å»πë•Õ≈’Ö±•ô•ïê§(ÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâ9ºÅï±•ù•â±îÅçΩµ¡ï—•—Ω»Å…ïµÖ•πÃà(ÄÄÄÄÄÄÄÄÄÄÄÄËÄâ9Ω–ÅÕ—Ö…—ïêà∞(ÄÄÄÄÄÄÄÅÖ›Ö…ëÖâ±îËÅëïòπÖ›Ö…ëÖâ±îÄÑÙÙÅôÖ±Õî∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Å—ïÖµ5ïµâï…ÃÄÙ(ÄÄÄÄÄÄ°ëïòπ—Â¡îÄÙÙÙÄââïÕ–ÃàÅÒ(ÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîàÅÒ(ÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÅÒ(ÄÄÄÄÄÄÄÄ°ëïòπ—Â¡îÄÙÙÙÄâ¡’——ÃàÄòòÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÑÙÙÄâ¡Ö•…Ãà§§Äòò(ÄÄÄÄÄÅ—Ω¿πëï—Ö•∞(ÄÄÄÄÄÄÄÄ¸ÅÄÄ†ëÌ—Ω¿πëï—Ö•±Ù•Ä(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–ÅÕç…Ö—ç°MçΩ…îÄÙ(ÄÄÄÄÄÅ—Ω¿πÕç…Ö—ç°QΩAÖ»ÄÙÙÙÄ¿(ÄÄÄÄÄÄÄÄ¸Äâà(ÄÄÄÄÄÄÄÄËÅ—Ω¿πÕç…Ö—ç°QΩAÖ»Ä¯Ä¿(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄ¨ëÌ—Ω¿πÕç…Ö—ç°QΩAÖ…ıÄ(ÄÄÄÄÄÄÄÄÄÄËÅÉä"HëÌ5Ö—†πÖâÃ°—Ω¿πÕç…Ö—ç°QΩAÖ»•ıÄÏ(ÄÄÄÅçΩπÕ–Å…ïÕ’±–ÄÙ(ÄÄÄÄÄÅlâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§(ÄÄÄÄÄÄÄÄ¸ÅçΩµ¡±ï—î(ÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ—Ω¿πù…ΩÕÕQΩ—Ö±ÙÅÕ—…Ω≠ïÃÄ†ëÌÕç…Ö—ç°MçΩ…ïÙ•Ä(ÄÄÄÄÄÄÄÄÄÄËÅÄëÌÕç…Ö—ç°MçΩ…ïÙÉ
+‹ÅQ°…‘ÄëÌ—Ω¿π—°…’ıÄ(ÄÄÄÄÄÄÄÄËÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîà(ÄÄÄÄÄÄÄÄÄÄ¸Å—Ω¿π—°…‘ÄÙÙÙÅ—Ω¿π—Ö…ùï–ÄòòÅ—Ω¿π°Öπë•çÖ¿ÄÑÙÅπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌçΩµ¡±ï—îÄ¸ÄààÄËÄâA…ΩŸ•Õ•ΩπÖ∞Å±ïÖëï»ÉäPÄâÙëÌ—Ω¿πù…ΩÕÕQΩ—Ö±ÙÅù…ΩÕÃÉ
+‹ÄëÌ—Ω¿π°Öπë•çÖ¿π—Ω•·ïê†ƒ•ÙÅ°ç¿É
+‹ÄëÌ—Ω¿π—Ω—Ö∞π—Ω•·ïê†ƒ•ÙÅπï—Ä(ÄÄÄÄÄÄÄÄÄÄÄÄËÅÄëÌ—Ω¿πù…ΩÕÕQΩ—Ö±ÙÅù…ΩÕÃÉ
+‹ÅQ°…‘ÄëÌ—Ω¿π—°…’ıÄ(ÄÄÄÄÄÄÄÄËÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à(ÄÄÄÄÄÄÄÄÄÄ¸Å—Ω¿π±ΩÕÃ(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ—Ω¿π—Ω—Ö±ÙÅ¡—ÃÉ
+‹ÅâÖ±∞Å±ΩÕ–ÅΩ∏Å!Ω±îÄëÌ—Ω¿π±ΩÕÃπ°Ω±ïıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄËÅÄëÌ—Ω¿π—Ω—Ö±ÙÅ¡—ÃÉ
+‹ÅÖ±∞Äƒ‡Å°Ω±ïÃÅçΩµ¡±ï—ïëÄ(ÄÄÄÄÄÄÄÄÄÄËÅÄëÌ—Ω¿π—Ω—Ö±ÙÄëÌëïòπ—Â¡îÄÙÙÙÄâ¡’——ÃàÄ¸Äâ¡’——ÃàÄËÅlâÕ—…Ω≠ï…ΩÕÃà∞âÕ—…Ω≠ï9ï–âtπ•πç±’ëïÃ°ëïòπ—Â¡î§Ä¸ÄâÕ—…Ω≠ïÃàÄËÄâ¡—ÃâıÄÏ(ÄÄÄÅçΩπÕ–Å…ïÕ’±—Qï·–ÄÙÅëïòπÖùù…ïùÖ—ï1ïú(ÄÄÄÄÄÄ¸ÅÄëÌ—Ω¿ππÖµïÙÅ±ïêÅÖ‰ÄëÌëïòπëÖÂÙÅΩòÅ—°îÅŸïπ–ÉäPÄëÌ…ïÕ’±—ÙëÌ—Ω¿πçàÄ¸ÄàÅàÄËÄàâıÄ(ÄÄÄÄÄÄËÅëïòπÖùù…ïùÖ—ïIïÕ’±–(ÄÄÄÄÄÄÄÄ¸ÅÄëÌ—Ω¿ππÖµïÙÉäPÅùù…ïùÖ—îÄëÌ…ïÕ’±—ÙëÌ—Ω¿πçàÄ¸ÄàÅàÄËÄàâıÄ(ÄÄÄÄÄÄÄÄËÅÄëÌ—Ω¿ππÖµïÙëÌ—ïÖµ5ïµâï…ÕÙÉäPÄëÌ…ïÕ’±—ÙëÌ—Ω¿πçàÄ¸ÄàÅàÄËÄàâıÄÏ(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅçΩµ¡±ï—î∞(ÄÄÄÄÄÅÕ—Ö—’ÃËÅçΩµ¡±ï—îÄ¸ÄâΩµ¡±ï—ïêàÄËÄâ%∏ÅA…Ωù…ïÕÃà∞(ÄÄÄÄÄÅ—ï·–ËÅ…ïÕ’±—Qï·–∞(ÄÄÄÄÄÅÖ›Ö…ëÖâ±îËÅëïòπÖ›Ö…ëÖâ±îÄÑÙÙÅôÖ±Õî∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏ÅçΩµ¡ï—•—•Ωπ]•ππï…%ëÃ°ëïò§ÅÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâπ—¿à§(ÄÄÄÄÄÅ…ï—’…∏Ål(ÄÄÄÄÄÄÄÄ∏∏ππï‹ÅMï–†(ÄÄÄÄÄÄÄÄÄÅπ—¡!Ω±ïÕΩ»°ëïòπëÖ‰§(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°°Ω±î§ÄÙ¯Åç’……ïπ—9—¡!Ω±ëï»°ëïòπëÖ‰∞Å°Ω±î§¸π•ê§(ÄÄÄÄÄÄÄÄÄÄÄÄπô•±—ï»°	ΩΩ±ïÖ∏§(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅtÏ(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅçÖ±ç’±Ö—ï1ïÖëï…âΩÖ…ê°ëïò§πô•±—ï»†°…Ω‹§ÄÙ¯ÄÖ…Ω‹πë•Õ≈’Ö±•ô•ïê§Ï(ÄÄÄÅ•òÄ†Ö±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Å…Ω›Ã§ÅÒÄÖ…Ω›Ãπ±ïπù—†§Å…ï—’…∏ÅmtÏ(ÄÄÄÅçΩπÕ–Å›•ππï…ÃÄÙÅ…Ω›Ãπô•±—ï»†°…Ω‹§ÄÙ¯Å…Ω‹π…Öπ¨ÄÙÙÙÄƒ§Ï(ÄÄÄÅ•òÄ°lâÕ•πù±îà∞ÄâçΩµâ•πïêà∞ÄâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îà∞Äâ¡Ö»Õ•πë•Ÿ•ë’Ö±Öùù…ïùÖ—îà∞Äâïç±ïç—•åâtπ•πç±’ëïÃ°ëïòπ—Â¡î§§(ÄÄÄÄÄÅ…ï—’…∏Å›•ππï…Ãπô±Ö—5Ö¿°…Ω‹Ù¯ÖëïòπëÖ‰ÄòòÅΩ±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°…Ω‹π•ê§§π±ïπù—†Ä¸ÅΩ±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°…Ω‹π•ê§§ÄËÅmM—…•πú°…Ω‹π•ê•t§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâçÖ¡QïÖµÃà§Å…ï—’…∏Å›•ππï…Ãπô±Ö—5Ö¿°…Ω‹ÄÙ¯Ä°Õ—Ω…îπïŸïπ–πçÖ¡QïÖµÃ¸πm…Ω‹π•ëtÅÒÅmt§πô±Ö—5Ö¿°•êÙ˘Ω±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§§π±ïπù—†Ä¸ÅΩ±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§§ÄËÅm•ët§§πµÖ¿°M—…•πú§Ï(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à§(ÄÄÄÄÄÅ…ï—’…∏Ål(ÄÄÄÄÄÄÄÄ∏∏ππï‹ÅMï–†(ÄÄÄÄÄÄÄÄÄÅ›•ππï…Ãπô±Ö—5Ö¿†°…Ω‹§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Åù…Ω’¡%πëï‡ÄÙÄ≠M—…•πú°…Ω‹π•ê§π…ï¡±Öçî†Ωyëqê≠úº∞Äàà§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÂï±±Ω›	Ö±±QïÖ¥°ëïòπëÖ‰∞Åù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅtπµÖ¿°M—…•πú§Ï(ÄÄÄÅçΩπÕ–Å≠•πêÄÙ(ÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄââïÕ–ÃàÅÒÅëïòπ—Â¡îÄÙÙÙÄâ¡Ö»Õ—ïÖ¥àÅÒ(ÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîàÅÒ(ÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÅÒ(ÄÄÄÄÄÄ°ëïòπ—Â¡îÄÙÙÙÄâ¡’——ÃàÄòòÅÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÑÙÙÄâ¡Ö•…Ãà§(ÄÄÄÄÄÄÄÄ¸Äâ—ïÖ¥à(ÄÄÄÄÄÄÄÄËÄâ¡Ö•»àÏ(ÄÄÄÅçΩπÕ–ÅëÖ‰ÄÙÅëïòπëÖ‰ÅÒÄ°ëïòπ—Â¡îÄÙÙÙÄâ¡Ö»ÕÖùù…ïùÖ—îàÄ¸ÅÕ—Ω…îπïŸïπ–πëÖÂÃÄËÄƒ§Ï(ÄÄÄÅçΩπÕ–Å’π•—ÃÄÙÅ±ïÖëï…âΩÖ…ëUπ•—Ã°ëÖ‰∞Å≠•πê∞ÄÖëïòπëÖ‰§Ï(ÄÄÄÅ…ï—’…∏Ål(ÄÄÄÄÄÄ∏∏ππï‹ÅMï–†(ÄÄÄÄÄÄÄÅ›•ππï…Ãπô±Ö—5Ö¿†(ÄÄÄÄÄÄÄÄÄÄ°…Ω‹§ÄÙ¯Å’π•—Ãπô•πê†°’π•–§ÄÙ¯Å’π•–π•êÄÙÙÙÅ…Ω‹π•ê§¸π•ëÃÅÒÅmt∞(ÄÄÄÄÄÄÄÄ§∞(ÄÄÄÄÄÄ§∞(ÄÄÄÅtπô±Ö—5Ö¿°•êÙ¯ÖëïòπëÖ‰ÄòòÅΩ±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§§π±ïπù—†Ä¸ÅΩ±ôM°Ö…ïëAΩÕ•—•ΩπÃπµïµâï…Ã°Õ—Ω…îπïŸïπ–±Õ°Ö…ïëAΩÕ•—•Ωπ%ê°•ê§§ÄËÅmM—…•πú°•ê•t§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Åâ’•±ë•πÖ±A±ÖÂï…5ïÕÕÖùïÃ°ëïôÃ§ÅÏ(ÄÄÄÅçΩπÕ–ÅΩ’—çΩµïÃÄÙÅÌÙÏ(ÄÄÄÅl∏∏ππï‹ÅMï–°ïŸïπ—ÖÂÃ†§πô±Ö—5Ö¿°ëÖÂ•ï±ë%ëÃ§•t(ÄÄÄÄÄÄπô•±—ï»°•êÙ˘M—…•πú°•ê§ÑÙı9=}AIQ9I}%§πôΩ…Öç†°•êÙ˘Ω’—çΩµïÕmM—…•πú°•ê•tımt§Ï(ÄÄÄÅëïôÃπôΩ…Öç††°ëïò§ÄÙ¯(ÄÄÄÄÄÅçΩµ¡ï—•—•Ωπ]•ππï…%ëÃ°ëïò§πôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°Ω’—çΩµïÕm•ëtÄòòÄÖΩ’—çΩµïÕm•ëtπ•πç±’ëïÃ°ëïòπ±Öâï∞§§(ÄÄÄÄÄÄÄÄÄÅΩ’—çΩµïÕm•ëtπ¡’Õ†°ëïòπ±Öâï∞§Ï(ÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ…ï—’…∏ÅΩ’—çΩµïÃÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Åô•πÖ±5ïÕÕÖùïΩ…A±ÖÂï»°•ê§ÅÏ(ÄÄÄÅçΩπÕ–Åô•…Õ–ÄÙÅ¡±ÖÂï…•…Õ—9Öµî°•ê§Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ°ïÖë•πúËÅÅQ°Öπ≠ÃÅôΩ»Å©Ω•π•πúÅ—°•ÃÅΩ±òÅŸïπ–∞ÄëÌô•…Õ—Ù∏Å%–Å•ÃÅ°Ω¡ïêÅÂΩ‘ÅçÖ∏Å©Ω•∏ÅΩ—°ï»ÅïŸïπ—ÃÅ•∏Å—°îÅô’—’…îπÄ∞(ÄÄÄÄÄÅµïÕÕÖùîËÄàà∞(ÄÄÄÄÄÅÕçΩ…•πù…ïë•–ËÄâMçΩ…•πúÅ…’∏ÅΩ∏Å›Ö‰ÅΩ±òÅMçΩ…ï»à∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏ÅçΩπô•…µIïÕ’±—Õπë±ΩÕïŸïπ–†§ÅÏ(ÄÄÄÅçΩπÕ–Åù’ïÕ—±ΩÕ•πùŸïπ–ÄÙÅ•Õ’ïÕ—=…ùÖπ•Õï»†§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…ïô…ïÕ°ïêÄÙÅÖ›Ö•–ÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÄÄÅ•òÄ†Ö…ïô…ïÕ°ïê§ÅÏ(ÄÄÄÄÄÄÄÅÖ±ï…–†âQ°îÅïŸïπ–ÅçÖππΩ–ÅâîÅç±ΩÕïêÅ’π—•∞Å—°îÅ±Ö—ïÕ–ÅΩπ±•πîÅÕçΩ…ïçÖ…ëÃÅ°ÖŸîÅâïï∏Å…ï±ΩÖëïêÅÕ’ççïÕÕô’±±‰∏à§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å…ï≈’•…ïëÖÂÃÄÙÅ……Ö‰πô…Ω¥†(ÄÄÄÄÄÅÏÅ±ïπù—†ËÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒÅÙ∞(ÄÄÄÄÄÄ°|∞Å•πëï‡§ÄÙ¯Å•πëï‡Ä¨Äƒ∞(ÄÄÄÄ§Ï(ÄÄÄÅçΩπÕ–Å’πô•π•Õ°ïëÖÂÃÄÙÅ…ï≈’•…ïëÖÂÃπô•±—ï»†(ÄÄÄÄÄÄ°ëÖ‰§ÄÙ¯ÄÖïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°’πô•π•Õ°ïëÖÂÃπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÅÅQ°îÅïŸïπ–ÅçÖππΩ–ÅâîÅç±ΩÕïêÅÂï–∏ÄëÌ’πô•π•Õ°ïëÖÂÃπµÖ¿†°ëÖ‰§ÄÙ¯ÅÅÖ‰ÄëÌëÖÂıÄ§π©Ω•∏†àÅÖπêÄà•ÙÅÕçΩ…•πúÅ•ÃÅÕ—•±∞Å•πçΩµ¡±ï—îπÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅëïôÃÄÙÅ±ïÖëï…âΩÖ…ëïô•π•—•ΩπÃ†§∞(ÄÄÄÄÄÅ•πçΩµ¡±ï—îÄÙÅëïôÃπô•±—ï»†(ÄÄÄÄÄÄÄÄ°ëïò§ÄÙ¯ÄÖÕ’µµÖ…ÂΩµ¡ï—•—•ΩπIïÕ’±–°ëïò§πçΩµ¡±ï—î∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°•πçΩµ¡±ï—îπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅÖ±ï…–†(ÄÄÄÄÄÄÄÅÅIïÕ’±—ÃÅçÖππΩ–ÅâîÅçΩπô•…µïêÅÂï–∏ÅM—•±∞Å•∏Å¡…Ωù…ïÕÃËÄëÌ•πçΩµ¡±ï—îπµÖ¿†°ê§ÄÙ¯Åêπ±Öâï∞§π©Ω•∏†à∞Äà•ÙπÄ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄâΩπô•…¥ÅÖ±∞Å…ïÕ’±—ÃÅÖπêÅç±ΩÕîÅ—°•ÃÅïŸïπ–¸ÅAï…ÕΩπÖ∞Åô•π•Õ°•πúÅµïÕÕÖùïÃÅ›•±∞Å—°ï∏ÅÖ¡¡ïÖ»ÅΩ∏Å¡±ÖÂï…ÃúÅ¡°ΩπïÃ∏à∞(ÄÄÄÄÄÄ§(ÄÄÄÄ§(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πô•πÖ±IïÕ’±—ÃÄÙÅÏ(ÄÄÄÄÄÅÕçΩ…•πùI’±ïÕYï…Õ•Ω∏ËÄ»∞(ÄÄÄÄÄÅçΩπô•…µïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅΩ’—çΩµïÃËÅâ’•±ë•πÖ±A±ÖÂï…5ïÕÕÖùïÃ°ëïôÃ§∞(ÄÄÄÅÙÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÄâçΩµ¡±ï—îàÏ(ÄÄÄÅ…ïçΩ…ëΩµ¡±ï—ïëŸïπ—!•Õ—Ω…‰°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÅçΩπÕ–Åç±ΩÕïë=π±•πîÄÙÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÅ•òÄ°ù’ïÕ—±ΩÕ•πùŸïπ–ÄòòÅç±ΩÕïë=π±•πî§ÅÏ(ÄÄÄÄÄÅïπë’ïÕ—=…ùÖπ•Õï…MïÕÕ•Ω∏†(ÄÄÄÄÄÄÄÄâQ°îÅïŸïπ–Å°ÖÃÅâïï∏Åç±ΩÕïêÅÕ’ççïÕÕô’±±‰∏ÅeΩ’»ÅÕ•πù±îµïŸïπ–Å’ïÕ–Å=…ùÖπ•Õï»ÅÖççïÕÃÅ°ÖÃÅπΩ‹Åïπëïê∏à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏ÅÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–†§ÅÏ(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–¸πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–§Å…ï—’…∏ÅÖ±ï…–†âΩπô•…¥Å—°îÅô•πÖ∞Å…ïÕ’±—ÃÅâïôΩ…îÅÖ…ç°•Ÿ•πúÅ—°•ÃÅïŸïπ–∏à§Ï(ÄÄÄÅçΩπÕ–ÅïŸïπ—9ÖµîıÕ—Ω…îπïŸïπ–ππÖµïÒâ—°•ÃÅçΩµ¡±ï—ïêÅïŸïπ–à±ç±Ω’ëŸïπ—%êıM—…•πú°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ëÒàà§Ï(ÄÄÄÅ•ò†ÖçΩπô•…¥°Å±ΩÕîÅÖπêÅÖ…ç°•ŸîÄëÌïŸïπ—9ÖµïÙ˝qπqπ•πÖ∞Å…ïÕ’±—ÃÅ›•±∞Å…ïµÖ•∏Å•∏ÅAÖÕ–ÅŸïπ—Ã∏ÅQ°îÅ¡’â±•Õ°ïêÅïŸïπ–Å›•±∞Åç±ΩÕîÅÖπêÅçΩππïç—ïêÅ¡±ÖÂï»Å¡°ΩπïÃÅ›•±∞ÅâîÅ…ï±ïÖÕïêÅôΩ»Å—°ï•»Åπï·–ÅïŸïπ–πÄ§•…ï—’…∏Ï(ÄÄÄÅçΩπÕ–Åâ’——Ω∏Ùê†àçÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–à§Ï(ÄÄÄÅ•ò°â’——Ω∏•Ìâ’——Ω∏πë•ÕÖâ±ïêı—…’îÌâ’——Ω∏π—ï·—Ωπ—ïπ–ÙâI!%Y%9äòàÌÙ(ÄÄÄÅ—…‰ÅÏ(ÄÄÄÄÄÅ•ò°ç±Ω’ëŸïπ—%ê•Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Å±Ö—ïÕ–ıÖ›Ö•–Åç±Ω’ëQ•µïΩ’–°›ÖÂ±Ω’êπ±ΩÖëŸïπ–°ç±Ω’ëŸïπ—%ê§§Ï(ÄÄÄÄÄÄÄÅçΩπÕ–Åç±Ω’ëIïÕ’±—ÕΩπô•…µïêı	ΩΩ±ïÖ∏°±Ö—ïÕ–¸πïŸïπ–¸πïŸïπ—}ëÖ—Ñ¸πïŸïπ–¸πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–§Ï(ÄÄÄÄÄÄÄÅ•ò†Öç±Ω’ëIïÕ’±—ÕΩπô•…µïê•Ï(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêıÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÄÄÄÄÅ•ò†ÖÕÖŸïê•—°…Ω‹Åπï‹Å……Ω»†âQ°îÅô•πÖ∞Å…ïÕ’±—ÃÅçΩ’±êÅπΩ–ÅâîÅçΩπô•…µïêÅΩπ±•πî∏ÅUÕîÅIï—…‰ÅMÂπåÅÖπêÅ—…‰ÅÖùÖ•∏∏à§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÄÄÅÖ›Ö•–Å›ÖÂ±Ω’êπÖ…ç°•ŸïŸïπ–°ç±Ω’ëŸïπ—%ê§Ï(ÄÄÄÄÄÄÄÅÖ›Ö•–Å›ÖÂ±Ω’êπÕÖŸï]Ω…≠Õ¡Öçî°ÌÖç—•ŸïA’â±•Õ°ïëŸïπ–Èπ’±±Ù§Ï(ÄÄÄÄÄÄÄÅôΩ…ùï—A’â±•Õ°ïëŸïπ–°ç±Ω’ëŸïπ—%ê§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÖ…ç°•Ÿïë–ıπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅçÖ¡—’…ï’……ïπ—Ÿïπ–†§Ï(ÄÄÄÄÄÅçΩπÕ–Å›Ω…≠Õ¡Öçï%êıM—…•πú°Õ—Ω…îπïŸïπ–π›Ω…≠Õ¡Öçï%ëÒÒÕ—Ω…îπÖç—•ŸïŸïπ—%ëÒàà§Ï(ÄÄÄÄÄÅçΩπÕ–Å…ïçΩ…êıÕ—Ω…îπïŸïπ—]Ω…≠Õ¡Öçî¸πô•πê°•—ï¥Ù˘M—…•πú°•—ï¥π•ê§ÙÙı›Ω…≠Õ¡Öçï%ê§Ï(ÄÄÄÄÄÅ•ò°…ïçΩ…ê•Ì…ïçΩ…êπÖ…ç°•Ÿïêı—…’îÌ…ïçΩ…êπ’¡ëÖ—ïë–ıπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§ÌÙ(ÄÄÄÄÄÅç±ΩÕï±Ω’ëΩππïç—•Ω∏†§Ï(ÄÄÄÄÄÅôΩ…ùï—=…ùÖπ•Õï…Ÿïπ–†§Ï(ÄÄÄÄÄÅ›Ω…≠Õ¡ÖçïM°…•π≠’—°Ω…•Õïêı—…’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–ıπ’±∞Ï(ÄÄÄÄÄÅÕ—Ω…îπÖç—•ŸïŸïπ—%êıπ’±∞Ï(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπç±Ω’êÏ(ÄÄÄÄÄÅÕ—Ω…îπç±Ω’ëA±ÖÂï…ÃımtÏ(ÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÄÄÅÖ¡¡±ÂïŸ•çïIΩ±î†§Ï(ÄÄÄÄÄÅ…ïπëï…!Ωµî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅπÖÿ†â°Ωµîà§Ï(ÄÄÄÄÄÅÕï—±Ω’ë5ïÕÕÖùî†âΩµ¡±ï—ïêÅïŸïπ–ÅÖ…ç°•ŸïêÉ
+‹Å…ïÕ’±—ÃÅ…ï—Ö•πïêÅ•∏ÅAÖÕ–ÅŸïπ—Ãà§Ï(ÄÄÄÄÄÅÖ±ï…–°ÄëÌïŸïπ—9ÖµïÙÅ•ÃÅπΩ‹ÅÖ…ç°•Ÿïê∏Å•πÖ∞Å…ïÕ’±—ÃÅ…ïµÖ•∏ÅÖŸÖ•±Öâ±îÅ•∏ÅAÖÕ–ÅŸïπ—ÃÅÖπêÅçΩππïç—ïêÅ¡°ΩπïÃÅ›•±∞Å…ï—’…∏Å—ºÅ¡±ÖÂï»Åïπ—…‰πÄ§Ï(ÄÄÄÅÙÅçÖ—ç†°ï……Ω»§ÅÏ(ÄÄÄÄÄÅ•ò°â’——Ω∏•Ìâ’——Ω∏πë•ÕÖâ±ïêıôÖ±ÕîÌâ’——Ω∏π—ï·—Ωπ—ïπ–Ùâ1=MÅ9ÅI!%YÅ=5A1QÅY9PàÌÙ(ÄÄÄÄÄÅÖ±ï…–†âQ°îÅïŸïπ–Å›ÖÃÅπΩ–ÅÖ…ç°•Ÿïê∏Äà¨°ï……Ω»πµïÕÕÖùïÒÒï……Ω»§§Ï(ÄÄÄÅÙ(ÄÅÙ(ÄÅô’πç—•Ω∏Å±ïÖëï…âΩÖ…ë	ïπïô•—%ê°ëïò§ÅÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâÕ•πù±îà§Å…ï—’…∏ÄâëÖ•±ÂM—Öâ±ïôΩ…êàÏ(ÄÄÄÅ…ï—’…∏Ä†(ÄÄÄÄÄÅÏ(ÄÄÄÄÄÄÄÅçΩµâ•πïêËÄâΩŸï…Ö±±M—Öâ±ïôΩ…êà∞(ÄÄÄÄÄÄÄÅôΩ’…âÖ±∞ËÄâôΩ’…âÖ±∞à∞(ÄÄÄÄÄÄÄÅ¡’——ÃËÄâ—ïÖµA’——Ãà∞(ÄÄÄÄÄÄÄÅâïÕ–ÃËÄââïÕ–ÕΩò–à∞(ÄÄÄÄÄÄÄÅÖµâ…ΩÕîËÄâÖµâ…ΩÕîà∞(ÄÄÄÄÄÄÄÅÂï±±Ω›	Ö±∞ËÄâÂï±±Ω›	Ö±∞à∞(ÄÄÄÄÄÄÄÅÕç…Ö—ç†ËÄâÕç…Ö—ç†à∞(ÄÄÄÄÄÄÄÅπ—¿ËÄâπ—¿à∞(ÄÄÄÄÄÄÄÅ¡Ö»ÃËÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄÄÅ¡Ö»ÕÖùù…ïùÖ—îËÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄÄÅ¡Ö»Õ•πë•Ÿ•ë’Ö±Öùù…ïùÖ—îËÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄÄÅ¡Ö»Õ—ïÖ¥ËÄâ¡Ö»Ãà∞(ÄÄÄÄÄÄÄÅÕç…Ö—ç°Öùù…ïùÖ—îËÄâÕç…Ö—ç†à∞(ÄÄÄÄÄÄÄÅçÖ¡QïÖµÃËÄâçÖ¡QïÖµÃà∞(ÄÄÄÄÄÄÄÅïç±ïç—•åËÄâïç±ïç—•åà∞(ÄÄÄÄÄÅımëïòπ—Â¡ïtÅÒÅëïòπ—Â¡î(ÄÄÄÄ§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏ÅÕ’µµÖ…ÂA…•Èïï—Ö•±Ã°ëïò§ÅÏ(ÄÄÄÅ•òÄ°ëïòπÖ›Ö…ëÖâ±îÄÙÙÙÅôÖ±Õî§Å…ï—’…∏ÅÌ•êÈ±ïÖëï…âΩÖ…ë	ïπïô•—%ê°ëïò§±—ï·–Ëâ9Ω–Å¡¡±•çÖâ±îà±çΩπô•ù’…ïêÈôÖ±Õî±Ö›Ö…ëïêÈôÖ±ÕïÙÏ(ÄÄÄÅçΩπÕ–Å•êÄÙÅ±ïÖëï…âΩÖ…ë	ïπïô•—%ê°ëïò§∞(ÄÄÄÄÄÅ—ï·–ÄÙÅçΩµ¡ï—•—•Ωπ	ïπïô•—Qï·–°•ê∞ÅÕ—Ω…îπïŸïπ–πâïπïô•—Ã§∞(ÄÄÄÄÄÅçΩπô•ù’…ïêÄÙÅ—ï·–ÄÑÙÙÄâA…•ÈîÅπΩ–ÅÕï–à∞(ÄÄÄÄÄÅë•Õ¡±ÖÂQï·–ÄÙ(ÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâπ—¿àÄòòÅÕ—Ω…îπïŸïπ–¸ππ—¡)Öç≠¡Ω–ÄòòÅçΩπô•ù’…ïê(ÄÄÄÄÄÄÄÄÄÄ¸ÄâM°Ω›∏Åâ‰Å9Q@Å°Ω±îÅÖâΩŸîà(ÄÄÄÄÄÄÄÄÄÄËÅ—ï·–Ï(ÄÄÄÅ…ï—’…∏ÅÏ(ÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÅ—ï·–ËÅë•Õ¡±ÖÂQï·–∞(ÄÄÄÄÄÅçΩπô•ù’…ïê∞(ÄÄÄÄÄÅÖ›Ö…ëïêËÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–π¡…•ÈïÕ›Ö…ëïê¸πmëïòπ•ët§∞(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅÖÕÂπåÅô’πç—•Ω∏ÅÕï—A…•Èï›Ö…ëïê°ëïô%ê∞ÅÖ›Ö…ëïê§ÅÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡…•ÈïÕ›Ö…ëïêÄÙÅÕ—Ω…îπïŸïπ–π¡…•ÈïÕ›Ö…ëïêÅÒÅÌÙÏ(ÄÄÄÅ•òÄ°Ö›Ö…ëïê§(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡…•ÈïÕ›Ö…ëïëmëïô%ëtÄÙÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö…ëïë–ËÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÅï±ÕîÅëï±ï—îÅÕ—Ω…îπïŸïπ–π¡…•ÈïÕ›Ö…ëïëmëïô%ëtÏ(ÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»àÄòòÅÕ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§(ÄÄÄÄÄÅÖ›Ö•–Å’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…1ïÖëï…âΩÖ…ëM’µµÖ…‰°°ΩÕ–∞ÅëïôÃ∞ÅŸ•ï›QÖâÃ§ÅÏ(ÄÄÄÅçΩπÕ–Åù…Ω’¡ÃÄÙÅl(ÄÄÄÄÄÄ∏∏πïŸïπ—ÖÂÃ†§πµÖ¿°ëÖ‰ÄÙ¯Ä°Ì—•—±îËÅÄëÌÕ—Ω…îπïŸïπ–πëÖÂÃÙÙÙƒ¸âŸïπ–ÅIïÕ’±—ÃàÈÅÖ‰ÄëÌëÖÂÙÅIïÕ’±—ÕÅÙëÌçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…Õîà≠ëÖÂt§¸ππÖµîÄ¸ÅÄÉäPÄëÌçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…Õîà≠ëÖÂt§ππÖµïıÄÄËÄàâıÄ∞ÅëïôÃÈëïôÃπô•±—ï»°êÙ˘êπÕçΩ¡îÙÙıëÖ‰•Ù§§∞(ÄÄÄÄÄÅÌ—•—±îËâ=Ÿï…Ö±∞ÅŸïπ–ÅIïÕ’±—Ãà±ëïôÃÈëïôÃπô•±—ï»°êÙ˘êπÕçΩ¡îÙÙÙâΩŸï…Ö±∞à•Ù∞(ÄÄÄÅtπô•±—ï»°ù…Ω’¿Ù˘ù…Ω’¿πëïôÃπ±ïπù—†§Ï(ÄÄÄÅçΩπÕ–ÅΩ…ùÖπ•Õï»ÄÙÄÖÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰ÄòòÄÖlâ¡±ÖÂï»à∞âÕ¡ïç—Ö—Ω»âtπ•πç±’ëïÃ°Õ—Ω…îπç±Ω’ê¸π…Ω±î§∞(ÄÄÄÄÄÅïŸïπ—Ωµ¡±ï—îÄÙÅïŸïπ—ÖÂÃ†§πïŸï…‰°ïŸïπ—ÖÂΩµ¡±ï—î§∞(ÄÄÄÄÄÅïŸïπ—±ΩÕïêÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–§Ï(ÄÄÄÅ±ï–ÅïŸïπ—Ωπ—…Ω∞ÄÙÄààÏ(ÄÄÄÅ•òÄ°Ω…ùÖπ•Õï»ÄòòÅïŸïπ—±ΩÕïê§ÅÏ(ÄÄÄÄÄÅïŸïπ—Ωπ—…Ω∞ÄÙÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâô•π•Õ°Ωπ—…Ω∞à¯Ò†Ã˘Ÿïπ–Å±ΩÕïêÉäPÅ5ïÕÕÖùïÃÅIïÖë‰Ω†Ã¯Ò¿˘Q°îÅçΩπô•…µïêÅ…ïÕ’±—ÃÅÖπêÅ¡ï…ÕΩπÖ∞Åô•π•Õ°•πúÅµïÕÕÖùïÃÅÖ…îÅπΩ‹ÅÖŸÖ•±Öâ±îÅΩ∏ÅïŸï…‰ÅçΩππïç—ïêÅ¡±ÖÂï»Å¡°Ωπî∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâô•π•Õ°5ïÕÕÖùïA…ïŸ•ï‹à¯ëÌëÖÂ•ï±ë%ëÃ†ƒ§(ÄÄÄÄÄÄÄÄπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§(ÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¥ÄÙÅô•πÖ±5ïÕÕÖùïΩ…A±ÖÂï»°•ê§Ï(ÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿ¯Òà¯ëÌïÕå°¡±ÖÂï»°•ê§¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩà¯ÒÕ¡Ö∏¯ëÌïÕå°¥π°ïÖë•πú•ÙëÌ¥πµïÕÕÖùîÄ¸ÅÄÄëÌïÕå°¥πµïÕÕÖùî•ıÄÄËÄàâÙÒÕµÖ±∞Åç±ÖÕÃÙâÕçΩ…•πù…ïë•–à¯ëÌïÕå°¥πÕçΩ…•πù…ïë•–•ÙΩÕµÖ±∞¯ΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯Òâ’——Ω∏Åç±ÖÕÃÙâô•π•Õ°Ÿïπ—	—∏àÅ•êÙâÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–à˘1=MÅ9ÅI!%YÅ=5A1QÅY9PΩâ’——Ω∏¯Ò¿˘•πÖ∞Å…ïÕ’±—ÃÅ…ïµÖ•∏ÅÖŸÖ•±Öâ±îÅ•∏ÅAÖÕ–ÅŸïπ—Ã∏ÅΩππïç—ïêÅ¡°ΩπïÃÅÖ…îÅ…ï±ïÖÕïêÅôΩ»Å—°ï•»Åπï·–ÅïŸïπ–∏Ω¿¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅÙÅï±ÕîÅ•òÄ°Ω…ùÖπ•Õï»ÄòòÄÖïŸïπ—Ωµ¡±ï—îÄòòÅïŸïπ—ÖÂÃ†§πÕΩµî°ïŸïπ—ÖÂΩµ¡±ï—î§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åπï·–ÄÙÅïŸïπ—ÖÂÃ†§πô•πê°ëÖ‰Ù¯ÖïŸïπ—ÖÂΩµ¡±ï—î°ëÖ‰§§Ï(ÄÄÄÄÄÅïŸïπ—Ωπ—…Ω∞ÄÙÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâô•π•Õ°Ωπ—…Ω∞ÅëÖÂΩµ¡±ï—ïΩπ—…Ω∞à¯Ò†Ã˘Ωµ¡±ï—ïêÅëÖÂÃÅçÖ∏ÅâîÅÖ›Ö…ëïêÉäPÅŸïπ–ÅIïµÖ•πÃÅ=¡ï∏Ω†Ã¯Ò¿˘Ωµ¡±ï—îÅ—°îÅ…ïµÖ•π•πúÅëÖÂÃÅâïôΩ…îÅç±ΩÕ•πúÅ—°îÅ—…•¿∏Ω¿¯Òâ’——Ω∏Åç±ÖÕÃÙâô•π•Õ°Ÿïπ—	—∏àÅ•êÙâΩ¡ïπ9ï·—ÖÂ	—∏àÅëÖ—Ñµπï·—ëÖ‰ÙàëÌπï·—Ùà˘=A8ÅdÄëÌπï·—ÙΩâ’——Ω∏¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅÙÅï±ÕîÅ•òÄ°Ω…ùÖπ•Õï»ÄòòÄÖïŸïπ—Ωµ¡±ï—î§ÅÏ(ÄÄÄÄÄÅïŸïπ—Ωπ—…Ω∞ÄÙÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâô•π•Õ°Ωπ—…Ω∞ÅïŸïπ—%πA…Ωù…ïÕÃà¯Ò†Ã˘Ÿïπ–Å%∏ÅA…Ωù…ïÕÃΩ†Ã¯Ò¿˘Ωµ¡±ï—îÅ—°îÅ…ïµÖ•π•πúÅÕçΩ…•πúÅâïôΩ…îÅç±ΩÕ•πúÅ—°îÅïŸïπ–∏ÅA…•ÈïÃÅôΩ»ÅÑÅçΩµ¡±ï—ïêÅëÖ‰ÅçÖ∏ÅÕ—•±∞ÅâîÅÖ›Ö…ëïêÅÖâΩŸî∏Ω¿¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅÙÅï±ÕîÅ•òÄ°Ω…ùÖπ•Õï»§ÅÏ(ÄÄÄÄÄÅïŸïπ—Ωπ—…Ω∞ÄÙÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâô•π•Õ°Ωπ—…Ω∞à¯Ò†Ã˘•π•Õ†Å—°îÅŸïπ–Ω†Ã¯Ò¿˘IïŸ•ï‹Å—°îÅ…ïÕ’±—Ã∞Å…ïçΩ…êÅ—°îÅ¡…•ÈïÃ∞Å—°ï∏ÅçΩπô•…¥Å—°îÅ…ïÕ’±—ÃÅÖπêÅç±ΩÕîÅ—°îÅïŸïπ–∏Ω¿¯Òâ’——Ω∏Åç±ÖÕÃÙâô•π•Õ°Ÿïπ—	—∏àÅ•êÙâô•π•Õ°Ÿïπ—	—∏à˘=9%I4ÅIMU1QLÄôÖµ¿ÏÅ1=MÅY9PΩâ’——Ω∏¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡ÖÕ—Ÿïπ—9Ω—•çîÄÙÅÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰(ÄÄÄÄÄÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâç±Ω’ë9Ω—îà¯Òà˘AÖÕ–ÅŸïπ–ÅIïÕ’±—ÃΩà¯ÒÕ¡Ö∏˘Q°•ÃÅ•ÃÅÑÅë•ÕçΩππïç—ïêÅÕÖŸïêÅçΩ¡‰∏Å%—ÃÅΩ±êÅ¡±ÖÂï»Å©Ω•∏ÅçΩëîÅ…ïµÖ•πÃÅ•πÖç—•Ÿî∏ΩÕ¡Ö∏¯Ωë•ÿ¯ú(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄëÌ¡ÖÕ—Ÿïπ—9Ω—•çïÙÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…!ïÖêà¯Òë•ÿ¯Ò†»˘IïÕ’±—ÃÅM’µµÖ…‰Ω†»¯Ò¿¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙÉ
+‹ÄëÌÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰Ä¸Äâ…ï—Ö•πïêÅô•πÖ∞Å…ïÕ’±—ÃàÄËÄâ›•ππï…ÃÅÖπêÅ¡…•ÈîÅù•Ÿ•πúâÙΩ¿¯Ωë•ÿ¯ëÌÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰Ä¸ÄààÄËÄúÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Å±ïÖëï…Iïô…ïÕ†àÅ•êÙâ±ïÖëï…Iïô…ïÕ†à˘Iïô…ïÕ†Ωâ’——Ω∏¯ùÙΩë•ÿ¯ëÌŸ•ï›QÖâÕÙÒë•ÿÅç±ÖÕÃÙâÕ’µµÖ…Â…Ω’¡Ãà¯ëÌù…Ω’¡Ã(ÄÄÄÄÄÄπµÖ¿†(ÄÄÄÄÄÄÄÄ°ú§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâÕ’µµÖ…ÂÖ…êà¯Ò†Ã¯ëÌúπ—•—±ïÙΩ†Ã¯ëÌúπëïôÃ(ÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å»ÄÙÅÕ’µµÖ…ÂΩµ¡ï—•—•ΩπIïÕ’±–°ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ¿ÄÙÅÕ’µµÖ…ÂA…•Èïï—Ö•±Ã°ê§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÖ›Ö…ëÖâ±îÄÙÅ»πÖ›Ö…ëÖâ±îÄÑÙÙÅôÖ±ÕîÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâÕ’µµÖ…ÂIïÕ’±–ÄëÌÖ›Ö…ëÖâ±îÄòòÅ¿πÖ›Ö…ëïêÄ¸ÄâÖ›Ö…ëïêàÄËÄàâÙàÅëÖ—ÑµÕ’µµÖ…ÂΩ¡ï∏ÙàëÌêπ•ëÙàÅ…Ω±îÙââ’——Ω∏àÅ—Öâ•πëï‡Ùà¿à¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÕ’µµÖ…ÂŸïπ–à¯Òà¯ëÌïÕå°êπ±Öâï∞•ÙΩà¯ÒÕµÖ±∞¯ëÌïÕå°»πÕ—Ö—’ÃÅÒÄ°»πçΩµ¡±ï—îÄ¸ÄâΩµ¡±ï—ïêàÄËÄâ%∏ÅA…Ωù…ïÕÃà§•ÙΩÕµÖ±∞¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÕ’µµÖ…Â=’—çΩµîà¯ÒÕ—…Ωπú¯ëÌlâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°êπ—Â¡î§Ä¸ÅïÕå°»π—ï·–§π…ï¡±Öçî†øä"H†¸ıqê§Ωú∞ÄúÒÕ¡Ö∏Åç±ÖÕÃÙâÕç…Ö—ç°5•π’Ãà˚ä"HΩÕ¡Ö∏¯ú§ÄËÅïÕå°»π—ï·–•ÙΩÕ—…Ωπú¯ëÌÖ›Ö…ëÖâ±îÄ¸ÅÄÒÕµÖ±∞Åç±ÖÕÃÙâÕ’µµÖ…ÂA…•ÈîÄëÌ¿πçΩπô•ù’…ïêÄ¸ÄààÄËÄâπΩ—Mï–âÙà˘A…•ÈîËÄëÌïÕå°¿π—ï·–•ÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâÕ’µµÖ…Âç—•ΩπÃà¯ëÌÖ›Ö…ëÖâ±îÄòòÅ¿πÖ›Ö…ëïêÄ¸ÅÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•Èï›Ö…ëïêàÅëÖ—Ñµ¡…•ÈïÖ›Ö…êÙàëÌêπ•ëÙàÅëÖ—ÑµÖ›Ö…ëïêÙàƒà˚ärLÅ›Ö…ëïêΩâ’——Ω∏˘ÄÄËÅΩ…ùÖπ•Õï»ÄòòÅÖ›Ö…ëÖâ±îÄòòÅ»πçΩµ¡±ï—îÄòòÅ¿πçΩπô•ù’…ïêÄ¸ÅÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡…•Èï›Ö…êàÅëÖ—Ñµ¡…•ÈïÖ›Ö…êÙàëÌêπ•ëÙà˚ärLÅ›Ö…êÅA…•ÈîΩâ’——Ω∏˘ÄÄËÄàâÙÒï¥˚äËΩï¥¯ΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩÕïç—•Ω∏˘Ä∞(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄπ©Ω•∏†àà•ÙΩë•ÿ¯ëÌïŸïπ—Ωπ—…Ω±ÙÒ¿Åç±ÖÕÃÙâ±ïÖëï…9Ω—îà˘QÖ¿ÅÑÅ…ïÕ’±–Å—ºÅΩ¡ï∏Å•—ÃÅô’±∞ÅÕ—Öπë•πùÃ∏Å›Ö…ëïêÅ¡…•ÈïÃÅ…ïµÖ•∏Å…ïçΩ…ëïêÅ°ï…îÅÖπêÅÖ…îÅÕ°Ö…ïêÅ›•—†ÅçΩππïç—ïêÅ¡°ΩπïÃ∏Ω¿˘ÄÏ(ÄÄÄÄêê†âmëÖ—ÑµÕ’µµÖ…ÂΩ¡ïπtà§πôΩ…Öç††°à§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩ¡ï∏ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅêÄÙÅëïôÃπô•πê†°‡§ÄÙ¯Å‡π•êÄÙÙÙÅàπëÖ—ÖÕï–πÕ’µµÖ…ÂΩ¡ï∏§Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙ(ÄÄÄÄÄÄÄÄÄÅê¸πÕçΩ¡îÄÙÙÙÄâΩŸï…Ö±∞à(ÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅïŸïπ—ÖÂÃ†§π±ïπù—†(ÄÄÄÄÄÄÄÄÄÄÄÄËÅê¸πÕçΩ¡îÅÒÄƒÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëQÖàÄÙÅàπëÖ—ÖÕï–πÕ’µµÖ…ÂΩ¡ï∏Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅàπΩπç±•ç¨ÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†Öîπ—Ö…ùï–πç±ΩÕïÕ–†âmëÖ—Ñµ¡…•ÈïÖ›Ö…ëtà§§ÅΩ¡ï∏†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅàπΩπ≠ïÂëΩ›∏ÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄ°îπ≠ï‰ÄÙÙÙÄâπ—ï»àÅÒÅîπ≠ï‰ÄÙÙÙÄàÄà§Äòò(ÄÄÄÄÄÄÄÄÄÄÖîπ—Ö…ùï–πç±ΩÕïÕ–†âmëÖ—Ñµ¡…•ÈïÖ›Ö…ëtà§(ÄÄÄÄÄÄÄÄ§ÅÏ(ÄÄÄÄÄÄÄÄÄÅîπ¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÄÄÅΩ¡ï∏†§Ï(ÄÄÄÄÄÄÄÅÙ(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄêê†âmëÖ—Ñµ¡…•ÈïÖ›Ö…ëtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÅÖÕÂπåÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅîπÕ—Ω¡A…Ω¡ÖùÖ—•Ω∏†§Ï(ÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å›ÖÕ›Ö…ëïêÄÙÅàπëÖ—ÖÕï–πÖ›Ö…ëïêÄÙÙÙÄàƒàÏ(ÄÄÄÄÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÄÄÄÅ›ÖÕ›Ö…ëïêÄòò(ÄÄÄÄÄÄÄÄÄÄÄÄÖçΩπô•…¥†â°ÖπùîÅ—°•ÃÅ¡…•ÈîÅâÖç¨Å—ºÅπΩ–ÅÂï–ÅÖ›Ö…ëïê¸à§(ÄÄÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÄÄÄÄÅÖ›Ö•–ÅÕï—A…•Èï›Ö…ëïê°àπëÖ—ÖÕï–π¡…•ÈïÖ›Ö…ê∞ÄÖ›ÖÕ›Ö…ëïê§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àç±ïÖëï…Iïô…ïÕ†à§§(ÄÄÄÄÄÄê†àç±ïÖëï…Iïô…ïÕ†à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–ÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅ•òÄ†ê†àçô•π•Õ°Ÿïπ—	—∏à§§(ÄÄÄÄÄÄê†àçô•π•Õ°Ÿïπ—	—∏à§πΩπç±•ç¨ÄÙÅçΩπô•…µIïÕ’±—Õπë±ΩÕïŸïπ–Ï(ÄÄÄÅ•òÄ†ê†àçÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–à§§(ÄÄÄÄÄÄê†àçÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–à§πΩπç±•ç¨ÄÙÅÖ…ç°•ŸïΩµ¡±ï—ïëŸïπ–Ï(ÄÄÄÅ•òÄ†ê†àçΩ¡ïπ9ï·—ÖÂ	—∏à§§(ÄÄÄÄÄÄê†àçΩ¡ïπ9ï·—ÖÂ	—∏à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙÄ¨ê†àçΩ¡ïπ9ï·—ÖÂ	—∏à§πëÖ—ÖÕï–ππï·—ëÖ‰Ï(ÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…1ïÖëï…âΩÖ…ê†§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç±ïÖëï…âΩÖ…ë·¡ï…•ïπçîà§Ï(ÄÄÄÅçΩπÕ–Å¡…ïŸ•Ω’ÕQÖâMç…Ω±∞ÄÙÅ°ΩÕ–¸π≈’ï…ÂMï±ïç—Ω»†àπ±ïÖëï…QÖâÃà§¸πÕç…Ω±±1ïô–Ä¸¸Ä¨°Õ—Ω…îπïŸïπ–¸π±ïÖëï…âΩÖ…ëMç…Ω±±1ïô–ÅÒÄ¿§Ï(ÄÄÄÅ•òÄ†Ö°ΩÕ–§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙ(ÄÄÄÄÄÄÄÄúÒë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò†»˘1ïÖëï…âΩÖ…êΩ†»¯Ò¿˘…ïÖ—îÅÖ∏ÅïŸïπ–Åô•…Õ–∏Ω¿¯Ωë•ÿ¯úÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅëïôÃÄÙÅ±ïÖëï…âΩÖ…ëïô•π•—•ΩπÃ†§Ï(ÄÄÄÅ•òÄ†ÖëïôÃπ±ïπù—†§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙ(ÄÄÄÄÄÄÄÄúÒë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò†»˘1ïÖëï…âΩÖ…êΩ†»¯Ò¿˘9ºÅÕçΩ…ïêÅçΩµ¡ï—•—•ΩπÃÅ›ï…îÅÕï±ïç—ïêÅôΩ»Å—°•ÃÅïŸïπ–∏Ω¿¯Ωë•ÿ¯úÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒÏ(ÄÄÄÅ±ï–ÅŸ•ï‹ÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÅÒ(ÄÄÄÄÄÅ5Ö—†πµ•∏†(ÄÄÄÄÄÄÄÅëÖÂÃ∞(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÅÒÅÕ—Ω…îπïŸïπ–πÖç—•Ÿï…Ω’¡Ö‰ÅÒÄƒ∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅ•òÄ°ëÖÂÃÄÙÙÙÄƒÄòòÅŸ•ï‹ÄÑÙÙÄâÕ’µµÖ…‰à§ÅŸ•ï‹ÄÙÄƒÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙÅŸ•ï‹Ï(ÄÄÄÅçΩπÕ–ÅŸ•ï›QÖâÃÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…Y•ï›QÖâÃÅµ’±—•ÖÂQÖâÃà¯ëÌïŸïπ—ÖÂÃ†§πµÖ¿°ëÖ‰Ù˘ÄÒâ’——Ω∏ÅëÖ—Ñµ±ïÖëï…Ÿ•ï‹ÙàëÌëÖÂÙàÅç±ÖÕÃÙàëÏ≠Ÿ•ï‹ÙÙıëÖ‰¸âÖç—•ŸîàËàâÙà¯ëÌëÖÂÃÙÙÙƒ¸âQΩëÖ‰àÈÅÖ‰ÄëÌëÖÂıÅÙΩâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙÒâ’——Ω∏ÅëÖ—Ñµ±ïÖëï…Ÿ•ï‹ÙâÕ’µµÖ…‰àÅç±ÖÕÃÙàëÌŸ•ï‹ÙÙÙâÕ’µµÖ…‰à¸âÖç—•ŸîàËàâÙà˘M’µµÖ…‰Ωâ’——Ω∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÅ•òÄ°Ÿ•ï‹ÄÙÙÙÄâÕ’µµÖ…‰à§ÅÏ(ÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ëM’µµÖ…‰°°ΩÕ–∞ÅëïôÃ∞ÅŸ•ï›QÖâÃ§Ï(ÄÄÄÄÄÄêê†âmëÖ—Ñµ±ïÖëï…Ÿ•ï›tà§πôΩ…Öç††(ÄÄÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅàπëÖ—ÖÕï–π±ïÖëï…Ÿ•ï‹ÄÙÙÙÄâÕ’µµÖ…‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄâÕ’µµÖ…‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÄ≠àπëÖ—ÖÕï–π±ïÖëï…Ÿ•ï‹Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅŸ•Õ•â±îÄÙÅëïôÃπô•±—ï»†(ÄÄÄÄÄÄ°ê§ÄÙ¯(ÄÄÄÄÄÄÄÅêπÕçΩ¡îÄÙÙÙÄ≠Ÿ•ï‹ÅÒ(ÄÄÄÄÄÄÄÄ°êπÕçΩ¡îÄÙÙÙÄâΩŸï…Ö±∞à§∞(ÄÄÄÄ§Ï(ÄÄÄÅ±ï–ÅÖç—•ŸîÄÙÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëQÖàÅÒÅŸ•Õ•â±ïl¡t¸π•êÏ(ÄÄÄÅ•òÄ†ÖŸ•Õ•â±îπÕΩµî†°ê§ÄÙ¯Åêπ•êÄÙÙÙÅÖç—•Ÿî§§ÅÖç—•ŸîÄÙÅŸ•Õ•â±ïl¡t¸π•êÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëQÖàÄÙÅÖç—•ŸîÏ(ÄÄÄÅçΩπÕ–ÅëïòÄÙÅŸ•Õ•â±îπô•πê†°ê§ÄÙ¯Åêπ•êÄÙÙÙÅÖç—•Ÿî§Ï(ÄÄÄÅçΩπÕ–Å—ÖâÃÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…QÖâÃà¯ëÌŸ•Õ•â±îπµÖ¿†°ê§ÄÙ¯ÅÄÒâ’——Ω∏ÅëÖ—Ñµ±ïÖëï…—ÖàÙàëÌêπ•ëÙàÅç±ÖÕÃÙàëÌêπ•êÄÙÙÙÅÖç—•ŸîÄ¸ÄâÖç—•ŸîàÄËÄàâÙà¯ëÌïÕå°êπ±Öâï∞•ÙΩâ’——Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ˘ÄÏ(ÄÄÄÅ±ï–ÅâΩë‰ÄÙÄààÏ(ÄÄÄÅ•òÄ°ëïòπ—Â¡îÄÙÙÙÄâπ—¿à§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åπ—¡Ωµ¡±ï—îÄÙÅ±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Åmt§Ï(ÄÄÄÄÄÅâΩë‰ÄÙ(ÄÄÄÄÄÄÄÅπ—¡!Ω±ïÕ%πA±ÖÂ•πù=…ëï»°ëïòπëÖ‰§(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å°•Õ—Ω…‰ÄÙÅπ—¡!•Õ—Ω…‰°ëïòπëÖ‰∞Å†§Ï(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒÕïç—•Ω∏Åç±ÖÕÃÙâπ—¡!•Õ—Ω…Â	±Ωç¨à¯Ò†–˘!Ω±îÄëÌ°ÙΩ†–¯ëÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°•Õ—Ω…‰π±ïπù—†(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Å°•Õ—Ω…‰(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπµÖ¿†°ïπ—…‰∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å›•ππï»ÄÙÅ§ÄÙÙÙÅ°•Õ—Ω…‰π±ïπù—†Ä¥Äƒ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ—•µîÄÙÅπï‹ÅÖ—î°ïπ—…‰πÖ–§π—Ω1ΩçÖ±ïQ•µïM—…•πú†âï∏µTà∞ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ°Ω’»ËÄâπ’µï…•åà∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅµ•π’—îËÄà»µë•ù•–à∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ§Ï(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâπ—¡!•Õ—Ω…Âπ—…‰ÄëÌ›•ππï»Ä¸Äâ›•ππï»àÄËÄàâÙà¯ÒÕ¡Ö∏¯ëÌ›•ππï»Ä¸ÄàÒà˘]•ππï»ËΩà¯ÄàÄËÄàâÙëÌïÕå°ïŸïπ—A±ÖÂï…9Öµî°ïπ—…‰π•ê±ëïòπëÖ‰§•ÙΩÕ¡Ö∏¯Ò—•µî¯ëÌïÕå°—•µî•ÙΩ—•µî¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅµÖπ’Ö±ÖÂM—Ω…î°ëïòπëÖ‰∞ÅôÖ±Õî§¸ππ—¿¸πmM—…•πú°†•t(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄàÒ¿˘]•ππï»Å•π¡’–ÅµÖπ’Ö±±‰Ω¿¯à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÄàÒ¿˘9ºÅçΩπô•…µïêÅ°Ω±ëï»ÅÂï–Ω¿¯à(ÄÄÄÄÄÄÄÄÄÄÄÅÙÒ¿Åç±ÖÕÃÙâπ—¡A…•ÈïIïÕ’±–à¯ëÌïÕå°π—¡M’µµÖ…Â1•πî°ëïòπëÖ‰∞Å†∞Åπ—¡Ωµ¡±ï—î§•ÙΩ¿¯ΩÕïç—•Ω∏˘ÄÏ(ÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§ÅÒÄúÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…µ¡—‰à˘9ºÅ9Q@Å°Ω±ïÃÅÕï±ïç—ïê∏Ωë•ÿ¯úÏ(ÄÄÄÅÙÅï±ÕîÅÏ(ÄÄÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅçÖ±ç’±Ö—ï1ïÖëï…âΩÖ…ê°ëïò§∞(ÄÄÄÄÄÄÄÅçΩµ¡ï—•—•ΩπΩµ¡±ï—îÄÙÅ±ïÖëï…âΩÖ…ëΩµ¡±ï—î°ëïò∞Å…Ω›Ã§∞(ÄÄÄÄÄÄÄÅ’π•–ÄÙÅëïòπ—Â¡îÄÙÙÙÄâ¡’——ÃàÄ¸Äâ¡’——ÃàÄËÅlâÕ—…Ω≠ï…ΩÕÃà∞âÕ—…Ω≠ï9ï–âtπ•πç±’ëïÃ°ëïòπ—Â¡î§Ä¸ÄâÕ—…Ω≠ïÃàÄËÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîàÄ¸Äâπï–àÄËÄâ¡—Ãà∞(ÄÄÄÄÄÄÄÅ—ΩAÖ»ÄÙÄ°∏§ÄÙ¯Ä°∏ÄÙÙÙÄ¿Ä¸ÄâàÄËÅ∏Ä¯Ä¿Ä¸ÅÄ¨ëÌπıÄÄËÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâÕç…Ö—ç°5•π’Ãà˚ä"HΩÕ¡Ö∏¯ëÌ5Ö—†πÖâÃ°∏•ıÄ§Ï(ÄÄÄÄÄÅâΩë‰ÄÙ(ÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÄòòÄÖçΩµ¡ï—•—•ΩπΩµ¡±ï—î(ÄÄÄÄÄÄÄÄÄÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…µ¡—‰ÅÂï±±Ω›	Ö±±!•ëëï∏à¯Òà˘IïÕ’±–ÅÖππΩ’πçïêÅÖ–Å—°îÅïπêÅΩòÅ¡±Ö‰Ωà¯ÒÕ¡Ö∏˘eï±±Ω‹Å	Ö±∞ÅÕ—Öπë•πùÃÅ…ïµÖ•∏Å°•ëëï∏Å’π—•∞ÅïŸï…‰ÅÕçΩ…ïçÖ…êÅôΩ»Å—°îÅëÖ‰Å•ÃÅçΩµ¡±ï—îÅÖπêÅÖù…ïïê∏ΩÕ¡Ö∏¯Ωë•ÿ¯ú(ÄÄÄÄÄÄÄÄÄÄËÅ…Ω›Ã(ÄÄÄÄÄÄÄÄÄÄπµÖ¿†°»∞Å§§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å›Ö•—•πúÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ëïòπ—Â¡îÄÙÙÙÄâ¡’——ÃàÅÒÅëïòπ—Â¡îÄÙÙÙÄââïÕ–Ãà§ÄòòÄÖ»π—°…‘∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…Ω›Ωµ¡±ï—îÄÙÅ»π—°…‘ÄÙÙÙÅ»π—Ö…ùï–∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•Õ•πÖ∞ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅçΩµ¡ï—•—•ΩπΩµ¡±ï—îÄòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÅÒÅ…Ω›Ωµ¡±ï—î§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕçΩ…îÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅlâÕç…Ö—ç†à∞ÄâÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Å•Õ•πÖ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ»πù…ΩÕÕQΩ—Ö±ÙÄÒÕµÖ±∞˘Õ—…Ω≠ïÃÄ†ëÌ—ΩAÖ»°»πÕç…Ö—ç°QΩAÖ»•Ù§ΩÕµÖ±∞˘Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ—ΩAÖ»°»πÕç…Ö—ç°QΩAÖ»§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Å…Ω›Ωµ¡±ï—îÄòòÅ»π°Öπë•çÖ¿ÄÑÙÅπ’±∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ»π—Ω—Ö∞π—Ω•·ïê†ƒ•ÙÄÒÕµÖ±∞˘πï–ΩÕµÖ±∞˘Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÄëÌ»πù…ΩÕÕQΩ—Ö±ÙÄÒÕµÖ±∞˘ù…ΩÕÃΩÕµÖ±∞˘Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÄëÌ»π—Ω—Ö±ÙÄÒÕµÖ±∞¯ëÌ’π•—ÙΩÕµÖ±∞˘ÄÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ•òÄ°»πë•Õ≈’Ö±•ô•ïê§(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…IΩ‹ÅÕç…Ö—ç°•Õ≈’Ö±•ô•ïêà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…IÖπ¨à˚äPΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…9Öµîà¯ëÌïÕå°»ππÖµî•ÙÒÕµÖ±∞¯ëÌëïòπ—Â¡îÄÙÙÙÄâçΩµâ•πïêàÄ¸Äâ9Ω–Åï±•ù•â±îÅôΩ»ÅΩŸï…Ö±∞Å¡…•ÈîàÄËÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîàÄ¸ÄâIï≈’•…ïêÅ…•ŸïÃÅ9Ω–ÅIïçΩ…ëïêàÄËÄâ]•—°ë…Ö›∏Åô…Ω¥Å—°•ÃÅΩµ¡ï—•—•Ω∏âÙΩÕµÖ±∞¯ΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…MçΩ…îà˚äPΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…Q°…‘à¯ëÌlâÖµâ…ΩÕîà∞âçΩµâ•πïêà∞âÕç…Ö—ç°Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§Ä¸ÅïÕå°»πë•Õ≈’Ö±•ô•çÖ—•ΩπIïÖÕΩ∏ÅÒÄâIï≈’•…ïµïπ—ÃÅπΩ–ÅÕÖ—•Õô•ïêà§ÄËÅÅA•ç¨µ’¿ÅΩ∏Å!Ω±îÄëÌ»π¡•ç≠’¡!Ω±ïıÅÙΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–Å¡…Ωù…ïÕÃÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Å»π±ΩÕÃ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅ	Ö±∞Å±ΩÕ–É
+‹Å!Ω±îÄëÌ»π±ΩÕÃπ°Ω±ïÙÉ
+‹ÄëÌ»πÕ’…Ÿ•ŸïëÙÅÕ’…Ÿ•ŸïëÄ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ•Õ•πÖ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâ•πÖ∞É
+‹Å	Ö±∞ÅçΩµ¡±ï—ïêÄƒ‡Å°Ω±ïÃà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÅ	Ö±∞ÅÖ±•ŸîÉ
+‹ÅQ°…‘ÄëÌ»π—°…’ıÄ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅëïòπ—Â¡îÄÙÙÙÄâÖµâ…ΩÕîàÄòòÅ…Ω›Ωµ¡±ï—îÄòòÄÖçΩµ¡ï—•—•ΩπΩµ¡±ï—î(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÄëÌ»πù…ΩÕÕQΩ—Ö±ÙÅù…ΩÕÃÉ
+‹ÄëÌ»π°Öπë•çÖ¿ÄÙÙÅπ’±∞Ä¸ÄâπºÅ°Öπë•çÖ¿àÄËÅÄëÌ»π°Öπë•çÖ¿π—Ω•·ïê†ƒ•ÙÅ°ç¡ÅÙÉ
+‹ÅA…ΩŸ•Õ•ΩπÖ±Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ•Õ•πÖ∞(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸Äâ•πÖ∞à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅÅQ°…‘ÄëÌ»π—°…’ıÄÏ(ÄÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…IΩ‹ÄëÌëïòπ—Â¡îÄÙÙÙÄâïç±ïç—•åàÄ¸Äâïç±ïç—•çÖ•πIΩ‹àÄËÄàâÙÄëÌ§ÄÙÙÙÄ¿ÄòòÅçΩµ¡ï—•—•ΩπΩµ¡±ï—îÄòòÄ°»π—°…‘ÅÒÅëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞à§Ä¸Äâ›•ππï»àÄËÄàâÙÄëÌ›Ö•—•πúÄ¸Äâ›Ö•—•πù5Ö…≠ï»àÄËÄàâÙà¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…IÖπ¨à¯ëÌ»π—•ïêÄ¸ÄâPàÄËÄàâÙëÌ»π…Öπ≠ÙΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…9Öµîà¯ëÌïÕå°»ππÖµî•ÙëÌëïòπ—Â¡îÄÙÙÙÄâïç±ïç—•åàÄ¸ÅÄÒÕµÖ±∞¯Òà˘AΩ•π—ÃÅÖ•πïêΩà¯ÄëÌ»π¡Ω•π—ÕÖ•πïëÙÅ¡—ÃΩÕµÖ±∞˘ÄÄËÅ»πëï—Ö•∞Ä¸ÅÄÒÕµÖ±∞¯ëÌïÕå°»πëï—Ö•∞•ÙΩÕµÖ±∞˘ÄÄËÄàâÙΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…MçΩ…îà¯ëÌ›Ö•—•πúÄ¸ÄãäPàÄËÅÄëÌÕçΩ…ïÙëÌ»πçàÄ¸ÄàÄÒÕµÖ±∞˘ΩÕµÖ±∞¯àÄËÄàâıÅÙΩÕ¡Ö∏¯ÒÕ¡Ö∏Åç±ÖÕÃÙâ±ïÖëï…Q°…‘à¯ëÌ›Ö•—•πúÄ¸Äâ]Ö•—•πúÅôΩ»Å5Ö…≠ï»Å—ºÅMçΩ…îàÄËÅ¡…Ωù…ïÕÕÙΩÕ¡Ö∏¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄÄπ©Ω•∏†àà§ÅÒ(ÄÄÄÄÄÄÄÄúÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…µ¡—‰à˘9ºÅï±•ù•â±îÅMç…Ö—ç†Å¡±ÖÂï…ÃÅÖ…îÅÖŸÖ•±Öâ±î∏Ωë•ÿ¯úÏ(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å¡Ö»ÕÖ‰ÄÙÅ5Ö—†πµ•∏°ïŸïπ—ÖÂÃ†§π±ïπù—†∞Å5Ö—†πµÖ‡†ƒ∞Ä≠Ÿ•ï‹ÅÒÄƒ§§∞(ÄÄÄÄÄÅ¡Ö»ÕYï…Õ•Ω∏ÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°¡Ö»ÕÖ‰§∞(ÄÄÄÄÄÅ¡Ö»ÕΩ’π–ÄÙÄ°¡Ö»ÕYï…Õ•Ω∏π¡Ö»ÅÒÅmt§πô•±—ï»†°¡Ö»§ÄÙ¯Ä≠¡Ö»ÄÙÙÙÄÃ§π±ïπù—†∞(ÄÄÄÄÄÅ¡Ö»ÕQΩ—Ö∞ÄÙÅlâ¡Ö»Ãà∞Äâ¡Ö»Õ—ïÖ¥à∞Äâ¡Ö»ÕÖùù…ïùÖ—îà∞Äâ¡Ö»Õ•πë•Ÿ•ë’Ö±Öùù…ïùÖ—îâtπ•πç±’ëïÃ°ëïòπ—Â¡î§(ÄÄÄÄÄÄÄÄ¸ÅÄÒÕ¡Ö∏Åç±ÖÕÃÙâ¡Ö»ÕQΩ—Ö∞à˘QΩ—Ö∞ÅAÖ»ÄÃÅ!Ω±ïÃÄÒà¯ëÌëïòπëÖ‰Ä¸Å¡Ö»ÕΩ’π–ÄËÅïŸïπ—ÖÂÃ†§π…ïë’çî†°∏±ëÖ‰§ÄÙ¯Å∏Ä¨Ä°ïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰§π¡Ö»ÅÒÅmt§πô•±—ï»°¿ÄÙ¯Ä≠¿ÄÙÙÙÄÃ§π±ïπù—†∞¿•ÙΩà¯ΩÕ¡Ö∏˘Ä(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–Å¡ÖÕ—Ÿïπ—9Ω—•çîÄÙÅÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰(ÄÄÄÄÄÄ¸ÄúÒë•ÿÅç±ÖÕÃÙâç±Ω’ë9Ω—îà¯Òà˘AÖÕ–ÅŸïπ–ÅIïÕ’±—ÃΩà¯ÒÕ¡Ö∏˘Q°•ÃÅ•ÃÅÑÅë•ÕçΩππïç—ïêÅÕÖŸïêÅçΩ¡‰∏Å%—ÃÅΩ±êÅ¡±ÖÂï»Å©Ω•∏ÅçΩëîÅ…ïµÖ•πÃÅ•πÖç—•Ÿî∏ΩÕ¡Ö∏¯Ωë•ÿ¯ú(ÄÄÄÄÄÄËÄààÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄëÌ¡ÖÕ—Ÿïπ—9Ω—•çïÙÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…!ïÖêà¯Òë•ÿ¯Ò†»¯ëÌÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰Ä¸Äâ•πÖ∞ÅIïÕ’±—ÃàÄËÄâ1•ŸîÅ1ïÖëï…âΩÖ…êâÙΩ†»¯Ò¿¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙëÌÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰Ä¸ÄàÉ
+‹Å…ï—Ö•πïêÅïŸïπ–Å…ïçΩ…êàÄËÄàÉ
+‹ÅΩôô•ç•Ö∞ÅµÖ…≠ï»ÅÕçΩ…ïÃÅ’¡ëÖ—îÅÖÃÅ—°ï‰ÅÖ……•ŸîâÙΩ¿¯Ωë•ÿ¯ëÌÕ—Ω…îπïŸïπ–π¡ÖÕ—Ÿïπ—IïÖë=π±‰Ä¸ÄààÄËÄúÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–Å±ïÖëï…Iïô…ïÕ†àÅ•êÙâ±ïÖëï…Iïô…ïÕ†à˘Iïô…ïÕ†Ωâ’——Ω∏¯ùÙΩë•ÿ¯ëÌŸ•ï›QÖâÕÙëÌ—ÖâÕÙÒë•ÿÅç±ÖÕÃÙâ±ïÖëï…Ö…êÄëÌëïòπ—Â¡îÄÙÙÙÄâÂï±±Ω›	Ö±∞àÄ¸ÄâÂï±±Ω›	Ö±±1ïÖëï…âΩÖ…êàÄËÄàâÙà¯Òë•ÿÅç±ÖÕÃÙâ±ïÖëï…Q•—±îà¯Òë•ÿ¯Ò†Ã¯ëÌïÕå°ëïòπ±Öâï∞•ÙëÌëïòπëÖ‰ÄòòÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…Õîà≠ëïòπëÖÂt§¸ππÖµîÄ¸ÅÄÉäPÄëÌïÕå°çΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…Õîà≠ëïòπëÖÂt§ππÖµî•ıÄÄËÄàâÙΩ†Ã¯ÒÕ¡Ö∏¯ëÌëïòπçΩ’π—âÖç¨Ä¸Äâ’—ΩµÖ—•åÅçΩ’π—âÖç¨àÄËÄâ1•ŸîÅÕ—Öπë•πùÃâÙΩÕ¡Ö∏¯Ωë•ÿ¯ëÌ¡Ö»ÕQΩ—Ö±ÙΩë•ÿ¯ëÌâΩëÂÙΩë•ÿ¯Ò¿Åç±ÖÕÃÙâ±ïÖëï…9Ω—îà˘1•ŸîÅ¡ΩÕ•—•ΩπÃÅÖ…îÅ¡…ΩŸ•Õ•ΩπÖ∞∏ÄÒà˚äqQ°…◊ätΩà¯Å•ÃÅ—°îÅπ’µâï»ÅΩòÅ°Ω±ïÃÅ›•—†ÅΩôô•ç•Ö∞ÅµÖ…≠ï»ÅÕçΩ…ïÃ∞Å…ïùÖ…ë±ïÕÃÅΩòÅ—°îÅÕ—Ö…—•πúÅ°Ω±î∏ÅAïπë•πúÅ°Ω±ïÃÅÖ…îÅπïŸï»ÅçΩ’π—ïêÅÖÃÅÈï…º∏ÅMç…Ö—ç†Å•ÃÅÕ°Ω›∏ÅÖùÖ•πÕ–Å¡Ö»Åë’…•πúÅ¡±Ö‰ÅÖπêÅÖÃÅù…ΩÕÃÅÕ—…Ω≠ïÃÅ›°ï∏Åô•πÖ∞∏Å•πÖ±•ÕÖ—•Ω∏ÅÖ±ÕºÅ…ï≈’•…ïÃÅ—°îÅ¡±ÖÂïÀäeÃÅç°ïç≠•πúÅÕçΩ…ïÃÅ—ºÅÖù…ïî∏ÅÅµïÖπÃÅçΩ’π—âÖç¨∏Ω¿˘ÄÏ(ÄÄÄÅçΩπÕ–Å—ÖâM—…•¿ÄÙÅ°ΩÕ–π≈’ï…ÂMï±ïç—Ω»†àπ±ïÖëï…QÖâÃà§Ï(ÄÄÄÅ•òÄ°—ÖâM—…•¿§Å—ÖâM—…•¿πÕç…Ω±±1ïô–ÄÙÅ¡…ïŸ•Ω’ÕQÖâMç…Ω±∞Ï(ÄÄÄÄêê†âmëÖ—Ñµ±ïÖëï…Ÿ•ï›tà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëY•ï‹ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÅàπëÖ—ÖÕï–π±ïÖëï…Ÿ•ï‹ÄÙÙÙÄâÕ’µµÖ…‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÄâÕ’µµÖ…‰à(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÄ≠àπëÖ—ÖÕï–π±ïÖëï…Ÿ•ï‹Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëQÖàÄÙÄààÏ(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄêê†âmëÖ—Ñµ±ïÖëï…—Öâtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëMç…Ω±±1ïô–ÄÙÅàπ¡Ö…ïπ—±ïµïπ–¸πÕç…Ω±±1ïô–ÅÒÄ¿Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±ïÖëï…âΩÖ…ëQÖàÄÙÅàπëÖ—ÖÕï–π±ïÖëï…—ÖàÏ(ÄÄÄÄÄÄÄÄÄÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÅ•òÄ†ê†àç±ïÖëï…Iïô…ïÕ†à§§(ÄÄÄÄÄÄê†àç±ïÖëï…Iïô…ïÕ†à§πΩπç±•ç¨ÄÙÅÖÕÂπåÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅÖ›Ö•–ÅÕÂπç±Ω’ë9Ω‹†§Ï(ÄÄÄÄÄÄÄÅ…ïπëï…1ïÖëï…âΩÖ…ê†§Ï(ÄÄÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…’±±Ö…ëA±ÖÂï…π—…‰°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞(ÄÄÄÄÄÅ¡ï…ÕΩ∏ÄÙÅïŸïπ—A±ÖÂï»°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅçÖ…êÄÙÅïŸïπ—Ω’…ÕïMçΩ…ïçÖ…ê°ëÖ‰∞ÅÕ—Ω…îπïŸïπ–∞ÅÕï±ïç—ïê§∞(ÄÄÄÄÄÅ¡’——ÕIï≈’•…ïêÄÙÅçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà∞ÅëÖ‰§∞(ÄÄÄÄÄÅëÖÂ-ï‰ÄÙÄâëÖ‰àÄ¨ÅëÖ‰∞(ÄÄÄÄÄÅ¡±ÖÂï…-ï‰ÄÙÅM—…•πú°Õï±ïç—ïê§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÃÄÙÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÃÅÒÅÌÙÏ(ÄÄÄÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÕmëÖÂ-ïÂtÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÕmëÖÂ-ïÂtÅÒÅÌÙÏ(ÄÄÄÅçΩπÕ–Åë…Öô–ÄÙÄ°Õ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÕmëÖÂ-ïÂum¡±ÖÂï…-ïÂtÄÙ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÕmëÖÂ-ïÂum¡±ÖÂï…-ïÂtÅÒÅÏÅ°Ω±ïÃËÅÌÙÅÙ§Ï(ÄÄÄÅçΩπÕ–Å…Ω›ÃÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å°Ω±îÄÙÅ•πëï‡Ä¨Äƒ∞(ÄÄÄÄÄÄÄÅÕÖŸïêÄÙÅë…Öô–π°Ω±ïÕm°Ω±ïtÅÒÅÌÙÏ(ÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅç±ÖÕÃÙâô’±±Ö…ëπ—…ÂIΩ‹à¯Òà¯ëÌ°Ω±ïÙΩà¯ÒÕ¡Ö∏¯ëÌïÕå°çÖ…êπ¡Ö»¸πm•πëï·tÅÒÄãäPà•ÙΩÕ¡Ö∏¯ÒÕ¡Ö∏¯ëÌïÕå°çÖ…êπ•πëï‡¸πm•πëï·tÅÒÄãäPà•ÙΩÕ¡Ö∏¯Ò•π¡’–ÅëÖ—Ñµô’±±ù…ΩÕÃÙàëÌ°Ω±ïÙàÅ•π¡’—µΩëîÙâ—ï·–àÅµÖ·±ïπù—†Ùà»àÅŸÖ±’îÙàëÌïÕå°ÕÖŸïêπù…ΩÕÃÄ¸¸Äàà•ÙàÅ¡±Öçï°Ω±ëï»ÙãäLàÅÖ…•Ñµ±Öâï∞Ùâ!Ω±îÄëÌ°Ω±ïÙÅù…ΩÕÃÅÕ—…Ω≠ïÃà¯ëÌ¡’——ÕIï≈’•…ïêÄ¸ÅÄÒ•π¡’–ÅëÖ—Ñµô’±±¡’——ÃÙàëÌ°Ω±ïÙàÅ•π¡’—µΩëîÙâπ’µï…•åàÅµÖ·±ïπù—†ÙàƒàÅŸÖ±’îÙàëÌïÕå°ÕÖŸïêπ¡’——ÃÄ¸¸Äàà•ÙàÅ¡±Öçï°Ω±ëï»ÙãäLàÅÖ…•Ñµ±Öâï∞Ùâ!Ω±îÄëÌ°Ω±ïÙÅ¡’——Ãà˘ÄÄËÄàâÙΩë•ÿ˘ÄÏ(ÄÄÄÅÙ§π©Ω•∏†àà§Ï(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâô’±±Ö…ëA±ÖÂï…π—…‰à¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ÿïπ—!ï…ºà¯ÒÕ¡Ö∏˘QHµI=U9ÅM=IIΩÕ¡Ö∏¯Ò†ƒ¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩ†ƒ¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃÄ¯ÄƒÄ¸ÅÄÒ†Ã˘dÄëÌëÖÂÙΩ†Ã˘ÄÄËÄàâÙÒ¿¯ëÌïÕå°å¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩ¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…êà¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…ëQ•—±îà˘U10ÅIÅ9QIdΩë•ÿ¯Ò†»¯ëÌïÕå°¡ï…ÕΩ∏¸ππÖµîÅÒÄâA±ÖÂï»à•ÙΩ†»¯Ò¿˘ô—ï»ÅçΩµ¡±ï—•πúÅ—°îÅ…Ω’πê∞ÅçΩ¡‰Å—°îÅù…ΩÕÃÅÕçΩ…îÅô…Ω¥ÅÂΩ’»ÅÕï¡Ö…Ö—îÅÕçΩ…îÅçÖ…êÅôΩ»ÅïŸï…‰Å°Ω±î∏Åπ—ï»ÄÒà˘@Ωà¯ÅΩ»ÄÒà˚äLΩà¯ÅôΩ»ÅÑÅ¡•ç≠’¿∏ëÌ¡’——ÕIï≈’•…ïêÄ¸ÄàÅA’——ÃÅÖ…îÅ…ï≈’•…ïêÅôΩ»Å—ΩëÖÁäeÃÅA’——•πúÅΩµ¡ï—•—•Ω∏∏àÄËÄàâÙΩ¿¯Òë•ÿÅç±ÖÕÃÙâô’±±Ö…ëπ—…Â…•êÄëÌ¡’——ÕIï≈’•…ïêÄ¸Äâ›•—°A’——ÃàÄËÄàâÙà¯Òë•ÿÅç±ÖÕÃÙâô’±±Ö…ëπ—…Â!ïÖêà¯ÒÕ¡Ö∏˘!Ω±îΩÕ¡Ö∏¯ÒÕ¡Ö∏˘AÖ»ΩÕ¡Ö∏¯ÒÕ¡Ö∏˘%πëï‡ΩÕ¡Ö∏¯ÒÕ¡Ö∏˘…ΩÕÃΩÕ¡Ö∏¯ëÌ¡’——ÕIï≈’•…ïêÄ¸ÄàÒÕ¡Ö∏˘A’——ÃΩÕ¡Ö∏¯àÄËÄàâÙΩë•ÿ¯ëÌ…Ω›ÕÙΩë•ÿ¯Ò¿Åç±ÖÕÃÙâô’±±Ö…ë…Öô—9Ω—îà˘π—…•ïÃÅÖ…îÅÕÖŸïêÅΩ∏Å—°•ÃÅëïŸ•çîÅ›°•±îÅÂΩ‘Å›Ω…¨∏ÅIïÕ’±—ÃÅÖ¡¡ïÖ»ÅÖô—ï»ÅÂΩ‘ÅçΩπô•…¥Å—°îÅçΩµ¡±ï—ïêÅçÖ…ê∏Ω¿¯Òâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâçΩπô•…µ’±±A±ÖÂï…Ö…êà˘=9%I4Å=5A1QÅM=IIΩâ’——Ω∏¯Òâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠…Ωµ’±±A±ÖÂï…Ö…êà˘	Öç¨Å—ºÅIΩ’πêΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÅçΩπÕ–ÅπΩ…µÖ±•Õï…ΩÕÃÄÙÄ°ŸÖ±’î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å—ï·–ÄÙÅM—…•πú°ŸÖ±’îÄ¸¸Äàà§π—…•¥†§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅ…ï—’…∏Å—ï·–ÄÙÙÙÄà¥àÅÒÅ—ï·–ÄÙÙÙÄãäLàÄ¸Äâ@àÄËÅ—ï·–Ï(ÄÄÄÅÙÏ(ÄÄÄÅçΩπÕ–Åô•ï±ëÃÄÙÄêê†ùmëÖ—Ñµô’±±ù…ΩÕÕt∞ÅmëÖ—Ñµô’±±¡’——Õtú§Ï(ÄÄÄÅô•ï±ëÃπôΩ…Öç††°•π¡’–∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•π¡’–πΩπ•π¡’–ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å°Ω±îÄÙÄ¨°•π¡’–πëÖ—ÖÕï–πô’±±ù…ΩÕÃÅÒÅ•π¡’–πëÖ—ÖÕï–πô’±±¡’——Ã§∞(ÄÄÄÄÄÄÄÄÄÅ…Ω‹ÄÙÄ°ë…Öô–π°Ω±ïÕm°Ω±ïtÄÙÅë…Öô–π°Ω±ïÕm°Ω±ïtÅÒÅÌÙ§Ï(ÄÄÄÄÄÄÄÅ•òÄ°•π¡’–πëÖ—ÖÕï–πô’±±ù…ΩÕÃ§(ÄÄÄÄÄÄÄÄÄÅ…Ω‹πù…ΩÕÃÄÙÅπΩ…µÖ±•Õï…ΩÕÃ°•π¡’–πŸÖ±’î§Ï(ÄÄÄÄÄÄÄÅï±ÕîÅ…Ω‹π¡’——ÃÄÙÅ•π¡’–πŸÖ±’îπ—…•¥†§Ï(ÄÄÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅ•π¡’–πΩπ≠ïÂëΩ›∏ÄÙÄ°ïŸïπ–§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅ•òÄ°ïŸïπ–π≠ï‰ÄÑÙÙÄâπ—ï»à§Å…ï—’…∏Ï(ÄÄÄÄÄÄÄÅïŸïπ–π¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÅô•ï±ëÕm•πëï‡Ä¨Ä≈t¸πôΩç’Ã†§Ï(ÄÄÄÄÄÄÄÅô•ï±ëÕm•πëï‡Ä¨Ä≈t¸πÕï±ïç–†§Ï(ÄÄÄÄÄÅÙÏ(ÄÄÄÅÙ§Ï(ÄÄÄÄê†àçâÖç≠…Ωµ’±±A±ÖÂï…Ö…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àççΩπô•…µ’±±A±ÖÂï…Ö…êà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å•πŸÖ±•êÄÙÅmtÏ(ÄÄÄÄÄÅôΩ»Ä°±ï–Å°Ω±îÄÙÄƒÏÅ°Ω±îÄÙÄƒ‡ÏÅ°Ω±î¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Å…Ω‹ÄÙÅë…Öô–π°Ω±ïÕm°Ω±ïtÅÒÅÌÙ∞(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃÄÙÅπΩ…µÖ±•Õï…ΩÕÃ°…Ω‹πù…ΩÕÃ§∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅM—…•πú°…Ω‹π¡’——ÃÄ¸¸Äàà§π—…•¥†§∞(ÄÄÄÄÄÄÄÄÄÅŸÖ±•ë…ΩÕÃÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÅù…ΩÕÃÄÙÙÙÄâ@àÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°9’µâï»π•Õ%π—ïùï»†≠ù…ΩÕÃ§ÄòòÄ≠ù…ΩÕÃÄ¯ÙÄƒÄòòÄ≠ù…ΩÕÃÄÙÄ»¿§∞(ÄÄÄÄÄÄÄÄÄÅŸÖ±•ëA’——ÃÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÖ¡’——ÕIï≈’•…ïêÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄ°¡’——ÃÄÑÙÙÄààÄòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÅ9’µâï»π•Õ%π—ïùï»†≠¡’——Ã§Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ≠¡’——ÃÄ¯ÙÄ¿Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ≠¡’——ÃÄÙÄ‰Äòò(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°ù…ΩÕÃÄÙÙÙÄâ@àÅÒÄ≠¡’——ÃÄÙÄ≠ù…ΩÕÃ§§Ï(ÄÄÄÄÄÄÄÅ•òÄ†ÖŸÖ±•ë…ΩÕÃÅÒÄÖŸÖ±•ëA’——Ã§Å•πŸÖ±•êπ¡’Õ†°°Ω±î§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ°•πŸÖ±•êπ±ïπù—†§(ÄÄÄÄÄÄÄÅ…ï—’…∏ÅÖ±ï…–†(ÄÄÄÄÄÄÄÄÄÅÅΩµ¡±ï—îÅÖπêÅç°ïç¨Å!Ω±îëÌ•πŸÖ±•êπ±ïπù—†ÄÙÙÙÄƒÄ¸ÄààÄËÄâÃâÙÄëÌ•πŸÖ±•êπ©Ω•∏†à∞Äà•ÙÅâïôΩ…îÅçΩπô•…µ•πúÅ—°îÅçÖ…êπÄ∞(ÄÄÄÄÄÄÄÄ§Ï(ÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÕQΩ—Ö∞ÄÙÅ……Ö‰πô…Ω¥°ÏÅ±ïπù—†ËÄƒ‡ÅÙ∞Ä°|∞Å•πëï‡§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–Åù…ΩÕÃÄÙÅπΩ…µÖ±•Õï…ΩÕÃ°ë…Öô–π°Ω±ïÕm•πëï‡Ä¨Ä≈tπù…ΩÕÃ§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Åù…ΩÕÃÄÙÙÙÄâ@àÄ¸Ä¨°çÖ…êπ¡Ö»¸πm•πëï·tÅÒÄ¿§Ä¨Ä»ÄËÄ≠ù…ΩÕÃÏ(ÄÄÄÄÄÅÙ§π…ïë’çî†°—Ω—Ö∞∞ÅŸÖ±’î§ÄÙ¯Å—Ω—Ö∞Ä¨ÅŸÖ±’î∞Ä¿§Ï(ÄÄÄÄÄÅ•òÄ†(ÄÄÄÄÄÄÄÄÖçΩπô•…¥†(ÄÄÄÄÄÄÄÄÄÅÅΩπô•…¥Å—°îÅçΩµ¡±ï—îÄƒ‡µ°Ω±îÅçÖ…êÅôΩ»ÄëÌ¡ï…ÕΩ∏¸ππÖµîÅÒÄâ—°•ÃÅ¡±ÖÂï»âÙ˝qπqπ…ΩÕÃÅ—Ω—Ö∞ËÄëÌù…ΩÕÕQΩ—Ö±ıqπqπQ°îÅçÖ…êÅ›•±∞ÅâîÅÕïπ–Å—ºÅ—°îÅ±ïÖëï…âΩÖ…êÅÖπêÅçÖππΩ–ÅâîÅïë•—ïêÅâ‰Å—°îÅ¡±ÖÂï»ÅÖô—ï»ÅçΩπô•…µÖ—•Ω∏πÄ∞(ÄÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÄÄÅçΩπÕ–ÅçΩπô•…µïë–ÄÙÅπï‹ÅÖ—î†§π—Ω%M=M—…•πú†§Ï(ÄÄÄÄÄÅôΩ»Ä°±ï–Å°Ω±îÄÙÄƒÏÅ°Ω±îÄÙÄƒ‡ÏÅ°Ω±î¨¨§ÅÏ(ÄÄÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêÄÙÅë…Öô–π°Ω±ïÕm°Ω±ït∞(ÄÄÄÄÄÄÄÄÄÅù…ΩÕÃÄÙÅπΩ…µÖ±•Õï…ΩÕÃ°ÕÖŸïêπù…ΩÕÃ§∞(ÄÄÄÄÄÄÄÄÄÅ¡’——ÃÄÙÅ¡’——ÕIï≈’•…ïêÄ¸Ä≠ÕÖŸïêπ¡’——ÃÄËÄàà∞(ÄÄÄÄÄÄÄÄÄÅ…ïçΩ…êÄÙÅÕçΩ…ïIïçΩ…ê°ëÖ‰∞ÅÕï±ïç—ïê∞Å°Ω±î§Ï(ÄÄÄÄÄÄÄÅ…ïçΩ…êπÕï±òÄÙÅÏÅ¡±ÖÂï…%êËÅ¡±ÖÂï…-ï‰∞Åù…ΩÕÃ∞Å¡’——ÃÅÙÏ(ÄÄÄÄÄÄÄÅ…ïçΩ…êπΩôô•ç•Ö∞ÄÙÅÏÅ¡±ÖÂï…%êËÅ¡±ÖÂï…-ï‰∞Åù…ΩÕÃ∞Å¡’——ÃÅÙÏ(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅçΩπÕ–Å…Ω’πêÄÙÅÕçΩ…ï…M—Ω…î°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÅ…Ω’πêπ}µï—ÑÄÙÅÏ(ÄÄÄÄÄÄÄÄ∏∏∏°…Ω’πêπ}µï—ÑÅÒÅÌÙ§∞(ÄÄÄÄÄÄÄÅô•πÖ±•Õïë–ËÅçΩπô•…µïë–∞(ÄÄÄÄÄÄÄÅô’±±Ö…ëπ—ï…ïë	ÂA±ÖÂï»ËÅ—…’î∞(ÄÄÄÄÄÅÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÄÙÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïêÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëmëÖÂ-ïÂtÄÙ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëmëÖÂ-ïÂtÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π…Ω’πë•πÖ±•ÕïëmëÖÂ-ïÂum¡±ÖÂï…-ïÂtÄÙÅçΩπô•…µïë–Ï(ÄÄÄÄÄÅëï±ï—îÅÕ—Ω…îπïŸïπ–πô’±±Ö…ë…Öô—ÕmëÖÂ-ïÂum¡±ÖÂï…-ïÂtÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâçΩµ¡±ï—ïêàÏ(ÄÄÄÄÄÅ≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâΩ…ùÖπ•Õï»à§ÅŸΩ•êÅ’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…•πÖ±MçΩ…ïπ—…‰°Õï±ïç—ïê∞ÅëÖ‰§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–Ùê†àç¡±ÖÂï…·¡ï…•ïπçîà§∞Åµï—°ΩêıëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§∞Å≠•πêıµï—°ΩêÙÙÙâô•πÖ±M—Öâ±ïôΩ…êà¸âÕ—Öâ±ïôΩ…êàËâù…ΩÕÃà∞(ÄÄÄÄÄÅïπ—…‰ıô•πÖ±MçΩ…ïπ—…‰°ëÖ‰±Õï±ïç—ïê•ÒÒÌÙ∞ÅåıçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…Õîà≠ëÖÂt§∞ÅçΩµ¡±ï—îıô•πÖ±MçΩ…ïΩµ¡±ï—î°ëÖ‰±Õï±ïç—ïê§∞(ÄÄÄÄÄÅ…’±îı≠•πêÙÙÙâù…ΩÕÃàÄ¸Ä°ÌÖ±±M—…Ω≠ïÃËâ±∞ÅM—…Ω≠ïÃÅΩ’π–à±µÖ·Ω’â±ï	Ωùï‰Ëâ5Ö·•µ’¥ÅΩ’â±îÅ	Ωùï‰à±µÖ·Q…•¡±ï	Ωùï‰Ëâ5Ö·•µ’¥ÅQ…•¡±îÅ	Ωùï‰âımÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïMçΩ…•πù5ΩëïÒâÖ±±M—…Ω≠ïÃât§ÄËÄâM—Öâ±ïôΩ…êÅ¡Ω•π—ÃàÏ(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ıÄÒë•ÿÅç±ÖÕÃÙâô•πÖ±MçΩ…ïπ—…‰à¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ÿïπ—!ï…ºà¯ÒÕ¡Ö∏˘%90ÅM=IΩÕ¡Ö∏¯Ò†ƒ¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩ†ƒ¯ëÌÕ—Ω…îπïŸïπ–πëÖÂÃ¯ƒ˝ÄÒ†Ã˘dÄëÌëÖÂÙΩ†Ã˘ÄËàâÙÒ¿¯ëÌïÕå°å¸ππÖµïÒâΩ’…Õîà•ÙΩ¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…êà¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…ëQ•—±îà˘%90ÅM=IÅ9QIdΩë•ÿ¯Ò†»¯ëÌïÕå°ïŸïπ—A±ÖÂï…9Öµî°Õï±ïç—ïê±ëÖ‰§•ÙΩ†»¯Ò¿˘Ω±òÅMçΩ…ï»Å•ÃÅπΩ–Å•∏Å’ÕîÅôΩ»Å°Ω±îµâ‰µ°Ω±îÅÕçΩ…•πúÅ—ΩëÖ‰∏Åπ—ï»Å—°îÅô•πÖ∞ÅÕçΩ…îÅÕ’¡¡±•ïêÅâ‰Å—°îÅçÖëë•îÅΩ»ÅΩôô•ç•Ö∞ÅçÖ…êÅÖô—ï»ÅçΩµ¡±ï—•πúÅ—°îÅ…Ω’πê∏Ω¿¯Òë•ÿÅç±ÖÕÃÙâô•πÖ±MçΩ…ïI’±îà¯Òà¯ëÌ≠•πêÙÙÙâÕ—Öâ±ïôΩ…êà¸âM—Öâ±ïôΩ…êÅAΩ•π—ÃàËâ…ΩÕÃÅM—…Ω≠îÅQΩ—Ö∞âÙΩà¯ÒÕ¡Ö∏¯ëÌïÕå°…’±î•ÙΩÕ¡Ö∏¯Ωë•ÿ¯Ò±Öâï∞¯ëÌ≠•πêÙÙÙâÕ—Öâ±ïôΩ…êà¸â•πÖ∞ÅM—Öâ±ïôΩ…êÅ¡Ω•π—ÃàËâ•πÖ∞Åù…ΩÕÃÅÕ—…Ω≠ïÃâÙÒ•π¡’–Å•êÙâô•πÖ±MçΩ…ïQΩ—Ö∞àÅ•π¡’—µΩëîÙâπ’µï…•åàÅ—Â¡îÙâπ’µâï»àÅµ•∏Ùà¿àÅµÖ‡Ùà–¿¿àÅŸÖ±’îÙàëÌïπ—…‰π—Ω—Ö∞¸¸àâÙàÄëÌçΩµ¡±ï—î¸âë•ÕÖâ±ïêàËàâÙ¯Ω±Öâï∞¯ëÌçΩµ¡ï—•—•Ωπ%Õ=∏†â—ïÖµA’——Ãà±ëÖ‰§˝ÄÒ±Öâï∞˘QΩ—Ö∞Å¡’——ÃÄ°Ω¡—•ΩπÖ∞§Ò•π¡’–Å•êÙâô•πÖ±MçΩ…ïA’——ÃàÅ•π¡’—µΩëîÙâπ’µï…•åàÅ—Â¡îÙâπ’µâï»àÅµ•∏Ùà¿àÅµÖ‡Ùàƒ¿¿àÅŸÖ±’îÙàëÌïπ—…‰π¡’——Ã¸¸àâÙàÄëÌçΩµ¡±ï—î¸âë•ÕÖâ±ïêàËàâÙ¯Ω±Öâï∞˘ÄËàâÙëÌçΩµ¡±ï—î˝ÄÒë•ÿÅç±ÖÕÃÙâô•πÖ±MçΩ…ïMÖŸïêà¯Òà˚ärLÅ•πÖ∞ÅÕçΩ…îÅÕÖŸïêΩà¯ÒÕ¡Ö∏¯ëÌïπ—…‰π—Ω—Ö±ÙÄëÌ≠•πêÙÙÙâÕ—Öâ±ïôΩ…êà¸â¡Ω•π—ÃàËâÕ—…Ω≠ïÃâÙëÌïπ—…‰π¡’——ÃÑÙÙààòôïπ—…‰π¡’——ÃÑıπ’±∞˝ÄÉ
+‹ÄëÌïπ—…‰π¡’——ÕÙÅ¡’——ÕÄËàâÙΩÕ¡Ö∏¯Ωë•ÿ˘ÄÈÄÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâÕÖŸï•πÖ±MçΩ…îà˘=9%I4Å%90ÅM=IΩâ’——Ω∏˘ÅÙÒâ’——Ω∏Åç±ÖÕÃÙâÕΩô–àÅ•êÙââÖç≠…Ωµ•πÖ±MçΩ…îà˘	Öç¨Å—ºÅIΩ’πêΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àçâÖç≠…Ωµ•πÖ±MçΩ…îà§πΩπç±•ç¨Ù†§Ù˘ÌÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÙâ¡…ïŸ•ï‹àÌÕÖŸî†§Ì…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§ÌÙÏ(ÄÄÄÅ•ò†ê†àçÕÖŸï•πÖ±MçΩ…îà§§Äê†àçÕÖŸï•πÖ±MçΩ…îà§πΩπç±•ç¨Ù†§Ù˘Ï(ÄÄÄÄÄÅçΩπÕ–Å—Ω—Ö∞ı9’µâï»†ê†àçô•πÖ±MçΩ…ïQΩ—Ö∞à§πŸÖ±’î§∞Å¡’——ÃÙê†àçô•πÖ±MçΩ…ïA’——Ãà§¸πŸÖ±’î¸¸ààÏ(ÄÄÄÄÄÅ•ò†Ö9’µâï»π•Õ•π•—î°—Ω—Ö∞•ÒÒ—Ω—Ö∞¿•…ï—’…∏ÅÖ±ï…–†âπ—ï»Å—°îÅô•πÖ∞ÅÕçΩ…îÅô…Ω¥Å—°îÅçÖëë•îÅΩ»ÅΩôô•ç•Ö∞ÅçÖ…ê∏à§Ï(ÄÄÄÄÄÅ•ò†ÖçΩπô•…¥°ÅΩπô•…¥ÄëÌ—Ω—Ö±ÙÄëÌ≠•πêÙÙÙâÕ—Öâ±ïôΩ…êà¸âM—Öâ±ïôΩ…êÅ¡Ω•π—ÃàËâù…ΩÕÃÅÕ—…Ω≠ïÃâÙ¸ÅQ°•ÃÅô•πÖ∞Å…ïÕ’±–Å°ÖÃÅπºÅ°Ω±îµâ‰µ°Ω±îÅçΩ’π—âÖç¨πÄ§•…ï—’…∏Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πô•πÖ±MçΩ…ïÕÒıÌÙÌÕ—Ω…îπïŸïπ–πô•πÖ±MçΩ…ïÕlâëÖ‰à≠ëÖÂuÒıÌÙÏ(ÄÄÄÄÄÅçΩπÕ–ÅÕÖŸïêıÌ≠•πê±—Ω—Ö∞±¡’——ÃÈ¡’——ÃÙÙÙàà¸ààË≠¡’——Ã±…’±îÈÕ—Ω…îπïŸïπ–πÕ—…Ω≠ïMçΩ…•πù5ΩëïÒâÖ±±M—…Ω≠ïÃà±çΩπô•…µïë–Èπï‹ÅÖ—î†§π—Ω%M=M—…•πú†•ÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πô•πÖ±MçΩ…ïÕlâëÖ‰à≠ëÖÂumM—…•πú°Õï±ïç—ïê•tıÕÖŸïêÌÕçΩ…ï…M—Ω…î°ëÖ‰±Õï±ïç—ïê§π}ô•πÖ±MçΩ…îıÕÖŸïêÏ(ÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§ÏÅ•ò°Õ—Ω…îπç±Ω’ê¸πïŸïπ—%ê§Å≈’ï’ï±Ω’ëIΩ’πê°ëÖ‰±Õï±ïç—ïê§ÏÅ•ò°Õ—Ω…îπç±Ω’ê¸π…Ω±îÙÙÙâΩ…ùÖπ•Õï»à§ÅŸΩ•êÅ’¡ëÖ—ï±Ω’ëŸïπ–†§Ï(ÄÄÄÄÄÅ…ïπëï…•πÖ±MçΩ…ïπ—…‰°Õï±ïç—ïê±ëÖ‰§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅô’πç—•Ω∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§ÅÏ(ÄÄÄÅçΩπÕ–Å°ΩÕ–ÄÙÄê†àç¡±ÖÂï…·¡ï…•ïπçîà§Ï(ÄÄÄÅ•òÄ†Ö°ΩÕ–§Å…ï—’…∏Ï(ÄÄÄÅ•òÄ†ÖÕ—Ω…îπïŸïπ–§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙ(ÄÄÄÄÄÄÄÄúÒë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò†»˘A±ÖÂï»ÅY•ï‹Ω†»¯Ò¿˘…ïÖ—îÅÖ∏ÅïŸïπ–Å¡±Ö∏Åô•…Õ–∏Ω¿¯Ωë•ÿ¯úÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–πÕ—Ö—’ÃÄÙÙÙÄâçÖπçï±±ïêà§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâçÖ…êÅçÖπçï±±ïëŸïπ—Ö…êà¯Ò†»˘Ÿïπ–ÅÖπçï±±ïêΩ†»¯Ò¿¯Òà¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµîÅÒÄâQ°•ÃÅïŸïπ–à•ÙΩà¯Å°ÖÃÅâïï∏ÅçÖπçï±±ïêÅâ‰Å—°îÅΩ…ùÖπ•Õï»∏ÅMçΩ…•πúÅ•ÃÅç±ΩÕïê∏Ω¿¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•π•—•Ö±•Õï…Ω’¡Ã†§Ï(ÄÄÄÅçΩπÕ–ÅëÖÂÃÄÙÅÕ—Ω…îπïŸïπ–πëÖÂÃÅÒÄƒÏ(ÄÄÄÅ±ï–ÅëÖ‰ÄÙÅ5Ö—†πµ•∏°Õ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÅÒÄƒ∞ÅëÖÂÃ§Ï(ÄÄÄÅ•ò°•ÕA±ÖÂï…ïŸ•çî†§ÄòòÅ=â©ïç–π≠ïÂÃ°Õ—Ω…îπïŸïπ–πÕ°Ö…ïëAΩÕ•—•ΩπÃÅÒÅÌÙ§π±ïπù—†ÄòòÄÖëÖÂ•ï±ë%ëÃ°ëÖ‰§π•πç±’ëïÃ°M—…•πú°Õ—Ω…îπç±Ω’ê¸π¡±ÖÂï…%ê§§§ÅÏ(ÄÄÄÄÄÅëÖ‰ıïŸïπ—ÖÂÃ†§πô•πê°êÙ˘ëÖÂ•ï±ë%ëÃ°ê§π•πç±’ëïÃ°M—…•πú°Õ—Ω…îπç±Ω’êπ¡±ÖÂï…%ê§§§ÅÒÅëÖ‰Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÙâ¡…ïŸ•ï‹àÌÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÙ¿Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâ¡±ÖÂï»àÄòòÅµÖπ’Ö±ÖÂ•πÖ±•Õïê°ëÖ‰§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åπï·–ÄÙÅïŸïπ—ÖÂÃ†§πô•πê°πï·–ÄÙ¯Åπï·–Ä¯ÅëÖ‰ÄòòÅëÖÂ•ï±ë%ëÃ°πï·–§π•πç±’ëïÃ°M—…•πú°Õ—Ω…îπç±Ω’êπ¡±ÖÂï…%ê§§ÄòòÄÖïŸïπ—ÖÂΩµ¡±ï—î°πï·–§§Ï(ÄÄÄÄÄÅ•òÄ°πï·–§ÅÏ(ÄÄÄÄÄÄÄÅëÖ‰ÄÙÅπï·–ÏÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÄÙÅπï·–Ï(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÄ¿ÏÅ›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙ(ÄÄÄÅ±ï–Åô•ï±êÄÙÅëÖÂ•ï±ë%ëÃ°ëÖ‰§πô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÑÙÙÅ9=}AIQ9I}%§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâ¡±ÖÂï»à§(ÄÄÄÄÄÅô•ï±êÄÙÅô•ï±êπô•±—ï»†°•ê§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅM—…•πú°Õ—Ω…îπç±Ω’êπ¡±ÖÂï…%ê§§Ï(ÄÄÄÅ±ï–ÅÕï±ïç—ïêÄÙÅM—…•πú°Õ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›%êÅÒÅô•ï±ël¡tÅÒÄàà§Ï(ÄÄÄÅ•òÄ†Öô•ï±êπ•πç±’ëïÃ°Õï±ïç—ïê§§ÅÕï±ïç—ïêÄÙÅM—…•πú°ô•ï±ël¡tÅÒÄàà§Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÄÙÅëÖ‰Ï(ÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›%êÄÙÅÕï±ïç—ïêÏ(ÄÄÄÅ•òÄ°Õ—Ω…îπç±Ω’ê¸π…Ω±îÄÙÙÙÄâ¡±ÖÂï»à§ÅÕÂπçIïçΩŸï…ïëA±ÖÂï…IΩ’πê°ëÖ‰∞ÅÕï±ïç—ïê§Ï(ÄÄÄÅÕç°ïë’±ïMçΩ…•πù=¡ïπ•πú°ëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâÕçΩ…•πúàÄòòÄÖÕçΩ…•πù%Õ=¡ï∏°ëÖ‰§§ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅ¡ï…Õ•Õ—M—Ω…î†§Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°•ÕA±ÖÂï…ïŸ•çî†§ÄòòÅÕ—Ω…îπïŸïπ–πô•πÖ±IïÕ’±—Ã¸πçΩπô•…µïë–§ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅµïÕÕÖùîÄÙÅô•πÖ±5ïÕÕÖùïΩ…A±ÖÂï»°Õï±ïç—ïê§Ï(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…•π•Õ†à¯Ò•µúÅÕ…åÙâÖÕÕï—ÃΩÖ›Ö‰µùΩ±òµµÖÕçΩ–µô•π•Õ†π¡πúàÅÖ±–Ùâ›Ö‰ÅΩ±òÅùΩ±ôï»à¯Òë•ÿ¯Ò†ƒ¯ëÌïÕå°µïÕÕÖùîπ°ïÖë•πú•ÙΩ†ƒ¯ëÌµïÕÕÖùîπµïÕÕÖùîÄ¸ÅÄÒ†»¯ëÌïÕå°µïÕÕÖùîπµïÕÕÖùî•ÙΩ†»˘ÄÄËÄàâÙÒ¿Åç±ÖÕÃÙâÕçΩ…•πù…ïë•–à¯ëÌïÕå°µïÕÕÖùîπÕçΩ…•πù…ïë•–•ÙΩ¿¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâô•πÖ±π—…‰à§(ÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…•πÖ±MçΩ…ïπ—…‰°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâô’±±Ö…ëπ—…‰à§(ÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…’±±Ö…ëA±ÖÂï…π—…‰°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâÕçΩ…•πúà§(ÄÄÄÄÄÅ…ï—’…∏ÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸Å…ïπëï…µâ…ΩÕïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄËÅ…ïπëï…!Ω±ïMçΩ…•πú°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâŸï…•ô‰à§(ÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…IΩ’πëYï…•ô•çÖ—•Ω∏°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ°Õ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÙÙÄâçΩµ¡±ï—ïêà§(ÄÄÄÄÄÅ…ï—’…∏ÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸Å…ïπëï…µâ…ΩÕïΩµ¡±ï—ïê°Õï±ïç—ïê∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄËÅ…ïπëï…Ωµ¡±ï—ïëMçΩ…ïçÖ…ê°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅçΩπÕ–Å¿ÄÙÅïŸïπ—A±ÖÂï»°Õï±ïç—ïê±ëÖ‰§∞(ÄÄÄÄÄÅç—‡ÄÙÅ¡±ÖÂï……Ω’¡Ωπ—ï·–°Õï±ïç—ïê∞ÅëÖ‰§Ï(ÄÄÄÅ•òÄ†Ö¿ÅÒÄÖç—‡§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄëÌëÖÂQÖâÃ†â¡…ïŸ•ï›ëÖ‰à±ëÖ‰•ÙÒë•ÿÅç±ÖÕÃÙâçÖ…êà¯Ò†»˘Ö‰ÄëÌëÖÂÙΩ†»¯Ò¿˘eΩ‘ÅÖ…îÅπΩ–Å¡±ÖÂ•πúÅΩ∏Å—°•ÃÅëÖ‰∏ÅMï±ïç–ÅÖπΩ—°ï»ÅëÖ‰Å—ºÅŸ•ï‹ÅÂΩ’»Å…Ω’πê∏Ω¿¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄêê†âmëÖ—Ñµ¡…ïŸ•ï›ëÖÂtà§πôΩ…Öç†°â’——Ω∏Ù˘â’——Ω∏πΩπç±•ç¨Ù†§Ù˘ÌÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰Ù≠â’——Ω∏πëÖ—ÖÕï–π¡…ïŸ•ï›ëÖ‰ÌÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÙâ¡…ïŸ•ï‹àÌÕÖŸî†§Ì…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§ÌÙ§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅ•òÄ°•ÕA±ÖÂï…ïŸ•çî†§ÄòòÄÖ¡±ÖÂï…!ÖÕMïïπ]ï±çΩµî°Õï±ïç—ïê§§ÅÏ(ÄÄÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…]ï±çΩµîà¯Òë•ÿÅç±ÖÕÃÙâ›ï±çΩµï5ÖÕçΩ—]…Ö¿à¯Ò•µúÅÕ…åÙâÖ›Ö‰µùΩ±òµµÖÕçΩ–µµ•π§π¡πúàÅÖ±–Ùâ›Ö‰ÅΩ±òÅùΩ±ôï»à¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ›ï±çΩµï]Ω…ëÃà¯ÒÕµÖ±∞˘]dÅ=1ΩÕµÖ±∞¯Ò†ƒ˘]ï±çΩµî∞ÄëÌïÕå°¡±ÖÂï…•…Õ—9Öµî°Õï±ïç—ïê§•Ù∏Ω†ƒ¯Ò†»˘±ÖêÅÂΩ‘ÅçΩ’±êÅ©Ω•∏Å’ÃÑΩ†»¯Ò¿˘eΩ◊äe…îÅ¡±ÖÂ•πúÅ•∏ÄÒà¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµîÅÒÄâ—ΩëÖÁäeÃÅ›Ö‰ÅΩ±òÅïŸïπ–à•ÙΩà¯∏Ω¿¯Òâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏àÅ•êÙâçΩπ—•π’ï…Ωµ]ï±çΩµîà˘Y%\ÅQ=gäeLÅIU1LΩâ’——Ω∏¯Ωë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄê†àççΩπ—•π’ï…Ωµ]ï±çΩµîà§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÄÄÅΩ¡ïπA±ÖÂï…I’±ïÕ…Ωµ]ï±çΩµî°Õï±ïç—ïê§Ï(ÄÄÄÄÄÅ…ï—’…∏Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–ÅúÄÙÅç—‡πù…Ω’¿∞(ÄÄÄÄÄÅÕï—’¿ÄÙÅç—‡πÕï—’¿∞(ÄÄÄÄÄÅåÄÙÅçΩ’…Õî°Õ—Ω…îπïŸïπ—lâçΩ’…ÕîàÄ¨ÅëÖÂt§∞(ÄÄÄÄÄÅÕ—Ö…–ÄÙÅù…Ω’¡M—Ö…—•πù!Ω±î°Õ—Ω…îπïŸïπ–∞ÅëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅÕ—Ö…—Qï·–ÄÙÅÅ!Ω±îÄëÌÕ—Ö…—ıÄ∞(ÄÄÄÄÄÅ—ïïQ•µîÄÙÅù…Ω’¡QïïQ•µî°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞(ÄÄÄÄÄÅ¡…ïŸ•ï›M—ÖùîÄÙÄÖÕ—Ω…îπïŸïπ–π±Ωç≠ïêÏ(ÄÄÄÅ±ï–Å¡Ö…—πï»ÄÙÅπ’±∞Ï(ÄÄÄÅ•òÄ°çΩµ¡ï—•—•Ωπ%Õ=∏†âôΩ’…âÖ±∞à∞ÅëÖ‰§§ÅÏ(ÄÄÄÄÄÅçΩπÕ–Å¡Ö•…M—Ö…–ÄÙÅç—‡π¡±ÖÂï…%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»Ï(ÄÄÄÄÄÅ±ï–ÅΩ—°ï»ÄÙÅú(ÄÄÄÄÄÄÄÄπÕ±•çî°¡Ö•…M—Ö…–∞Å¡Ö•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπô•πê†°•ê§ÄÙ¯Å•êÄÑÙÙÅÕï±ïç—ïê§Ï(ÄÄÄÄÄÅ•òÄ°Ω—°ï»ÄÙÙÙÅ9=}AIQ9I}%ÄòòÅÕï—’¿πŸ•…—’Ö±A±ÖÂï»§(ÄÄÄÄÄÄÄÅ¡Ö…—πï»ÄÙÅïŸïπ—A±ÖÂï»°Õï—’¿πŸ•…—’Ö±A±ÖÂï»±ëÖ‰§Ï(ÄÄÄÄÄÅï±ÕîÅ¡Ö…—πï»ÄÙÅïŸïπ—A±ÖÂï»°Ω—°ï»±ëÖ‰§Ï(ÄÄÄÅÙ(ÄÄÄÅçΩπÕ–Å•Õôôïç—ïêÄÙÄ††§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–Åπ¿ÄÙÅπΩAÖ…—πï…Ωπ—ï·–°Õï—’¿πù…Ω’¡Ã∞ÅëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§Ï(ÄÄÄÄÄÅ…ï—’…∏Åπ¿ÄòòÅM—…•πú°π¿πÖôôïç—ïê§ÄÙÙÙÅÕï±ïç—ïêÄ¸Åπ¿ÄËÅπ’±∞Ï(ÄÄÄÅÙ§†§Ï(ÄÄÄÅçΩπÕ–Åï·—…Ö9—¡!Ω±ïÃÄÙÅ=â©ïç–πïπ—…•ïÃ°Õï—’¿ππ—¡·—…ÖA±ÖÂï…ÃÅÒÅÌÙ§(ÄÄÄÄÄÄÄÄπô•±—ï»†°l∞Å•ët§ÄÙ¯ÅM—…•πú°•ê§ÄÙÙÙÅÕï±ïç—ïê§(ÄÄÄÄÄÄÄÄπµÖ¿†°m°Ω±ït§ÄÙ¯Å°Ω±î§∞(ÄÄÄÄÄÅ•Õ·—…ÑÄÙÅï·—…Ö9—¡!Ω±ïÃπ±ïπù—†Ä¯Ä¿ÅÒÅM—…•πú°Õï—’¿ππ—¡·—…ÖA±ÖÂï»ÅÒÄàà§ÄÙÙÙÅÕï±ïç—ïê∞(ÄÄÄÄÄÅ…’±ïMïç—•ΩπÃÄÙÅïŸïπ—I’±ïMïç—•ΩπÃ°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§∞(ÄÄÄÄÄÅÂï±±Ω›	Ö±±=∏ÄÙÅÂï±±Ω›	Ö±±%Õ=∏°ëÖ‰§∞(ÄÄÄÄÄÅΩ¡ïπ•πùeï±±Ω›	Ö±±A±ÖÂï»ÄÙÅÂï±±Ω›	Ö±±=∏(ÄÄÄÄÄÄÄÄ¸ÅÂï±±Ω›	Ö±±A±ÖÂï…Ω…!Ω±î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡∞ÅÕ—Ö…–§(ÄÄÄÄÄÄÄÄËÄààÏ(ÄÄÄÅçΩπÕ–ÅÕï±ïç—ïëAÖ•…M—Ö…–ÄÙÅç—‡π¡±ÖÂï…%πëï‡ÄÄ»Ä¸Ä¿ÄËÄ»∞(ÄÄÄÄÄÅÕï±ïç—ïëAÖ•»ÄÙÅú(ÄÄÄÄÄÄÄÄπÕ±•çî°Õï±ïç—ïëAÖ•…M—Ö…–∞ÅÕï±ïç—ïëAÖ•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§∞(ÄÄÄÄÄÅΩ—°ï…AÖ•»ÄÙÅú(ÄÄÄÄÄÄÄÄπô•±—ï»†°|∞Å•πëï‡§ÄÙ¯Å•πëï‡ÄÅÕï±ïç—ïëAÖ•…M—Ö…–ÅÒÅ•πëï‡Ä¯ÙÅÕï±ïç—ïëAÖ•…M—Ö…–Ä¨Ä»§(ÄÄÄÄÄÄÄÄπµÖ¿°M—…•πú§Ï(ÄÄÄÅ±ï–Åë•Õ¡±ÖÂ%ëÃÄÙÅmÕï±ïç—ïê∞Ä∏∏πÕï±ïç—ïëAÖ•»πô•±—ï»†°•ê§ÄÙ¯Å•êÄÑÙÙÅÕï±ïç—ïê•tÏ(ÄÄÄÅΩ—°ï…AÖ•»πôΩ…Öç††°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ†Öë•Õ¡±ÖÂ%ëÃπ•πç±’ëïÃ°•ê§§Åë•Õ¡±ÖÂ%ëÃπ¡’Õ†°•ê§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅë•Õ¡±ÖÂ%ëÃÄÙÅë•Õ¡±ÖÂ%ëÃπÕ±•çî†¿∞Ä–§Ï(ÄÄÄÅçΩπÕ–Åù…Ω’¡9ÖµïÃÄÙÅë•Õ¡±ÖÂ%ëÃπµÖ¿†°•ê§ÄÙ¯Ä°Ï(ÄÄÄÄÄÅ•ê∞(ÄÄÄÄÄÅπÖµîËÅ•êÄÙÙÙÅ9=}AIQ9I}%Ä¸Äâ9ºÅAÖ…—πï»àÄËÅïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâUπ≠πΩ›∏à∞(ÄÄÄÅÙ§§∞(ÄÄÄÄÄÅçΩµ¡±ï—ï…Ö‹ÄÙÅÄÒëï—Ö•±ÃÅç±ÖÕÃÙâçΩµ¡±ï—ï…Ö‹à¯ÒÕ’µµÖ…‰˘Y•ï‹ÅΩµ¡±ï—îÅ…Ö‹ΩÕ’µµÖ…‰¯Òë•ÿ¯ÒÕ—…Ωπú¯ëÌëÖÂÃÄÙÙÙÄƒÄ¸ÄâŸïπ–ÅQïÖµÃàÄËÅÅÖ‰ÄëÌëÖÂÙÅQïÖµÕÅÙΩÕ—…Ωπú¯ëÏ°Õï—’¿πù…Ω’¡ÃÅÒÅmt§πµÖ¿†°—ïÖ¥∞Å•πëï‡§ÄÙ¯ÅÄÒÕïç—•Ω∏¯Òà˘QïÖ¥ÄëÌ•πëï‡Ä¨Ä≈ÙΩà¯ÒÕ¡Ö∏¯ëÌïÕå°—ïÖ¥πµÖ¿†°•ê§ÄÙ¯Å•êÄÙÙÙÅ9=}AIQ9I}%Ä¸Äâ9ºÅAÖ…—πï»àÄËÅïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄâUπ≠πΩ›∏à§π©Ω•∏†àÉ
+‹Äà§•ÙΩÕ¡Ö∏¯ΩÕïç—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯Ωëï—Ö•±Ã˘ÄÏ(ÄÄÄÅçΩπÕ–ÅÖç¨ÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç¨¸πmëÖÂt¸πmÕï±ïç—ïët§∞(ÄÄÄÄÄÅ°ç¿ÄÙÅ¡±ÖÂï…Ö•±Â!Öπë•çÖ¿°Õï±ïç—ïê∞ÅëÖ‰§∞(ÄÄÄÄÄÅô•πÖ±•ÕïêÄÙÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÙÙÙÄâô’±±Ö…ëA±ÖÂï»à(ÄÄÄÄÄÄÄÄ¸Å…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞ÅÕï±ïç—ïê§(ÄÄÄÄÄÄÄÄËÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÑÙÙÄâ°Ω±ï	Â!Ω±îà(ÄÄÄÄÄÄÄÄÄÄ¸Åô•πÖ±MçΩ…ïΩµ¡±ï—î°ëÖ‰±Õï±ïç—ïê§(ÄÄÄÄÄÄÄÄÄÄËÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§(ÄÄÄÄÄÄÄÄ¸ÅÖµâ…ΩÕïQïÖµΩµ¡±ï—î°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§(ÄÄÄÄÄÄÄÄËÅ…Ω’πë•πÖ±•ÕïëΩ»°ëÖ‰∞ÅÕï±ïç—ïê§∞(ÄÄÄÄÄÅÕçΩ…•πù=¡ï∏ÄÙÅÕçΩ…•πù%Õ=¡ï∏°ëÖ‰§∞(ÄÄÄÄÄÅçÖπM—Ö…–ÄÙÅ	ΩΩ±ïÖ∏†(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π±Ωç≠ïêÄòòÅ—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§ÄòòÅÖç¨ÄòòÅ°ç¿ÄÑÙÅπ’±∞ÄòòÅÕçΩ…•πù=¡ï∏∞(ÄÄÄÄÄÄ§∞(ÄÄÄÄÄÅ…’±ïÕ=¡ï∏ÄÙÅ	ΩΩ±ïÖ∏°Õ—Ω…îπïŸïπ–π¡±ÖÂï…I’±ïÕ=¡ï∏§Ï(ÄÄÄÅ°ΩÕ–π•ππï…!Q50ÄÙÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…A…ïŸ•ï›QΩ¿à¯Òë•ÿ¯Ò†»˘A±ÖÂï»ÅY•ï‹Ω†»¯Ò¿˘A°ΩπîÅ¡…ïŸ•ï‹ÉäPÅÕï±ïç–ÅÑÅùΩ±ôï»Å—ºÅÕïîÅï·Öç—±‰Å›°Ö–Å—°Ö–Å¡±ÖÂï»Å›•±∞ÅÕïî∏Ω¿¯Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…A…ïŸ•ï›Ωπ—…Ω±Ãà¯ÒÕï±ïç–Å•êÙâ¡…ïŸ•ï›A±ÖÂï»à¯ëÌô•ï±êπµÖ¿†°•ê§ÄÙ¯ÅÄÒΩ¡—•Ω∏ÅŸÖ±’îÙàëÌ•ëÙàÄëÌ•êÄÙÙÙÅÕï±ïç—ïêÄ¸ÄâÕï±ïç—ïêàÄËÄàâÙ¯ëÌïÕå°ïŸïπ—A±ÖÂï»°•ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà•ÙΩΩ¡—•Ω∏˘Ä§π©Ω•∏†àà•ÙΩÕï±ïç–¯ëÌëÖÂQÖâÃ†â¡…ïŸ•ï›ëÖ‰à∞ÅëÖ‰•ÙΩë•ÿ¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâ¡°ΩπïM°ï±∞à¯Òë•ÿÅç±ÖÕÃÙâ¡°ΩπïMç…ïï∏à¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ÿïπ—!ï…ºà¯ÒÕ¡Ö∏˘]dÅ=1ΩÕ¡Ö∏¯Ò†ƒ¯ëÌïÕå°Õ—Ω…îπïŸïπ–ππÖµî•ÙΩ†ƒ¯ëÌëÖÂÃÄ¯ÄƒÄ¸ÅÄÒ†Ã˘dÄëÌëÖÂÙΩ†Ã˘ÄÄËÄàâÙÒ¿¯ëÌïÕå°å¸ππÖµîÅÒÄâΩ’…Õîà•ÙΩ¿¯ÒÕµÖ±∞¯ëÌïÕå°ôΩ…µÖ—Ÿïπ—Ö—î°Õ—Ω…îπïŸïπ–πëÖ—î∞ÅëÖ‰§•ÙΩÕµÖ±∞¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâïŸïπ—U¡ëÖ—ï	Öππï»ÄëÌ¡…ïŸ•ï›M—ÖùîÄ¸Äâ¡…ïŸ•ï‹àÄËÄâô•πÖ∞âÙà¯Òà¯ëÌ¡…ïŸ•ï›M—ÖùîÄ¸ÄâŸïπ–ÅA…ïŸ•ï‹ÉäPÅëï—Ö•±ÃÅµÖ‰Åç°Öπùî∏àÄËÅô•πÖ±•ÕïêÄ¸Äâ±∞ÅMï–ÉärLÉäPÅÂΩ’»ÅÕçΩ…ïÃÅÖ…îÅ…ïçΩ…ëïê∏ÅQ•µîÅ—ºÅ¡±Ö‰Å—°îÄƒÂ—†∏àÄËÄâ±∞ÅMï–ÉärLÉäPÅ•πÖ∞ÅïŸïπ–Åëï—Ö•±ÃÅ…ïçï•ŸïêâÙΩà¯ÒÕ¡Ö∏¯ëÌ¡…ïŸ•ï›M—ÖùîÄ¸ÄâA±ïÖÕîÅç°ïç¨ÅôΩ»ÅÖπêÅëΩ›π±ΩÖêÅ—°îÅô•πÖ∞ÅïŸïπ–Å’¡ëÖ—îÅ—°îÅëÖ‰ÅâïôΩ…îÅ¡±Ö‰∏àÄËÅÅU¡ëÖ—ïêÄëÌïÕå°πï‹ÅÖ—î°Õ—Ω…îπïŸïπ–πô•πÖ±U¡ëÖ—ï–ÅÒÅÕ—Ω…îπïŸïπ–π±Ωç≠ïë–ÅÒÅÖ—îππΩ‹†§§π—Ω1ΩçÖ±ïM—…•πú†âï∏µTà§•ıÅÙΩÕ¡Ö∏¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…êà¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…ëQ•—±îà˘e=UHÅ=1Ωë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Öç—ÃÅÕç°ïë’±ïÖç—Ãà¯Òë•ÿ¯ÒÕµÖ±∞˘A±ÖÂ•πúÅQïîΩÕµÖ±∞¯Òà¯ëÌ¡…ïŸ•ï›M—ÖùîÄ¸ÅïÕå°ïŸïπ—Qïï5Ö…≠ï…Ω±Ω’»°ëÖ‰±Õ—Ω…îπïŸïπ–±ïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±Õï±ïç—ïê§§§ÄËÅ—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§Ä¸ÅïÕå°ïŸïπ—Qïï5Ö…≠ï…Ω±Ω’»°ëÖ‰±Õ—Ω…îπïŸïπ–±ïŸïπ—Ω’…ÕïÖ—ïùΩ…‰°ëÖ‰±Õ—Ω…îπïŸïπ–±Õï±ïç—ïê§§§ÄËÄâ›Ö•—•πúâÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘Ö•±‰Å!Öπë•çÖ¿ΩÕµÖ±∞¯Òà¯ëÌ°ç¿ÄÑÙÅπ’±∞Ä¸ÅïÕå°ôΩ…µÖ—A±ÖÂ•πù!Öπë•çÖ¿°°ç¿§§ÄËÄãäPâÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘M—Ö…—•πúÅ!Ω±îΩÕµÖ±∞¯Òà¯ëÌïÕå°Õ—Ö…—Qï·–•ÙΩà¯Ωë•ÿ¯Òë•ÿ¯ÒÕµÖ±∞˘QïîÅQ•µîΩÕµÖ±∞¯Òà¯ëÌïÕå°—ïïQ•µî•ÙΩà¯Ωë•ÿ¯Ωë•ÿ¯Ωë•ÿ¯(ÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…êà¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ö…ëQ•—±îà¯ÒÕ—…Ωπú¯ëÌïÕå°¿ππÖµî•ÙΩÕ—…Ωπú¯ÉäPÅI=U@ÄëÌç—‡πù…Ω’¡%πëï‡Ä¨Ä≈ÙΩë•ÿ¯Òë•ÿÅç±ÖÕÃÙâ¡°Ωπï…Ω’¿à¯ëÌù…Ω’¡9ÖµïÃπµÖ¿†°∏§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙàëÌ∏ππÖµîÄÙÙÙÄâ9ºÅAÖ…—πï»àÄ¸Äâπ¿àÄËÄàâÙÄëÌM—…•πú°∏π•ê§ÄÙÙÙÅÕï±ïç—ïêÄ¸ÄâÂΩ‘àÄËÄàâÙÄëÌÂï±±Ω›	Ö±±=∏ÄòòÅM—…•πú°∏π•ê§ÄÙÙÙÅM—…•πú°Ω¡ïπ•πùeï±±Ω›	Ö±±A±ÖÂï»§Ä¸ÄâÂï±±Ω›	Ö±±Q’…∏àÄËÄàâÙà¯ëÌïÕå°∏ππÖµî•ÙΩë•ÿ˘Ä§π©Ω•∏†àà•ÙΩë•ÿ¯ëÌ¡Ö…—πï»Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâ¡°ΩπïAÖ…—πï»à¯ÒÕµÖ±∞˘e=UHÄ—		ÅAIQ9HΩÕµÖ±∞¯ÒàÅç±ÖÕÃÙàëÌ•Õôôïç—ïêÄ¸ÄâŸ¡9ÖµîàÄËÄàâÙà¯ëÌïÕå°¡Ö…—πï»ππÖµî•ÙëÌ•Õôôïç—ïêÄ¸ÄàÄ°Y@§àÄËÄàâÙΩà¯Ωë•ÿ˘ÄÄËÄàâÙΩë•ÿ¯(ÄëÌçΩµ¡±ï—ï…Ö›Ù(ÄëÌ•Õôôïç—ïêÅÒÅ•Õ·—…ÑÅÒÅÂï±±Ω›	Ö±±=∏ÅÒÅÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸ÅÄÒë•ÿÅç±ÖÕÃÙâÕ¡ïç•Ö±%πÕ—…’ç—•Ω∏à¯ÒÕ—…Ωπú˘Q=dùLÅMA%0Å%9MQIUQ%=9LΩÕ—…Ωπú¯ëÌÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸Ä††§ÄÙ¯ÅÏÅçΩπÕ–Å…Ω±ïÃÄÙÅÖµâ…ΩÕïIΩ±ïÃ°ëÖ‰∞Åç—‡πù…Ω’¡%πëï‡§∞ÅÕçΩ…ï…9ÖµîÄÙÅïŸïπ—A±ÖÂï»°…Ω±ïÃπÕçΩ…ï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄâ—°îÅô•…Õ–Å±•Õ—ïêÅ¡±ÖÂï»à∞ÅµÖ…≠ï…9ÖµîÄÙÅïŸïπ—A±ÖÂï»°…Ω±ïÃπµÖ…≠ï…%ê∞ÅëÖ‰§¸ππÖµîÅÒÄàà∞Å…Ω±îÄÙÅÕï±ïç—ïêÄÙÙÙÅ…Ω±ïÃπÕçΩ…ï…%êÄ¸Å…Ω±ïÃπµÖ…≠ï…%êÄ¸ÅÅeΩ‘ÅÖ…îÅ—°îÅQïÖ¥ÅMçΩ…ï»Å…ïçΩ…ë•πúÅ—°îÅÕ—…Ω≠ïÃÅÖπêÅ›°ΩÕîÅë…•ŸîÅ›ÖÃÅ—Ö≠ï∏ÅΩ∏ÅïÖç†Å°Ω±î∏ÄëÌµÖ…≠ï…9ÖµïÙÅ•ÃÅÂΩ’»ÅµÖ…≠ï»πÄÄËÄâeΩ‘ÅÖ…îÅ—°îÅQïÖ¥ÅMçΩ…ï»Å…ïçΩ…ë•πúÅ—°îÅÕ—…Ω≠ïÃÅÖπêÅ›°ΩÕîÅë…•ŸîÅ›ÖÃÅ—Ö≠ï∏ÅΩ∏ÅïÖç†Å°Ω±î∏Å9Ω—î∞Å—°ï…îÅ•ÃÅπºÅç°ïç¨ÅµÖ…≠ï»Å•∏Å—°•ÃÅŸïπ–∏àÄËÅÕï±ïç—ïêÄÙÙÙÅ…Ω±ïÃπµÖ…≠ï…%êÄ¸ÅÅeΩ‘ÅÖ…îÅ—°îÅç°ïç≠•πúÅµÖ…≠ï»∏ÄëÌÕçΩ…ï…9ÖµïÙÅ•ÃÅÂΩ’»ÅÕçΩ…ï»πÄÄËÅÅQ°îÅ—ïÖ¥ÅÕçΩ…ï»Å•ÃÄëÌÕçΩ…ï…9ÖµïÙ∏ëÌ…Ω±ïÃπµÖ…≠ï…%êÄ¸ÅÄÄëÌµÖ…≠ï…9ÖµïÙÅ•ÃÅ—°îÅµÖ…≠ï»πÄÄËÄàÅQ°ï…îÅ•ÃÅπºÅç°ïç¨ÅµÖ…≠ï»Å•∏Å—°•ÃÅŸïπ–∏âıÄÏÅ…ï—’…∏ÅÄÒ¿¯Òà˘µâ…ΩÕîËΩà¯ÄëÌïÕå°…Ω±î•ÙëÌ…Ω±ïÃπµÖ…≠ï…%êÄòòÅÕï±ïç—ïêÄÑÙÙÅ…Ω±ïÃπÕçΩ…ï…%êÄ¸ÄàÅIïçΩ…êÅΩπîÅ—ïÖ¥ÅÕ—…Ω≠îÅÕçΩ…îÅÖπêÅ—°îÅÕï±ïç—ïêÅë…•ŸîÅΩ∏ÅïŸï…‰Å°Ω±îÏÅ—°îÅÕçΩ…ï»ÅÖπêÅµÖ…≠ï»ÅçÖ…ëÃÅµ’Õ–ÅÖù…ïî∏àÄËÄàâÙΩ¿˘ÄÏÅÙ§†§ÄËÄàâÙëÌÂï±±Ω›	Ö±±=∏Ä¸ÅÄÒ¿¯Òà˘eï±±Ω‹Å	Ö±∞ËΩà¯ÄëÌïÕå°ïŸïπ—A±ÖÂï»°Ω¡ïπ•πùeï±±Ω›	Ö±±A±ÖÂï»∞ÅëÖ‰§¸ππÖµîÅÒÄâQ°îÅô•…Õ–Å¡±ÖÂï»à•ÙÅ’ÕïÃÅ•–ÅΩ∏Å!Ω±îÄëÌÕ—Ö…—Ù∞Å—°ï∏Å•–Å…Ω—Ö—ïÃÅ—°…Ω’ù†Å—°îÅ—ïÖ¥Å•∏Å—°îÅΩ…ëï»ÅÕ°Ω›∏∏ÅQ°îÅ¡±ÖÂï»Å›°ΩÕîÅ—’…∏Å•–Å•ÃÅ›•±∞Å°ÖŸîÅ—°ï•»ÅπÖµîÅ°•ù°±•ù°—ïêÅâ…•ù°–ÅÂï±±Ω‹ÅΩ∏Å—°îÅÕçΩ…•πúÅÕç…ïï∏∏Ω¿˘ÄÄËÄàâÙëÌ•Õôôïç—ïêÄ¸ÅÄÒ¿¯ëÌÖµâ…ΩÕï%Õ=∏°Õ—Ω…îπïŸïπ–∞ÅëÖ‰§Ä¸ÄâQ°•ÃÅ•ÃÅÑÅ—°…ïîµ¡±ÖÂï»Åµâ…ΩÕîÅ—ïÖ¥ÏÅπºÅŸ•…—’Ö∞ÅÕçΩ…îÅ•ÃÅ’Õïê∏àÄËÄâeΩ‘Å°ÖŸîÄÒà˘9ºÅAÖ…—πï»Ωà¯Å—ΩëÖ‰∞ÅÕºÅ—°îÅŸ•…—’Ö∞Å¡Ö…—πï»Å±•Õ—ïêÅ›•±∞ÅÕ’¡¡±‰Å—°îÅµ•ÕÕ•πúÅÕçΩ…ïÃÅ•∏Åµ’±—•¡±ÖÂï»ÅçΩµ¡ï—•—•ΩπÃ∏âÙΩ¿˘ÄÄËÄàâÙëÌ•Õ·—…ÑÄ¸ÅÄÒ¿¯Òà˘9Q@Å·—…ÑÅM°Ω–ËΩà¯ÅeΩ‘ÅµÖ‰Å¡±Ö‰ÄÒà˘—›ºÅ—ïîÅÕ°Ω—ÃΩà¯ëÌï·—…Ö9—¡!Ω±ïÃπ±ïπù—†Ä¸ÅÄÅΩ∏Å!Ω±îÄëÌï·—…Ö9—¡!Ω±ïÃπ©Ω•∏†àÅÖπêÅ!Ω±îÄà•ıÄÄËÄàÅΩ∏ÅïÖç†Å9Q@Å°Ω±îÅ—ΩëÖ‰âÙ∏Å•—°ï»ÅÕ°Ω–ÅµÖ‰Å≈’Ö±•ô‰∏Ω¿˘ÄÄËÄàâÙΩë•ÿ˘ÄÄËÄàâÙ(ÄÒâ’——Ω∏Åç±ÖÕÃÙâ¡±ÖÂï…I’±ïÕ	—∏àÅ•êÙâ¡±ÖÂï…I’±ïÕ	—∏à˘Ωµ¡ï—•—•ΩπÃÄôÖµ¿ÏÅI’±ïÃÄÒÕ¡Ö∏¯ëÌ…’±ïÕ=¡ï∏Ä¸Äãä2àÄËÄãäËâÙΩÕ¡Ö∏¯Ωâ’——Ω∏¯ëÏ(ÄÄÅ…’±ïÕ=¡ï∏(ÄÄÄÄÄ¸ÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…I’±ïÕAÖπï∞à¯Ò†–˘Ωµ¡ï—•—•ΩπÃΩ†–¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…Ωµ¡ï—•—•Ωπ1•Õ–à¯ëÏ†(ÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πçΩµ¡ï—•—•ΩπÃÅÒÅmt(ÄÄÄÄÄÄÄ§(ÄÄÄÄÄÄÄÄÄπô•±—ï»°•êÄÙ¯ÅçΩµ¡ï—•—•Ωπ%Õ=∏°•ê±ëÖ‰§§(ÄÄÄÄÄÄÄÄÄπµÖ¿†°•ê§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÄÅ•òÄ°lâÕ•πù±îà∞âçΩµâ•πïêâtπ•πç±’ëïÃ°•ê§§Å…ï—’…∏ÅÕ—Öâ±ïôΩ…ëA±ÖÂï…A…•ÈïÕ!—µ∞°Õ—Ω…îπïŸïπ–§Ï(ÄÄÄÄÄÄÄÄÄÄÅçΩπÕ–ÅÕ•πù±ïΩ…µÖ–ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–πÕ•πù±ïM—Öâ±ïôΩ…ëΩ…µÖ–ÅÒ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ°Õ—Ω…îπïŸïπ–π—ïÕ—5ΩëîÄ¸ÄâÖùù…ïùÖ—îàÄËÄââΩ—†à§∞(ÄÄÄÄÄÄÄÄÄÄÄÄÅ±Öâï∞ÄÙ(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÅ•êÄÙÙÙÄâçΩµâ•πïêà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅM•πù±îÅM—Öâ±ïôΩ…êÄ†ëÌÕ•πù±ïΩ…µÖ–ÄÙÙÙÄâëÖ•±‰àÄ¸ÄâÖç†ÅÖ‰àÄËÅÕ•πù±ïΩ…µÖ–ÄÙÙÙÄââΩ—†àÄ¸ÄâÖ•±‰Ä¨ÅŸïπ–ÅQΩ—Ö∞àÄËÅÅ	ïÕ–ÄëÌçΩ’π—•πùIΩ’πëÃ†•ÙÅŸïπ–ÅQΩ—Ö±ÅÙ•Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅ•êÄÙÙÙÄâ—ïÖµA’——Ãà(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¸ÅÅA’——•πúÅΩµ¡ï—•—•Ω∏Ä†ëÌÕ—Ω…îπïŸïπ–π¡’——•πùΩ…µÖ–ÄÙÙÙÄâ¡Ö•…ÃàÄ¸Äà»ÅA±ÖÂï»àÄËÄà–ÅA±ÖÂï»âÙ•Ä(ÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄËÅçΩµ¡ï—•—•Ωπ9ÖµïÕm•ëtÅÒÅ•êÏ(ÄÄÄÄÄÄÄÄÄÄÅ…ï—’…∏ÅÄÒë•ÿÅëÖ—ÑµçΩµ¡ï—•—•Ω∏ÙàëÌ•ëÙà¯ÒÕ¡Ö∏¯ëÌïÕå°±Öâï∞•ÙΩÕ¡Ö∏¯Òà¯ëÌïÕå°çΩµ¡ï—•—•Ωπ	ïπïô•—Qï·–°•ê∞ÅÕ—Ω…îπïŸïπ–πâïπïô•—Ã§•ÙΩà¯Ωë•ÿ˘ÄÏ(ÄÄÄÄÄÄÄÄÅÙ§(ÄÄÄÄÄÄÄÄÄπ©Ω•∏†(ÄÄÄÄÄÄÄÄÄÄÄàà∞(ÄÄÄÄÄÄÄÄÄ•ÙΩë•ÿ¯Ò†–˘UÕ•πúÅ—°îÅÕçΩ…•πúÅçÖ…êΩ†–¯Òë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…I’±ïMïç—•Ω∏à¯Ò¿˘eΩ’»Å¡°ΩπîÅ›•±∞Å…ï—Ö•∏ÅïŸï…‰ÅÕçΩ…îÅÂΩ‘Åïπ—ï»Åâ’–Å—…ÖπÕµ•ÕÕ•Ω∏ÅΩòÅ—°ΩÕîÅÕçΩ…ïÃÅ—ºÅ—°îÅ±ïÖëï…âΩÖ…êÅµÖ‰ÅâîÅëï±ÖÂïê∏Å%òÅÂΩ’»ÅÕçΩ…îÅ•ÃÅπΩ–Å…ïô±ïç—ïêÅΩ∏Å—°îÅ±ïÖëï…âΩÖ…ê∞Å≠ïï¿Å¡±ÖÂ•πú∞Å≠ïï¿ÅÕçΩ…•πúÅÖπêÅïπ©Ω‰ÅÂΩ’»Å…Ω’πê∏ÅQ°îÅ±ïÖëï…âΩÖ…êÅ›•±∞Å’¡ëÖ—î∏Ω¿¯Ò¿¯Òà˘M›•¡îÅ±ïô–Å—ºÅ…ïÖç†Å—°îÅπï·–Å°Ω±îÅΩ»ÅÕ›•¡îÅ…•ù°–Å—ºÅ…ï—’…∏Å—ºÅ—°îÅ¡…ïŸ•Ω’ÃÅ°Ω±î∏Ωà¯ÅeΩ‘ÅçÖ∏ÅÖ±ÕºÅ’ÕîÅ—°îÅA…ïŸ•Ω’ÃÅÖπêÅ9ï·–Å!Ω±îÅâ’——ΩπÃ∏Ω¿¯Ωë•ÿ¯Ò†–˘Ÿïπ–ÅI’±ïÃΩ†–¯ëÌ…’±ïMïç—•ΩπÃπ±ïπù—†Ä¸Å…’±ïMïç—•ΩπÃπµÖ¿†°Õïç—•Ω∏§ÄÙ¯ÅÄÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…I’±ïMïç—•Ω∏à¯Òà¯ëÌïÕå°Õïç—•Ω∏π—•—±î•ÙΩà¯ëÌïŸïπ—I’±ï	ΩëÂ!—µ∞°Õïç—•Ω∏•ÙΩë•ÿ˘Ä§π©Ω•∏†àà§ÄËÄàÒ¿˘9ºÅÖëë•—•ΩπÖ∞Å…’±ïÃÅÖ¡¡±‰Å—ºÅ—°•ÃÅïŸïπ–∏Ω¿¯âÙΩë•ÿ˘Ä(ÄÄÄÄÄËÄàà(ÅÙÒë•ÿÅç±ÖÕÃÙâ¡±ÖÂï…ç¨à¯Òë•ÿ¯Òà˘I’±ïÃÅÖç≠πΩ›±ïëùïµïπ–Ωà¯ÒÕµÖ±∞˘IïÖêÅ—ΩëÖ‰ùÃÅ…’±ïÃÅâïôΩ…îÅÕ—Ö…—•πú∏ΩÕµÖ±∞¯Ωë•ÿ¯Òâ’——Ω∏Å•êÙâ¡±ÖÂï…Ω—%–àÅç±ÖÕÃÙàëÌÖç¨Ä¸ÄâëΩπîàÄËÄàâÙà¯ëÌÖç¨Ä¸ÄãärLÅI’±ïÃÅÖç≠πΩ›±ïëùïêàÄËÄâ=PÅ%PâÙΩâ’——Ω∏¯Ωë•ÿ¯(ÄÒâ’——Ω∏Åç±ÖÕÃÙâÕ—Ö…—IΩ’πë	—∏ÄëÌô•πÖ±•ÕïêÄ¸ÄâçΩµ¡±ï—ïëÖ…ë	—∏àÄËÄàâÙàÅ•êÙâÕ—Ö…—IΩ’πëA…ïŸ•ï‹àÄëÌô•πÖ±•ÕïêÅÒÅçÖπM—Ö…–Ä¸ÄààÄËÄâë•ÕÖâ±ïêâÙ¯ëÌô•πÖ±•ÕïêÄ¸Ä°lâ°Ω±ï	Â!Ω±îà∞âô’±±Ö…ëA±ÖÂï»âtπ•πç±’ëïÃ°ëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§§¸âY%\Å=5A1QÅM=IIàËâY%\Å%90ÅM=Ià§ÄËÄÖÕ—Ω…îπïŸïπ–π±Ωç≠ïêÄ¸ÄâY9PÅ9=PÅePÅ1=-àÄËÄÖ—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§Ä¸Äâ]%Q%9Å=HÅ=I9%MHÅQ<Å%91%MÅQàÄËÅ°ç¿ÄÙÙÅπ’±∞Ä¸Äâ%1dÅ!9%@Å9=PÅMPàÄËÄÖÖç¨Ä¸ÄâQ@Å=PÅ%PÅQ<Å=A8ÅQ!ÅM=IIàÄËÄÖÕçΩ…•πù=¡ï∏Ä¸ÄâM=I%9Å=A9LÄƒ‘Å5%9UQLÅ	=IÅQ!Å%IMPÅQÅQ%5àÄËÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÙÙÙâ°Ω±ï	Â!Ω±îàÄ¸Äâ=A8ÅM=IIàÄËÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÙÙÙâô’±±Ö…ëA±ÖÂï»àÄ¸Äâ9QHÅU10ÅM=IIàÄËÄâ9QHÅ%90ÅM=IâÙΩâ’——Ω∏¯ëÏÖô•πÖ±•ÕïêÄòòÄÖçÖπM—Ö…–Ä¸ÅÄÒ¿Åç±ÖÕÃÙâ±Ωç≠!•π–à¯ëÏÖÕçΩ…•πù=¡ï∏ÄòòÅÕ—Ω…îπïŸïπ–π±Ωç≠ïêÄòòÅ—ïïMï±ïç—•Ωπ%Õ•πÖ∞°ëÖ‰§ÄòòÅ°ç¿ÄÑÙÅπ’±∞ÄòòÅÖç¨Ä¸ÅÅMçΩ…•πúÅΩ¡ïπÃÅÖ–ÄëÌïÕå°ÕçΩ…•πù=¡ïπ•πù1Öâï∞°ëÖ‰§•ÙÉäPÄƒ‘Åµ•π’—ïÃÅâïôΩ…îÅ—°îÅô•…Õ–Å—ïîÅ—•µîπÄÄËÄâQ°îÅ…Ω’πêÅΩ¡ïπÃÅ›°ï∏Å—°îÅïŸïπ–Å•ÃÅ±Ωç≠ïê∞Å—°îÅ¡±ÖÂ•πúÅ—ïîÅ•ÃÅô•πÖ±•Õïê∞ÅÂΩ’»ÅÖ•±‰Å!Öπë•çÖ¿Å•ÃÅÕï–ÅÖπêÅÂΩ‘Å°ÖŸîÅÖç≠πΩ›±ïëùïêÅ—°îÅ…’±ïÃ∏âÙΩ¿˘ÄÄËÄàâÙΩë•ÿ¯Ωë•ÿ˘ÄÏ(ÄÄÄÄê†àç¡…ïŸ•ï›A±ÖÂï»à§πΩπç°ÖπùîÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›%êÄÙÅîπ—Ö…ùï–πŸÖ±’îÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄêê†âmëÖ—Ñµ¡…ïŸ•ï›ëÖÂtà§πôΩ…Öç††(ÄÄÄÄÄÄ°à§ÄÙ¯(ÄÄÄÄÄÄÄÄ°àπΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›Ö‰ÄÙÄ≠àπëÖ—ÖÕï–π¡…ïŸ•ï›ëÖ‰Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›%êÄÙÅπ’±∞Ï(ÄÄÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÄâ¡…ïŸ•ï‹àÏ(ÄÄÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÄÄÅÙ§∞(ÄÄÄÄ§Ï(ÄÄÄÄê†àç¡±ÖÂï…I’±ïÕ	—∏à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅçΩπÕ–ÅΩ±ëQΩ¿ÄÙÄê†àç¡±ÖÂï…I’±ïÕ	—∏à§πùï—	Ω’πë•πù±•ïπ—Iïç–†§π—Ω¿Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…I’±ïÕ=¡ï∏ÄÙÄÖ…’±ïÕ=¡ï∏Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅçΩπÕ–Åπï›	’——Ω∏ÄÙÄê†àç¡±ÖÂï…I’±ïÕ	—∏à§Ï(ÄÄÄÄÄÅ•òÄ°πï›	’——Ω∏§(ÄÄÄÄÄÄÄÅ›•πëΩ‹πÕç…Ω±±	‰†¿∞Åπï›	’——Ω∏πùï—	Ω’πë•πù±•ïπ—Iïç–†§π—Ω¿Ä¥ÅΩ±ëQΩ¿§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àç¡±ÖÂï…Ω—%–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç¨ÄÙÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç¨ÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç≠mëÖÂtÄÙ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç≠mëÖÂtÅÒÅÌÙÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…A…ïŸ•ï›ç≠mëÖÂumÕï±ïç—ïëtÄÙÅ—…’îÏ(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àçÕ—Ö…—IΩ’πëA…ïŸ•ï‹à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°ô•πÖ±•Õïê§ÅÏ(ÄÄÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÅlâ°Ω±ï	Â!Ω±îà∞Äâô’±±Ö…ëA±ÖÂï»âtπ•πç±’ëïÃ°ëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§§Ä¸ÄâçΩµ¡±ï—ïêàÄËÄâô•πÖ±π—…‰àÏ(ÄÄÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÄÄÅ…ï—’…∏Å…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÄÄÅ•òÄ†ÖçÖπM—Ö…–§Å…ï—’…∏Ï(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…IΩ’πë5ΩëîÄÙÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÙÙÙÄâ°Ω±ï	Â!Ω±îàÄ¸ÄâÕçΩ…•πúàÄËÅëÖÂMçΩ…•πù5ï—°Ωê°ëÖ‰§ÄÙÙÙÄâô’±±Ö…ëA±ÖÂï»àÄ¸Äâô’±±Ö…ëπ—…‰àÄËÄâô•πÖ±π—…‰àÏ(ÄÄÄÄÄÅÕ—Ω…îπïŸïπ–π¡±ÖÂï…!Ω±ïAΩÃÄÙÄ¿Ï(ÄÄÄÄÄÅ…ï≈’ïÕ—IΩ’πë]Ö≠ï1Ωç¨†§Ï(ÄÄÄÄÄÅÕÖŸî†§Ï(ÄÄÄÄÄÅ…ïπëï…A±ÖÂï…·¡ï…•ïπçî†§Ï(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅ•òÄ°•πÕ—Ö±±ïëï…Ö±I•ëùï!•Õ—Ω…Â	ÖÕï±•πî†§§Å›…•—ï1ΩçÖ±M—Ω…î†§Ï(ÄÅ…ïµΩŸïIïçΩ…ëïëQïÕ—Ÿïπ—!•Õ—Ω…‰†§Ï(ÄÅâÖç≠ô•±±Ωµ¡±ï—ïëŸïπ—!•Õ—Ω…‰†§Ï(ÄÅÖ¡¡±ÂïŸ•çïIΩ±î†§Ï(ÄÅ…ïπëï…!Ωµî†§Ï(ÄÅ…ïπëï…A±ÖÂï…Õëµ•∏†§Ï(ÄÅ…ïπëï…Ω’…ÕïÕëµ•∏†§Ï(ÄÅ•π•—•Ö±•Õï±Ω’ê†§Ï(ÄÅ•òÄ†(ÄÄÄÄÖ•ÕA±ÖÂï…ïŸ•çî†§Äòò(ÄÄÄÄÖ•Õ…ïÕ°5Ωâ•±ïïŸ•çî†§Äòò(ÄÄÄÄÖÕïÕÕ•ΩπM—Ω…Öùîπùï—%—ï¥†âÖ›ÖÂΩ±ô5ÂŸïπ—ÕM°Ω›∏ƒ‘ÿ»à§(ÄÄ§ÅÏ(ÄÄÄÅÕïÕÕ•ΩπM—Ω…ÖùîπÕï—%—ï¥†âÖ›ÖÂΩ±ô5ÂŸïπ—ÕM°Ω›∏ƒ‘ÿ»à∞Äàƒà§Ï(ÄÄÄÅÕï—Q•µïΩ’–°Ω¡ïπ5ÂŸïπ—Ã∞Äƒ»¿§Ï(ÄÅÙ(ÄÅ•òÄ†ê†àç≈’•ç≠)Ω•πŸïπ–à§§(ÄÄÄÄê†àç≈’•ç≠)Ω•πŸïπ–à§πΩπç±•ç¨ÄÙÄ†§ÄÙ¯(ÄÄÄÄÄÅ±ΩΩ≠’¡±Ω’ëŸïπ–†ê†àç≈’•ç≠)Ω•πΩëîà§¸πŸÖ±’îÅÒÄàà§Ï(ÄÅ’¡ëÖ—ïïŸ•çï±ïÖ…IïçΩŸï…Â	’——Ω∏†§Ï(ÄÅ•òÄ†ê†àç…ïÕ—Ω…ï±ïÖ…ïë=…ùÖπ•Õï…Ÿïπ—Ãà§§(ÄÄÄÄê†àç…ïÕ—Ω…ï±ïÖ…ïë=…ùÖπ•Õï…Ÿïπ—Ãà§πΩπç±•ç¨ÄÙÅ…ïÕ—Ω…ï±ïÖ…ïë=…ùÖπ•Õï…Ÿïπ—ÃÏ(ÄÅ•òÄ†ê†àç≈’•ç≠)Ω•πΩëîà§§ÅÏ(ÄÄÄÄê†àç≈’•ç≠)Ω•πΩëîà§πΩπ•π¡’–ÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅîπ—Ö…ùï–πŸÖ±’îÄÙÅîπ—Ö…ùï–πŸÖ±’îπ…ï¡±Öçî†ΩmyÑµË¿¥ÂtΩù§∞Äàà§π—ΩU¡¡ï…ÖÕî†§Ï(ÄÄÄÄÄÅÕï—E’•ç≠)Ω•πM—Ö—’Ã†(ÄÄÄÄÄÄÄÅîπ—Ö…ùï–πŸÖ±’îπ±ïπù—†ÄÙÙÙÄÿ(ÄÄÄÄÄÄÄÄÄÄ¸ÄâIïÖë‰Å—ºÅô•πêÅÂΩ’»ÅïŸïπ–∏à(ÄÄÄÄÄÄÄÄÄÄËÄâπ—ï»Å—°îÅÕ•‡µç°Ö…Öç—ï»ÅïŸïπ–ÅçΩëî∏à∞(ÄÄÄÄÄÄ§Ï(ÄÄÄÅÙÏ(ÄÄÄÄê†àç≈’•ç≠)Ω•πΩëîà§πΩπ≠ïÂëΩ›∏ÄÙÄ°î§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°îπ≠ï‰ÄÙÙÙÄâπ—ï»à§ÅÏ(ÄÄÄÄÄÄÄÅîπ¡…ïŸïπ—ïôÖ’±–†§Ï(ÄÄÄÄÄÄÄÅ±ΩΩ≠’¡±Ω’ëŸïπ–†ê†àç≈’•ç≠)Ω•πΩëîà§¸πŸÖ±’îÅÒÄàà§Ï(ÄÄÄÄÄÅÙ(ÄÄÄÅÙÏ(ÄÅÙ(ÄÅ›•πëΩ‹πÖëëŸïπ—1•Õ—ïπï»†âΩπ±•πîà∞Ä†§ÄÙ¯ÅÏÅ•òÄ†Ñê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πçΩπ—Ö•πÃ†âΩ¡ï∏à§§ÅŸΩ•êÅÕÂπç5ÖÕ—ï…Ω’…ÕïÃ†§ÏÅÙ§Ï(ÄÅëΩç’µïπ–πÖëëŸïπ—1•Õ—ïπï»†âŸ•Õ•â•±•—Âç°Öπùîà∞Ä†§ÄÙ¯ÅÏÅ•òÄ†ÖëΩç’µïπ–π°•ëëï∏ÄòòÄÑê†àçµΩëÖ±M°Öëîà§πç±ÖÕÕ1•Õ–πçΩπ—Ö•πÃ†âΩ¡ï∏à§§ÅŸΩ•êÅÕÂπç5ÖÕ—ï…Ω’…ÕïÃ†§ÏÅÙ§Ï(ÄÅ•òÄ†âÕï…Ÿ•çï]Ω…≠ï»àÅ•∏ÅπÖŸ•ùÖ—Ω»§ÅÏ(ÄÄÄÅ±ï–Å…ï±ΩÖë•πùΩ…U¡ëÖ—îÄÙÅôÖ±ÕîÏ(ÄÄÄÅπÖŸ•ùÖ—Ω»πÕï…Ÿ•çï]Ω…≠ï»πÖëëŸïπ—1•Õ—ïπï»†âçΩπ—…Ω±±ï…ç°Öπùîà∞Ä†§ÄÙ¯ÅÏ(ÄÄÄÄÄÅ•òÄ°…ï±ΩÖë•πùΩ…U¡ëÖ—îÅÒÄÖπÖŸ•ùÖ—Ω»πÕï…Ÿ•çï]Ω…≠ï»πçΩπ—…Ω±±ï»§Å…ï—’…∏Ï(ÄÄÄÄÄÅ…ï±ΩÖë•πùΩ…U¡ëÖ—îÄÙÅ—…’îÏ(ÄÄÄÄÄÅ±ΩçÖ—•Ω∏π…ï±ΩÖê†§Ï(ÄÄÄÅÙ§Ï(ÄÄÄÅπÖŸ•ùÖ—Ω»πÕï…Ÿ•çï]Ω…≠ï»(ÄÄÄÄÄÄπ…ïù•Õ—ï»†âÕ‹π©Ãà§(ÄÄÄÄÄÄπ—°ï∏†°…ïù•Õ—…Ö—•Ω∏§ÄÙ¯Å…ïù•Õ—…Ö—•Ω∏π’¡ëÖ—î†§§(ÄÄÄÄÄÄπçÖ—ç†††§ÄÙ¯ÅÌÙ§Ï(ÄÅÙ)Ù§†§Ï(

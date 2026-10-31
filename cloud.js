@@ -319,6 +319,25 @@
     };
   }
 
+  async function eventAccess(eventId) {
+    await ensureSignedIn();
+    const { data: authData, error: authError } = await client.auth.getUser();
+    if (authError) throw authError;
+    const userId = String(authData?.user?.id || "");
+    if (!userId) return { role: "none" };
+    const [eventResult, playerResult] = await Promise.all([
+      client.from("away_events").select("organiser_id").eq("id", eventId).maybeSingle(),
+      client.from("away_event_players").select("player_id,member_user_id").eq("event_id", eventId).eq("member_user_id", userId).maybeSingle(),
+    ]);
+    if (eventResult.error) throw eventResult.error;
+    if (playerResult.error) throw playerResult.error;
+    if (String(eventResult.data?.organiser_id || "") === userId)
+      return { role: "organiser" };
+    if (playerResult.data?.player_id != null)
+      return { role: "player", playerId: String(playerResult.data.player_id) };
+    return { role: "spectator" };
+  }
+
   async function saveRound(eventId, day, playerId, scoreData, options={}) {
     await ensureSignedIn();
     const args={
@@ -562,6 +581,7 @@
     joinEvent,
     spectateEvent,
     loadEvent,
+    eventAccess,
     saveRound,
     releasePlayer,
     saveWorkspace,

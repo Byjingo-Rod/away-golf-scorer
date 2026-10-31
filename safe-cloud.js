@@ -109,6 +109,10 @@
     try{persist();}catch(error){state=previous;throw error;}
     measuredAt=0;showHealth();return removed.length;
   }
+  // A player who deliberately removes a completed event from a phone no
+  // longer needs that event's local recovery records. The confirmed cloud
+  // scores are not touched; this only clears this browser's Safe Cloud copy.
+  function discardEventCopies(eventId){return discardTestEvent(eventId);}
   function discardAbandonedRecord(record,allowActiveTest=false){
     if(unreadable)throw Error("Saved-copy recovery data is unreadable; nothing was removed.");
     const stored=JSON.parse(localStorage.getItem(key)||"{}");
@@ -179,6 +183,8 @@
   }
   async function save(id,kind,data,day,player,options={}) {
     activeEvent=id;
+    if(kind==="score"&&options.expectedPlayerId!=null&&String(player)!==String(options.expectedPlayerId))
+      throw error("The scorecard identity changed before upload. The score remains saved on this phone.","GOLF_IDENTITY");
     const k=entry(id,kind,day,player);
     data=safeData(kind,data);
     // Save before any network operation. No acknowledged base moves on polling.
@@ -284,6 +290,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,discardEventCopies,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();
