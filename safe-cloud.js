@@ -54,7 +54,7 @@
   function showHealth(){
     if(typeof document==="undefined")return;
     let node=document.getElementById("golfSaveHealth");
-    if(!node){node=document.createElement("div");node.id="golfSaveHealth";node.setAttribute("role","status");node.setAttribute("aria-live","polite");node.style.cssText="padding:8px 14px;background:#edf4fa;color:#17324d;font-size:14px;font-weight:600;overflow-wrap:anywhere";const header=document.querySelector("header");if(header)header.after(node);else document.body?.prepend(node);}
+    if(!node){node=document.createElement("div");node.id="golfSaveHealth";node.setAttribute("role","status");node.setAttribute("aria-live","polite");node.style.cssText="padding:8px 14px;background:#edf4fa;color:#17324d;font-size:14px;font-weight:600;overflow-wrap:anywhere;display:flex;align-items:center;gap:10px;flex-wrap:wrap";const header=document.querySelector("header");if(header)header.after(node);else document.body?.prepend(node);}
     const counts=saveHealth(activeEvent),messages=[];
     if(storageFailures.size)messages.push(...new Set(storageFailures.values()));
     if(Date.now()-measuredAt>5000){measuredAt=Date.now();measuredBytes=0;try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);measuredBytes+=2*(k.length+(localStorage.getItem(k)||"").length);}}catch{}}
@@ -68,7 +68,11 @@
       messages.push(`${parts.join(" and ")} ${counts.pending===1?"is":"are"} waiting to upload.`);
     }
     if(cloudStatus)messages.push(cloudStatus);
-    node.textContent=messages.join(" ");node.hidden=!messages.length;
+    let messageNode=node.querySelector(".golfSaveHealthMessage"),exitCell=node.querySelector(".golfSaveHealthExit");
+    if(!messageNode){node.textContent="";messageNode=document.createElement("span");messageNode.className="golfSaveHealthMessage";exitCell=document.createElement("span");exitCell.className="golfSaveHealthExit";const button=document.createElement("button"),note=document.createElement("span");button.type="button";button.textContent="← Exit";button.onclick=()=>document.getElementById("exitScorecard")?.click();note.textContent="Scores remain saved.";exitCell.append(button,note);node.append(messageNode,exitCell);}
+    messageNode.textContent=messages.join(" ");
+    const scorecardExit=document.getElementById("exitScorecard");exitCell.hidden=!scorecardExit;
+    node.hidden=!messages.length&&!scorecardExit;
     // App Storage already has a permanent button on the home page. Keep this
     // strip as a concise warning instead of presenting the same action twice.
   }

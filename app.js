@@ -8669,6 +8669,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
       2 + par + stablefordStrokeCount(indexValue, handicap) - gross,
     );
   }
+  function grossScoresAgree(day, playerId, hole, leftGross, rightGross, event = store.event) {
+    if (!scoreEntered(leftGross) || !scoreEntered(rightGross)) return false;
+    if (String(leftGross).toUpperCase() === String(rightGross).toUpperCase()) return true;
+    // Events needing an actual gross score must match exactly. For a
+    // Stableford-only result, a pick-up and a numeric zero-point score are
+    // equivalent outcomes for the hole.
+    if (["stroke", "scratch", "eclectic"].some((id) => competitionIsOn(id, day, event))) return false;
+    if (!["single", "combined", "fourball", "best3of4", "par3", "yellowBall", "capTeams"].some((id) => competitionIsOn(id, day, event))) return false;
+    const card = eventCourseScorecard(day, event, playerId),
+      index = +hole - 1,
+      par = +(card?.par?.[index] || 0),
+      strokeIndex = card?.index?.[index] ?? "",
+      handicap = playerDailyHandicap(playerId, day);
+    return stablefordPoints(leftGross, par, strokeIndex, handicap) === 0 &&
+      stablefordPoints(rightGross, par, strokeIndex, handicap) === 0;
+  }
   function scoreSequence(start) {
     start = +start || 1;
     return Array.from({ length: 18 }, (_, i) => ((start - 1 + i) % 18) + 1);
@@ -8885,8 +8901,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         offGross = off?.gross ?? "";
       if (!off || !scoreEntered(selfGross) || !scoreEntered(offGross))
         return true;
-      const scoreMatch =
-          String(offGross).toUpperCase() === String(selfGross).toUpperCase(),
+      const scoreMatch = grossScoresAgree(day, playerId, h, offGross, selfGross),
         puttsMatch =
           !puttsRequired ||
           (scoreEntered(off.putts) &&
@@ -8904,7 +8919,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!off || !scoreEntered(self.gross) || !scoreEntered(off.gross))
         return true;
       return !(
-        String(off.gross).toUpperCase() === String(self.gross).toUpperCase() &&
+        grossScoresAgree(day, playerId, h, off.gross, self.gross) &&
         (!puttsRequired ||
           (scoreEntered(off.putts) &&
             scoreEntered(self.putts) &&
@@ -12296,9 +12311,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         selfPutts = self.putts ?? "",
         offPutts = off?.putts ?? "",
         bothEntered = scoreEntered(selfGross) && scoreEntered(offGross),
-        scoreMatch =
-          bothEntered &&
-          String(offGross).toUpperCase() === String(selfGross).toUpperCase(),
+        scoreMatch = bothEntered && grossScoresAgree(day, playerId, h, offGross, selfGross),
         puttsMatch =
           !puttsRequired ||
           (scoreEntered(offPutts) &&
@@ -12334,10 +12347,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         checkedGross = checked.gross ?? "",
         markedPutts = marked.putts ?? "",
         checkedPutts = checked.putts ?? "",
-        scoreMatch =
-          scoreEntered(markedGross) &&
+        scoreMatch = scoreEntered(markedGross) &&
           scoreEntered(checkedGross) &&
-          String(markedGross).toUpperCase() === String(checkedGross).toUpperCase(),
+          grossScoresAgree(day, targetId, h, markedGross, checkedGross),
         puttsMatch =
           !puttsRequired ||
           (scoreEntered(markedPutts) &&
@@ -12636,10 +12648,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return `<div class="scoreSteppers">${gross}${stepper(section + "Putts", "Putts", entry.putts, 2, 0, 9)}</div>${pickup(section + "Gross", entry.gross)}`;
     return `<div class="scoreSteppers noPutting">${gross}<div class="scoreStepperWrap pickupControl"><small>Pick-up</small>${pickup(section + "Gross", entry.gross, true)}</div></div>`;
   }
-  function scoreEntriesMismatch(left, right, puttsRequired) {
+  function scoreEntriesMismatch(day, playerId, hole, left, right, puttsRequired) {
     if (!scoreEntered(left?.gross) || !scoreEntered(right?.gross)) return false;
     if (puttsRequired && (!scoreEntered(left?.putts) || !scoreEntered(right?.putts))) return false;
-    return String(left.gross).toUpperCase() !== String(right.gross).toUpperCase() ||
+    return !grossScoresAgree(day, playerId, hole, left.gross, right.gross) ||
       (puttsRequired && Number(left.putts) !== Number(right.putts));
   }
   function renderHoleScoring(selected, day) {
@@ -12849,7 +12861,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       : "";
     const targetPossessive = eventGaCategory(targetId, store.event) === "women" ? "her" : "his";
     const ntpAcknowledgement = ntp
-      ? `<div class="ntpPlayCard ntpPlayCardTop"><div><b>NTP — Did ${esc(target?.name || "your marker partner")} record ${targetPossessive} name on the NTP marker?</b><span>${holder ? `Current holder: ${esc(holderName || "Player")}` : "No name recorded yet"}${ntpPrizeStatus ? ` · Prize: ${esc(ntpPrizeStatus)}` : ""}${isExtra ? " · You have the NTP extra shot today." : ""}</span></div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>`
+      ? `<div class="ntpPlayCard ntpPlayCardTop"><div><b>NTP — Did ${esc(target?.name || "your marker partner")} record ${targetPossessive} name on the NTP marker?</b>${isExtra ? "<span>You have the NTP extra shot today.</span>" : ""}</div>${rec.ntp?.locked ? `<button disabled>Entry locked</button>` : rec.ntp?.confirmedAt ? `<div class="ntpConfirmed"><span class="ntpTime">🔒 ${esc(timeText)}</span><button class="soft" id="undoNtp">Undo</button></div>` : `<button class="primary ${rec.ntp?.pending ? "confirming" : ""}" id="yesNtp">${rec.ntp?.pending ? "CONFIRM YES" : "YES"}</button>`}</div>`
       : "";
     const holeComplete = (h) => {
       const r = round[String(h)] || {},
@@ -12869,8 +12881,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         markedPlayer = String(marked.playerId || targetId || ""),
         markedCheck = scoringDayStore(day)?.[markedPlayer]?.[String(h)]?.self || {},
         puttsRequired = puttingOn;
-      return scoreEntriesMismatch(own, ownOfficial, puttsRequired) ||
-        Boolean(markedPlayer && scoreEntriesMismatch(marked, markedCheck, puttsRequired));
+      return scoreEntriesMismatch(day, selected, h, own, ownOfficial, puttsRequired) ||
+        Boolean(markedPlayer && scoreEntriesMismatch(day, markedPlayer, h, marked, markedCheck, puttsRequired));
     };
     round._meta = round._meta || {};
     const furthestPos = Math.max(pos, +round._meta.furthestPos || 0);
@@ -12917,7 +12929,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const startingHoleAlert = showStartingHoleNotice
       ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
       : "";
-    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scorecardExitBar"><button type="button" class="soft" id="exitScorecard">← Exit Scorecard</button><span>Your entered scores remain saved.</span></div><div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
+    host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scorecardExitBar"><button type="button" class="soft" id="exitScorecard">← Exit</button><span>Scores remain saved.</span></div><div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
  ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div class="${ntp ? "ntpParCell" : ""}"><small>${ntp ? "PAR · NTP" : "PAR"}</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
  ${ntpAcknowledgement}
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(targetId, day)))}</span></div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
@@ -12930,6 +12942,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       writeLocalStore();
       renderPlayerExperience();
     };
+    window.GolfSafeCloud?.reportStatus(cloudMessage, store.cloud?.eventId);
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {
         store.event.playerHolePos = seq.indexOf(mismatchHoles[0]);

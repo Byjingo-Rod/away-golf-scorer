@@ -3,6 +3,7 @@ import fs from "node:fs";
 
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const safeCloud = fs.readFileSync(new URL("../safe-cloud.js", import.meta.url), "utf8");
 
 assert.match(
   app,
@@ -36,7 +37,7 @@ assert.match(
 assert.match(app, /id="exitScorecard"/, "an open scorecard has a clear exit control");
 assert.match(
   app,
-  /Your entered scores remain saved\./,
+  /Scores remain saved\./,
   "the exit control explains that entered scores remain saved",
 );
 assert.match(
@@ -49,6 +50,11 @@ assert.ok(
   "the NTP acknowledgement appears before the first score-entry block",
 );
 assert.match(css, /\.holeHero\.isNtp > div\.ntpParCell \{[^}]*background: #ffe4e4;/s, "the NTP Par cell has a light red background");
+assert.match(app, /function grossScoresAgree\(/, "Stableford score agreement uses result equivalence");
+assert.match(app, /stablefordPoints\(leftGross[\s\S]*=== 0[\s\S]*stablefordPoints\(rightGross[\s\S]*=== 0/, "P and a numeric zero-point Stableford score agree");
+assert.doesNotMatch(app, /No name recorded yet.*Prize:/, "the compact NTP acknowledgement omits holder and prize status");
+assert.match(safeCloud, /golfSaveHealthExit/, "the scorecard exit shares the live-status strip");
+assert.match(safeCloud, /button\.textContent="← Exit"/, "the live-status exit uses the compact label");
 assert.match(css, /\.runningScore b \{\s*font-size: 18px;/, "score figures are enlarged");
 
 console.log("15.96.60 event finish and preview regression checks passed");

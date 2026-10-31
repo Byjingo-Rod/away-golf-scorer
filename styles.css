@@ -3729,11 +3729,39 @@ body.playerDevice .awakeIndicator.active {
   line-height: 1.15;
 }
 .scorecardExitBar {
-  width: min(100%, 720px);
-  margin: 0 auto 10px;
-  display: flex;
+  display: none;
+}
+.golfSaveHealthMessage {
+  min-width: 0;
+}
+.golfSaveHealthExit {
+  margin-left: auto;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  white-space: nowrap;
+}
+.golfSaveHealthExit[hidden] {
+  display: none;
+}
+.golfSaveHealthExit button {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid #9bbdaf;
+  border-radius: 7px;
+  background: #f7fbf8;
+  color: #17563b;
+  font: inherit;
+  font-weight: 800;
+}
+.golfSaveHealthExit span {
+  font-size: 11px;
+  color: #496455;
+}
+@media (max-width: 520px) {
+  .golfSaveHealthExit span {
+    font-size: 9px;
+  }
 }
 .scorecardExitBar span {
   color: #496455;
