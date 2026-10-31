@@ -3711,6 +3711,17 @@ body.playerDevice .awakeIndicator.active {
   color: #15583b;
   line-height: 1.15;
 }
+.scorecardExitBar {
+  width: min(100%, 720px);
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.scorecardExitBar span {
+  color: #496455;
+  font-size: 13px;
+}
 .scoreSummary.hasEclectic .runningScore {
   grid-template-columns: repeat(5, minmax(0, 1fr));
   min-width: 330px;

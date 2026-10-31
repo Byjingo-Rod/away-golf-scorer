@@ -33,6 +33,12 @@ assert.match(
   /Competitions <small>\(Note: All prizes are quoted per player\)<\/small>/,
   "competition prize note is displayed",
 );
+assert.match(app, /id="exitScorecard"/, "an open scorecard has a clear exit control");
+assert.match(
+  app,
+  /Your entered scores remain saved\./,
+  "the exit control explains that entered scores remain saved",
+);
 assert.match(css, /\.runningScore b \{\s*font-size: 18px;/, "score figures are enlarged");
 
 console.log("15.96.60 event finish and preview regression checks passed");
