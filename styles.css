@@ -2539,6 +2539,15 @@ body.playerDevice .awakeIndicator.active {
 .holeHero b {
   font-size: 15px;
 }
+.holeHero.isNtp > div.ntpParCell {
+  background: #ffe4e4;
+  color: #8f2424;
+}
+.holeHero.isNtp > div.ntpParCell small,
+.holeHero.isNtp > div.ntpParCell b {
+  color: #8f2424;
+  font-weight: 900;
+}
 .holeHero > span {
   grid-column: 1/-1;
   background: #eef5f0;
@@ -2640,6 +2649,14 @@ body.playerDevice .awakeIndicator.active {
 }
 .ntpPlayCard button.confirming {
   background: #a64f20;
+}
+.ntpPlayCardTop {
+  margin-top: 8px;
+  border-color: #e2a5a5;
+  background: #fff0f0;
+}
+.ntpPlayCardTop > div:first-child b {
+  color: #762424;
 }
 .holeNav {
   display: grid;

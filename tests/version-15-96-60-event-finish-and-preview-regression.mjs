@@ -39,6 +39,16 @@ assert.match(
   /Your entered scores remain saved\./,
   "the exit control explains that entered scores remain saved",
 );
+assert.match(
+  app,
+  /eventGaCategory\(targetId, store\.event\) === "women" \? "her" : "his"/,
+  "the NTP acknowledgement uses the recorded player category for his or her",
+);
+assert.ok(
+  app.indexOf("${ntpAcknowledgement}") < app.indexOf('<div class="scoreEntryCard official">'),
+  "the NTP acknowledgement appears before the first score-entry block",
+);
+assert.match(css, /\.holeHero\.isNtp > div\.ntpParCell \{[^}]*background: #ffe4e4;/s, "the NTP Par cell has a light red background");
 assert.match(css, /\.runningScore b \{\s*font-size: 18px;/, "score figures are enlarged");
 
 console.log("15.96.60 event finish and preview regression checks passed");
