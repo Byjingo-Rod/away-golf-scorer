@@ -2612,6 +2612,20 @@
                 liveControlDay: store.event?.liveControlDay || 1,
                 activeGroupDay: store.event?.activeGroupDay || 1,
                 playerPreviewDay: store.event?.playerPreviewDay || 1,
+                playerPreviewId: store.event?.playerPreviewId || "",
+                playerRoundMode: store.event?.playerRoundMode || "preview",
+                playerVerificationStage:
+                  store.event?.playerVerificationStage || "mine",
+                returnToMarkedVerification: Boolean(
+                  store.event?.returnToMarkedVerification,
+                ),
+                playerHolePos: store.event?.playerHolePos || 0,
+                playerRulesOpen: Boolean(store.event?.playerRulesOpen),
+                // Player View on the organiser PC is a local preview. A live
+                // organiser refresh must not undo Got It or close the card.
+                playerPreviewAck: JSON.parse(
+                  JSON.stringify(store.event?.playerPreviewAck || {}),
+                ),
                 finalUpdateCloudSentAt:
                   store.event?.finalUpdateCloudSentAt ||
                   payload.event?.finalUpdateAt ||
@@ -2934,7 +2948,17 @@
   }
   function retirePhoneFromArchivedEvent(bundle) {
     if (bundle?.event?.status !== "archived" || !["player", "spectator"].includes(store.cloud?.role)) return false;
+    const retiredEventId = String(store.cloud?.eventId || "");
     closeCloudConnection();
+    // Once the organiser has archived the event, its confirmed online scores
+    // are final. Recovery copies on this phone are no longer useful and must
+    // not remain as protected clutter.
+    if (retiredEventId)
+      try {
+        GolfSafeCloud.discardEventCopies(retiredEventId);
+      } catch (error) {
+        console.warn("Archived-event recovery copies could not be removed", error);
+      }
     store.event = null;
     delete store.cloud;
     store.cloudPlayers = [];
@@ -7518,6 +7542,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
     };
     const dayHead = (day, key) =>
       `<div class="ntpDayHeading"><h4>${W.event.days === 1 ? "NTP Hole" : `Day ${day}`}</h4><strong>${esc(startLabel(day))}</strong>${W.event.ntpSelections[key].length === 2 ? `<button type="button" class="soft" data-ntpswap="${key}">⇄ Swap NTP Order</button>` : ""}</div>`;
+    // Populate the automatic selections before constructing the printable
+    // cards. Previously the first render built the cards from an empty list;
+    // opening Change caused a second render and made them appear by accident.
+    competitionDays("ntp", W.event).forEach((day) => {
+      const key = "day" + day,
+        cid = W.event["course" + day];
+      ensure(key, cid, ntpCount(day, W.event));
+    });
     const printableNtpCards = competitionDays("ntp", W.event).flatMap((day) => {
       const cid = W.event["course" + day];
       return (W.event.ntpSelections?.["day" + day] || []).map((hole) => ({
@@ -14059,6 +14091,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
         await AwayCloud.archiveEvent(cloudEventId);
         await AwayCloud.saveWorkspace({activePublishedEvent:null});
         forgetPublishedEvent(cloudEventId);
+        try {
+          GolfSafeCloud.discardEventCopies(cloudEventId);
+        } catch (error) {
+          // Cloud closure has already succeeded. Local cleanup is helpful but
+          // must never make a successfully archived event appear to have
+          // failed or invite a second archive attempt.
+          console.warn("Archived-event recovery copies could not be removed", error);
+        }
       }
       store.event.archivedAt=new Date().toISOString();
       captureCurrentEvent();
@@ -14081,7 +14121,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       setCloudMessage("Completed event archived · results retained in Past Events");
       alert(`${eventName} is now archived. Final results remain available in Past Events and connected phones will return to player entry.`);
     } catch(error) {
-      if(button){button.disabled=false;button.textContent="CLOSE AND ARCHIVE COMPLETED EVENT";}
+      if(button){button.disabled=false;button.textContent="EVENT COMPLETE — RELEASE PHONES & ARCHIVE";}
       alert("The event was not archived. "+(error.message||error));
     }
   }
@@ -14151,7 +14191,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           const m = finalMessageForPlayer(id);
           return `<div><b>${esc(player(id)?.name || "Player")}</b><span>${esc(m.heading)}${m.message ? ` ${esc(m.message)}` : ""}<small class="scoringCredit">${esc(m.scoringCredit)}</small></span></div>`;
         })
-        .join("")}</div><button class="finishEventBtn" id="archiveCompletedEvent">CLOSE AND ARCHIVE COMPLETED EVENT</button><p>Final results remain available in Past Events. Connected phones are released for their next event.</p></section>`;
+        .join("")}</div><button class="finishEventBtn" id="archiveCompletedEvent">EVENT COMPLETE — RELEASE PHONES &amp; ARCHIVE</button><p>Final results remain available in Past Events. Connected phones are released and obsolete protected working copies are removed from each device.</p></section>`;
     } else if (organiser && !eventComplete && eventDays().some(eventDayComplete)) {
       const next = eventDays().find(day=>!eventDayComplete(day));
       eventControl = `<section class="finishControl dayCompleteControl"><h3>Completed days can be awarded — Event Remains Open</h3><p>Complete the remaining days before closing the trip.</p><button class="finishEventBtn" id="openNextDayBtn" data-nextday="${next}">OPEN DAY ${next}</button></section>`;
@@ -14650,7 +14690,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  ${isAffected || isExtra || yellowBallOn || ambroseIsOn(store.event, day) ? `<div class="specialInstruction"><strong>TODAY'S SPECIAL INSTRUCTIONS</strong>${ambroseIsOn(store.event, day) ? (() => { const roles = ambroseRoles(day, ctx.groupIndex), scorerName = eventPlayer(roles.scorerId, day)?.name || "the first listed player", markerName = eventPlayer(roles.markerId, day)?.name || "", role = selected === roles.scorerId ? roles.markerId ? `You are the Team Scorer recording the strokes and whose drive was taken on each hole. ${markerName} is your marker.` : "You are the Team Scorer recording the strokes and whose drive was taken on each hole. Note, there is no check marker in this Event." : selected === roles.markerId ? `You are the checking marker. ${scorerName} is your scorer.` : `The team scorer is ${scorerName}.${roles.markerId ? ` ${markerName} is the marker.` : " There is no check marker in this Event."}`; return `<p><b>Ambrose:</b> ${esc(role)}${roles.markerId && selected !== roles.scorerId ? " Record one team stroke score and the selected drive on every hole; the scorer and marker cards must agree." : ""}</p>`; })() : ""}${yellowBallOn ? `<p><b>Yellow Ball:</b> ${esc(eventPlayer(openingYellowBallPlayer, day)?.name || "The first player")} uses it on Hole ${start}, then it rotates through the team in the order shown. The player whose turn it is will have their name highlighted bright yellow on the scoring screen.</p>` : ""}${isAffected ? `<p>${ambroseIsOn(store.event, day) ? "This is a three-player Ambrose team; no virtual score is used." : "You have <b>No Partner</b> today, so the virtual partner listed will supply the missing scores in multiplayer competitions."}</p>` : ""}${isExtra ? `<p><b>NTP Extra Shot:</b> You may play <b>two tee shots</b>${extraNtpHoles.length ? ` on Hole ${extraNtpHoles.join(" and Hole ")}` : " on each NTP hole today"}. Either shot may qualify.</p>` : ""}</div>` : ""}
  <button class="playerRulesBtn" id="playerRulesBtn">Competitions &amp; Rules <span>${rulesOpen ? "⌃" : "›"}</span></button>${
    rulesOpen
-     ? `<div class="playerRulesPanel"><h4>Competitions</h4><div class="playerCompetitionList">${(
+     ? `<div class="playerRulesPanel"><h4>Competitions <small>(Note: All prizes are quoted per player)</small></h4><div class="playerCompetitionList">${(
          store.event.competitions || []
        )
          .filter(id => competitionIsOn(id,day))
