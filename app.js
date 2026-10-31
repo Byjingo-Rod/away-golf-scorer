@@ -5545,7 +5545,16 @@ Count-back if tied
     benefitOpen: new Set(),
   };
   function refreshOpenWizardFromCloud() {
-    if (!store.event || !$("#wizardShade")?.classList.contains("open")) return;
+    // A background organiser refresh belongs to the published event in
+    // `store.event`.  It must never replace a brand-new plan currently being
+    // typed in the wizard (which lives in `W.event`).  Doing so redraws the
+    // form, drops input focus and restores the old published event name.
+    if (
+      W?.newEvent ||
+      !store.event ||
+      !$("#wizardShade")?.classList.contains("open")
+    )
+      return;
     const step = Math.min(6, Math.max(1, +(W?.step || store.event.draftStep || 6)));
     W = {
       step,
