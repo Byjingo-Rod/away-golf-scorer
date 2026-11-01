@@ -12819,13 +12819,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : null,
       };
     };
-    const scoreSummary = (current, total, playerId) => {
+    const scoreSummary = (section, current, total, playerId, holeIndex) => {
       const ec = eclecticData(playerId),
         shots = stablefordStrokeCount(
-          indexVal,
+          holeIndex,
           playerDailyHandicap(playerId, day),
         );
-      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "—" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day ${ec.baseDay}</em><b>${ec.baseHole == null ? "—" : ec.baseHole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
+      return `<div class="scoreSummary ${ec ? "hasEclectic" : ""}" data-score-summary="${section}"><div class="runningScore"><span><em>Shots</em><b>${shots}</b></span><span><em>Score</em><b>${current == null ? "—" : current}</b></span><span><em>Total</em><b>${total}</b></span>${ec ? `<span><em>Day ${ec.baseDay}</em><b>${ec.baseHole == null ? "—" : ec.baseHole}</b></span><span><em>Eclectic</em><b>${ec.total == null ? "—" : ec.total}</b></span>` : ""}</div></div>`;
     };
     const pairStart = ctx.playerIndex < 2 ? 0 : 2,
       pairIds = ctx.group
@@ -12994,8 +12994,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scorecardExitBar"><button type="button" class="soft" id="exitScorecard">← Exit</button><span>Scores remain saved.</span></div><div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
  ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div class="${ntp ? "ntpParCell" : ""}"><small>${ntp ? "PAR · NTP" : "PAR"}</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
  ${ntpAcknowledgement}
- <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(targetId, day)))}</span></div></div>${scoreSummary(sfOff, totalOff.points, targetId)}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
- <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(selected, day)))}</span></div></div>${scoreSummary(sfSelf, totalSelf.points, selected)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
+ <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(targetId, day)))}</span></div></div>${scoreSummary("official", sfOff, totalOff.points, targetId, targetCard.index?.[idx] ?? "")}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
+ <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(selected, day)))}</span></div></div>${scoreSummary("self", sfSelf, totalSelf.points, selected, indexVal)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     $("#exitScorecard").onclick = () => {
       store.event.playerRoundMode = "preview";
@@ -13037,6 +13037,27 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : "P — PICK-UP";
       }
     };
+    const updateScoreSummary = (section) => {
+      const playerId = section === "official" ? targetId : selected,
+        card = section === "official" ? targetCard : v,
+        handicap = section === "official" ? hcpTarget : hcpSelf,
+        current = stablefordPoints(
+          rec[section].gross,
+          +(card.par?.[idx] || 0),
+          card.index?.[idx] ?? "",
+          handicap,
+        ),
+        total = running(section, handicap, playerId).points,
+        summary = document.querySelector(`[data-score-summary="${section}"]`);
+      if (summary)
+        summary.outerHTML = scoreSummary(
+          section,
+          current,
+          total,
+          playerId,
+          card.index?.[idx] ?? "",
+        );
+    };
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
@@ -13052,6 +13073,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       // next hole. Replacing the whole scoring DOM after every value can remove
       // the next button between touch-down and click on a fast phone entry.
       updateScoreControl(id, val);
+      updateScoreSummary(section);
     };
     $$("[data-step]").forEach(
       (btn) =>
