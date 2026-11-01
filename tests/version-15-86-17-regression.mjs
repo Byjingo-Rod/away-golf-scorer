@@ -22,7 +22,7 @@ assert.match(
 );
 assert.match(
   app,
-  /Object\.assign\(store\.event,accepted\);[\s\S]*?recordCompletedEventHistory\(store\.event\)/,
+  /Object\.assign\(store\.event,accepted\);[\s\S]*?recordCompletedEventHistory\(store\.event(?:,[^)]*)?\)/,
   "confirming final results must record the event history",
 );
 assert.match(

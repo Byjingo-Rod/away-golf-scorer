@@ -25,3 +25,7 @@ The server keeps original sign-off information in `lastFinalResults` when correc
 `supabase/tests/event-lifecycle.sql` runs only on a disposable database. It tests publication identity, scheduled/early opening, incomplete/stale sign-off, three-player Ambrose with both role modes, guest expiry, correction invalidation, final-total locks, paper confirmation and archived reconfirmation for full-card/final-total methods. The ordinary four-player score RPC fixture also exercises final sign-off. Fixtures roll back.
 
 The full ordered migration replay uses PGlite with explicit Supabase platform shims. This is not a hosted restore drill or a signed-in Samsung/Windows trial. The practical test described in the review remains the final device acceptance step. The existing unresolved archived review is retained for the organiser's decision.
+
+## 15.97.04 follow-up
+
+The final client also sends its shared history marker inside the close request and retains a local completion-history receipt. After the exact cloud acknowledgement, local history is processed once even if the accepted payload already contains that marker. Polling, backup/restart and lost-response recovery cannot count the same publication twice. No additional database migration is required.

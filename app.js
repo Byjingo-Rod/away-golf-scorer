@@ -2833,7 +2833,7 @@
         store.pendingEventClose?.eventId === String(bundle.event?.id) &&
         store.pendingEventClose.confirmedAt === closeReceipt.confirmedAt) {
       store.event.finalResults = closeReceipt;store.event.status = "complete";
-      recordCompletedEventHistory(store.event);delete store.pendingEventClose;
+      recordCompletedEventHistory(store.event,!store.pendingEventClose.historyWasRecorded);delete store.pendingEventClose;
     }
 
     store.cloudPlayers = (bundle?.players || []).map((row) => ({
@@ -8342,13 +8342,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return changed;
   }
   function recordCompletedEventHistory(event = store.event) {
+    const historyKey = String(event?.publicationId || event?.cloudEventId || event?.pastCloudEventId || event?.workspaceId || event?.id || "");
+    const receipt = historyKey && store.completedHistoryReceipts?.[historyKey];
+    if (receipt) { event.historyRecordedAt ||= receipt; return false; }
     const awayGolfHistoryChanged = recordAwayGolfEventPlayed(event);
-    if (
-      !event?.groupSetup ||
-      event.historyRecordedAt ||
-      isTestEvent(event)
-    )
+    if (!event?.groupSetup || isTestEvent(event)) return awayGolfHistoryChanged;
+    store.completedHistoryReceipts ||= {};
+    if (event.historyRecordedAt && arguments[1] !== true) {
+      if (historyKey) store.completedHistoryReceipts[historyKey] = event.historyRecordedAt;
       return awayGolfHistoryChanged;
+    }
     for (let day = 1; day <= (event.days || 1); day++) {
       const gs = event.groupSetup["day" + day]?.groups || [];
       for (const g of gs) {
@@ -8373,6 +8376,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       }
     }
     event.historyRecordedAt = new Date().toISOString();
+    if (historyKey) store.completedHistoryReceipts[historyKey] = event.historyRecordedAt;
     return true;
   }
   function removeRecordedTestEventHistory() {
@@ -10696,7 +10700,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!developmentTestToolsPromise) {
         developmentTestToolsPromise = new Promise((resolve, reject) => {
           const script = document.createElement("script");
-          script.src = "development-tests.js?v=15.97.03";
+          script.src = "development-tests.js?v=15.97.04";
           script.async = true;
           script.onload = () => {
             try {
@@ -13779,12 +13783,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
     )
       return;
     const connection = store.cloud, eventId = String(connection?.eventId || store.event.workspaceId || "local"),
-      pending = store.pendingEventClose?.eventId === eventId && store.pendingEventClose.confirmedAt !== store.event.lastFinalResults?.confirmedAt ? store.pendingEventClose : {eventId,confirmedAt:new Date(Math.max(Date.now(),(Date.parse(store.event.lastFinalResults?.confirmedAt || "") || 0)+1)).toISOString()};
+      pending = store.pendingEventClose?.eventId === eventId && store.pendingEventClose.confirmedAt !== store.event.lastFinalResults?.confirmedAt ? store.pendingEventClose : {eventId,historyWasRecorded:Boolean(store.event.historyRecordedAt),confirmedAt:new Date(Math.max(Date.now(),(Date.parse(store.event.lastFinalResults?.confirmedAt || "") || 0)+1)).toISOString()};
     store.pendingEventClose = pending;
     if (writeLocalStore() === false) return alert("The close request was not saved. Keep this event open and try again.");
     const finalResults = {scoringRulesVersion:2,confirmedAt:pending.confirmedAt,outcomes:buildFinalPlayerMessages(defs)};
     try {
-      const document = cloudPayload({...store.event,status:"complete",finalResults});
+      const document = cloudPayload({...store.event,status:"complete",historyRecordedAt:store.event.historyRecordedAt || pending.confirmedAt,finalResults});
       const revisions = Object.fromEntries((closeBundle?.scores || []).map(row=>[`${row.day}:${row.scorer_player_id}`,row.revision]));
       const alreadyAccepted = closeBundle?.event?.event_data?.event?.finalResults;
       const result = connection?.eventId ? (alreadyAccepted?.confirmedAt === pending.confirmedAt && alreadyAccepted.cloudAcceptedAt
@@ -13796,7 +13800,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         throw new Error("The final sign-off has not been acknowledged. Retry the close request.");
       Object.assign(store.event,accepted);
       if (connection?.eventId) try { AwayCloud.safeReconcileAcknowledged?.(connection.eventId,"event",result.saved_data,result.revision); } catch(error) { console.warn("Event closed online; receipt storage needs retry",error); }
-      recordCompletedEventHistory(store.event);
+      recordCompletedEventHistory(store.event,!pending.historyWasRecorded);
       delete store.pendingEventClose;
       const durable = persistStore();
       setCloudMessage(connection?.eventId ? "Event closed online · final sign-off accepted" : "Event closed on this device");

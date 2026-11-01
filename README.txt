@@ -1,4 +1,12 @@
-AWAY GOLF SCORER — VERSION 15.97.03
+AWAY GOLF SCORER — VERSION 15.97.04
+
+VERSION 15.97.04 — COMPLETION HISTORY RECEIPTS
+
+- Sends the shared history marker with the accepted final close.
+- Records local history once after acknowledgement, including recovery after a lost response.
+- Retains a compact history receipt so cloud polling cannot count the same event again.
+- Includes all nine lifecycle corrections from 15.97.03.
+
 
 VERSION 15.97.03 — EVENT LIFECYCLE ACCEPTANCE
 

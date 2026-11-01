@@ -25,7 +25,7 @@ for (const role of ["player","organiser"]) {
  let durable=false,online=false,calls=0,history=0;const alerts=[];
  const event={days:1,status:'locked',workspaceId:'w'},connection={eventId:'synthetic',role:'organiser'};
  const c={store:{event,cloud:connection},GolfSafeCloud:{saveHealth:()=>({})},isGuestOrganiser:()=>false,syncCloudNow:async()=>({event:{revision:7},scores:[{day:1,scorer_player_id:'p1',revision:3}]}),
- eventDayComplete:()=>true,leaderboardDefinitions:()=>[],summaryCompetitionResult:()=>({complete:true}),confirm:()=>true,buildFinalPlayerMessages:()=>({}),recordCompletedEventHistory(){if(!event.historyRecordedAt){history++;event.historyRecordedAt='recorded';}},
+ eventDayComplete:()=>true,leaderboardDefinitions:()=>[],summaryCompetitionResult:()=>({complete:true}),confirm:()=>true,buildFinalPlayerMessages:()=>({}),recordCompletedEventHistory(e,force){if(!e.historyRecordedAt||force){history++;e.historyRecordedAt='recorded';}},
  writeLocalStore:()=>durable,persistStore:()=>durable,cloudPayload:e=>({event:e,players:[],courses:[]}),setCloudMessage(){},renderLeaderboard(){},renderHome(){},alert:m=>alerts.push(m),
  AwayCloud:{confirmEvent:async(id,doc,rev,revisions)=>{calls++;assert.equal(rev,7);assert.deepEqual(JSON.parse(JSON.stringify(revisions)),{'1:p1':3});if(!online)throw Error('offline');return {saved_data:{...doc,event:{...doc.event,finalResults:{...doc.event.finalResults,cloudAcceptedAt:'accepted'}}},revision:8};}},
  };
