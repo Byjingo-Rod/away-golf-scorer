@@ -10585,7 +10585,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!developmentTestToolsPromise) {
         developmentTestToolsPromise = new Promise((resolve, reject) => {
           const script = document.createElement("script");
-          script.src = "development-tests.js?v=15.96.71";
+          script.src = "development-tests.js?v=15.97.01";
           script.async = true;
           script.onload = () => {
             try {

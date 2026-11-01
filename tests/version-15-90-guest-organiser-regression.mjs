@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const sql = readFileSync(new URL("../supabase_v15_90_guest_organiser.sql", import.meta.url), "utf8");
+const sql = readFileSync(
+  new URL("../supabase/migrations/20261001000000_guest_organiser.sql", import.meta.url),
+  "utf8",
+);
 
 assert.match(html, /id="guestOrganiserAccess"/);
 assert.match(app, /function openGuestOrganiserAccess/);

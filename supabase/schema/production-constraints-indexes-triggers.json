@@ -1,0 +1,708 @@
+{
+  "project_ref": "qlxcpsbyfhgatujrqxkd",
+  "captured_on": "2026-11-01",
+  "category": "production-constraints-indexes-triggers",
+  "rows": [
+    {
+      "kind": "constraint",
+      "schema_name": "away_course_private",
+      "object_table": "administrators",
+      "object_name": "administrators_pkey",
+      "definition": "PRIMARY KEY (user_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "away_course_private",
+      "object_table": "administrators",
+      "object_name": "administrators_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "away_course_private",
+      "object_table": "master_proposals",
+      "object_name": "master_proposals_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "away_course_private",
+      "object_table": "master_proposals",
+      "object_name": "master_proposals_source_check",
+      "definition": "CHECK (source = ANY (ARRAY['away'::text, 'ges'::text]))"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "away_course_private",
+      "object_table": "master_proposals",
+      "object_name": "master_proposals_status_check",
+      "definition": "CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'kept'::text]))"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "conflicts",
+      "object_name": "conflicts_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "history",
+      "object_name": "history_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "inbox",
+      "object_name": "inbox_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "outbox",
+      "object_name": "outbox_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "settings",
+      "object_name": "settings_pkey",
+      "definition": "PRIMARY KEY (singleton)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "settings",
+      "object_name": "settings_singleton_check",
+      "definition": "CHECK (singleton)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_safe_private",
+      "object_table": "conflicts",
+      "object_name": "conflicts_kind_check",
+      "definition": "CHECK (kind = ANY (ARRAY['event'::text, 'score'::text, 'draft'::text]))"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_safe_private",
+      "object_table": "conflicts",
+      "object_name": "conflicts_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_safe_private",
+      "object_table": "corrections",
+      "object_name": "corrections_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_guest_keys",
+      "object_name": "away_event_guest_keys_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_guest_keys",
+      "object_name": "away_event_guest_keys_pkey",
+      "definition": "PRIMARY KEY (event_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organiser_keys",
+      "object_name": "away_event_organiser_keys_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organiser_keys",
+      "object_name": "away_event_organiser_keys_pkey",
+      "definition": "PRIMARY KEY (event_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_event_organisers_access_type_check",
+      "definition": "CHECK (access_type = ANY (ARRAY['tablet'::text, 'guest'::text]))"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_event_organisers_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_event_organisers_pkey",
+      "definition": "PRIMARY KEY (event_id, user_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_event_organisers_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_display_name_check",
+      "definition": "CHECK (char_length(display_name) >= 1 AND char_length(display_name) <= 120)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_event_id_member_user_id_key",
+      "definition": "UNIQUE (event_id, member_user_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_member_user_id_fkey",
+      "definition": "FOREIGN KEY (member_user_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_pkey",
+      "definition": "PRIMARY KEY (event_id, player_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_spectators",
+      "object_name": "away_event_spectators_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_spectators",
+      "object_name": "away_event_spectators_pkey",
+      "definition": "PRIMARY KEY (event_id, user_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_event_spectators",
+      "object_name": "away_event_spectators_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_join_code_check",
+      "definition": "CHECK (join_code ~ '^[A-Z0-9]{6}$'::text)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_join_code_key",
+      "definition": "UNIQUE (join_code)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_name_check",
+      "definition": "CHECK (char_length(name) >= 1 AND char_length(name) <= 120)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_organiser_id_fkey",
+      "definition": "FOREIGN KEY (organiser_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_status_check",
+      "definition": "CHECK (status = ANY (ARRAY['setup'::text, 'locked'::text, 'playing'::text, 'complete'::text, 'archived'::text]))"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_countries",
+      "object_name": "away_master_course_countries_name_check",
+      "definition": "CHECK (length(TRIM(BOTH FROM name)) >= 1 AND length(TRIM(BOTH FROM name)) <= 100)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_countries",
+      "object_name": "away_master_course_countries_pkey",
+      "definition": "PRIMARY KEY (name)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_history",
+      "object_name": "away_master_course_history_course_id_fkey",
+      "definition": "FOREIGN KEY (course_id) REFERENCES away_master_courses(id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_history",
+      "object_name": "away_master_course_history_pkey",
+      "definition": "PRIMARY KEY (course_id, revision)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_history",
+      "object_name": "away_master_course_history_saved_by_fkey",
+      "definition": "FOREIGN KEY (saved_by) REFERENCES auth.users(id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_regions",
+      "object_name": "away_master_course_regions_country_check",
+      "definition": "CHECK (length(TRIM(BOTH FROM country)) >= 1 AND length(TRIM(BOTH FROM country)) <= 100)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_regions",
+      "object_name": "away_master_course_regions_name_check",
+      "definition": "CHECK (length(TRIM(BOTH FROM name)) >= 1 AND length(TRIM(BOTH FROM name)) <= 100)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_course_regions",
+      "object_name": "away_master_course_regions_pkey",
+      "definition": "PRIMARY KEY (country, name)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_check",
+      "definition": "CHECK (jsonb_typeof(data) = 'object'::text AND (data ->> 'id'::text) = id AND length(TRIM(BOTH FROM data ->> 'name'::text)) > 0 AND octet_length(data::text) < 200000)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_id_check",
+      "definition": "CHECK (length(id) >= 1 AND length(id) <= 120)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_pkey",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_revision_check",
+      "definition": "CHECK (revision > 0)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_updated_by_fkey",
+      "definition": "FOREIGN KEY (updated_by) REFERENCES auth.users(id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "master_course_required_identity",
+      "definition": "CHECK ((data ->> 'id'::text) IS NOT NULL AND COALESCE(length(TRIM(BOTH FROM data ->> 'name'::text)), 0) > 0)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_organiser_workspaces",
+      "object_name": "away_organiser_workspaces_owner_id_fkey",
+      "definition": "FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_organiser_workspaces",
+      "object_name": "away_organiser_workspaces_pkey",
+      "definition": "PRIMARY KEY (owner_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_round_scores_day_check",
+      "definition": "CHECK (day >= 1 AND day <= 7)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_round_scores_event_id_fkey",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_round_scores_event_id_scorer_player_id_fkey",
+      "definition": "FOREIGN KEY (event_id, scorer_player_id) REFERENCES away_event_players(event_id, player_id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_round_scores_pkey",
+      "definition": "PRIMARY KEY (event_id, day, scorer_player_id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "golf_course_locations",
+      "object_name": "golf_course_locations_country_check",
+      "definition": "CHECK (length(country) >= 1 AND length(country) <= 100)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "golf_course_locations",
+      "object_name": "golf_course_locations_pkey",
+      "definition": "PRIMARY KEY (country, region)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "public",
+      "object_table": "golf_course_locations",
+      "object_name": "golf_course_locations_region_check",
+      "definition": "CHECK (length(region) <= 100)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "away_course_private",
+      "object_table": "administrators",
+      "object_name": "administrators_pkey",
+      "definition": "CREATE UNIQUE INDEX administrators_pkey ON away_course_private.administrators USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "away_course_private",
+      "object_table": "master_proposals",
+      "object_name": "master_proposals_pending",
+      "definition": "CREATE INDEX master_proposals_pending ON away_course_private.master_proposals USING btree (status, created_at)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "away_course_private",
+      "object_table": "master_proposals",
+      "object_name": "master_proposals_pkey",
+      "definition": "CREATE UNIQUE INDEX master_proposals_pkey ON away_course_private.master_proposals USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "conflicts",
+      "object_name": "conflicts_pkey",
+      "definition": "CREATE UNIQUE INDEX conflicts_pkey ON golf_catalogue_private.conflicts USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "history",
+      "object_name": "history_pkey",
+      "definition": "CREATE UNIQUE INDEX history_pkey ON golf_catalogue_private.history USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "inbox",
+      "object_name": "inbox_pkey",
+      "definition": "CREATE UNIQUE INDEX inbox_pkey ON golf_catalogue_private.inbox USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "outbox",
+      "object_name": "outbox_pkey",
+      "definition": "CREATE UNIQUE INDEX outbox_pkey ON golf_catalogue_private.outbox USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_catalogue_private",
+      "object_table": "settings",
+      "object_name": "settings_pkey",
+      "definition": "CREATE UNIQUE INDEX settings_pkey ON golf_catalogue_private.settings USING btree (singleton)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_safe_private",
+      "object_table": "conflicts",
+      "object_name": "conflicts_pkey",
+      "definition": "CREATE UNIQUE INDEX conflicts_pkey ON golf_safe_private.conflicts USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_safe_private",
+      "object_table": "conflicts",
+      "object_name": "golf_conflicts_event_open",
+      "definition": "CREATE INDEX golf_conflicts_event_open ON golf_safe_private.conflicts USING btree (event_id, created_at) WHERE (resolved_at IS NULL)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "golf_safe_private",
+      "object_table": "corrections",
+      "object_name": "corrections_pkey",
+      "definition": "CREATE UNIQUE INDEX corrections_pkey ON golf_safe_private.corrections USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_guest_keys",
+      "object_name": "away_event_guest_keys_pkey",
+      "definition": "CREATE UNIQUE INDEX away_event_guest_keys_pkey ON public.away_event_guest_keys USING btree (event_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_organiser_keys",
+      "object_name": "away_event_organiser_keys_pkey",
+      "definition": "CREATE UNIQUE INDEX away_event_organiser_keys_pkey ON public.away_event_organiser_keys USING btree (event_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_course_tablet_membership",
+      "definition": "CREATE INDEX away_course_tablet_membership ON public.away_event_organisers USING btree (user_id, event_id) WHERE ((access_type = 'tablet'::text) AND (revoked_at IS NULL))"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_organisers",
+      "object_name": "away_event_organisers_pkey",
+      "definition": "CREATE UNIQUE INDEX away_event_organisers_pkey ON public.away_event_organisers USING btree (event_id, user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_event_id_member_user_id_key",
+      "definition": "CREATE UNIQUE INDEX away_event_players_event_id_member_user_id_key ON public.away_event_players USING btree (event_id, member_user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_member_user_id_idx",
+      "definition": "CREATE INDEX away_event_players_member_user_id_idx ON public.away_event_players USING btree (member_user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "away_event_players_pkey",
+      "definition": "CREATE UNIQUE INDEX away_event_players_pkey ON public.away_event_players USING btree (event_id, player_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_spectators",
+      "object_name": "away_event_spectators_pkey",
+      "definition": "CREATE UNIQUE INDEX away_event_spectators_pkey ON public.away_event_spectators USING btree (event_id, user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_event_spectators",
+      "object_name": "away_event_spectators_user_id_idx",
+      "definition": "CREATE INDEX away_event_spectators_user_id_idx ON public.away_event_spectators USING btree (user_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_join_code_key",
+      "definition": "CREATE UNIQUE INDEX away_events_join_code_key ON public.away_events USING btree (join_code)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_organiser_id_idx",
+      "definition": "CREATE INDEX away_events_organiser_id_idx ON public.away_events USING btree (organiser_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_events_pkey",
+      "definition": "CREATE UNIQUE INDEX away_events_pkey ON public.away_events USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_countries",
+      "object_name": "away_master_country_identity",
+      "definition": "CREATE UNIQUE INDEX away_master_country_identity ON public.away_master_course_countries USING btree (lower(TRIM(BOTH FROM name)))"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_countries",
+      "object_name": "away_master_course_countries_pkey",
+      "definition": "CREATE UNIQUE INDEX away_master_course_countries_pkey ON public.away_master_course_countries USING btree (name)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_history",
+      "object_name": "away_master_course_history_editor",
+      "definition": "CREATE INDEX away_master_course_history_editor ON public.away_master_course_history USING btree (saved_by)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_history",
+      "object_name": "away_master_course_history_pkey",
+      "definition": "CREATE UNIQUE INDEX away_master_course_history_pkey ON public.away_master_course_history USING btree (course_id, revision)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_regions",
+      "object_name": "away_master_course_regions_pkey",
+      "definition": "CREATE UNIQUE INDEX away_master_course_regions_pkey ON public.away_master_course_regions USING btree (country, name)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_course_regions",
+      "object_name": "away_master_region_identity",
+      "definition": "CREATE UNIQUE INDEX away_master_region_identity ON public.away_master_course_regions USING btree (lower(TRIM(BOTH FROM country)), lower(TRIM(BOTH FROM name)))"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_course_editor",
+      "definition": "CREATE INDEX away_master_course_editor ON public.away_master_courses USING btree (updated_by)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "away_master_courses_pkey",
+      "definition": "CREATE UNIQUE INDEX away_master_courses_pkey ON public.away_master_courses USING btree (id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_organiser_workspaces",
+      "object_name": "away_organiser_workspaces_pkey",
+      "definition": "CREATE UNIQUE INDEX away_organiser_workspaces_pkey ON public.away_organiser_workspaces USING btree (owner_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_round_scores_pkey",
+      "definition": "CREATE UNIQUE INDEX away_round_scores_pkey ON public.away_round_scores USING btree (event_id, day, scorer_player_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "golf_away_score_player",
+      "definition": "CREATE INDEX golf_away_score_player ON public.away_round_scores USING btree (event_id, scorer_player_id)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "golf_course_locations",
+      "object_name": "golf_course_locations_pkey",
+      "definition": "CREATE UNIQUE INDEX golf_course_locations_pkey ON public.golf_course_locations USING btree (country, region)"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_event_revoke_guests",
+      "definition": "CREATE TRIGGER away_event_revoke_guests AFTER UPDATE OF status ON away_events FOR EACH ROW EXECUTE FUNCTION away_revoke_guests_when_event_closes()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_events",
+      "object_name": "away_event_touch",
+      "definition": "CREATE TRIGGER away_event_touch BEFORE UPDATE ON away_events FOR EACH ROW EXECUTE FUNCTION away_touch_revision()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "master_course_history",
+      "definition": "CREATE TRIGGER master_course_history AFTER INSERT OR UPDATE ON away_master_courses FOR EACH ROW EXECUTE FUNCTION away_course_private.course_history()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_master_courses",
+      "object_name": "master_course_revision",
+      "definition": "CREATE TRIGGER master_course_revision BEFORE INSERT OR UPDATE ON away_master_courses FOR EACH ROW EXECUTE FUNCTION away_course_private.course_revision()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_organiser_workspaces",
+      "object_name": "away_workspace_touch",
+      "definition": "CREATE TRIGGER away_workspace_touch BEFORE UPDATE ON away_organiser_workspaces FOR EACH ROW EXECUTE FUNCTION away_touch_revision()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
+      "object_table": "away_round_scores",
+      "object_name": "away_score_touch",
+      "definition": "CREATE TRIGGER away_score_touch BEFORE UPDATE ON away_round_scores FOR EACH ROW EXECUTE FUNCTION away_touch_revision()"
+    }
+  ]
+}
+

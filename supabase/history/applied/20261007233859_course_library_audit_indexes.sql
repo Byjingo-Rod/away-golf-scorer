@@ -1,0 +1,1 @@
+create index away_master_course_editor on public.away_master_courses(updated_by); create index away_master_course_history_editor on public.away_master_course_history(saved_by); create index away_course_tablet_membership on public.away_event_organisers(user_id,event_id) where access_type='tablet' and revoked_at is null;

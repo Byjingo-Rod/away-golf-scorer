@@ -4,9 +4,12 @@ import fs from "node:fs";
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const cloud = fs.readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-const sql = fs.readFileSync(new URL("../supabase_v15_86_4_spectator.sql", import.meta.url), "utf8");
+const sql = fs.readFileSync(
+  new URL("../supabase/migrations/20260915000000_spectator_view.sql", import.meta.url),
+  "utf8",
+);
 const spectatorReadSql = fs.readFileSync(
-  new URL("../supabase_v15_96_54_spectator_read_access.sql", import.meta.url),
+  new URL("../supabase/migrations/20261029054325_allow_registered_spectators_read_only_event_access.sql", import.meta.url),
   "utf8",
 );
 

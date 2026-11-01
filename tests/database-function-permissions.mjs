@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const sql = readFileSync(
-  new URL("../database/stage-2-function-permissions.sql", import.meta.url),
+  new URL("../supabase/migrations/20261101022221_restrict_away_function_permissions.sql", import.meta.url),
   "utf8",
 );
 const record = readFileSync(

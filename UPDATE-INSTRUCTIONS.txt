@@ -30,10 +30,11 @@ VERSION 15.92.0 CHANGES
 - The event's chosen playing tee supplies its matching Par, Index and Length data.
 - Automatic NTP selection recalculates when the course or tee changes.
 
-SUPABASE SQL REQUIRED BEFORE TESTING
+SUPABASE DATABASE CHANGES
 
-Run supabase_v15_90_guest_organiser.sql once in the Supabase SQL Editor.
-If the Version 15.86.4 Spectator SQL was already installed, do not run it again.
+Do not run the former standalone version SQL files. Database changes are now
+kept in timestamp order under supabase/migrations and applied once through the
+controlled migration process described in supabase/README.md.
 
 VERSION 15.91.6 CHANGES
 
