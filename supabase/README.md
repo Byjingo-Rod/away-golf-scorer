@@ -26,4 +26,6 @@ Before replaying the ordered history in an empty replacement project, set `away.
 
 The first pre-ledger baseline includes three exported helper prerequisites missing from the historical ledger. Applied production migrations were not rewritten.
 
-The course Edge Function update and the companion GES identity SQL require separate cross-project approval. Until approved, retain the deployed Edge Function version; the Away scoring/archive fixes do not depend on that update.
+The owner approved the cross-project course access update on 2 November 2026 (Sydney). The companion `ges-course-master-identity.sql` was applied to Golf Event Scorer as migration `20261101183609_course_master_verified_identity`, and Away's `course-master` Edge Function version 2 is active. Both apps continue to use Away's single authoritative course catalogue; Event Scorer retains course references and approval projections.
+
+Verification passed: deployed source matches the repository; isolated gateway and identity tests cover approved, suspended, unapproved, anonymous and owner identities; live read-only checks confirm existing-account permissions and grants; live HTTP requests reject missing and invalid sign-ins. A signed-in browser end-to-end test was not performed in this deployment session.
