@@ -962,7 +962,12 @@
     if (!saved || workspaceShrinkAuthorised) return false;
     const current = store.eventWorkspace || [];
     const ids = new Set(current.map(record => String(record.id)));
-    const missing = (saved.eventWorkspace || []).filter(record => !ids.has(String(record.id)));
+    // Only unpublished planning records belong in this recovery journal.
+    // Published events reopen from the cloud and must never be resurrected
+    // from an older local plan after a device refresh.
+    const missing = (saved.eventWorkspace || []).filter(
+      record => record?.event && !ids.has(String(record.id)),
+    );
     if (!missing.length) return false;
     // Restore missing identities without replacing newer plans or the active draft.
     store.eventWorkspace = current.concat(JSON.parse(JSON.stringify(missing)));
@@ -971,18 +976,37 @@
   }
 
   function writeWorkspaceJournal() {
+    const unpublished = (store.eventWorkspace || []).filter(
+      record => record?.event && !["Published", "Completed", "Cancelled"].includes(eventWorkspaceStatus(record.event)),
+    );
+    const identities = (store.eventWorkspace || [])
+      .filter(record => record?.event && ["Published", "Completed"].includes(eventWorkspaceStatus(record.event)))
+      .map(record => ({
+        id: record.id,
+        updatedAt: record.updatedAt || null,
+        name: record.event?.name || "",
+        date: record.event?.date || "",
+        eventId: record.cloud?.eventId || record.event?.id || null,
+        joinCode: record.cloud?.joinCode || record.event?.joinCode || null,
+        status: eventWorkspaceStatus(record.event),
+      }));
+    const currentIsUnpublished = store.event &&
+      !["Published", "Completed", "Cancelled"].includes(eventWorkspaceStatus(store.event));
     GolfSafeCloud.storageWrite(
       AWAY_GOLF_WORKSPACE_JOURNAL_KEY,
       JSON.stringify({
         savedAt: new Date().toISOString(),
         data: {
-          event: store.event ? JSON.parse(JSON.stringify(store.event)) : null,
-          eventWorkspace: JSON.parse(
-            JSON.stringify(store.eventWorkspace || []),
-          ),
+          event: currentIsUnpublished ? JSON.parse(JSON.stringify(store.event)) : null,
+          eventWorkspace: JSON.parse(JSON.stringify(unpublished)),
+          publishedIdentities: JSON.parse(JSON.stringify(identities)),
           activeEventId: store.activeEventId || null,
-          cloud: store.cloud ? JSON.parse(JSON.stringify(store.cloud)) : null,
-          cloudPlayers: JSON.parse(JSON.stringify(store.cloudPlayers || [])),
+          cloud: store.cloud ? {
+            role: store.cloud.role || null,
+            eventId: store.cloud.eventId || null,
+            joinCode: store.cloud.joinCode || null,
+          } : null,
+          cloudPlayers: [],
         },
       }),
     );
@@ -3683,6 +3707,37 @@
   }
   const PRE_IMPORT_BACKUP_KEY = "awayGolfPreImportBackupV1";
   const PRE_DEVICE_CLEAR_BACKUP_KEY = "awayGolfPreDeviceClearBackupV1";
+  const SAFETY_BACKUP_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
+  const STORAGE_AUTHORITY_MIGRATION_KEY = "awayGolfStorageAuthorityMigrationV1";
+  function expiringSafetyBackup(payload) {
+    const savedAt = new Date().toISOString();
+    return {
+      ...payload,
+      savedAt,
+      expiresAt: new Date(Date.now() + SAFETY_BACKUP_RETENTION_MS).toISOString(),
+    };
+  }
+  function expireDeviceSafetyBackups() {
+    for (const key of [PRE_IMPORT_BACKUP_KEY, PRE_DEVICE_CLEAR_BACKUP_KEY, "awayGolfPreCourseListImportV1"]) {
+      try {
+        const payload = JSON.parse(localStorage.getItem(key) || "null");
+        const expiresAt = Date.parse(payload?.expiresAt || "");
+        if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) localStorage.removeItem(key);
+      } catch (_) {}
+    }
+  }
+  function migrateHistoricalTestBackups() {
+    if (localStorage.getItem(STORAGE_AUTHORITY_MIGRATION_KEY)) return;
+    // A currently running built-in test still needs its restoration snapshot.
+    // Otherwise these two exact legacy keys are obsolete development material.
+    if (!store.event?.testMode && !store.event?.ridgeTestMode) {
+      localStorage.removeItem("awayGolfTestBackupV1");
+      localStorage.removeItem("awayGolfRidgeTestBackupV1");
+      localStorage.setItem(STORAGE_AUTHORITY_MIGRATION_KEY, new Date().toISOString());
+    }
+  }
+  expireDeviceSafetyBackups();
+  migrateHistoricalTestBackups();
   function eventWorkspaceStatus(event) {
     if (!event) return "Draft";
     if (event.status === "cancelled") return "Cancelled";
@@ -3886,7 +3941,7 @@
   }
   async function applyOrganiserBackup(payload, preserveCurrent = true) {
     const imported = validateOrganiserBackup(payload);
-    if (preserveCurrent) localStorage.setItem(PRE_IMPORT_BACKUP_KEY, JSON.stringify(organiserBackupPayload()));
+    if (preserveCurrent) localStorage.setItem(PRE_IMPORT_BACKUP_KEY, JSON.stringify(expiringSafetyBackup(organiserBackupPayload())));
     closeCloudConnection();
     await releaseRoundWakeLock();
     workspaceShrinkAuthorised = true;
@@ -4476,6 +4531,7 @@
     if(test?.savedAt && Date.now()-test.savedAt>=TEST_STORAGE_RETENTION_MS)removeRetainedTestData(test);
   }
   function renderAppStorage() {
+    expireDeviceSafetyBackups();
     try { expireRetainedTestData(); }
     catch (error) { console.warn("Old TEST-event storage could not be expired", error); }
     const limited=isPlayerDevice() || isSpectatorDevice(),
@@ -4491,10 +4547,10 @@
     const hasProtectedWork=rows.some(row=>row.pending || row.status.includes("review"));
     for(let i=0;i<localStorage.length;i++){
       const key=localStorage.key(i),value=localStorage.getItem(key)||"",bytes=2*(key.length+value.length);total+=bytes;
-      let label=key==="golfSafeSaves.v1"?"Saved online copies and pending uploads":/PreImportBackup|PreDeviceClearBackup|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key)?"Retained safety backup":/13$/.test(key)?"Players, courses and event workspace":/course/i.test(key)?"Course data":/auth|token|Connections/i.test(key)?"Sign-in and event connections":"App settings and saved information";
+      let label=key==="golfSafeSaves.v1"?"Score recovery — pending uploads and temporary online copies":key===AWAY_GOLF_WORKSPACE_JOURNAL_KEY?"Unpublished-plan recovery journal":key.startsWith("awayGolfCourseDraft:")?"Unfinished course edit — retained until master save":/PreImportBackup|PreDeviceClearBackup|PreCourseListImport|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key)?"Retained safety backup":/13$/.test(key)?"Current device data — players, courses and event workspace":/course/i.test(key)?"Course data":/auth|token|Connections/i.test(key)?"Sign-in and event connections":"App settings and saved information";
       if(label==="Retained safety backup"){
-        const kind=/PreImport/.test(key)?"Before import":/PreDeviceClear/.test(key)?"Before device cleanup":/BeforeLeaving/.test(key)?"Before leaving event":/Ridge/.test(key)?"Ridge test":"Earlier test";
-        try{const snapshot=JSON.parse(value);label+=" — "+kind+(snapshot.event?.name?" · "+snapshot.event.name:"")+(snapshot.savedAt?" · "+new Date(snapshot.savedAt).toLocaleDateString("en-AU"):"");}catch{label+=" — "+kind+" (unreadable; protected)";}
+        const kind=/PreCourseListImport/.test(key)?"Before course-list replacement":/PreImport/.test(key)?"Before import":/PreDeviceClear/.test(key)?"Before device cleanup":/BeforeLeaving/.test(key)?"Before leaving event":/Ridge/.test(key)?"Ridge test":"Earlier test";
+        try{const snapshot=JSON.parse(value);label+=" — "+kind+(snapshot.event?.name?" · "+snapshot.event.name:"")+(snapshot.savedAt?" · saved "+new Date(snapshot.savedAt).toLocaleDateString("en-AU"):"")+(snapshot.expiresAt?" · expires "+new Date(snapshot.expiresAt).toLocaleDateString("en-AU"):"");}catch{label+=" — "+kind+" (unreadable; protected)";}
       }
       const activeIds=[store.cloud?.eventId,store.event?.id].filter(Boolean);
       let testBackup=false;
@@ -4927,10 +4983,31 @@ Count-back if tied
     if (isPlayerDevice() || isSpectatorDevice() || isGuestOrganiser()) return;
     const library=getMasterCourseLibrary();if(!library)return;
     await library.sync();
+    removeConfirmedCourseDrafts(library);
     if(library.allowed&&AwayCloud.loadCourseLocations)try{const rows=await AwayCloud.loadCourseLocations();store.courseRegions ||= {};for(const row of rows){addCourseCountry(row.country);store.courseRegions[row.country]=GolfCourseLocations.unique([...(store.courseRegions[row.country]||[]),row.region]);}writeLocalStore();}catch(error){console.warn('Shared locations unavailable',error);}
     renderCoursesAdmin();
   }
   const PRE_COURSE_LIST_IMPORT_KEY = "awayGolfPreCourseListImportV1";
+  function removeConfirmedCourseDrafts(library = getMasterCourseLibrary()) {
+    if (!library) return 0;
+    const state = library.state(), keys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith("awayGolfCourseDraft:")) keys.push(key);
+    }
+    let removed = 0;
+    for (const key of keys) {
+      try {
+        const draft = JSON.parse(localStorage.getItem(key) || "null"), id = String(draft?.course?.id || "");
+        const base = state.bases?.[id];
+        if (id && base && !state.pending?.[id] && !state.conflicts?.[id] && !state.proposals?.[id] && AwayCourseLibrary.same(draft.course, base.data)) {
+          localStorage.removeItem(key);
+          removed++;
+        }
+      } catch (_) {}
+    }
+    return removed;
+  }
   function courseListTransferPayload(includeDrafts = false) {
     const library = store.courseLibrary || {}, data = {
       courses: JSON.parse(JSON.stringify(store.courses || [])),
@@ -4986,7 +5063,7 @@ Count-back if tied
     const imported = validateCourseListTransfer(payload), previous = courseListTransferPayload(true),
       previousFavourites = [...(store.courseFavourites || [])],
       importedIds = new Set(imported.courses.map(course => String(course.id)));
-    if (preserveCurrent) localStorage.setItem(PRE_COURSE_LIST_IMPORT_KEY, JSON.stringify(previous));
+    if (preserveCurrent) localStorage.setItem(PRE_COURSE_LIST_IMPORT_KEY, JSON.stringify(expiringSafetyBackup(previous)));
     const old = {
       courses: store.courses,
       courseCountries: store.courseCountries,
@@ -5488,7 +5565,6 @@ Count-back if tied
       for (const key of Object.keys(acceptedCourse)) delete acceptedCourse[key];
       Object.assign(acceptedCourse, c);
       if (!save()) { for (const key of Object.keys(acceptedCourse)) delete acceptedCourse[key]; Object.assign(acceptedCourse, previous); return; }
-      try { localStorage.removeItem(draftKey); } catch {}
       $("#modalContent").oninput = $("#modalContent").onchange = null;
       queueMasterCourse(acceptedCourse);
       queueMasterCountry(c.country);
@@ -10320,7 +10396,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     try {
       localStorage.setItem(
         PRE_DEVICE_CLEAR_BACKUP_KEY,
-        JSON.stringify(organiserBackupPayload()),
+        JSON.stringify(expiringSafetyBackup(organiserBackupPayload())),
       );
       closeCloudConnection();
       await releaseRoundWakeLock();

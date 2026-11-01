@@ -5,7 +5,7 @@ const data=new Map(),messages=[];
 const ctx={Date,JSON,Map,Set,store:{},appTabId:'this-window',appTabSuperseded:false,workspaceShrinkAuthorised:false,AWAY_GOLF_WRITER_LEASE_KEY:'lease',AWAY_GOLF_WORKSPACE_JOURNAL_KEY:'journal',localStorage:{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)},document:{getElementById:()=>null},uid:()=> 'new-plan',forgetOrganiserEvent(){},closeCloudConnection(){},resetDuplicatedEventRuntime(){},eventDays:()=>[1],wizardPlanningPlayers:()=>[],alert:m=>messages.push(m)};
 ctx.GolfSafeCloud={storageWrite:(key,value)=>ctx.localStorage.setItem(key,value)};
 vm.createContext(ctx);
-for(const name of ['readWorkspaceJournal','restoreWorkspaceFromJournalIfShrunk','writeWorkspaceJournal','markSupersededTab','writeLocalStore','consolidateWorkspaceCloudDuplicates','workspaceIdFor','captureCurrentEvent','persistStore','saveWizardDraft']) vm.runInContext(extract(name),ctx);
+for(const name of ['eventWorkspaceStatus','readWorkspaceJournal','restoreWorkspaceFromJournalIfShrunk','writeWorkspaceJournal','markSupersededTab','writeLocalStore','consolidateWorkspaceCloudDuplicates','workspaceIdFor','captureCurrentEvent','persistStore','saveWizardDraft']) vm.runInContext(extract(name),ctx);
 ctx.save=()=>ctx.persistStore();
 const plain=v=>JSON.parse(JSON.stringify(v)),record=(id,name,cloud)=>({id,event:{workspaceId:id,name},cloud});
 ctx.store={eventWorkspace:[record('a','Newer A'),record('c','New C')],event:{workspaceId:'c',name:'New C'},activeEventId:'c'};

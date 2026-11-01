@@ -141,6 +141,9 @@
   }
   try{state=JSON.parse(localStorage.getItem(key)||"{}");if(!object(state))throw Error("Invalid saved copies");}catch{unreadable=true;storageFailures.set(key,"Saved-copy recovery data could not be read. Keep the app open and export a backup before clearing app data.");state={};}
   const persist=()=>{if(unreadable){showHealth();throw Error("Saved-copy recovery data is unreadable; the original has been preserved.");}prune();storageWrite(key,JSON.stringify(state));};
+  // Prune clean, acknowledged copies on startup as well as after a later
+  // save. Pending uploads, conflicts and recovery copies remain protected.
+  if(!unreadable&&prune())storageWrite(key,JSON.stringify(state));
   function saveHealth(id){
     const rows=Object.entries(state).filter(([k])=>id&&k.startsWith(id+":"));
     const pendingRows=rows.filter(([,s])=>s.pending&&!s.conflict&&!s.blocked);
