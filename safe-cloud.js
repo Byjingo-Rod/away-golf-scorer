@@ -50,6 +50,7 @@
   const key="golfSafeSaves.v1", retentionMs=30*24*60*60*1000;
   let activeEvent="",cloudStatus="",state={},unreadable=false;
   const storageFailures=new Map();
+  const storageFailureDetails=[];
   let measuredAt=0,measuredBytes=0;
   function showHealth(){
     if(typeof document==="undefined")return;
@@ -136,7 +137,7 @@
   }
   function storageWrite(k,value){
     try{localStorage.setItem(k,value);storageFailures.delete(k);showHealth();}
-    catch(e){storageFailures.set(k,"Device save failed. Keep this app open and restore storage space or export a backup. Changes may be lost if you close it.");showHealth();throw e;}
+    catch(e){storageFailures.set(k,"A local copy was not saved. Keep the App open and try again.");storageFailureDetails.push({at:new Date().toISOString(),area:"Safe Cloud · "+k,message:String(e?.message||e||"Browser storage write failed")});if(storageFailureDetails.length>20)storageFailureDetails.shift();showHealth();throw e;}
   }
   try{state=JSON.parse(localStorage.getItem(key)||"{}");if(!object(state))throw Error("Invalid saved copies");}catch{unreadable=true;storageFailures.set(key,"Saved-copy recovery data could not be read. Keep the app open and export a backup before clearing app data.");state={};}
   const persist=()=>{if(unreadable){showHealth();throw Error("Saved-copy recovery data is unreadable; the original has been preserved.");}prune();storageWrite(key,JSON.stringify(state));};
@@ -313,6 +314,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={storageRecords,removeStorageRecord,discardTestEvent,discardEventCopies,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,storageDiagnostics:()=>copy(storageFailureDetails),removeStorageRecord,discardTestEvent,discardEventCopies,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();

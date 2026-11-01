@@ -12,7 +12,7 @@ assert.match(
 );
 assert.match(
   app,
-  /if \(!playerOnly\) writeWorkspaceJournal\(\)/,
+  /if \(!playerOnly\) \{[\s\S]*writeWorkspaceJournal\(\)/,
   "player phones must not duplicate the organiser workspace journal",
 );
 assert.match(

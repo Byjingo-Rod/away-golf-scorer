@@ -922,7 +922,21 @@
   localStorage.setItem(AWAY_GOLF_WRITER_LEASE_KEY, appTabId);
   let appTabSuperseded = false;
   let workspaceShrinkAuthorised = false;
+  const localSaveDiagnostics = [];
   let store;
+
+  function recordLocalSaveFailure(area, error) {
+    const detail = {
+      at: new Date().toISOString(),
+      area,
+      message: String(error?.message || error || "Browser storage write failed"),
+    };
+    localSaveDiagnostics.push(detail);
+    if (localSaveDiagnostics.length > 20) localSaveDiagnostics.shift();
+    console.error("Away Golf local save failure", detail);
+  }
+  window.AwayGolfLocalSaveDiagnostics = () =>
+    JSON.parse(JSON.stringify(localSaveDiagnostics));
 
   function savedWorkspaceCount(value) {
     return Array.isArray(value?.eventWorkspace)
@@ -988,6 +1002,7 @@
   function writeLocalStore() {
     if (localStorage.getItem(AWAY_GOLF_WRITER_LEASE_KEY) !== appTabId) {
       markSupersededTab();
+      recordLocalSaveFailure("writer lease", "This App tab is no longer the active writer");
       return false;
     }
     const playerOnly = ["player", "spectator"].includes(store.cloud?.role);
@@ -1024,13 +1039,22 @@
       // The primary player copy and Safe Cloud score copy already provide two
       // independent protections. The organiser workspace journal is both
       // irrelevant and dangerously large on a player phone.
-      if (!playerOnly) writeWorkspaceJournal();
+      if (!playerOnly) {
+        // The workspace journal is a secondary organiser safeguard. Once the
+        // primary store is durable, a journal failure must not make a valid
+        // score appear unsaved or cause the in-memory card to be rolled back.
+        try { writeWorkspaceJournal(); }
+        catch (error) { recordLocalSaveFailure("organiser workspace journal", error); }
+      }
       else {
         const journal = readWorkspaceJournal();
         if (["player", "spectator"].includes(journal?.data?.cloud?.role))
           localStorage.removeItem(AWAY_GOLF_WORKSPACE_JOURNAL_KEY);
       }
-    } catch (_) { return false; }
+    } catch (error) {
+      recordLocalSaveFailure("primary App store", error);
+      return false;
+    }
     return true;
   }
 
@@ -4454,7 +4478,11 @@
   function renderAppStorage() {
     try { expireRetainedTestData(); }
     catch (error) { console.warn("Old TEST-event storage could not be expired", error); }
-    const limited=isPlayerDevice() || isSpectatorDevice();
+    const limited=isPlayerDevice() || isSpectatorDevice(),
+      saveDiagnostics=[
+        ...(window.AwayGolfLocalSaveDiagnostics?.() || []),
+        ...(GolfSafeCloud.storageDiagnostics?.() || []),
+      ];
     const rows=GolfSafeCloud.storageRecords(),panel=$("#modalContent"),retainedTest=retainedTestEvent();
     const activeStorageEventId=String(store.cloud?.eventId||"");
     const retiredTestEventIds=[...new Set(rows.filter(row=>String(row.eventId)!==activeStorageEventId&&isTestEventName({name:row.name||""})).map(row=>String(row.eventId)).filter(Boolean))];
@@ -4484,14 +4512,14 @@
     const label=row=>`${row.eventId===store.cloud?.eventId?store.event?.name||row.name:row.name}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
     const currentIsTest=Boolean(store.event&&(store.event.testMode||store.event.ridgeTestMode||isTestEventName(store.event)));
     const mayDiscard=row=>Boolean(row.pending&&row.status==="Waiting to upload"&&(row.eventId!==store.cloud?.eventId||currentIsTest));
-    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
+    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(new Date(item.at).toLocaleString("en-AU"))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
     $("#modalShade").classList.add("open");
     $("#storageClose").onclick=()=>$("#modalShade").classList.remove("open");
     $("#storageRefresh").onclick=openAppStorage;
     if($("#deleteRetainedTestData"))$("#deleteRetainedTestData").onclick=()=>{if(!confirm(`Delete the abandoned local data for ${retainedTest.name}?\n\nIt will not be uploaded. Genuine events, players, courses and cloud results are unchanged.`))return;try{removeRetainedTestData(retainedTest);openAppStorage();$("#storageMessage").textContent="Test data removed. The Jerry upload warning is cleared.";}catch(error){$("#storageMessage").textContent="Test data was not removed: "+error.message;}};
     if($("#deleteRetiredTestRecords"))$("#deleteRetiredTestRecords").onclick=()=>{if(!confirm(`Remove ${retiredTestRows.length} protected local ${retiredTestRows.length===1?"copy":"copies"} from retired TEST events?\n\nNo genuine event, player, course or cloud result will be changed.`))return;if(!confirm("Final check: permanently remove this retired TEST-event recovery data from this device?"))return;try{let removed=0;retiredTestEventIds.forEach(id=>{removed+=GolfSafeCloud.discardTestEvent(id);});openAppStorage();$("#storageMessage").textContent=`${removed} retired TEST-event ${removed===1?"copy":"copies"} removed.`;}catch(error){$("#storageMessage").textContent="Retired TEST data was not removed: "+error.message;}};
     $$('[data-storagediscard]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storagediscard];if(!confirm(`Discard this unsent local copy?\n\n${label(row)}\n\nIt will NOT be uploaded and cannot be recovered from this phone. No player list, course or cloud result will be changed.`))return;if(!confirm("Final check: permanently discard this TEST/old unsent copy?"))return;try{GolfSafeCloud.discardAbandonedRecord(row.record,currentIsTest);openAppStorage();$("#storageMessage").textContent="Unsent copy discarded. The upload warning is cleared.";}catch(error){$("#storageMessage").textContent="The copy was not discarded: "+error.message;}});
-    if($("#storageExport"))$("#storageExport").onclick=()=>{const data={...organiserBackupPayload(),appStorage:{savedAt:new Date().toISOString(),localData:{}}};for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(/auth|token|Connections|Writer|Lease/i.test(key))continue;data.appStorage.localData[key]=localStorage.getItem(key);}downloadOrganiserBackup(data);exported=true;$("#storageMessage").textContent="Backup downloaded. Confirm it is saved before removing any backup copy.";$$('[data-storagebackup]').forEach(button=>button.disabled=false);};
+    if($("#storageExport"))$("#storageExport").onclick=()=>{const data={...organiserBackupPayload(),appStorage:{savedAt:new Date().toISOString(),localSaveDiagnostics:saveDiagnostics,localData:{}}};for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(/auth|token|Connections|Writer|Lease/i.test(key))continue;data.appStorage.localData[key]=localStorage.getItem(key);}downloadOrganiserBackup(data);exported=true;$("#storageMessage").textContent="Backup downloaded. Confirm it is saved before removing any backup copy.";$$('[data-storagebackup]').forEach(button=>button.disabled=false);};
     $$('[data-storagebackup]').forEach(button=>button.onclick=()=>{const row=inventory[+button.dataset.storagebackup];if((!exported&&!row.testBackup)||!row.removable)return;if(GolfSafeCloud.storageRecords().some(r=>r.pending||r.status.includes("review"))||[store.cloud?.eventId,store.event?.id].filter(Boolean).some(id=>row.value.includes(id))){$("#storageMessage").textContent="New or active work is protected. Refresh Storage.";return;}if(localStorage.getItem(row.key)!==row.value){$("#storageMessage").textContent="This backup changed. Refresh Storage before removing it.";return;}const question=row.testBackup?"Remove this local TEST-event backup now? It is not required online.":"Confirm the downloaded App Storage backup is saved, then remove this older local backup copy?";if(!confirm(question))return;localStorage.removeItem(row.key);openAppStorage();});
     $$('[data-storageremove]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storageremove];if(!confirm(`Remove the local saved copy of ${label(row)}? Its confirmed online copy remains.`))return;try{GolfSafeCloud.removeStorageRecord(row.record);openAppStorage();}catch(error){$("#storageMessage").textContent=error.message;}});
     $$('[data-storageretry]').forEach(button=>button.onclick=async()=>{button.disabled=true;$("#storageMessage").textContent="Retrying upload…";try{await GolfSafeCloud.retryStorageRecord(rows[+button.dataset.storageretry].record);openAppStorage();$("#storageMessage").textContent="Upload confirmed online.";}catch(error){$("#storageMessage").textContent="Upload not completed: "+error.message;button.disabled=false;}});
@@ -12624,16 +12652,33 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ${ntp ? `<div class="ntpPlayCard ambroseNtp"><div><b>Nearest the Pin — Hole ${hole}</b>${extraNtpPlayerId ? `<strong class="ambroseExtraShot">TWO SHOTS: ${esc(eventPlayer(extraNtpPlayerId, day)?.name || "One player")}</strong>` : ""}<span>${holder ? `Current holder: ${esc(eventPlayer(holder.id, day)?.name || "Player")}` : "No name recorded yet"}</span><strong>Who signed the NTP card?</strong></div>${isPrimary ? `<div class="ambroseNtpNames">${roles.team.map((id) => `<button type="button" data-ambrosentp="${id}" class="${String(record.ntp?.entrantId || "") === id && record.ntp?.confirmedAt ? "selected" : ""}">${esc(eventPlayer(id, day)?.name || "Player")}</button>`).join("")}${record.ntp?.confirmedAt ? `<button type="button" class="soft" id="undoAmbroseNtp">Undo</button><small>Recorded ${new Date(record.ntp.confirmedAt).toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" })}</small>` : ""}</div>` : "<small>The team scorer records the NTP card entry.</small>"}</div>` : ""}
       <div class="holeNav"><button class="soft" id="prevHole" ${position === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${position === 17 ? "FINISH TEAM CARD" : "Next Hole →"}</button></div>
     </div>`;
+    const showAmbroseSaveFailure = () => {
+      setCloudMessage("Score not saved — please try again.");
+      const button = $("#nextHole");
+      if (button) button.disabled = false;
+    };
+    const restoreRecord = (snapshot) => {
+      Object.keys(record).forEach((key) => delete record[key]);
+      Object.assign(record, snapshot);
+    };
     const update = (nextGross = gross, nextDrive = driveId) => {
+      const previous = JSON.parse(JSON.stringify(record)),
+        previousMeta = JSON.parse(JSON.stringify(scorerStore(day, entryScorerId)._meta || {}));
       record.self = record.self || {};
       record.self.playerId = entryScorerId;
       record.self.gross = nextGross;
       record.ambrose.drivePlayerId = nextDrive;
       const entryRound = scorerStore(day, entryScorerId);
       if (entryRound._meta?.finalisedAt) delete entryRound._meta.finalisedAt;
-      writeLocalStore();
+      if (writeLocalStore() === false) {
+        restoreRecord(previous);
+        entryRound._meta = previousMeta;
+        showAmbroseSaveFailure();
+        return false;
+      }
       queueCloudRound(day, entryScorerId);
       renderAmbroseScoring(selected, day);
+      return true;
     };
     if ($("#ambroseMinus")) $("#ambroseMinus").onclick = () => update(Math.max(1, (scoreEntered(gross) ? +gross : par) - 1));
     if ($("#ambrosePlus")) $("#ambrosePlus").onclick = () => update(Math.min(30, (scoreEntered(gross) ? +gross : par) + 1));
@@ -12653,35 +12698,61 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $$('[data-ambrosehole]').forEach((button) => button.onclick = () => {
       const targetPosition = +button.dataset.ambrosehole;
       if (targetPosition > position && warnIncompleteEntry()) return;
+      const previous = store.event.playerHolePos;
       store.event.playerHolePos = targetPosition;
-      save();
+      if (writeLocalStore() === false) {
+        store.event.playerHolePos = previous;
+        showAmbroseSaveFailure();
+        return;
+      }
       renderAmbroseScoring(selected, day);
     });
     $$('[data-ambrosentp]').forEach((button) => button.onclick = () => {
+      const previous = JSON.parse(JSON.stringify(record.ntp || {}));
       record.ntp = { entrantId: button.dataset.ambrosentp, confirmedAt: new Date().toISOString(), locked: false };
-      writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day);
+      if (writeLocalStore() === false) { record.ntp = previous; showAmbroseSaveFailure(); return; }
+      queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day);
     });
-    if ($("#undoAmbroseNtp")) $("#undoAmbroseNtp").onclick = () => { record.ntp = {}; writeLocalStore(); queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day); };
+    if ($("#undoAmbroseNtp")) $("#undoAmbroseNtp").onclick = () => { const previous = JSON.parse(JSON.stringify(record.ntp || {})); record.ntp = {}; if (writeLocalStore() === false) { record.ntp = previous; showAmbroseSaveFailure(); return; } queueCloudRound(day, roles.scorerId); renderAmbroseScoring(selected, day); };
     $("#prevHole").onclick = () => {
+      const previous = store.event.playerHolePos;
       store.event.playerHolePos = Math.max(0, position - 1);
-      save();
+      if (writeLocalStore() === false) { store.event.playerHolePos = previous; showAmbroseSaveFailure(); return; }
       renderAmbroseScoring(selected, day);
     };
     $("#nextHole").onclick = async () => {
       if (warnIncompleteEntry()) return;
-      if (editable) { writeLocalStore(); queueCloudRound(day, entryScorerId); }
-      if (position < 17) { store.event.playerHolePos = position + 1; save(); return renderAmbroseScoring(selected, day); }
+      if (position < 17) {
+        const previous = store.event.playerHolePos;
+        store.event.playerHolePos = position + 1;
+        if (writeLocalStore() === false) { store.event.playerHolePos = previous; showAmbroseSaveFailure(); return; }
+        if (editable) queueCloudRound(day, entryScorerId);
+        return renderAmbroseScoring(selected, day);
+      }
       if (!editable) return alert("Only the team scorer or checking marker can complete the Ambrose team card.");
       if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
       const short = Object.entries(counts).filter(([, count]) => count < minimum);
       if (short.length && !confirm(`REQUIRED DRIVES NOT RECORDED\n\n${short.map(([id, count]) => `${eventPlayer(id, day)?.name || "Player"}: ${count} of ${minimum} drives`).join("\n")}\n\nSubmit this card as non-compliant and exclude the team from the Ambrose result?`)) return;
       const at = new Date().toISOString();
+      const previousFinalised = JSON.parse(JSON.stringify(store.event.roundFinalised || {})),
+        previousMode = store.event.playerRoundMode,
+        affectedRounds = [roles.scorerId, roles.markerId].filter(Boolean).map((id) => ({
+          id,
+          meta: JSON.parse(JSON.stringify(scorerStore(day, id)._meta || {})),
+        }));
       store.event.roundFinalised = store.event.roundFinalised || {};
       store.event.roundFinalised["day" + day] ||= {};
       roles.team.forEach((id) => store.event.roundFinalised["day" + day][id] = at);
-      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => { const round = scorerStore(day, id); round._meta = { ...(round._meta || {}), finalisedAt: at, ambroseTeam: ctx.groupIndex, ambroseDriveCompliant: !short.length }; queueCloudRound(day, id); });
+      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => { const round = scorerStore(day, id); round._meta = { ...(round._meta || {}), finalisedAt: at, ambroseTeam: ctx.groupIndex, ambroseDriveCompliant: !short.length }; });
       store.event.playerRoundMode = "completed";
-      writeLocalStore();
+      if (writeLocalStore() === false) {
+        store.event.roundFinalised = previousFinalised;
+        store.event.playerRoundMode = previousMode;
+        affectedRounds.forEach(({ id, meta }) => { scorerStore(day, id)._meta = meta; });
+        showAmbroseSaveFailure();
+        return;
+      }
+      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => queueCloudRound(day, id));
       if (store.cloud?.role === "organiser" && store.cloud?.eventId) await updateCloudEvent();
       renderPlayerExperience(); renderHome();
     };
@@ -12998,24 +13069,41 @@ function estimateEventGa(handicap, rating, category, calculate) {
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(selected, day)))}</span></div></div>${scoreSummary("self", sfSelf, totalSelf.points, selected, indexVal)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
  <div class="holeNav"><button class="soft" id="prevHole" ${pos === 0 ? "disabled" : ""}>← Previous</button><button class="primary" id="nextHole">${pos === 17 ? "FINISH ROUND" : "Next Hole →"}</button></div>${virtualGlance}</div>`;
     $("#exitScorecard").onclick = () => {
+      const previousMode = store.event.playerRoundMode,
+        previousReturn = store.event.returnToMarkedVerification;
       store.event.playerRoundMode = "preview";
       store.event.returnToMarkedVerification = false;
+      if (writeLocalStore() === false) {
+        store.event.playerRoundMode = previousMode;
+        store.event.returnToMarkedVerification = previousReturn;
+        setCloudMessage("Scorecard remains open — please try again.");
+        return;
+      }
       releaseRoundWakeLock();
-      writeLocalStore();
       renderPlayerExperience();
       endScorecardUpdateProtection();
     };
     window.GolfSafeCloud?.reportStatus(cloudMessage, store.cloud?.eventId);
     if ($("#firstMismatchHole"))
       $("#firstMismatchHole").onclick = () => {
+        const previous = store.event.playerHolePos;
         store.event.playerHolePos = seq.indexOf(mismatchHoles[0]);
-        save();
+        if (writeLocalStore() === false) {
+          store.event.playerHolePos = previous;
+          setCloudMessage("Scorecard remains on this hole — please try again.");
+          return;
+        }
         renderHoleScoring(selected, day);
       };
     if ($("#dismissStartingHoleAlert"))
       $("#dismissStartingHoleAlert").onclick = () => {
+        const previous = store.event.playerStartingHoleNotice;
         store.event.playerStartingHoleNotice = null;
-        save();
+        if (writeLocalStore() === false) {
+          store.event.playerStartingHoleNotice = previous;
+          setCloudMessage("Change not saved — please try again.");
+          return;
+        }
         renderHoleScoring(selected, day);
       };
     const updateScoreControl = (id, val) => {
@@ -13058,22 +13146,42 @@ function estimateEventGa(handicap, rating, category, calculate) {
           card.index?.[idx] ?? "",
         );
     };
+    const showScoreSaveFailure = () => {
+      setCloudMessage("Score not saved — please try again.");
+      const button = $("#nextHole");
+      if (button) button.disabled = false;
+    };
     const setField = (id, val) => {
       const [section, key] = id.startsWith("official")
         ? ["official", id === "officialGross" ? "gross" : "putts"]
         : ["self", id === "selfGross" ? "gross" : "putts"];
+      const previousValue = rec[section][key],
+        previousMeta = JSON.parse(JSON.stringify(scorerStore(day, selected)._meta || {})),
+        previousFinalised = store.event.roundFinalised?.["day" + day]?.[selected];
       rec[section][key] = val;
       const round = scorerStore(day, selected);
       if (round._meta?.finalisedAt) delete round._meta.finalisedAt;
       if (store.event.roundFinalised?.["day" + day])
         delete store.event.roundFinalised["day" + day][selected];
-      writeLocalStore();
+      if (writeLocalStore() === false) {
+        rec[section][key] = previousValue;
+        round._meta = previousMeta;
+        if (store.event.roundFinalised?.["day" + day]) {
+          if (previousFinalised === undefined)
+            delete store.event.roundFinalised["day" + day][selected];
+          else
+            store.event.roundFinalised["day" + day][selected] = previousFinalised;
+        }
+        showScoreSaveFailure();
+        return false;
+      }
       queueCloudRound(day, selected);
       // Keep the actual score buttons in place until the player chooses the
       // next hole. Replacing the whole scoring DOM after every value can remove
       // the next button between touch-down and click on a fast phone entry.
       updateScoreControl(id, val);
       updateScoreSummary(section);
+      return true;
     };
     $$("[data-step]").forEach(
       (btn) =>
@@ -13120,6 +13228,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           );
           return;
         }
+        const previous = JSON.parse(JSON.stringify(rec.ntp || {}));
         if (!rec.ntp.pending) {
           rec.ntp.pending = true;
         } else {
@@ -13127,21 +13236,33 @@ function estimateEventGa(handicap, rating, category, calculate) {
           rec.ntp.entrantId = targetId;
           rec.ntp.confirmedAt = new Date().toISOString();
         }
-        save();
+        if (writeLocalStore() === false) {
+          rec.ntp = previous;
+          showScoreSaveFailure();
+          return;
+        }
         queueCloudRound(day, selected);
         renderHoleScoring(selected, day);
       };
     if ($("#undoNtp"))
       $("#undoNtp").onclick = () => {
+        const previous = JSON.parse(JSON.stringify(rec.ntp || {}));
         rec.ntp.confirmedAt = null;
         rec.ntp.entrantId = null;
         rec.ntp.pending = false;
-        save();
+        if (writeLocalStore() === false) {
+          rec.ntp = previous;
+          showScoreSaveFailure();
+          return;
+        }
         queueCloudRound(day, selected);
         renderHoleScoring(selected, day);
       };
     if ($("#yellowBallLost"))
       $("#yellowBallLost").onclick = () => {
+        const previous = rec.yellowBall
+          ? JSON.parse(JSON.stringify(rec.yellowBall))
+          : undefined;
         if (yellowBallLostHere) {
           delete rec.yellowBall;
         } else {
@@ -13157,48 +13278,83 @@ function estimateEventGa(handicap, rating, category, calculate) {
             at: new Date().toISOString(),
           };
         }
-        writeLocalStore();
+        if (writeLocalStore() === false) {
+          if (previous === undefined) delete rec.yellowBall;
+          else rec.yellowBall = previous;
+          showScoreSaveFailure();
+          return;
+        }
         queueCloudRound(day, selected);
         renderHoleScoring(selected, day);
       };
     $$("[data-gotohole]").forEach(
       (btn) =>
         (btn.onclick = () => {
+          const previous = store.event.playerHolePos;
           store.event.playerHolePos = +btn.dataset.gotohole;
-          save();
+          if (writeLocalStore() === false) {
+            store.event.playerHolePos = previous;
+            showScoreSaveFailure();
+            return;
+          }
           renderHoleScoring(selected, day);
         }),
     );
     if ($("#firstMissingHole"))
       $("#firstMissingHole").onclick = () => {
+        const previous = store.event.playerHolePos;
         store.event.playerHolePos = seq.indexOf(missingHoles[0]);
-        save();
+        if (writeLocalStore() === false) {
+          store.event.playerHolePos = previous;
+          showScoreSaveFailure();
+          return;
+        }
         renderHoleScoring(selected, day);
       };
     if ($("#returnToMarkedVerification"))
       $("#returnToMarkedVerification").onclick = () => {
+        const previous = {
+          returnToMarked: store.event.returnToMarkedVerification,
+          stage: store.event.playerVerificationStage,
+          mode: store.event.playerRoundMode,
+        };
         store.event.returnToMarkedVerification = false;
         store.event.playerVerificationStage = "marked";
         store.event.playerRoundMode = "verify";
-        save();
+        if (writeLocalStore() === false) {
+          store.event.returnToMarkedVerification = previous.returnToMarked;
+          store.event.playerVerificationStage = previous.stage;
+          store.event.playerRoundMode = previous.mode;
+          showScoreSaveFailure();
+          return;
+        }
         renderRoundVerification(selected, day);
       };
     $("#prevHole").onclick = () => {
+      const previous = store.event.playerHolePos;
       store.event.playerHolePos = Math.max(0, pos - 1);
-      save();
+      if (writeLocalStore() === false) {
+        store.event.playerHolePos = previous;
+        showScoreSaveFailure();
+        return;
+      }
       renderHoleScoring(selected, day);
     };
     $("#nextHole").onclick = () => {
       $("#nextHole").disabled = true;
+      const previous = {
+        pos: store.event.playerHolePos,
+        ntpLocked: rec.ntp?.locked,
+        stage: store.event.playerVerificationStage,
+        returnToMarked: store.event.returnToMarkedVerification,
+        mode: store.event.playerRoundMode,
+        furthestPos: round._meta?.furthestPos,
+      };
       if (ntp && rec.ntp.confirmedAt) rec.ntp.locked = true;
-      writeLocalStore();
-      queueCloudRound(day, selected);
       if (pos === 17) {
         store.event.playerVerificationStage = "mine";
         store.event.returnToMarkedVerification = false;
         store.event.playerRoundMode = "verify";
-        save();
-        renderRoundVerification(selected, day);
       } else {
         store.event.playerHolePos = pos + 1;
         round._meta = round._meta || {};
@@ -13206,9 +13362,21 @@ function estimateEventGa(handicap, rating, category, calculate) {
           +round._meta.furthestPos || 0,
           pos + 1,
         );
-        save();
-        renderHoleScoring(selected, day);
       }
+      if (writeLocalStore() === false) {
+        store.event.playerHolePos = previous.pos;
+        rec.ntp.locked = previous.ntpLocked;
+        store.event.playerVerificationStage = previous.stage;
+        store.event.returnToMarkedVerification = previous.returnToMarked;
+        store.event.playerRoundMode = previous.mode;
+        if (previous.furthestPos === undefined) delete round._meta.furthestPos;
+        else round._meta.furthestPos = previous.furthestPos;
+        showScoreSaveFailure();
+        return;
+      }
+      queueCloudRound(day, selected);
+      if (pos === 17) renderRoundVerification(selected, day);
+      else renderHoleScoring(selected, day);
     };
     enableHoleSwipe($(".scoringPhone"));
   }
