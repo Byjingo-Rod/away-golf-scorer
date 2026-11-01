@@ -1,20 +1,20 @@
-const CACHE = "away-golf-v15-96-63";
+const CACHE = "away-golf-v15-96-65";
 const FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=15.96.63",
-  "./supabase.js?v=15.96.63",
-  "./cloud.js?v=15.96.63",
-  "./data.js?v=15.96.63",
-  "./course-library.js?v=15.96.63",
-  "./course-categories.js?v=15.96.63",
-  "./course-locations.js?v=15.96.63",
-  "./catalogue-review.js?v=15.96.63",
-  "./safe-cloud.js?v=15.96.63",
-  "./app.js?v=15.96.63",
-  "./shared-positions.js?v=15.96.63",
-  "./player-substitution.js?v=15.96.63",
-  "./organiser-guide.js?v=15.96.63",
+  "./styles.css?v=15.96.65",
+  "./supabase.js?v=15.96.65",
+  "./cloud.js?v=15.96.65",
+  "./data.js?v=15.96.65",
+  "./course-library.js?v=15.96.65",
+  "./course-categories.js?v=15.96.65",
+  "./course-locations.js?v=15.96.65",
+  "./catalogue-review.js?v=15.96.65",
+  "./safe-cloud.js?v=15.96.65",
+  "./app.js?v=15.96.65",
+  "./shared-positions.js?v=15.96.65",
+  "./player-substitution.js?v=15.96.65",
+  "./organiser-guide.js?v=15.96.65",
   "./organiser-guide.html",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
@@ -23,8 +23,10 @@ const FILES = [
   "./assets/away-golf-mascot-finish.png",
 ];
 self.addEventListener("install", (e) => {
-  self.skipWaiting();
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)));
+});
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "ACTIVATE_UPDATE") self.skipWaiting();
 });
 self.addEventListener("activate", (e) => {
   e.waitUntil(

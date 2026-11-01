@@ -6,7 +6,6 @@ const cloud = readFileSync(new URL("../cloud.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sql = readFileSync(new URL("../supabase_v15_90_guest_organiser.sql", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.91\.6/);
 assert.match(html, /id="guestOrganiserAccess"/);
 assert.match(app, /function openGuestOrganiserAccess/);
 assert.match(app, /function claimGuestOrganiser/);

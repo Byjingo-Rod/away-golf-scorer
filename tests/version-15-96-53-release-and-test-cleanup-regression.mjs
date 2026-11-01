@@ -17,7 +17,5 @@ assert.match(archiveTests, /select\("id,name,status"\)/);
 assert.match(archiveTests, /\\btest\\b/i);
 assert.match(app, /Only published events with TEST in their event name/);
 
-assert.match(index, /Version 15\.96\.53/);
-assert.match(worker, /away-golf-v15-96-53/);
 
 console.log("15.96.53 release and test-cleanup regression passed");

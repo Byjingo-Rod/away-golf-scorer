@@ -53,7 +53,7 @@ accepted = true; complete = false; reset(); ctx.renderPlayerExperience(); assert
 complete = true; finalised = false; reset('verify'); ctx.renderPlayerExperience(); assert.equal(route, 'verify');
 finalised = true; reset('preview'); assert.equal(ctx.syncRecoveredPlayerRound(4, 'Dom'), false);
 // Exercise the actual read-only card's next-day button, without writing scores.
-Object.assign(ctx, {player: () => ({name: 'Dom'}), course: () => ({name: 'Laguna'}),
+Object.assign(ctx, {player: () => ({name: 'Dom'}), eventPlayer: () => ({name: 'Dom'}), course: () => ({name: 'Laguna'}),
   eventCourseScorecard: () => ({par: Array(18).fill(4), index: Array.from({length: 18}, (_,i) => i+1)}),
   playerDailyHandicap: () => 12, playerGroupContext: () => ({groupIndex: 0, setup: {starts: [1]}}),
   scoreSequence: () => Array.from({length: 18}, (_,i) => i+1), playerHoleEntry: () => ({gross: 5}),

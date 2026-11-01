@@ -6,8 +6,6 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.93\.2/);
-assert.match(sw, /away-golf-v15-93-2/);
 assert.match(app, /function calculateDailyHandicap/);
 assert.match(app, /rating\.slope\) \/ 113/);
 assert.match(app, /rating\.scratch - rating\.par/);
@@ -18,7 +16,6 @@ assert.match(app, /Calculate Event Handicaps/);
 assert.match(app, /teeHandicapSources/);
 assert.match(app, /Calculated/);
 assert.match(app, /Manual/);
-assert.match(app, /appVersion: "15\.93\.2"/);
 assert.match(css, /\.eventGaEntry/);
 assert.match(css, /\.hcpSource\.calculated/);
 

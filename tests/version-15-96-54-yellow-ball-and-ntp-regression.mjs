@@ -21,7 +21,5 @@ assert.match(ntp, /ntpScoreSupportsClaim\(day, rec\)/);
 assert.match(ntp, /NTP cannot be recorded/);
 assert.match(app, /!n\?\.confirmedAt \|\| !ntpScoreSupportsClaim/);
 
-assert.match(index, /Version 15\.96\.55/);
-assert.match(worker, /away-golf-v15-96-55/);
 
 console.log("15.96.55 Yellow Ball reveal and NTP validation regression passed");

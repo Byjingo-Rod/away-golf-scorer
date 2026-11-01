@@ -9,7 +9,7 @@ assert.match(body,/finalResults\?\.confirmedAt/);
 assert.match(body,/AwayCloud\.saveWorkspace\(\{activePublishedEvent:null\}\)/);
 assert.match(body,/record\.archived=true/);
 assert.match(body,/store\.event=null/);
-assert.match(app,/CLOSE AND ARCHIVE COMPLETED EVENT/);
+assert.match(app,/EVENT COMPLETE — RELEASE PHONES &amp; ARCHIVE/);
 assert.match(app,/retirePhoneFromArchivedEvent\(bundle\)/);
 assert.match(app,/Completed event archived · ready for the next event/);
 assert.doesNotMatch(safe,/button\.textContent="App Storage"/,'the duplicate warning-strip button is removed');

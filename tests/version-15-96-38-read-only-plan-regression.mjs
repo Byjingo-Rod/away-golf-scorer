@@ -22,7 +22,5 @@ assert.match(app, /Daily handicaps must follow the saved tee for each player's c
 assert.match(app, /event\.dayFields\?\.\[key\]/);
 assert.match(app, /event\.gaCategories\?\.\[String\(id\)\] === "women"/);
 assert.match(safeCloud, /delete course\.womenTeeData\.versions/);
-assert.match(html, /Version 15\.96\.38/);
-assert.match(sw, /away-golf-v15-96-38/);
 
 console.log("15.96.38 read-only plan and category handicap regression passed");

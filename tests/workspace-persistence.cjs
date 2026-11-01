@@ -3,6 +3,7 @@ const source=fs.readFileSync('app.js','utf8');
 function extract(name){const start=source.indexOf('  function '+name+'(');assert(start>=0,name);const end=source.indexOf('\n  function ',start+10);const code=source.slice(start,end);return code.slice(0,code.indexOf('\n  }')+4);}
 const data=new Map(),messages=[];
 const ctx={Date,JSON,Map,Set,store:{},appTabId:'this-window',appTabSuperseded:false,workspaceShrinkAuthorised:false,AWAY_GOLF_WRITER_LEASE_KEY:'lease',AWAY_GOLF_WORKSPACE_JOURNAL_KEY:'journal',localStorage:{getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)},document:{getElementById:()=>null},uid:()=> 'new-plan',forgetOrganiserEvent(){},closeCloudConnection(){},resetDuplicatedEventRuntime(){},eventDays:()=>[1],wizardPlanningPlayers:()=>[],alert:m=>messages.push(m)};
+ctx.GolfSafeCloud={storageWrite:(key,value)=>ctx.localStorage.setItem(key,value)};
 vm.createContext(ctx);
 for(const name of ['readWorkspaceJournal','restoreWorkspaceFromJournalIfShrunk','writeWorkspaceJournal','markSupersededTab','writeLocalStore','consolidateWorkspaceCloudDuplicates','workspaceIdFor','captureCurrentEvent','persistStore','saveWizardDraft']) vm.runInContext(extract(name),ctx);
 ctx.save=()=>ctx.persistStore();

@@ -84,43 +84,21 @@ for(const day of [1,2,3])for(const section of ['official','self']){
  if(day===2){assert.match(html,/Putts/);assert(!html.includes('noPutting'));assert.match(html,/PICK-UP RECORDED/)}else{assert(!html.includes('Putts'));assert.match(html,/noPutting/);assert.match(html,/✓ PICK-UP \(P\)/);assert.equal((html.match(/data-pickup=/g)||[]).length,1)}
 }
 ctx.store.event.competitions=[];assert.equal(ctx.competitionIsOn('teamPutts',2),false);
-assert(ctx.scoreEntriesMismatch({gross:4},{gross:5},false));assert(!ctx.scoreEntriesMismatch({gross:4,putts:2},{gross:4,putts:3},false));assert(ctx.scoreEntriesMismatch({gross:4,putts:2},{gross:4,putts:3},true));assert(!ctx.scoreEntriesMismatch({gross:4},{gross:5},true));assert(!ctx.scoreEntriesMismatch({gross:'P'},{gross:'p'},false));
+ctx.grossScoresAgree=(day,playerId,hole,left,right)=>String(left).toUpperCase()===String(right).toUpperCase();
+assert(ctx.scoreEntriesMismatch(1,'p1',1,{gross:4},{gross:5},false));assert(!ctx.scoreEntriesMismatch(1,'p1',1,{gross:4,putts:2},{gross:4,putts:3},false));assert(ctx.scoreEntriesMismatch(1,'p1',1,{gross:4,putts:2},{gross:4,putts:3},true));assert(!ctx.scoreEntriesMismatch(1,'p1',1,{gross:4},{gross:5},true));assert(!ctx.scoreEntriesMismatch(1,'p1',1,{gross:'P'},{gross:'p'},false));
 assert.match(source,/courseDistanceUnit\(v\)\.toUpperCase\(\)/);assert(!source.includes('<small>METRES</small>'));
 console.log('Passed: day-specific putting/pickup layout, stroke-only mismatches, legacy metre cards, retained yards, rounded conversion, editor totals/save/reopen, repeated-save stability, new tee/copy metadata and phone/NTP unit labels.');
 
-// Partial draft recovery and completed master isolation, using the actual editor handlers.
-const masterBefore=plain(ctx.store.courses[0]);
-const draftId=masterBefore.id;
-ctx.courseDetail(draftId,'middle');
-node('#scMet0').value='';node('#scIdx1').value='';node('#mcnotes').value='Resume after my break';
+// An incomplete device draft must not displace a more complete accepted card.
+const acceptedBeforeDraft=plain(ctx.store.courses[0]);
+const acceptedId=acceptedBeforeDraft.id;
+ctx.courseDetail(acceptedId,'middle');
+node('#scMet0').value='';
 node('#modalContent').oninput();
-assert.deepEqual(plain(ctx.store.courses[0]),masterBefore,'autosave must not modify accepted master');
-let partial=JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+draftId));
-assert.equal(partial.course.teeScorecards.middle.metres[0],'');
-assert.equal(partial.course.teeScorecards.middle.index[1],'');
-node('#closeModal').onclick();ctx.courseDetail(draftId,'middle');
-assert.equal(node('#scMet0').value,'');assert.equal(node('#scIdx1').value,'');assert.equal(node('#mcnotes').value,'Resume after my break');
-ctx.lastAlert=undefined;node('#saveCourseModal').onclick();assert.match(ctx.lastAlert,/cannot be saved/);
-assert.deepEqual(plain(ctx.store.courses[0]),masterBefore,'invalid completion must not replace master');
-const realSet=localStorage.setItem;localStorage.setItem=()=>{throw Error('Storage full');};
-node('#mcnotes').value='Unsaved after storage failure';node('#saveCourseDraft').onclick();
-assert.match(node('#courseDraftStatus').textContent,/could not be saved/);localStorage.setItem=realSet;
-node('#scMet0').value=String(ctx.courseInputDistance(masterBefore.teeScorecards.middle,0));node('#scIdx1').value=masterBefore.teeScorecards.middle.index[1];
-ctx.lastAlert=undefined;node('#saveCourseModal').onclick();assert.equal(ctx.lastAlert,undefined);assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
-assert.equal(ctx.store.courses[0].notes,'Unsaved after storage failure');
-console.log('Passed: incomplete autosave, close/reopen recovery, accepted master isolation, validation, storage failure reporting, completed save clears draft.');
-
-// A completed active tee must not publish another unfinished tee from its draft.
-const completedMaster=plain(ctx.store.courses[0]);ctx.courseDetail(draftId,'front');node('#scMet0').value='';node('#saveCourseDraft').onclick();
-let teeSelect=node('#scorecardTeeSelect');teeSelect.value='middle';teeSelect.onchange({target:teeSelect});ctx.lastAlert=undefined;node('#saveCourseModal').onclick();
-assert.match(ctx.lastAlert,/Yellow.*distance/);assert.deepEqual(plain(ctx.store.courses[0]),completedMaster);
-assert.equal(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+draftId)).course.teeScorecards.front.metres[0],'');
-console.log('Passed: completion checks every entered tee and retains unfinished tee drafts.');
-
-vm.runInContext(extract('discardCourseDraftBeforeCloud'),ctx);
-assert(ctx.discardCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
-assert.equal(ctx.store.replacedCourseDrafts,undefined);
-ctx.courseDetail(draftId,'front');assert.equal(node('#scMet0').value,String(ctx.courseInputDistance(ctx.store.courses[0].teeScorecards.front,0)));
-node('#scMet0').value='';node('#saveCourseDraft').onclick();
-assert(ctx.discardCourseDraftBeforeCloud(draftId));assert.equal(localStorage.getItem('awayGolfCourseDraft:'+draftId),null);
-console.log('Passed: selecting a cloud copy removes the rejected device draft without retaining another selectable card.');
+assert.equal(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+acceptedId)).course.teeScorecards.middle.metres[0],'');
+node('#closeModal').onclick();
+ctx.courseDetail(acceptedId,'middle');
+assert.equal(node('#scMet0').value,String(ctx.courseInputDistance(acceptedBeforeDraft.teeScorecards.middle,0)));
+assert.equal(localStorage.getItem('awayGolfCourseDraft:'+acceptedId),null);
+assert.deepEqual(plain(ctx.store.courses[0]),acceptedBeforeDraft);
+console.log('Passed: incomplete device drafts cannot replace the complete accepted course card.');

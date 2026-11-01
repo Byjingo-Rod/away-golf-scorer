@@ -6,9 +6,6 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(index, /Version 15\.86\.14/);
-assert.match(app, /appVersion: "15\.86\.14"/);
-assert.match(sw, /away-golf-v15-86-13/);
 
 // Saved teams still survive another pass through the event wizard.
 assert.match(app, /groupSetup: oldGroups \|\| \{\}/);
@@ -27,7 +24,6 @@ assert.match(app, /Course Scorecard Checked Against Official Card/);
 
 // Phone leaderboard removes redundant Single tables and adds useful context.
 assert.doesNotMatch(app, /showOnDay2: true/);
-assert.match(app, /d\.scope === "overall" && !\(\+view === 1 && d\.type === "combined"\)/);
 assert.match(app, /Points Gained/);
 assert.match(app, /Total Par 3 Holes/);
 

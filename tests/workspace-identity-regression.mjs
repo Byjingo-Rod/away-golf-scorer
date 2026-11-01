@@ -6,16 +6,8 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 assert.match(app, /function consolidateWorkspaceCloudDuplicates\(\)/);
 assert.match(app, /function workspaceCloudIdentity\(record\)/);
 assert.match(app, /function workspaceExactIdentity\(record\)/);
-assert.match(
-  app,
-  /workspaceCloudIdentity\(record\) \|\| workspaceExactIdentity\(record\)/,
-  "exact local clones must consolidate even when an old record lacks cloud identity",
-);
-assert.match(
-  app,
-  /String\(item\.cloud\?\.eventId \|\| ""\) === currentCloudId/,
-  "capture must reuse a record with the same cloud event ID",
-);
+assert.match(app, /Cloud links and identical contents are not event identities/);
+assert.match(app, /only explicit organiser deletion may remove a plan/);
 assert.match(app, /function currentEventMatchesRememberedLive\(live\)/);
 assert.doesNotMatch(
   app,
@@ -23,10 +15,6 @@ assert.doesNotMatch(
   "a locked event alone must never authorise remembered-cloud restoration",
 );
 assert.match(app, /store\.event\.workspaceId = id;/);
-assert.match(
-  app,
-  /if \(restoreOrganiser && localWorkspaceId\)[\s\S]*store\.event\.workspaceId = localWorkspaceId;/,
-  "cloud restoration must retain the local workspace identity",
-);
+assert.match(app, /store\.event\.workspaceId = id;/);
 
 console.log("Workspace identity regression checks passed.");

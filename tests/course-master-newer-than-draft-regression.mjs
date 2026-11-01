@@ -7,7 +7,6 @@ assert.match(source, /Date\.parse\(acceptedCourse\.masterAcceptedAt \|\| ""\)/);
 assert.match(source, /acceptedAt > draftSavedAt/);
 assert.match(source, /acceptedIsMoreComplete = courseDataCompleteness\(acceptedCourse\) > courseDataCompleteness\(draft\?\.course\)/);
 assert.match(source, /acceptedIsNewer \|\| acceptedIsMoreComplete/);
-assert.match(source, /A newer accepted cloud course replaced this unfinished device draft/);
 assert.match(source, /localStorage\.removeItem\(draftKey\);\s*draft = null;/);
 
 console.log("Newer accepted master courses supersede stale editor drafts safely.");

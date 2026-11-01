@@ -26,7 +26,6 @@ begin
     select count(*)::integer
     from public.away_event_spectators
     where event_id = p_event_id
-      and last_seen >= now() - interval '30 seconds'
   );
 end;
 $$;
@@ -93,7 +92,6 @@ begin
       select count(*)::integer
       from public.away_event_spectators
       where event_id = v_event.id
-        and last_seen >= now() - interval '30 seconds'
     )
   ) into v_result;
 
@@ -103,3 +101,53 @@ $$;
 
 revoke all on function public.spectate_away_event(text) from public, anon;
 grant execute on function public.spectate_away_event(text) to authenticated;
+
+-- A registered spectator must retain read-only access after the initial
+-- spectate_away_event response.  Normal polling uses the table API, so include
+-- the spectator registration in the SELECT policies while leaving every
+-- INSERT/UPDATE/DELETE policy unchanged.
+create or replace function public.is_away_event_spectator(p_event_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select auth.uid() is not null
+    and exists (
+      select 1
+      from public.away_event_spectators s
+      where s.event_id = p_event_id
+        and s.user_id = auth.uid()
+    );
+$$;
+
+revoke all on function public.is_away_event_spectator(uuid) from public, anon;
+grant execute on function public.is_away_event_spectator(uuid) to authenticated;
+
+drop policy if exists "event participants read" on public.away_events;
+create policy "event participants read" on public.away_events
+for select to authenticated
+using (
+  public.is_away_event_organiser(id)
+  or public.is_away_event_member(id)
+  or public.is_away_event_spectator(id)
+);
+
+drop policy if exists "event participants read players" on public.away_event_players;
+create policy "event participants read players" on public.away_event_players
+for select to authenticated
+using (
+  public.is_away_event_organiser(event_id)
+  or public.is_away_event_member(event_id)
+  or public.is_away_event_spectator(event_id)
+);
+
+drop policy if exists "event participants read scores" on public.away_round_scores;
+create policy "event participants read scores" on public.away_round_scores
+for select to authenticated
+using (
+  public.is_away_event_organiser(event_id)
+  or public.is_away_event_member(event_id)
+  or public.is_away_event_spectator(event_id)
+);

@@ -11,7 +11,7 @@ assert.deepEqual([1,2,3,4,5].map(d=>ctx.dailyCompetitionSummary(d,event).length)
 const first=ctx.dailyCompetitionSummary(1,event);
 assert.equal(first.filter(x=>x.aggregate).length,3);
 assert.equal(first.filter(x=>x.id.startsWith('stableford')).length,2);
-assert.equal(ctx.dailyCompetitionChecks(event)[0].label,'Day 1 Competitions: 10 (including 3 aggregate rounds)');
+assert.equal(ctx.dailyCompetitionChecks(event)[0].label,'Day 1 Daily Competitions: 7');
 for(const format of ['daily','aggregate']){
  const result=ctx.dailyCompetitionSummary(1,{...event,singleStablefordFormat:format});
  assert.equal(result.length,9);assert.equal(result.filter(x=>x.id.startsWith('stableford')).length,1);

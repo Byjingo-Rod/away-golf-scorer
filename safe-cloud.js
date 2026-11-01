@@ -193,15 +193,25 @@
     data=safeData(kind,data);
     // Save before any network operation. No acknowledged base moves on polling.
     const s=state[k] ||= {};s.pending=copy(data);persist();
-    if(!s.acknowledged){const b=await raw.loadEvent(id);ingest(id,b);if(!state[k].acknowledged)remember(k,{},null,kind);}
+    if(!s.acknowledged){
+      if(kind==="score"&&raw.loadRound){
+        const row=await raw.loadRound(id,day,player);
+        remember(k,row?.score_data||{},row?.revision??null,kind);
+      }else{
+        const b=await raw.loadEvent(id);ingest(id,b);
+      }
+      if(!state[k].acknowledged)remember(k,{},null,kind);
+    }
     const current=state[k];
     if(current!==s)return save(id,kind,data,day,player,options);
     if(s.conflict)throw error("Saved copies need organiser review.","GOLF_CONFLICT");
     const local=copy(s.pending===undefined?data:s.pending),base=s.virgin?undefined:copy(s.base);
+    let remote=kind==="score"?{data:copy(s.base||{}),revision:s.revision??null}:null;
     for(let attempt=0;attempt<3;attempt++) {
-      const bundle=await raw.loadEvent(id);
-      const row=kind==="event"?bundle.event:(bundle.scores||[]).find(x=>+x.day===+day&&String(x.scorer_player_id)===String(player));
-      const remote={data:kind==="event"?row.event_data:row?.score_data||{},revision:row?.revision??null};
+      if(kind==="event"){
+        const bundle=await raw.loadEvent(id),row=bundle.event;
+        remote={data:row.event_data,revision:row.revision};
+      }
       const result=merge(base,local,remote.data);
       if(result.conflicts.length)await retain(id,kind,day,player,s,remote,result,local,base);
       try{
@@ -214,7 +224,16 @@
         if(equal(s.pending,local))delete s.pending;
         persist();
         return {...response,revision:ackRevision,saved_data:copy(acknowledged)};
-      }catch(e){if(e.code!=="40001"){if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}throw e;}}
+      }catch(e){
+        if(e.code!=="40001"){
+          if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}
+          throw e;
+        }
+        if(kind==="score"&&raw.loadRound){
+          const row=await raw.loadRound(id,day,player);
+          remote={data:row?.score_data||{},revision:row?.revision??null};
+        }
+      }
     }
     throw error("Other devices are still saving. Your changes remain on this device. Retry shortly.","GOLF_BUSY");
   }

@@ -5,16 +5,14 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.86\.17/);
-assert.match(sw, /away-golf-v15-86-17/);
 assert.match(
   app,
-  /function enabledEventTees\(event = store\.event, day = 1\)[\s\S]*?event\.enabledTeesByDay\?\.\["day" \+ day\]/,
+  /function enabledEventTeesForCategory\(event = store\.event, day = 1, category = "men"\)[\s\S]*?enabledTeesByDayCategory/,
   "enabled tees must be read separately for each day/course",
 );
 assert.match(
   app,
-  /W\.event\.enabledTeesByDay\[key\] = e\.target\.checked/,
+  /W\.event\.enabledTeesByDayCategory\[key\]\[activeCategory\]=selected/,
   "the third-tee switch must update only the handicap page currently open",
 );
 assert.match(

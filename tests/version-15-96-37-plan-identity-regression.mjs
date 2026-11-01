@@ -18,7 +18,5 @@ assert.match(safeCloud, /pendingCards/);
 assert.match(safeCloud, /pendingPlans/);
 assert.match(safeCloud, /base:safeData\(kind,data\)/);
 assert.match(safeCloud, /delete data\.event\.joinCode/);
-assert.match(html, /Version 15\.96\.37/);
-assert.match(sw, /away-golf-v15-96-37/);
 
 console.log("15.96.37 plan identity and final receipt regression passed");

@@ -12,10 +12,8 @@ assert.match(app, /roundLabel\.textContent = isPlayerDevice\(\) \? "Marking" : "
 assert.match(html, /<small id="homeRoundLabel">Event date<\/small>/);
 
 assert.match(app, /const liveMismatch = \(h\) =>/);
-assert.match(app, /entriesArrived\(own, ownOfficial\)/);
-assert.match(app, /entriesArrived\(marked, markedCheck\)/);
-assert.match(app, /String\(left\.gross\).*String\(right\.gross\)/s);
-assert.match(app, /\+left\.putts !== \+right\.putts/);
+assert.match(app, /scoreEntriesMismatch\(day, selected, h, own, ownOfficial, puttsRequired\)/);
+assert.match(app, /scoreEntriesMismatch\(day, markedPlayer, h, marked, markedCheck, puttsRequired\)/);
 assert.match(app, /class="holeTrack \$\{state\}"/);
 assert.match(app, /class="mismatchHoleAlert"/);
 assert.match(app, /data-gotohole="\$\{i\}"/);

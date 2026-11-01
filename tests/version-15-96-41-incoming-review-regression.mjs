@@ -12,7 +12,5 @@ assert.match(app, /choice\}\)\)\)/);
 assert.match(app, /complete incoming device copy was saved online/);
 assert.match(app, /setCloudMessage\("Live event opened"\)/);
 assert.doesNotMatch(app, /cloudMessage = "Live event opened"/);
-assert.match(html, /Version 15\.96\.41/);
-assert.match(sw, /away-golf-v15-96-41/);
 
 console.log("15.96.41 incoming-review regression passed");

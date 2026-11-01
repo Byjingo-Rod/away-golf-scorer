@@ -13,7 +13,5 @@ assert.match(app, /!health\.conflicts/);
 assert.match(app, /store\.cloud\.restorePublished=true/);
 assert.match(safeCloud, /if\(!equal\(stored,state\)\)state=stored/);
 assert.match(safeCloud, /Background score polling can legitimately refresh this store/);
-assert.match(html, /Version 15\.96\.40/);
-assert.match(sw, /away-golf-v15-96-40/);
 
 console.log("15.96.40 final-plan authority regression passed");

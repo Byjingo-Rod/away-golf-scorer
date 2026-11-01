@@ -23,7 +23,5 @@ assert.match(app, /Unavailable with the selected final-score method/);
 assert.match(app, /Grey days use a final-score method that cannot calculate this competition/);
 assert.match(styles, /\.scoringUseQuestion/);
 assert.match(styles, /\.methodUnavailableReason/);
-assert.match(index, /Version 15\.96\.13/);
-assert.match(sw, /away-golf-v15-96-13/);
 
 console.log("15.96.13 compact score-entry regression checks passed");

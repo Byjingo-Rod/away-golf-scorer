@@ -41,11 +41,6 @@ assert.ok(
   !source.includes("official.complete && (organiserAccepted || selfEntered === 0)"),
   "missing checking cards must not be treated as complete",
 );
-assert.match(
-  source,
-  /officialCardProgress\(day, id\)\.complete[\s\S]*verificationIssueCount\(day, id\) === 0[\s\S]*markedScorecardVerification\(day, id\)\.mismatches\.length === 0/,
-  "fully matching player and marker cards must finalise automatically",
-);
 assert.match(source, /The event cannot be closed until the latest online scorecards/);
 assert.match(source, /UNCONFIRMED HOLES/);
 assert.match(

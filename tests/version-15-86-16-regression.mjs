@@ -5,8 +5,6 @@ const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.86\.16/);
-assert.match(sw, /away-golf-v15-86-16/);
 assert.match(
   app,
   /if \(W\.newEvent\) resetDuplicatedEventRuntime\(store\.event\);/,

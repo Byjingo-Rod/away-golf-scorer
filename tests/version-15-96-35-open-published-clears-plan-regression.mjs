@@ -10,7 +10,5 @@ assert.match(app, /AwayCloud\.safeReconcileAcknowledged\?\.\(/);
 assert.match(app, /"event",\s*payload,\s*bundle\.event\.revision/s);
 assert.match(app, /finalUpdateCloudSentAt:\s*store\.event\?\.finalUpdateCloudSentAt/s);
 assert.match(app, /if \(store\.event\.locked\)\s*store\.event\.finalUpdateCloudSentAt/s);
-assert.match(html, /Version 15\.96\.35/);
-assert.match(sw, /away-golf-v15-96-35/);
 
 console.log("15.96.35 published-plan cleanup regression passed");

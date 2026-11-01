@@ -93,6 +93,66 @@
     roundWakeLockActive = false,
     scoringOpenTimer = null,
     ownerAccountState = null;
+  let waitingAppWorker = null,
+    scorecardOpenedThisPage = false,
+    controllerChangedDuringScorecard = false,
+    reloadingForAppUpdate = false;
+  function activeScorecardSession() {
+    return scorecardOpenedThisPage &&
+      ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(
+        store.event?.playerRoundMode,
+      );
+  }
+  function showPendingAppUpdate() {
+    const indicator = $("#updateHeader");
+    if (!indicator) return;
+    const organiser = !isPlayerDevice() && !isSpectatorDevice();
+    indicator.hidden = !organiser || (!waitingAppWorker && !controllerChangedDuringScorecard);
+  }
+  function activatePendingAppUpdate() {
+    if (activeScorecardSession()) {
+      showPendingAppUpdate();
+      return false;
+    }
+    if (controllerChangedDuringScorecard) {
+      controllerChangedDuringScorecard = false;
+      reloadingForAppUpdate = true;
+      location.reload();
+      return true;
+    }
+    if (!waitingAppWorker) return false;
+    const worker = waitingAppWorker;
+    waitingAppWorker = null;
+    worker.postMessage({ type: "ACTIVATE_UPDATE" });
+    showPendingAppUpdate();
+    return true;
+  }
+  function beginScorecardUpdateProtection() {
+    scorecardOpenedThisPage = true;
+    showPendingAppUpdate();
+  }
+  function endScorecardUpdateProtection() {
+    scorecardOpenedThisPage = false;
+    showPendingAppUpdate();
+    activatePendingAppUpdate();
+  }
+  function watchForAppUpdate(registration) {
+    const updateReady = (worker) => {
+      if (!worker || !navigator.serviceWorker.controller) return;
+      waitingAppWorker = worker;
+      showPendingAppUpdate();
+      activatePendingAppUpdate();
+    };
+    updateReady(registration.waiting);
+    registration.addEventListener("updatefound", () => {
+      const installing = registration.installing;
+      if (!installing) return;
+      installing.addEventListener("statechange", () => {
+        if (installing.state === "installed")
+          updateReady(registration.waiting || installing);
+      });
+    });
+  }
   function updateWakeIndicator() {
     const el = $("#wakeHeader");
     if (!el) return;
@@ -2846,6 +2906,7 @@
     if (quickCode) quickCode.value = "";
     setQuickJoinStatus("Enter the six-character event code.");
     requestAnimationFrame(() => quickCode?.focus());
+    endScorecardUpdateProtection();
   }
   const verifiedCloudAuthority = new Set();
   async function correctStoredCloudRole() {
@@ -10403,6 +10464,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     renderPlayerExperience();
     renderLeaderboard();
     nav("home");
+    endScorecardUpdateProtection();
     alert(nextWorkspaceEvent ? "Event deleted. Your next event is now current." : "Event deleted. Away Golf is ready for a new event.");
   }
   $("#eventOptions").onclick = openEventOptions;
@@ -12941,6 +13003,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       releaseRoundWakeLock();
       writeLocalStore();
       renderPlayerExperience();
+      endScorecardUpdateProtection();
     };
     window.GolfSafeCloud?.reportStatus(cloudMessage, store.cloud?.eventId);
     if ($("#firstMismatchHole"))
@@ -14143,6 +14206,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       renderLeaderboard();
       nav("home");
       setCloudMessage("Completed event archived · results retained in Past Events");
+      endScorecardUpdateProtection();
       alert(`${eventName} is now archived. Final results remain available in Past Events and connected phones will return to player entry.`);
     } catch(error) {
       if(button){button.disabled=false;button.textContent="EVENT COMPLETE — RELEASE PHONES & ARCHIVE";}
@@ -14496,6 +14560,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       store.event.playerRoundMode = "preview";
       save();
       renderPlayerExperience();
+      endScorecardUpdateProtection();
     };
     $("#confirmFullPlayerCard").onclick = () => {
       const invalid = [];
@@ -14561,7 +14626,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       entry=finalScoreEntry(day,selected)||{}, c=course(store.event["course"+day]), complete=finalScoreComplete(day,selected),
       rule=kind==="gross" ? ({allStrokes:"All Strokes Count",maxDoubleBogey:"Maximum Double Bogey",maxTripleBogey:"Maximum Triple Bogey"}[store.event.strokeScoringMode||"allStrokes"]) : "Stableford points";
     host.innerHTML=`<div class="finalScoreEntry"><div class="playerEventHero"><span>FINAL SCORE</span><h1>${esc(store.event.name)}</h1>${store.event.days>1?`<h3>DAY ${day}</h3>`:""}<p>${esc(c?.name||"Course")}</p></div><div class="playerCard"><div class="playerCardTitle">FINAL SCORE ENTRY</div><h2>${esc(eventPlayerName(selected,day))}</h2><p>Golf Scorer is not in use for hole-by-hole scoring today. Enter the final score supplied by the caddie or official card after completing the round.</p><div class="finalScoreRule"><b>${kind==="stableford"?"Stableford Points":"Gross Stroke Total"}</b><span>${esc(rule)}</span></div><label>${kind==="stableford"?"Final Stableford points":"Final gross strokes"}<input id="finalScoreTotal" inputmode="numeric" type="number" min="0" max="400" value="${entry.total??""}" ${complete?"disabled":""}></label>${competitionIsOn("teamPutts",day)?`<label>Total putts (optional)<input id="finalScorePutts" inputmode="numeric" type="number" min="0" max="100" value="${entry.putts??""}" ${complete?"disabled":""}></label>`:""}${complete?`<div class="finalScoreSaved"><b>✓ Final score saved</b><span>${entry.total} ${kind==="stableford"?"points":"strokes"}${entry.putts!==""&&entry.putts!=null?` · ${entry.putts} putts`:""}</span></div>`:`<button class="startRoundBtn" id="saveFinalScore">CONFIRM FINAL SCORE</button>`}<button class="soft" id="backFromFinalScore">Back to Round</button></div></div>`;
-    $("#backFromFinalScore").onclick=()=>{store.event.playerRoundMode="preview";save();renderPlayerExperience();};
+    $("#backFromFinalScore").onclick=()=>{store.event.playerRoundMode="preview";save();renderPlayerExperience();endScorecardUpdateProtection();};
     if($("#saveFinalScore")) $("#saveFinalScore").onclick=()=>{
       const total=Number($("#finalScoreTotal").value), putts=$("#finalScorePutts")?.value??"";
       if(!Number.isFinite(total)||total<0)return alert("Enter the final score from the caddie or official card.");
@@ -14779,6 +14844,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!canStart) return;
       store.event.playerRoundMode = dayScoringMethod(day) === "holeByHole" ? "scoring" : dayScoringMethod(day) === "fullCardPlayer" ? "fullCardEntry" : "finalEntry";
       store.event.playerHolePos = 0;
+      beginScorecardUpdateProtection();
       requestRoundWakeLock();
       save();
       renderPlayerExperience();
@@ -14825,15 +14891,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
   window.addEventListener("online", () => { if (!$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("#modalShade").classList.contains("open")) void syncMasterCourses(); });
   if ("serviceWorker" in navigator) {
-    let reloadingForUpdate = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (reloadingForUpdate || !navigator.serviceWorker.controller) return;
-      reloadingForUpdate = true;
+      if (reloadingForAppUpdate || !navigator.serviceWorker.controller) return;
+      if (activeScorecardSession()) {
+        controllerChangedDuringScorecard = true;
+        showPendingAppUpdate();
+        return;
+      }
+      reloadingForAppUpdate = true;
       location.reload();
     });
     navigator.serviceWorker
       .register("sw.js")
-      .then((registration) => registration.update())
+      .then((registration) => {
+        watchForAppUpdate(registration);
+        return registration.update();
+      })
       .catch(() => {});
   }
 })();

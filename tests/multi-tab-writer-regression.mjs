@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const rawStoreWrites = app.match(
-  /localStorage\.setItem\("awayGolf13", JSON\.stringify\(store\)\)/g,
+  /GolfSafeCloud\.storageWrite\("awayGolf13", JSON\.stringify\(durableStore\)\)/g,
 ) || [];
 
 assert.equal(

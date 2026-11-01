@@ -40,6 +40,5 @@ assert.match(
   /adapter\.roundSaveState=/,
   "Safe Cloud must expose the final round acknowledgement state",
 );
-assert.match(sw, /away-golf-v15-96-52/);
 
 console.log("15.96.52 final-card and player-storage regression passed");

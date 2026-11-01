@@ -5,8 +5,6 @@ const app = readFileSync(new URL("../app.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
-assert.match(html, /Version 15\.93\.2/);
-assert.match(sw, /away-golf-v15-93-2/);
 assert.match(app, /function openPublishedGaHandicapUpdate/);
 assert.match(app, /id="updateGaHandicaps"/);
 assert.match(app, /Update GA Handicaps/);
@@ -19,6 +17,5 @@ assert.match(
   app,
   /Press Send All Set — Final Update to send them to the players' phones/,
 );
-assert.match(app, /appVersion: "15\.93\.2"/);
 
 console.log("Version 15.93.2 last-minute GA update checks passed.");

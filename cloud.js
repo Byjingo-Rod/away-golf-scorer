@@ -319,6 +319,27 @@
     };
   }
 
+  async function loadRound(eventId, day, playerId) {
+    await ensureSignedIn();
+    const { data, error } = await retryAfterSessionRefresh(() =>
+      client
+        .from("away_round_scores")
+        .select("day,scorer_player_id,score_data,revision,updated_at")
+        .eq("event_id", eventId)
+        .eq("day", +day)
+        .eq("scorer_player_id", String(playerId))
+        .maybeSingle(),
+    );
+    if (error) throw error;
+    return data || {
+      day: +day,
+      scorer_player_id: String(playerId),
+      score_data: {},
+      revision: null,
+      updated_at: null,
+    };
+  }
+
   async function eventAccess(eventId) {
     await ensureSignedIn();
     const { data: authData, error: authError } = await client.auth.getUser();
@@ -581,6 +602,7 @@
     joinEvent,
     spectateEvent,
     loadEvent,
+    loadRound,
     eventAccess,
     saveRound,
     releasePlayer,

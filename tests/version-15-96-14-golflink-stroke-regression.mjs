@@ -16,7 +16,5 @@ assert.match(app, /<b>Stroke Result<\/b><strong>Net only<\/strong>/);
 assert.doesNotMatch(app, /name="strokeResult"/);
 assert.doesNotMatch(app, /Stroke Gross/);
 assert.match(app, /Gross scoring is available as a separate Scratch competition/);
-assert.match(index, /Version 15\.96\.14/);
-assert.match(sw, /away-golf-v15-96-14/);
 
 console.log("15.96.14 GolfLink and net Stroke regression checks passed");

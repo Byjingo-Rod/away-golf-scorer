@@ -3,7 +3,7 @@ import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(process.argv[2]||'app.js','utf8');
 const a=source.indexOf('  function validateCourseScorecard('),b=source.indexOf('\n  function ',a+10);
-const ctx={courseScorecard:c=>c};vm.createContext(ctx);vm.runInContext(source.slice(a,b),ctx);
+const ctx={courseScorecard:c=>c,GolfCourseCategories:{data:()=>({needsReview:false})}};vm.createContext(ctx);vm.runInContext(source.slice(a,b),ctx);
 const make=()=>({par:Array(18).fill(4),metres:Array(18).fill(350),index:Array.from({length:18},(_,i)=>String(i+1))});
 let card=make();assert(ctx.validateCourseScorecard(card).ok);
 card.par[0]=6;assert(ctx.validateCourseScorecard(card).ok);

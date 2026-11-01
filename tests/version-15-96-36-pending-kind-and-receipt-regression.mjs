@@ -16,7 +16,5 @@ assert.match(app, /delete event\.joinCode/);
 assert.match(safeCloud, /pendingCards/);
 assert.match(safeCloud, /pendingPlans/);
 assert.match(safeCloud, /base:safeData\(kind,data\)/);
-assert.match(html, /Version 15\.96\.36/);
-assert.match(sw, /away-golf-v15-96-36/);
 
 console.log("15.96.36 pending-kind and final-receipt regression passed");
