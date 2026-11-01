@@ -8,7 +8,7 @@
   "sourceParentCommit": "a43fbd346f6facfa175f67d9b592360f0854048f",
   "sourceTreeHash": "21bd4e53206d838ad852f196243b0e86f557d2dcd443a1050ee4afb1e218da50",
   "sharedSourceVersion": "15.95.48",
-  "productVersion": "15.97.02",
+  "productVersion": "15.97.03",
   "inputHashes": {
     "app.js": "c4b4246dc62f468061da05c63fec232ddd06c3eaeb9a1f0f50867b7b4596eeac",
     "assets/away-golf-mascot-finish.png": "a687ee88f01347c264f57ba6179b6d3dfe203fa8b3868e3035ba880bb6f74903",
@@ -121,25 +121,25 @@
     "manifest.webmanifest": "192482bf9a7c53951237e494bda0fd8a7f1ae97498eddafba6313dbba5011674",
     "away-golf-mascot-mini.png": "073b704cf277ff52f218faca907380e433f2270b816a11670c396143d9a6db4f"
   },
-  "releaseVersion": "15.97.02",
+  "releaseVersion": "15.97.03",
   "releaseHashes": {
-    "app.js": "942a0a61dc58b93034aa8c2833b1b922cf7747fa6b2e4acd3ea352956f400bd2",
+    "app.js": "23fcd52c67581360fadbe869577e2b4fda1a6aa4f2bd7b5db8993eabd0f81792",
     "catalogue-review.js": "528f489bd7e11f9f4db39efe3fa466123c824fde331ae01c4a6f9d4cfb21c598",
-    "cloud.js": "bd030a9928d7e43abd0216c5723c8db6b2c1a0b3e3f6ee859b3af522dafe7e6c",
+    "cloud.js": "e39c6e81285eba015fdda9e12e5420ca63eb4c256cb89716c644db29e1278967",
     "course-categories.js": "a4ddee4e974a9b65d1e1229fdedb6e189b6aff91daecc4dc51c77d26347bfb4a",
     "course-library.js": "74142e114d044093420abbd7020dd547a636a7a19d756551b6e8c8ddb94e58af",
     "course-locations.js": "45cdd46e801309f5d018124f384e6a84c2c0e8f82ede28c30920555e76972d0d",
     "data.js": "d5a90cfd67da9f67d96f48eeeff86ebaca02d791d9b3c99a188d16a2792c21f3",
     "development-tests.js": "0c1c705ecd057627ead544f5b7f557da06c4839c21bf8938ff30f104e0b7748b",
-    "index.html": "8571c990d2f46627d687c9dd403647be129ba69d1c77396452bf27671ef005ab",
+    "index.html": "7daeb524b4a8f56da0481c78f451a89d39ac8b08d8dfd6b1179952bd34286248",
     "manifest.webmanifest": "192482bf9a7c53951237e494bda0fd8a7f1ae97498eddafba6313dbba5011674",
     "organiser-guide.html": "4349b2ed61a6d258cd4bb35e2795cd1a05d319ad202d59b57977d85e33b44c92",
     "organiser-guide.js": "3f4c06f46ce72ffdd802c4b8b334b2d54ca4ee4a3e746b276a8141bca6a60a13",
     "player-substitution.js": "5b582b0e2761aa66c9529a45be184e78cb8c51d55c44e5eea57213812c3f7a1f",
-    "safe-cloud.js": "baf8211b04d37df16e56d29fa146f5076fb9791dcb2a196d657937b7a6c61131",
+    "safe-cloud.js": "4d4251ff7dae723cf2b7a26d42e37d35699c1245f8ca9e9592a07aa92b4db494",
     "shared-positions.js": "e41ec7b636fb222436ded983eec7fedbda4e6d1613b36a9945d641a72f8281f9",
     "styles.css": "bc427bd56d9bd60cc1fd6f2129280f883feb484a4b43e892f8c5df2e8e717af4",
     "supabase.js": "1b9ea9c884e05c52e5342dc495d92567e1bc08f82ef68c23ac4d59a2635c0344",
-    "sw.js": "c6ab58fc2286212deb3ebf96b3d2ae0689b23b3ce2fd3c5610d7af5127d1e69a"
+    "sw.js": "15dd0dc9e9d6f0dc7591e2075e2a11ee03de48c53c3399ca9aa18e25be681283"
   }
 }

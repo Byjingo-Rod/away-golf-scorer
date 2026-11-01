@@ -31,7 +31,7 @@ try{
  assert(migration,'score acceptance migration must be supplied or present');
  const sql=process.argv[2]?fs.readFileSync(migration,'utf8'):read('supabase/migrations/'+migration);
  await db.exec(sql);
- if(!process.argv[2])for(const name of fs.readdirSync(new URL('supabase/migrations/',root)).filter(n=>n.endsWith('_archive_and_permission_guards.sql')).sort())await db.exec(read('supabase/migrations/'+name));
+ if(!process.argv[2])for(const name of fs.readdirSync(new URL('supabase/migrations/',root)).filter(n=>n.endsWith('_archive_and_permission_guards.sql')||n.endsWith('_event_lifecycle_acceptance.sql')).sort())await db.exec(read('supabase/migrations/'+name));
  await db.exec(read('supabase/tests/score-acceptance.sql'));
  console.log('Isolated PostgreSQL: synthetic scoring-method, marker, pickup, putts, plus/dual handicap, category, invalid-total and private-grant assertions passed.');
  if(fs.existsSync(new URL('supabase/tests/score-acceptance-rpc.sql',root))){await db.exec(read('supabase/tests/score-acceptance-rpc.sql'));console.log('Isolated PostgreSQL: four-player RPC, stale revisions, completed-card protection, outsider denial, audited correction and full-card/final totals passed.');}

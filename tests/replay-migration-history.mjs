@@ -32,5 +32,7 @@ try{
  await db.exec(fs.readFileSync(new URL('supabase/tests/score-acceptance.sql',root),'utf8'));
  await db.exec(fs.readFileSync(new URL('supabase/tests/score-acceptance-rpc.sql',root),'utf8'));
  await db.exec(fs.readFileSync(new URL('supabase/tests/archive-retention.sql',root),'utf8'));
+ if(fs.existsSync(new URL('supabase/tests/event-lifecycle.sql',root)))await db.exec(fs.readFileSync(new URL('supabase/tests/event-lifecycle.sql',root),'utf8'));
+ await db.exec(fs.readFileSync(new URL('supabase/tests/lifecycle-pure.sql',root),'utf8'));
  console.log('Passed: ordered replay of '+names.length+' migrations, schema checks and scoring validators in isolated PostgreSQL (pg_net/cron are local platform shims).');
 }catch(error){console.error('Migration replay failed:',error.message);process.exitCode=1;}finally{await db.close();}

@@ -217,6 +217,17 @@
     if(error)throw error;return data;
   }
 
+  async function confirmEvent(eventId, document, expectedRevision, scoreRevisions, archived = false) {
+    await ensureSignedIn();
+    const payload = JSON.parse(JSON.stringify(document));
+    payload.event.finalResults.expectedScoreRevisions = scoreRevisions;
+    const {data,error} = await client.rpc("golf_safe_away_save", {
+      p_kind:"event",p_event_id:eventId,p_day:null,p_player_id:null,p_data:payload,
+      p_expected_revision:expectedRevision,p_correction:false,p_reason:null,p_status:archived?"archived":"complete",
+    });
+    if(error)throw error;return data;
+  }
+
   async function syncEventPlayers(eventId, players) {
     await ensureSignedIn();
     const wanted = (players || []).map((player) => ({
@@ -595,6 +606,7 @@
     sendOwnerSignInLink,
     createEvent,
     updateEvent,
+    confirmEvent,
     syncEventPlayers,
     invitation,
     joinEvent,

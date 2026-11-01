@@ -4,6 +4,20 @@ do $$
 declare
   missing_count integer;
 begin
+  if to_regprocedure('golf_safe_private.assert_event_complete(uuid,jsonb)') is null
+     or to_regprocedure('golf_safe_private.validate_ambrose(jsonb,jsonb,text,integer,jsonb)') is null then
+    raise exception 'Lifecycle acceptance guards are missing';
+  end if;
+  if has_function_privilege('authenticated','golf_safe_private.assert_event_complete(uuid,jsonb)','EXECUTE')
+     or has_function_privilege('authenticated','golf_safe_private.validate_ambrose(jsonb,jsonb,text,integer,jsonb)','EXECUTE') then
+    raise exception 'Private lifecycle guard is callable by an application user';
+  end if;
+  if not exists(select 1 from pg_indexes where schemaname='public' and indexname='away_event_publication_identity') then
+    raise exception 'Publication retry identity index is missing';
+  end if;
+  if not exists(select 1 from pg_trigger where tgname='away_event_revoke_guests' and not tgisinternal and pg_get_triggerdef(oid) like '%event_data%') then
+    raise exception 'Guest revocation does not watch final event data';
+  end if;
   if exists(select 1 from pg_trigger where not tgisinternal and tgenabled<>'D' and tgname in ('golf_course_changed','golf_country_changed','golf_location_changed')) then
     raise exception 'Retired catalogue bridge triggers are active';
   end if;

@@ -99,7 +99,7 @@
     reloadingForAppUpdate = false;
   function activeScorecardSession() {
     return scorecardOpenedThisPage &&
-      ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(
+      ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(
         store.event?.playerRoundMode,
       );
   }
@@ -158,7 +158,7 @@
     if (!el) return;
     const active =
       isPlayerDevice() &&
-      ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode);
+      ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode);
     el.classList.toggle("active", active);
     el.textContent = !("wakeLock" in navigator)
       ? "Use screen-lock setting"
@@ -169,7 +169,7 @@
   async function requestRoundWakeLock() {
     if (
       !("wakeLock" in navigator) ||
-      !["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode) ||
+      !["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode) ||
       document.visibilityState !== "visible"
     )
       return false;
@@ -202,7 +202,7 @@
   const renewRoundWakeLock = () => {
     if (
       document.visibilityState === "visible" &&
-      ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode)
+      ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode)
     )
       requestRoundWakeLock();
   };
@@ -245,8 +245,9 @@
       (event !== store.event || roundUploadAccepted(day, playerId)));
   }
   function roundUploadAccepted(day, playerId) {
-    if (!store.cloud?.eventId || store.cloud.role !== "player" ||
-        String(store.cloud.playerId) !== String(playerId)) return true;
+    if (!store.cloud?.eventId) return true;
+    const pendingAmbrose = store.pendingAmbroseSubmissions?.[`${store.cloud.eventId}:${day}:${playerId}`];
+    if (store.cloud.role !== "player" && !pendingAmbrose || store.cloud.role === "player" && String(store.cloud.playerId) !== String(playerId)) return true;
     const state = AwayCloud.roundSaveState?.(store.cloud.eventId, day, playerId) || {};
     const round = store.event?.scoring?.["day" + day]?.[String(playerId)] || {};
     const receiptMatches = round._finalScore?.confirmedAt
@@ -260,10 +261,9 @@
       if (!await flushCloudRound(day, selected) || store.cloud !== connection) return false;
       if (!roundUploadAccepted(day, selected)) return false;
     }
-    if (dayScoringMethod(day) === "fullCardPlayer") {
-      delete store.event.fullCardDrafts?.["day" + day]?.[String(selected)];
-      store.event.playerRoundMode = "completed";
-    }
+    if (store.cloud?.eventId) delete store.pendingAmbroseSubmissions?.[`${store.cloud.eventId}:${day}:${selected}`];
+    if (dayScoringMethod(day) === "fullCardPlayer") delete store.event.fullCardDrafts?.["day" + day]?.[String(selected)];
+    if (dayScoringMethod(day) === "fullCardPlayer" || store.event.playerRoundMode === "ambrosePending") store.event.playerRoundMode = "completed";
     writeLocalStore();
     return true;
   }
@@ -2363,12 +2363,15 @@
     event.roundFinalised = { day1: {}, day2: {} };
     event.prizesAwarded = {};
     delete event.finalResults;
+    delete event.lastFinalResults;
+    delete event.publicationId;
     delete event.roundClosedAt;
     delete event.organiserCorrections;
     delete event.emergencyRecoveryLog;
   }
   function cloudPayload(sourceEvent = store.event) {
     const event = JSON.parse(JSON.stringify(sourceEvent || {}));
+    event.timeZone ||= Intl.DateTimeFormat().resolvedOptions().timeZone;
     normaliseTwoDaySingleStableford(event);
     synchroniseSingleTeeGroupStarts(event);
     delete event.courseSnapshot;
@@ -2582,7 +2585,7 @@
       const ownActiveRound =
         store.cloud?.role === "player" &&
         String(row.scorer_player_id) === String(store.cloud.playerId) &&
-        ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode);
+        ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode);
       // Realtime may echo an earlier revision while this phone is still
       // entering the same card. The visible-card guard in applyRemoteCloud()
       // prevents that echo replacing the live object; the safety layer must
@@ -2815,7 +2818,7 @@
       const ownActiveRound =
         store.cloud?.role === "player" &&
         String(row.scorer_player_id) === String(store.cloud.playerId) &&
-        ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode);
+        ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode);
       // While this phone is actively scoring, its locally persisted round is
       // authoritative. A Realtime echo can contain the previous cloud
       // revision and must not replace the live object between consecutive
@@ -2825,6 +2828,14 @@
         scoringDayStore(+row.day)[String(row.scorer_player_id)] =
           row.score_data || {};
     });
+    const closeReceipt = payload.event?.finalResults;
+    if (store.cloud?.role === "organiser" && closeReceipt?.cloudAcceptedAt &&
+        store.pendingEventClose?.eventId === String(bundle.event?.id) &&
+        store.pendingEventClose.confirmedAt === closeReceipt.confirmedAt) {
+      store.event.finalResults = closeReceipt;store.event.status = "complete";
+      recordCompletedEventHistory(store.event);delete store.pendingEventClose;
+    }
+
     store.cloudPlayers = (bundle?.players || []).map((row) => ({
       playerId: String(row.player_id),
       name: row.display_name || "",
@@ -3155,11 +3166,15 @@
   function startPlayerPolling() {
     setInterval(pollPlayerEvent, 10000);
   }
+  let publicationFlight = false;
   async function publishCloudEvent() {
+    if (publicationFlight) return false;
     if (!store.event) {
       alert("Create an event plan before publishing.");
       return false;
     }
+    const publicationEvent = store.event;
+    publicationFlight = true;
     setCloudMessage("Publishing event…", true);
     try {
       store.event.setupStage = store.event.locked ? "final" : "preview";
@@ -3167,7 +3182,8 @@
       else store.event.previewPublishedAt = store.event.previewPublishedAt || new Date().toISOString();
       // Save the publication marker before contacting the cloud. If a network or
       // later update fails, the organiser can recover the exact row already made.
-      persistStore();
+      store.event.publicationId ||= uid();
+      if (persistStore() === false) throw new Error("The publication identity could not be saved on this device. Please retry.");
       const payload = cloudPayload();
       let result = null;
       if (!store.event.locked && store.event.previewPublishedAt) {
@@ -3194,6 +3210,7 @@
           cloudPlayerRows(),
         );
       }
+      if (store.event !== publicationEvent) throw new Error("The published plan changed on this device. Reopen the saved event from Published Events.");
       store.cloud = {
         role: "organiser",
         eventId: result.event_id,
@@ -3203,9 +3220,8 @@
       // Event Preview deliberately uses the schema's existing `setup` status.
       // The preview/final distinction lives in event_data.event.setupStage.
       // A final event still advances to the permitted `locked` status.
-      if (store.event.locked) {
-        await AwayCloud.updateEvent(result.event_id, payload, "locked");
-      }
+      if (writeLocalStore() === false) throw new Error("The event was created online. Keep this app open and retry publishing to recover the same event.");
+      await AwayCloud.updateEvent(result.event_id, payload, store.event.locked ? "locked" : "setup");
       await rememberOrganiserWorkspace(result.event_id, result.join_code);
       rememberPublishedEvent({
         eventId: result.event_id,
@@ -3223,7 +3239,7 @@
       setCloudMessage("Could not publish");
       alert("Publishing did not complete. " + (error.message || error));
       return false;
-    }
+    } finally { publicationFlight = false; }
   }
   async function updateCloudEvent() {
     if (!store.cloud?.eventId || store.cloud.role !== "organiser") return;
@@ -3259,7 +3275,7 @@
       const savedPlan=await AwayCloud.updateEvent(
         store.cloud.eventId,
         sentPlan,
-        store.event?.locked ? "locked" : "setup",
+        store.event?.finalResults?.confirmedAt ? "complete" : store.event?.locked ? "locked" : "setup",
       );
       if(savedPlan?.saved_data?.event)store.event=GolfSafeCloud.merge(sentPlan.event,store.event,savedPlan.saved_data.event).data;
       store.cloud.courseCards = JSON.parse(JSON.stringify(cloudPayload().courses));
@@ -4487,7 +4503,7 @@
       $("#leaveSpectatorEvent").onclick = leavePlayerEvent;
       return;
     }
-    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent">${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<form class="joinEventRow" id="joinEventForm"><input id="joinCode" maxlength="6" autocapitalize="characters" inputmode="text" enterkeyhint="go" placeholder="6-character event code"><button type="submit" class="primary" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></form><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
+    host.innerHTML = `<div class="cloudPanelHead"><div><small>SHARED EVENT</small><h3>Connect players' phones</h3></div><span class="cloudState">${esc(cloudMessage)}</span></div><div class="cloudActions">${store.event ? `<button class="primary" id="publishCloudEvent" ${cloudBusy ? "disabled" : ""}>${store.event.locked ? "Publish Final Event" : "Publish Event Preview"}</button><p class="hint">${store.event.locked ? "Publish the final locked details for scoring." : "Players can join now to see the provisional arrangements. Use the same code for the final update."}</p>` : ""}${retryButton}</div>${!store.event ? `<div class="organiserCopyNotice"><b>Looking for an event you already published?</b><span>Reopen the same Away Golf browser tab or app copy that was used to create the event. Your organiser event will reopen automatically there.</span><span>The player joining code is for players only and cannot recover organiser control in a different browser or app copy.</span></div>` : ""}<form class="joinEventRow" id="joinEventForm"><input id="joinCode" maxlength="6" autocapitalize="characters" inputmode="text" enterkeyhint="go" placeholder="6-character event code"><button type="submit" class="primary" id="lookupCloudEvent" ${cloudBusy ? "disabled" : ""}>${cloudBusy ? "Finding Event…" : "Join as a Player"}</button></form><p class="panelJoinStatus ${/could not|too long|offline/i.test(cloudMessage) ? "error" : ""}" aria-live="polite">${esc(cloudBusy ? "Contacting Away Golf — please wait…" : /could not|too long/i.test(cloudMessage) ? cloudMessage + ". Check the code and internet connection, then try again." : "Enter the six-character code supplied by your organiser.")}</p>`;
     if ($("#publishCloudEvent"))
       $("#publishCloudEvent").onclick = publishCloudEvent;
     if ($("#retryCloud"))
@@ -4875,7 +4891,7 @@ Count-back if tied
     const sections = eventRuleSections(),
       activeRound =
         isPlayerDevice() &&
-        ["scoring", "verify", "fullCardEntry", "finalEntry"].includes(store.event?.playerRoundMode);
+        ["scoring", "verify", "fullCardEntry", "finalEntry", "ambrosePending"].includes(store.event?.playerRoundMode);
     showSide(
       `<div class="eventRulesView"><small>AWAY GOLF EVENT RULES</small><h2>${esc(store.event?.name || "Today's Rules")}</h2>${
         sections.length
@@ -8977,6 +8993,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function firstDayScoreEntry(day) {
     const rounds = store.event?.scoring?.["day" + day] || {};
     for (const [scorerId, round] of Object.entries(rounds)) {
+      if (round?._finalScore?.confirmedAt) return {scorerId:String(scorerId),hole:null,finalTotal:true};
       for (const [hole, rec] of Object.entries(round || {})) {
         if (!/^([1-9]|1[0-8])$/.test(hole)) continue;
         if (
@@ -9001,6 +9018,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       rounds = store.event?.scoring?.["day" + day] || {};
     for (const [scorerId, round] of Object.entries(rounds)) {
       if (!scorerIds.has(String(scorerId))) continue;
+      if (round?._finalScore?.confirmedAt) return {scorerId:String(scorerId),hole:null,finalTotal:true};
       for (const [hole, rec] of Object.entries(round || {})) {
         if (!/^([1-9]|1[0-8])$/.test(hole)) continue;
         if ([rec?.self?.gross, rec?.self?.putts, rec?.official?.gross, rec?.official?.putts].some(scoreEntered))
@@ -9240,10 +9258,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ),
         ambroseEntered = checks.filter((check) => check.scorerDone).length,
         ambroseIssues = checks.filter((check) => check.mismatch).length,
-        ambroseFinalised =
-          store.event.status === "complete" ||
-          Boolean(store.event.roundFinalised?.["day" + day]?.[String(playerId)]) ||
-          ambroseTeamComplete(day, ctx.groupIndex);
+        ambroseFinalised = ambroseTeamAccepted(day, ctx.groupIndex) && ambroseTeamComplete(day, ctx.groupIndex);
       let ambroseState = "notStarted",
         ambroseLabel = "Not started",
         ambroseDetail = joined ? "Connected · ready to start" : "Phone not joined";
@@ -10681,7 +10696,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!developmentTestToolsPromise) {
         developmentTestToolsPromise = new Promise((resolve, reject) => {
           const script = document.createElement("script");
-          script.src = "development-tests.js?v=15.97.02";
+          script.src = "development-tests.js?v=15.97.03";
           script.async = true;
           script.onload = () => {
             try {
@@ -11055,7 +11070,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       teePanel = `<div class="eventTeePanel ${ambroseIsOn(store.event, day) ? "ambroseTeePanel" : ""} ${teeFinal ? "final" : ""}"><div><small>${store.event.days === 1 ? "PLAYING TEE" : `DAY ${day} PLAYING TEE`}</small><h3>${teeFinal ? "✓ " : ""}${teeCategories.map(category=>`${category==="women"?"Women":"Men"}: ${eventTeeMarkerColour(day,store.event,category)}`).join(" · ")}</h3><p>${teeFinal ? "Finalised for scoring." : locked ? "Choose the tee for each category, then finalise before anyone starts scoring." : "Provisional selections. All calculated handicap sets remain stored."}</p></div><div class="eventTeeCategoryGrid">${teeCategories.map(category=>`<section class="categoryPlayingTee"><b>${category==="women"?"Women's":"Men's"} tee</b><div class="eventTeeButtons">${enabledEventTeesForCategory(store.event,day,category).map(tee=>`<button type="button" data-eventtee="${category}|${tee}" class="${selectedEventTee(day,store.event,category)===tee?"active":""}" ${teeFinal||teeScoringStarted?"disabled":""}>${esc(eventTeeDisplayName(day,tee,store.event,category,eventCourse))}<small>${teeHandicapsComplete(day,tee,store.event,category)?"Ready":"Incomplete"}</small></button>`).join("")}</div></section>`).join("")}</div>${teeChangeControl}${markerChoice}${locked && !teeFinal ? `<button type="button" class="primary finaliseTeeBtn" id="finaliseEventTee" ${selectedTeeComplete && !teeScoringStarted ? "" : "disabled"}>FINALISE TEE SELECTION</button>` : ""}${teeScoringStarted && !teeFinal ? '<strong class="teeSelectionWarning">Scoring has begun. Tee selection cannot be changed.</strong>' : ""}</div>`,
       startingHole = +(startHolesFor(store.event, day)[0] || 1),
       scoringBlocker = scoreEntry
-        ? `${eventPlayer(scoreEntry.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${scoreEntry.hole}.`
+        ? `${eventPlayer(scoreEntry.scorerId, day)?.name || "A player"} has ${scoreEntry.finalTotal ? "a final total recorded" : `an entry recorded on Hole ${scoreEntry.hole}`}.`
         : "",
       startingHolePanel =
         locked && method === "single"
@@ -11206,7 +11221,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         const blocker = firstDayScoreEntry(day);
         if (blocker)
           return alert(
-            `The starting hole cannot be changed. ${eventPlayer(blocker.scorerId, day)?.name || "A player"} has an entry recorded on Hole ${blocker.hole}.`,
+            `The starting hole cannot be changed. ${eventPlayer(blocker.scorerId, day)?.name || "A player"} has ${blocker.finalTotal ? "a final total recorded" : `an entry recorded on Hole ${blocker.hole}`}.`,
           );
         const nextHole = +$("#lockedStartHole").value;
         if (nextHole === startingHole) return;
@@ -11588,6 +11603,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return Array.from({ length: 18 }, (_, index) => index + 1).every(
       (hole) => ambroseHoleAgreement(day, groupIndex, hole).complete,
     );
+  }
+  function ambroseTeamAccepted(day, groupIndex) {
+    const roles = ambroseRoles(day, groupIndex);
+    return [roles.scorerId, roles.markerId].filter(Boolean).every(id =>
+      Boolean(scorerStore(day,id)._meta?.finalisedAt) && roundUploadAccepted(day,id));
   }
   function ambroseDriveCounts(day, groupIndex, scorerId) {
     const counts = Object.fromEntries(
@@ -12135,32 +12155,26 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!ambroseTeamComplete(day, ctx.groupIndex)) return alert("The team card cannot be completed yet. Every hole needs a team score and selected drive" + (roles.markerId ? ", and both cards must agree." : "."));
       const short = Object.entries(counts).filter(([, count]) => count < minimum);
       if (short.length && !confirm(`REQUIRED DRIVES NOT RECORDED\n\n${short.map(([id, count]) => `${eventPlayer(id, day)?.name || "Player"}: ${count} of ${minimum} drives`).join("\n")}\n\nSubmit this card as non-compliant and exclude the team from the Ambrose result?`)) return;
-      const at = new Date().toISOString();
-      const previousFinalised = JSON.parse(JSON.stringify(store.event.roundFinalised || {})),
-        previousMode = store.event.playerRoundMode,
-        affectedRounds = [roles.scorerId, roles.markerId].filter(Boolean).map((id) => ({
-          id,
-          meta: JSON.parse(JSON.stringify(scorerStore(day, id)._meta || {})),
-        }));
-      store.event.roundFinalised = store.event.roundFinalised || {};
-      store.event.roundFinalised["day" + day] ||= {};
-      roles.team.forEach((id) => store.event.roundFinalised["day" + day][id] = at);
-      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => { const round = scorerStore(day, id); round._meta = { ...(round._meta || {}), finalisedAt: at, ambroseTeam: ctx.groupIndex, ambroseDriveCompliant: !short.length }; });
-      store.event.playerRoundMode = "completed";
+      const at = new Date().toISOString(), round = scorerStore(day, entryScorerId),
+        previousMeta = JSON.parse(JSON.stringify(round._meta || {})), previousMode = store.event.playerRoundMode;
+      round._meta = { ...previousMeta, finalisedAt: at, ambroseTeam: ctx.groupIndex, ambroseDriveCompliant: !short.length };
+      const pendingKey = `${store.cloud?.eventId || "local"}:${day}:${entryScorerId}`;
+      store.pendingAmbroseSubmissions ||= {};
+      const previousPending = store.pendingAmbroseSubmissions[pendingKey];
+      store.pendingAmbroseSubmissions[pendingKey] = at;
+      store.event.playerRoundMode = "ambrosePending";
       if (writeLocalStore() === false) {
-        store.event.roundFinalised = previousFinalised;
-        store.event.playerRoundMode = previousMode;
-        affectedRounds.forEach(({ id, meta }) => { scorerStore(day, id)._meta = meta; });
-        showAmbroseSaveFailure();
-        return;
+        round._meta = previousMeta; store.event.playerRoundMode = previousMode;
+        if (previousPending === undefined) delete store.pendingAmbroseSubmissions[pendingKey]; else store.pendingAmbroseSubmissions[pendingKey] = previousPending;
+        showAmbroseSaveFailure(); return;
       }
-      [roles.scorerId, roles.markerId].filter(Boolean).forEach((id) => queueCloudRound(day, id));
-      if (store.cloud?.role === "organiser" && store.cloud?.eventId) await updateCloudEvent();
+      await uploadEnteredScorecard(day, entryScorerId);
       renderPlayerExperience(); renderHome();
     };
     enableHoleSwipe($(".scoringPhone"));
   }
   function renderAmbroseCompleted(selected, day) {
+    if (!roundUploadAccepted(day,selected)) return renderPendingEnteredScorecard(selected,day);
     const host = $("#playerExperience"),
       ctx = playerGroupContext(selected, day);
     if (!ctx) return renderPlayerExperience();
@@ -12174,7 +12188,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       counts = ambroseDriveCounts(day, ctx.groupIndex, roles.scorerId),
       minimum = +store.event.ambroseMinimumDrives || 0,
       compliant = roles.team.every((id) => (counts[id] || 0) >= minimum);
-    host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Ambrose Team Card Submitted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives — ${compliant ? "minimum satisfied ✓" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(eventPlayer(id, day)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>The team score and selected drives have been submitted${roles.markerId ? " and the scorer and marker cards agree" : ""}. ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
+    host.innerHTML = `<div class="completedCard ambroseCompleted ${compliant ? "" : "ambroseNonCompliant"}"><div class="roundTop"><button class="soft" id="backFromAmbroseComplete">← Back</button><div><h2>Your Ambrose Card Accepted</h2><p>Team ${ctx.groupIndex + 1}${store.event.days === 1 ? "" : ` · Day ${day}`}</p></div></div>${compliant ? "" : '<div class="ambroseComplianceStamp">REQUIRED DRIVES NOT RECORDED</div>'}<div class="ambroseFinalScore"><span><small>GROSS</small><strong>${gross}</strong></span><span><small>HANDICAP</small><strong>${handicap == null ? "—" : handicap.toFixed(1)}</strong></span><span><small>NET</small><strong>${handicap == null ? "—" : (gross - handicap).toFixed(1)}</strong></span></div><div class="ambroseDriveSummary"><b>Accepted drives — ${compliant ? "minimum satisfied ✓" : "minimum not satisfied"}</b>${roles.team.map((id) => `<span class="${(counts[id] || 0) >= minimum ? "ready" : "short"}"><em>${esc(eventPlayer(id, day)?.name || "Player")}:</em><strong>${counts[id] || 0} <small>of ${minimum}</small></strong></span>`).join("")}</div><div class="card"><p>Your score and selected drives have been accepted online. ${ambroseTeamAccepted(day,ctx.groupIndex) ? "All required team submissions are accepted." : "The team is waiting for the other required submission."} ${compliant ? "The team is eligible for the Ambrose result." : "The organiser has received the card, but the team is excluded from the Ambrose result."}</p></div></div>`;
     $("#backFromAmbroseComplete").onclick = () => { store.event.playerRoundMode = "preview"; save(); renderPlayerExperience(); };
   }
   function scoreEntryControls(puttingOn, section, entry, par, stepper, pickup) {
@@ -13538,7 +13552,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (def.type === "ntp")
       return (
         finalised &&
-        (manualDayStore(def.day, false)?.ntpFinalised ||
+        (ambroseIsOn(store.event,def.day) || manualDayStore(def.day, false)?.ntpFinalised ||
           dayFieldIds(def.day)
             .filter((id) => String(id) !== NO_PARTNER_ID)
             .every((id) =>
@@ -13547,14 +13561,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
       );
     if (["scratch", "scratchaggregate"].includes(def.type)) {
       const active = rows.filter((r) => !r.disqualified);
-      return Boolean(
-        finalised && active.length && active.every((r) => r.thru === r.target),
-      );
+      return Boolean(finalised && active.every((r) => r.thru === r.target));
     }
     if (def.type === "yellowBall")
       return Boolean(yellowBallResultsReady(def.day) && rows.length);
     const eligible = rows.filter(row => !row.disqualified);
-    if (def.type === "combined" && finalised && rows.length && !eligible.length) return true;
+    if (["combined","ambrose"].includes(def.type) && finalised && rows.length && !eligible.length) return true;
     return Boolean(finalised && eligible.length && eligible.every(row => row.thru === row.target));
   }
   function summaryCompetitionResult(def) {
@@ -13585,6 +13597,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         awardable: def.awardable !== false,
       };
     if (def.type === "combined" && complete && !top) return {complete:true,status:"Completed",text:"No golfer completed the required number of rounds",awardable:false};
+    if (complete && !top) return {complete:true,status:"Completed",text:"No eligible winner",awardable:false};
     if (!top || (!top.thru && def.type !== "yellowBall"))
       return {
         complete: false,
@@ -13697,14 +13710,44 @@ function estimateEventGa(handicap, rating, category, calculate) {
       scoringCredit: "Scoring run on Away Golf Scorer",
     };
   }
+  async function reconfirmArchivedResults() {
+    const id = store.event?.pastCloudEventId;
+    if (!id || !store.event.pastEventReadOnly) return;
+    try {
+      const bundle = await AwayCloud.loadEvent(id), payload = bundle.event.event_data;
+      if (bundle.event.status !== "archived") throw new Error("Reopen this event from Published Events to confirm it.");
+      Object.assign(store.event,payload.event);
+      store.event.scoring = {};
+      for (const row of bundle.scores || []) (store.event.scoring["day"+row.day] ||= {})[row.scorer_player_id] = row.score_data;
+      const defs = leaderboardDefinitions();
+      if (!eventDays().every(eventDayComplete) || defs.some(def=>!summaryCompetitionResult(def).complete)) throw new Error("Complete the required card reviews before confirming these results.");
+      renderLeaderboard();
+      if (!confirm("Confirm the corrected archived results? The original sign-off remains in the audit history and the old player join code stays inactive.")) return;
+      const document = {...payload,event:{...payload.event,status:"complete",finalResults:{scoringRulesVersion:2,confirmedAt:new Date().toISOString(),outcomes:buildFinalPlayerMessages(defs)}}};
+      const revisions = Object.fromEntries((bundle.scores || []).map(row=>[`${row.day}:${row.scorer_player_id}`,row.revision]));
+      const result = await AwayCloud.confirmEvent(id,document,bundle.event.revision,revisions,true);
+      if (String(store.event?.pastCloudEventId) !== String(id)) return;
+      if (!result.saved_data?.event?.finalResults?.cloudAcceptedAt) throw new Error("Sign-off is awaiting confirmation. Reopen Past Events before retrying.");
+      Object.assign(store.event,result.saved_data.event);
+      if (persistStore() === false) alert("The corrected results are confirmed online. This device could not save the receipt; reopen Past Events before clearing data.");
+      renderLeaderboard();
+    } catch(error) { alert("Corrected results are awaiting sign-off. " + (error.message || error)); }
+  }
   async function confirmResultsAndCloseEvent() {
     const guestClosingEvent = isGuestOrganiser();
+    let closeBundle = null;
     if (store.cloud?.eventId) {
       const refreshed = await syncCloudNow();
+      closeBundle = refreshed;
       if (!refreshed) {
         alert("The event cannot be closed until the latest online scorecards have been reloaded successfully.");
         return;
       }
+    }
+    if (!store.event) return;
+    if (store.cloud?.eventId) {
+      const health = GolfSafeCloud.saveHealth(store.cloud.eventId);
+      if (health.pending || health.conflicts || health.blocked) return alert("Sync or review saved copies before confirming final results.");
     }
     const requiredDays = Array.from(
       { length: store.event.days || 1 },
@@ -13735,24 +13778,39 @@ function estimateEventGa(handicap, rating, category, calculate) {
       )
     )
       return;
-    store.event.finalResults = {
-      scoringRulesVersion: 2,
-      confirmedAt: new Date().toISOString(),
-      outcomes: buildFinalPlayerMessages(defs),
-    };
-    store.event.status = "complete";
-    recordCompletedEventHistory(store.event);
-    persistStore();
-    const closedOnline = await updateCloudEvent();
-    if (guestClosingEvent && closedOnline) {
-      endGuestOrganiserSession(
-        "The event has been closed successfully. Your single-event Guest Organiser access has now ended.",
-      );
-      return;
+    const connection = store.cloud, eventId = String(connection?.eventId || store.event.workspaceId || "local"),
+      pending = store.pendingEventClose?.eventId === eventId && store.pendingEventClose.confirmedAt !== store.event.lastFinalResults?.confirmedAt ? store.pendingEventClose : {eventId,confirmedAt:new Date(Math.max(Date.now(),(Date.parse(store.event.lastFinalResults?.confirmedAt || "") || 0)+1)).toISOString()};
+    store.pendingEventClose = pending;
+    if (writeLocalStore() === false) return alert("The close request was not saved. Keep this event open and try again.");
+    const finalResults = {scoringRulesVersion:2,confirmedAt:pending.confirmedAt,outcomes:buildFinalPlayerMessages(defs)};
+    try {
+      const document = cloudPayload({...store.event,status:"complete",finalResults});
+      const revisions = Object.fromEntries((closeBundle?.scores || []).map(row=>[`${row.day}:${row.scorer_player_id}`,row.revision]));
+      const alreadyAccepted = closeBundle?.event?.event_data?.event?.finalResults;
+      const result = connection?.eventId ? (alreadyAccepted?.confirmedAt === pending.confirmedAt && alreadyAccepted.cloudAcceptedAt
+        ? {saved_data:closeBundle.event.event_data,revision:closeBundle.event.revision}
+        : await AwayCloud.confirmEvent(connection.eventId,document,closeBundle.event.revision,revisions)) : {saved_data:document};
+      if (store.cloud !== connection) return;
+      const accepted = result?.saved_data?.event;
+      if (accepted?.finalResults?.confirmedAt !== pending.confirmedAt || (connection?.eventId && !accepted.finalResults.cloudAcceptedAt))
+        throw new Error("The final sign-off has not been acknowledged. Retry the close request.");
+      Object.assign(store.event,accepted);
+      if (connection?.eventId) try { AwayCloud.safeReconcileAcknowledged?.(connection.eventId,"event",result.saved_data,result.revision); } catch(error) { console.warn("Event closed online; receipt storage needs retry",error); }
+      recordCompletedEventHistory(store.event);
+      delete store.pendingEventClose;
+      const durable = persistStore();
+      setCloudMessage(connection?.eventId ? "Event closed online · final sign-off accepted" : "Event closed on this device");
+      if (durable === false) alert("The event is closed online. This device could not save its receipt; reconnect before clearing app data.");
+      if (guestClosingEvent) {
+        endGuestOrganiserSession("The event has been closed successfully. Your single-event Guest Organiser access has now ended.");return;
+      }
+    } catch(error) {
+      setCloudMessage("Close pending — retry when connected");
+      alert("The event close is awaiting confirmation. Keep this event open and retry. " + (error.message || error));
     }
-    renderLeaderboard();
-    renderHome();
+    renderLeaderboard();renderHome();
   }
+
   async function archiveCompletedEvent() {
     if (!store.event?.finalResults?.confirmedAt) return alert("Confirm the final results before archiving this event.");
     const eventName=store.event.name||"this completed event",cloudEventId=String(store.cloud?.eventId||"");
@@ -13892,10 +13950,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     } else if (organiser && !eventComplete) {
       eventControl = `<section class="finishControl eventInProgress"><h3>Event In Progress</h3><p>Complete the remaining scoring before closing the event. Prizes for a completed day can still be awarded above.</p></section>`;
     } else if (organiser) {
-      eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">CONFIRM RESULTS &amp; CLOSE EVENT</button></section>`;
+      eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">${store.pendingEventClose?.eventId === String(store.cloud?.eventId || store.event.workspaceId || "local") ? "RETRY EVENT CLOSE" : "CONFIRM RESULTS &amp; CLOSE EVENT"}</button></section>`;
     }
     const pastEventNotice = store.event.pastEventReadOnly
-      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
+      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${store.event.lastFinalResults && !store.event.finalResults ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM CORRECTED RESULTS</button>' : ''}</div>`
       : "";
     host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · ${store.event.pastEventReadOnly ? "retained final results" : "winners and prize giving"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}<div class="summaryGroups">${groups
       .map(
@@ -13910,6 +13968,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             .join("")}</section>`,
       )
       .join("")}</div>${eventControl}<p class="leaderNote">Tap a result to open its full standings. Awarded prizes remain recorded here and are shared with connected phones.</p>`;
+    if ($("#reconfirmArchivedResults")) $("#reconfirmArchivedResults").onclick = reconfirmArchivedResults;
     $$("[data-summaryopen]").forEach((b) => {
       const open = () => {
         const d = defs.find((x) => x.id === b.dataset.summaryopen);
@@ -14090,7 +14149,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? `<span class="par3Total">Total Par 3 Holes <b>${def.day ? par3Count : eventDays().reduce((n,day) => n + (eventCourseScorecard(day).par || []).filter(p => +p === 3).length,0)}</b></span>`
         : "";
     const pastEventNotice = store.event.pastEventReadOnly
-      ? '<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span></div>'
+      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${store.event.lastFinalResults && !store.event.finalResults ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM CORRECTED RESULTS</button>' : ''}</div>`
       : "";
     host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}${def.day && course(store.event["course"+def.day])?.name ? ` — ${esc(course(store.event["course"+def.day]).name)}` : ""}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");
@@ -14304,6 +14363,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
       host.innerHTML = `<div class="playerFinish"><img src="assets/away-golf-mascot-finish.png" alt="Away Golf golfer"><div><h1>${esc(message.heading)}</h1>${message.message ? `<h2>${esc(message.message)}</h2>` : ""}<p class="scoringCredit">${esc(message.scoringCredit)}</p></div></div>`;
       return;
     }
+    if (store.event.playerRoundMode === "ambrosePending") {
+      if (!roundUploadAccepted(day, selected)) return renderPendingEnteredScorecard(selected, day);
+      store.event.playerRoundMode = "completed";
+    }
     if (store.event.playerRoundMode === "finalEntry")
       return renderFinalScoreEntry(selected, day);
     if (store.event.playerRoundMode === "fullCardEntry")
@@ -14385,7 +14448,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         : dayScoringMethod(day) !== "holeByHole"
           ? finalScoreComplete(day,selected)
           : ambroseIsOn(store.event, day)
-        ? ambroseTeamComplete(day, ctx.groupIndex)
+        ? ambroseTeamAccepted(day, ctx.groupIndex) && ambroseTeamComplete(day, ctx.groupIndex)
         : roundFinalisedFor(day, selected),
       scoringOpen = scoringIsOpen(day),
       canStart = Boolean(

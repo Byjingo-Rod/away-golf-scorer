@@ -1,6 +1,6 @@
 {
   "project_ref": "qlxcpsbyfhgatujrqxkd",
-  "captured_on": "2026-11-01",
+  "captured_on": "2026-11-02",
   "category": "production-constraints-indexes-triggers",
   "rows": [
     {
@@ -97,9 +97,23 @@
     {
       "kind": "constraint",
       "schema_name": "golf_safe_private",
+      "object_table": "conflicts",
+      "object_name": "golf_conflicts_event_fk",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_safe_private",
       "object_table": "corrections",
       "object_name": "corrections_pkey",
       "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "kind": "constraint",
+      "schema_name": "golf_safe_private",
+      "object_table": "corrections",
+      "object_name": "golf_corrections_event_fk",
+      "definition": "FOREIGN KEY (event_id) REFERENCES away_events(id) ON DELETE CASCADE"
     },
     {
       "kind": "constraint",
@@ -560,6 +574,13 @@
       "kind": "index",
       "schema_name": "public",
       "object_table": "away_events",
+      "object_name": "away_event_publication_identity",
+      "definition": "CREATE UNIQUE INDEX away_event_publication_identity ON public.away_events USING btree (organiser_id, (((event_data -> 'event'::text) ->> 'publicationId'::text))) WHERE (((event_data -> 'event'::text) ->> 'publicationId'::text) IS NOT NULL)"
+    },
+    {
+      "kind": "index",
+      "schema_name": "public",
+      "object_table": "away_events",
       "object_name": "away_events_join_code_key",
       "definition": "CREATE UNIQUE INDEX away_events_join_code_key ON public.away_events USING btree (join_code)"
     },
@@ -664,9 +685,16 @@
     {
       "kind": "trigger",
       "schema_name": "public",
+      "object_table": "away_event_players",
+      "object_name": "protect_scored_player",
+      "definition": "CREATE TRIGGER protect_scored_player BEFORE DELETE ON away_event_players FOR EACH ROW EXECUTE FUNCTION golf_safe_private.protect_scored_player()"
+    },
+    {
+      "kind": "trigger",
+      "schema_name": "public",
       "object_table": "away_events",
       "object_name": "away_event_revoke_guests",
-      "definition": "CREATE TRIGGER away_event_revoke_guests AFTER UPDATE OF status ON away_events FOR EACH ROW EXECUTE FUNCTION away_revoke_guests_when_event_closes()"
+      "definition": "CREATE TRIGGER away_event_revoke_guests AFTER UPDATE OF status, event_data ON away_events FOR EACH ROW EXECUTE FUNCTION away_revoke_guests_when_event_closes()"
     },
     {
       "kind": "trigger",
@@ -705,4 +733,3 @@
     }
   ]
 }
-

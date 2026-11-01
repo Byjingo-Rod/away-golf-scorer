@@ -1,4 +1,18 @@
-AWAY GOLF SCORER — VERSION 15.93.2
+AWAY GOLF SCORER — VERSION 15.97.03
+
+VERSION 15.97.03 — EVENT LIFECYCLE ACCEPTANCE
+
+- Final close stays pending until the cloud acknowledges the reviewed score revisions.
+- Guest Organiser authority ends on successful close, including protection for older closed plans.
+- Ambrose accepts only published scorer/marker roles, matching team cards and valid drives.
+- Ambrose submissions wait for exact cloud receipts, with protected offline retry.
+- Completed competitions with no eligible winner can close without awarding a prize.
+- Publication retries reuse one durable event identity and player join code.
+- The cloud enforces the published opening time and explicit organiser early opening.
+- Result-affecting corrections require renewed sign-off; archived codes stay inactive.
+- Final-total scores lock the affected round's identity, handicap, tee and start settings.
+- Existing scores, past results, the single course master and unresolved reviews are retained.
+
 
 VERSION 15.93.2 — LAST-MINUTE GA HANDICAP UPDATE
 

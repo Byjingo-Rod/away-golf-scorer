@@ -221,7 +221,7 @@
       try{
         const response=kind==="event"?await raw.updateEvent(id,result.data,options.status,remote.revision):await raw.saveRound(id,day,player,result.data,{...options,expectedRevision:remote.revision});
         let acknowledged=result.data,ackRevision=response.revision;
-        if(kind==="event"){const fresh=await raw.loadEvent(id);acknowledged=fresh.event.event_data;ackRevision=fresh.event.revision;}
+        if(kind==="event"){if(response.saved_data){acknowledged=response.saved_data;}else{const fresh=await raw.loadEvent(id);acknowledged=fresh.event.event_data;ackRevision=fresh.event.revision;}}
         s.base=copy(acknowledged);s.revision=ackRevision;s.savedAt=Date.now();delete s.virgin;
         // Preserve edits staged after this upload began. Only clear the
         // pending copy when it is the exact immutable snapshot just saved.

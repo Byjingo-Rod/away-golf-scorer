@@ -29,3 +29,7 @@ The first pre-ledger baseline includes three exported helper prerequisites missi
 The owner approved the cross-project course access update on 2 November 2026 (Sydney). The companion `ges-course-master-identity.sql` was applied to Golf Event Scorer as migration `20261101183609_course_master_verified_identity`, and Away's `course-master` Edge Function version 2 is active. Both apps continue to use Away's single authoritative course catalogue; Event Scorer retains course references and approval projections.
 
 Verification passed: deployed source matches the repository; isolated gateway and identity tests cover approved, suspended, unapproved, anonymous and owner identities; live read-only checks confirm existing-account permissions and grants; live HTTP requests reject missing and invalid sign-ins. A signed-in browser end-to-end test was not performed in this deployment session.
+
+## Lifecycle acceptance in 15.97.03
+
+Migration `20261101213243_event_lifecycle_acceptance` adds server opening, team acceptance, round locks, final sign-off and idempotent publication guards. It changes no existing event or score rows. Guest permission checks also deny the older closed-plan representation. See `docs/LIFECYCLE_15_97_03.md`. Run both the schema verifier and `supabase/tests/lifecycle-pure.sql` read-only against production; all fixture-based tests must run only in an isolated database.

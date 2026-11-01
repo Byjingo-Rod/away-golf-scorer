@@ -5,7 +5,7 @@ declare owner_id uuid=gen_random_uuid();users uuid[]=array[gen_random_uuid(),gen
 begin
  insert into auth.users(id) values(owner_id),(users[1]),(users[2]),(users[3]),(users[4]),(outsider);
  select jsonb_build_object('id','synthetic-course','teeScorecards',jsonb_build_object('middle',jsonb_build_object('par',jsonb_agg(4),'index',jsonb_agg(i)))) into course from generate_series(1,18)i;
- plan=jsonb_build_object('days',1,'competitions',jsonb_build_array('single'),'course1','synthetic-course','dailyHandicaps',jsonb_build_object('day1',jsonb_build_object('p1',0,'p2',0,'p3',0,'p4',0)),'groupSetup',jsonb_build_object('day1',jsonb_build_object('groups',jsonb_build_array(jsonb_build_array('p1','p2','p3','p4')))));
+ plan=jsonb_build_object('testMode',true,'days',1,'competitions',jsonb_build_array('single'),'course1','synthetic-course','dailyHandicaps',jsonb_build_object('day1',jsonb_build_object('p1',0,'p2',0,'p3',0,'p4',0)),'groupSetup',jsonb_build_object('day1',jsonb_build_object('groups',jsonb_build_array(jsonb_build_array('p1','p2','p3','p4')))));
  insert into public.away_events(join_code,organiser_id,name,status,event_data) values('SYN001',owner_id,'Synthetic RPC test','locked',jsonb_build_object('event',plan,'courses',jsonb_build_array(course),'players','[{"id":"p1"},{"id":"p2"},{"id":"p3"},{"id":"p4"}]'::jsonb)) returning id into eid;
  for j in 1..4 loop insert into public.away_event_players(event_id,player_id,display_name,member_user_id) values(eid,'p'||j,'Synthetic',users[j]);end loop;
  for j in 1..4 loop
@@ -20,6 +20,16 @@ begin
    result=public.golf_safe_away_save('score',eid,1,pid,card,rev,false,null,null);
    if (result->>'revision')::bigint<>2 then raise exception 'Final score revision incorrect';end if;
  end loop;
+ -- The complete ordinary four-player set can receive a real final sign-off.
+ if to_regprocedure('golf_safe_private.assert_event_complete(uuid,jsonb)') is not null then
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);
+ select event_data,revision into card,rev from public.away_events where id=eid;
+ select jsonb_object_agg(day::text||':'||scorer_player_id,revision) into result from public.away_round_scores where event_id=eid;
+ card=jsonb_set(card,'{event,finalResults}',jsonb_build_object('confirmedAt','2026-11-02T10:00:00Z','expectedScoreRevisions',result));
+ result=public.golf_safe_away_save('event',eid,null,null,card,rev,false,null,'complete');
+ if result->'saved_data'->'event'->'finalResults'->>'cloudAcceptedAt' is null then raise exception 'Ordinary card sign-off receipt missing';end if;
+ perform set_config('request.jwt.claim.sub',users[4]::text,true);
+ end if;
  -- Accepted cards remain immutable; stale revisions and other identities fail.
  select score_data,revision into card,rev from public.away_round_scores where event_id=eid and scorer_player_id='p4';
  rejected=false;begin perform public.golf_safe_away_save('score',eid,1,'p4',jsonb_set(card,'{1,self,gross}','7'),rev,false,null,null);exception when others then rejected=true;end;

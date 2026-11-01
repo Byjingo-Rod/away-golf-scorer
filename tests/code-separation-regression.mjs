@@ -18,7 +18,7 @@ for (const name of [
   assert.match(development, new RegExp(`function ${name}\\(`), `${name} belongs in the development-only module`);
 }
 
-assert.match(app, /script\.src = "development-tests\.js\?v=15\.97\.02"/);
+assert.match(app, /script\.src = "development-tests\.js\?v=15\.97\.03"/);
 assert.match(app, /if \(e\.target\.id === "testEventTools"\) openTestEventTools\(\)/);
 assert.doesNotMatch(html, /development-tests\.js/, "ordinary page startup must not download test builders");
 assert.doesNotMatch(worker, /development-tests\.js/, "service worker must not pre-cache test builders");
