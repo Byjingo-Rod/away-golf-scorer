@@ -239,15 +239,8 @@
       if (upsertError) throw upsertError;
     }
     const wantedIds = new Set(wanted.map((player) => player.player_id));
-    for (const player of existing || []) {
-      if (wantedIds.has(String(player.player_id))) continue;
-      const { error: deleteError } = await client
-        .from("away_event_players")
-        .delete()
-        .eq("event_id", String(eventId))
-        .eq("player_id", String(player.player_id));
-      if (deleteError) throw deleteError;
-    }
+    if ((existing || []).some(player => !wantedIds.has(String(player.player_id))))
+      throw new Error("Publish the event update before removing roster entries. Saved scorecards remain protected.");
   }
 
   async function invitation(code) {
@@ -415,6 +408,11 @@
     if (error) throw error;
     return data?.workspace_data || null;
   }
+  async function retentionCleanup(execute = false) {
+    await ensureSignedIn();
+    const {data,error}=await client.rpc("away_retention_cleanup",{p_execute:!!execute});
+    if(error)throw error;return data;
+  }
 
   const MASTER_URL = "https://qlxcpsbyfhgatujrqxkd.supabase.co/functions/v1/course-master";
   function masterRow(row) {
@@ -431,7 +429,7 @@
   }
   async function loadCourseLibrary() {
     const result=await masterRequest("load");
-    return {courses:result.courses.map(masterRow),countries:[...new Set(result.locations.map(r=>r.country))],authority:result.authority,proposals:result.proposals||[]};
+    return {courses:result.courses.map(masterRow),countries:[...new Set(result.locations.map(r=>r.country))],authority:result.authority,proposals:result.proposals||[],proposalsAuthoritative:result.proposalsAuthoritative===true};
   }
   async function loadMasterCourse(id) {return masterRow(await masterRequest("get",{id}));}
   async function saveMasterCourse(id,payload,revision) {return masterRow(await masterRequest("save",{id,data:payload,revision}));}
@@ -617,6 +615,7 @@
     loadPastOwnedEvents,
     archiveAllOwnedEvents,
     archiveEvent,
+    retentionCleanup,
     createOrganiserKey,
     claimOrganiserAccess,
     createGuestOrganiserKey,

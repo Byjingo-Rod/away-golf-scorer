@@ -4,6 +4,16 @@ do $$
 declare
   missing_count integer;
 begin
+  if exists(select 1 from pg_trigger where not tgisinternal and tgenabled<>'D' and tgname in ('golf_course_changed','golf_country_changed','golf_location_changed')) then
+    raise exception 'Retired catalogue bridge triggers are active';
+  end if;
+  if to_regclass('cron.job') is not null then
+    if exists(select 1 from cron.job where jobname='golf-course-catalogue-retry' and active) then raise exception 'Retired catalogue retry job is active';end if;
+  end if;
+  if exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('away_course_private','golf_safe_private','golf_catalogue_private') and c.relkind='r' and not c.relrowsecurity) then raise exception 'Private application table lacks defence-in-depth RLS';end if;
+  if has_function_privilege('authenticated','away_course_private.write_master_course(text,jsonb,bigint,text,boolean,text)','EXECUTE') then raise exception 'Private master writer is callable by an application user';end if;
+  if has_table_privilege('authenticated','public.away_event_players','DELETE') then raise exception 'Direct browser roster deletion is granted';end if;
+  if not exists(select 1 from pg_trigger where not tgisinternal and tgname='protect_scored_player' and tgenabled<>'D') then raise exception 'Scored-player deletion guard is missing';end if;
   select count(*) into missing_count
   from (values
     ('public'),

@@ -6,7 +6,7 @@ const start=app.indexOf('  function calculateLeaderboard('),end=app.indexOf('\n 
 const rounds={1:Array(18).fill(2)};
 const ctx={store:{event:{days:5}},NO_PARTNER_ID:'NP',dayFieldIds:()=>['a'],player:()=>({name:'A'}),leaderboardPlayerPoints:d=>rounds[d]||Array(18).fill(null),leaderboardPlayerGross:()=>[],manualPlayerSummary:()=>null,countingRounds:()=>4,competitionDays:()=>[1,2,3,4,5],eventDays:()=>[1,2,3,4,5],leaderSum:a=>a.reduce((s,v)=>s+(v??0),0),leaderRow:(id,name,detail)=>({id,name,detail}),eventDayComplete:()=>false,rankLeaderRows:r=>r};
 ctx.sharedPositionId=id=>String(id);ctx.sharedActualId=id=>String(id);ctx.finalEntry=()=>null;ctx.eventPlayerName=()=>"A";
-vm.createContext(ctx);vm.runInContext(app.slice(start,end),ctx);
+vm.createContext(ctx);const entryStart=app.indexOf('  function finalScoreEntry('),entryEnd=app.indexOf('\n  function ',entryStart+10);vm.runInContext(app.slice(entryStart,entryEnd),ctx);vm.runInContext(app.slice(start,end),ctx);
 let r=ctx.calculateLeaderboard({type:'combined'})[0];
 assert.equal(r.total,36);assert.equal(r.thru,18);assert(r.detail.endsWith('Counting days 1'));
 assert.equal(r.cbHoles.length,18);assert.equal(r.cbHoles[0],2);

@@ -1,73 +1,85 @@
 {
   "project_ref": "qlxcpsbyfhgatujrqxkd",
-  "captured_on": "2026-11-01",
+  "captured_on": "2026-11-02",
   "category": "production-migration-ledger",
   "rows": [
     {
-      "version": "20261007232742",
       "name": "away_shared_course_library",
-      "statements_sha256": "63af752ddd5532c4905d6305c7409c1c30ce09b8e209a7267396869a38c93e8a"
+      "version": "20261007232742",
+      "statements_sha256": "9e102dcb540c34c317c5ceaee8232368ce9470b53a2e8f6706b2ccd672e5b4a9"
     },
     {
-      "version": "20261007232822",
       "name": "course_library_required_identity",
-      "statements_sha256": "d061ced39bee7af441e22bc32e4d8cdba13b50ad4f0cd9eaa67cc1ce46361212"
+      "version": "20261007232822",
+      "statements_sha256": "2d5c110b7eef94b1711cbb9558f5c69017a7473d434ec8c8460c6902413034a4"
     },
     {
-      "version": "20261007233859",
       "name": "course_library_audit_indexes",
-      "statements_sha256": "1db22cbd255054cdd1e669007bbaa4dc08a75f4e12e31855eee7199ec4a5528f"
+      "version": "20261007233859",
+      "statements_sha256": "3cc02e382f66f38ae82e60ad96305421e640733e45c5f812ef65c9e19d5175e2"
     },
     {
-      "version": "20261008025503",
       "name": "saved_course_regions",
-      "statements_sha256": "edb8669e49c1ce5529b63a6259ae7d6122578a40055d6442adfa87db4f953271"
+      "version": "20261008025503",
+      "statements_sha256": "4a1427978b99f084ba5ac7f799541befbcebf356a16476241f26238262e67aeb"
     },
     {
-      "version": "20261008035908",
       "name": "golf_course_catalogue_bridge",
-      "statements_sha256": "94d6ffb10ecb7bee4516aeb3bab31efc3ce4ca13578a16cfca7740d71aed8ab2"
+      "version": "20261008035908",
+      "statements_sha256": "3b4b20eb16d12b8f2ad406fab37ab8ebb7001e6672ffa03b3ba32bc65b796bd9"
     },
     {
-      "version": "20261011194643",
       "name": "golf_atomic_saves_completed_cards_and_review",
-      "statements_sha256": "0601fd702b6dac2bf807ac4ef1f07e854077508ac949c95f8cf97dc7491f27f7"
+      "version": "20261011194643",
+      "statements_sha256": "999d0a19bb513aaa3b7ac2cdfe8af3b59c61450437b9595e3007900fe7182dbd"
     },
     {
-      "version": "20261018011918",
       "name": "away_golf_single_course_master",
-      "statements_sha256": "30f1716714b22c89f234a48d599609fbdb3daa3244df553e5d9caf4b3deab945"
+      "version": "20261018011918",
+      "statements_sha256": "52cc60f7ff1f08add73bcbb7439f3caf4b9b9dba94f7cde2276508ef43dc8acf"
     },
     {
-      "version": "20261018052843",
       "name": "course_master_two_card_rotation",
-      "statements_sha256": "8c18aa040d0aee958619e787dfd370aec43c8ea98a61a1fc4867d18e78b08ef9"
+      "version": "20261018052843",
+      "statements_sha256": "be38a73b31ecd12ec42e70f0c4778157796bb23d21f9ae75753f6317b658542b"
     },
     {
-      "version": "20261024205819",
       "name": "retain_only_previous_completed_course_backup",
-      "statements_sha256": "4a5c3952d4e30351b6f931d2642178a762790bd8a26bd11b581cbba3e3b79385"
+      "version": "20261024205819",
+      "statements_sha256": "599482ab57b5cf60f0e79b16b211355475bf592c82e1fd84a0fdd8bc448cc988"
     },
     {
-      "version": "20261029054325",
       "name": "allow_registered_spectators_read_only_event_access",
-      "statements_sha256": "9e0475d4825dff42ead33e6fefdb306cbab7c1bf00082ca821f8c1db466b6dbf"
+      "version": "20261029054325",
+      "statements_sha256": "e22c80924be3891da4322081cb90932c121183c94d588975b6caa5f7b05a8051"
     },
     {
-      "version": "20261029063552",
       "name": "keep_registered_spectators_visible_to_organiser",
-      "statements_sha256": "f7468db01bc87f2219c53dd1a35ac4c4a4cecee1372286c8a17e0f262461f95e"
+      "version": "20261029063552",
+      "statements_sha256": "a483981166f2f01f84df2b9a6b9a4537c0bc6f3333a0688bf02b203c7fd239b8"
     },
     {
-      "version": "20261101022221",
       "name": "restrict_away_function_permissions",
-      "statements_sha256": "c92f192387e9cefe0e043c71865fa2fe256dc0fea63b02836f358e7a1cec5de4"
+      "version": "20261101022221",
+      "statements_sha256": "c4f5c8041f7d6cf4bbf0ecc56ff96201513b49867ae375c2a55f0cbf826a99fb"
     },
     {
-      "version": "20261101091519",
       "name": "database_catalog_efficiency",
-      "statements_sha256": "485a02ae40c5082af7a2781ca5d447be04e9554d622e515f3cec3d23019797c5"
+      "version": "20261101091519",
+      "statements_sha256": "79b7d5cd9fbe0b67f5af2242f76e08b3c39c4da85f4c25a35d46ccbf000ff835"
+    },
+    {
+      "name": "score_acceptance_published_methods",
+      "version": "20261101175400",
+      "statements_sha256": "5381c7366b59cbabe87e55f7581b751250854f5be1bd148c74e88f9fb2271546"
+    },
+    {
+      "version": "20261101182441",
+      "name": "archive_and_permission_guards"
+    },
+    {
+      "version": "20261101182616",
+      "name": "reconcile_production_database_baseline"
     }
   ]
 }
-

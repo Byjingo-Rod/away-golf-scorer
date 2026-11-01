@@ -14,6 +14,7 @@ Historical feature tests therefore do not assert the version that was current wh
 From the Away Golf repository root:
 
 ```text
+npm ci --prefix tests/database
 node tests/run-release-suite.mjs
 ```
 
@@ -48,3 +49,7 @@ The runner executes every `.mjs` and `.cjs` test in a stable order, reports each
 - Removed obsolete display-copy checks for the discarded course-draft notice and the compact NTP prize line. The underlying draft-authority and NTP jackpot calculations remain tested.
 - Updated workspace tests to protect the current rule: matching cloud links or identical contents do not authorise automatic plan deletion; only an explicit organiser action may remove a saved plan.
 - Replaced the former incomplete-course-draft recovery expectation. A more complete accepted course card now remains authoritative and the incomplete device draft is removed.
+
+## Score acceptance follow-up
+
+The release suite now includes actual player-entry handlers and an isolated PostgreSQL acceptance suite using PGlite 0.5.14. The PostgreSQL fixture is built from exported table/constraint definitions and tests the actual RPC with synthetic identities and four scorecards. No production credentials or rows are used. The pure validator assertions also run against the live PostgreSQL 17 server after deployment; PGlite uses PostgreSQL 18 and is not a complete Supabase restore test.

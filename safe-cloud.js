@@ -309,10 +309,44 @@
         pending:!!s.pending,
         conflict:!!(s.conflict||s.conflictId),
         blocked:!!s.blocked,
+        finalisedAt:s.base?._meta?.finalisedAt||null,
+        finalScoreConfirmedAt:s.base?._finalScore?.confirmedAt||null,
         savedAt:s.savedAt||0
       };
     };
     adapter.saveHealth=saveHealth;
+    adapter.retainClosedEventCopies=async(id,rounds=[])=>{
+      const bundle=await raw.loadEvent(id);
+      if(bundle.event?.status!=="archived")throw Error("This event is not archived. Open it and use normal sync.");
+      for(const row of rounds){
+        const remote=(bundle.scores||[]).find(r=>+r.day===+row.day&&String(r.scorer_player_id)===String(row.playerId));
+        if(equal(row.data,remote?.score_data||{}))continue;
+        const k=entry(id,"score",row.day,row.playerId),s=state[k]||={};
+        if(!s.pending&&!s.conflict)s.pending=copy(row.data);
+      }
+      persist();let retained=0,resolved=0;
+      for(const [k,s] of Object.entries(state)){
+        if(!k.startsWith(id+":"))continue;
+        const [,kind,day,player]=k.split(":");
+        if(s.conflict?.id){
+          const status=await raw.safeControl("status",{event_id:id,id:s.conflict.id});
+          if(status?.resolved&&equal(s.pending||s.conflict.local,s.conflict.local)){
+            state[k]={base:copy(status.data),revision:status.revision,acknowledged:true,savedAt:Date.now()};resolved++;persist();continue;
+          }
+          retained++;continue;
+        }
+        if(!s.pending&&!s.conflict&&!s.blocked)continue;
+        const row=(bundle.scores||[]).find(r=>+r.day===+day&&String(r.scorer_player_id)===player);
+        const remote=kind==="event"?bundle.event.event_data:row?.score_data||{};
+        const local=copy(s.conflict?.local||s.pending||s.base||{});
+        if(equal(local,remote)){
+          state[k]={base:copy(remote),revision:kind==="event"?bundle.event.revision:row?.revision??null,acknowledged:true,savedAt:Date.now()};resolved++;persist();continue;
+        }
+        s.conflict={event_id:id,kind,day:+day||null,player_id:player||null,base:copy(s.base??null),local,remote:copy(remote),revision:kind==="event"?bundle.event.revision:row?.revision??null};persist();
+        const review=await raw.safeControl("retain",s.conflict);s.conflict.id=review.id;persist();retained++;
+      }
+      return {retained,resolved};
+    };
     adapter.pendingSafeSaves=id=>Object.values(state).filter(s=>s.conflict?.event_id===id).length;
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;

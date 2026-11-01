@@ -24,21 +24,33 @@ export async function handle(req:Request,env=(name:string)=>Deno.env.get(name),s
     const authorization=req.headers.get('Authorization')||'';
     if(!/^Bearer [A-Za-z0-9._-]+$/.test(authorization))return reply({error:'Sign in first',code:'42501'},401);
     let source:'away'|'ges'='away',user=await userAt(AWAY_URL,AWAY_KEY,authorization,send),owner=false,editor=false;
+    let allowedCourseIds:string[]=[];
     if(user){
       const permission=await rpcAt(AWAY_URL,AWAY_KEY,authorization,'away_course_master_identity',{},send);
       owner=permission?.owner===true;editor=permission?.editor===true;
     }else{
       source='ges';user=await userAt(GES_URL,GES_KEY,authorization,send);
       if(!user)return reply({error:'Your sign-in has expired',code:'42501'},401);
-      owner=(await rpcAt(GES_URL,GES_KEY,authorization,'ges_is_owner',{},send))===true;
-      editor=!!user.email_confirmed_at&&!user.is_anonymous;
+      const permission=await rpcAt(GES_URL,GES_KEY,authorization,'ges_course_master_identity',{},send);
+      owner=permission?.owner===true;
+      editor=permission?.editor===true&&!!user.email_confirmed_at&&!user.is_anonymous;
+      allowedCourseIds=Array.isArray(permission?.courseIds)?permission.courseIds.map(String):[];
     }
     if(!editor)return reply({error:'Approved course access is required',code:'42501'},403);
     const raw=await req.text();if(raw.length>300000)return reply({error:'Course request is too large'},413);
     const body=JSON.parse(raw);if(!['load','get','save','history','reviews','resolve','location'].includes(body.action))return reply({error:'Unknown course action'},400);
+    const allowed=(id:unknown)=>allowedCourseIds.includes(String(id))||allowedCourseIds.includes('away-'+String(id));
+    if(source==='ges'&&!owner){
+      if(!['load','get','save'].includes(body.action))return reply({error:'Owner course access is required',code:'42501'},403);
+      if(body.action!=='load'&&!allowed(body.args?.id))return reply({error:'This course is outside your approved course list',code:'42501'},403);
+    }
     const url=env('SUPABASE_URL'),key=env('SUPABASE_SERVICE_ROLE_KEY');if(!url||!key)throw Error('Course service is not configured');
     const result=await send(url+'/rest/v1/rpc/away_master_gateway',{method:'POST',headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify({p_action:body.action,p_args:body.args||{},p_actor:user.id,p_owner:owner,p_source:source}),signal:AbortSignal.timeout(15000)});
     const data=await result.json();if(!result.ok)return reply({error:data.message||'Course action did not complete',code:data.code},result.status);
+    if(source==='ges'&&!owner&&body.action==='load'){
+      data.courses=(data.courses||[]).filter((row:{id:string})=>allowed(row.id));
+      data.proposals=(data.proposals||[]).filter((row:{course_id:string})=>allowed(row.course_id));
+    }
     return reply({data,source,owner});
   }catch(e){return reply({error:e instanceof Error?e.message:'Course service unavailable'},503);}
 }

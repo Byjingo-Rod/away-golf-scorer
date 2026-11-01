@@ -14,8 +14,8 @@ assert.match(
 );
 assert.match(
   source,
-  /\["scoring", "verify"\]\.includes\(store\.event\?\.playerRoundMode\)/,
-  "scoring and verification must both protect the live safety base",
+  /\["scoring", "verify", "fullCardEntry", "finalEntry"\]\.includes\(store\.event\?\.playerRoundMode\)/,
+  "all player entry methods must protect the live safety base",
 );
 assert.match(
   source,

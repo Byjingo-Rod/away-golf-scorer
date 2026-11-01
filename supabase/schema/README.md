@@ -1,6 +1,6 @@
 # Production schema export
 
-This directory is the catalog export of the Away Golf production database captured on 1 November 2026 after the Recommendation 8 migration was verified.
+This directory is the catalog export of the Away Golf production database refreshed on 2 November 2026 after the score acceptance migration was verified.
 
 The export contains no event, player, score or credential data. It records schema definitions only: tables and columns, constraints, indexes, triggers, functions, grants, RLS policies, Realtime publication membership and migration history.
 

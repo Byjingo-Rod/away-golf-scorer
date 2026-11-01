@@ -410,3 +410,87 @@ end $$;
 
 select 'Away Golf database created successfully' as result;
 
+
+-- Reconstruction prerequisites. This pre-ledger baseline has not been an
+-- entry in production's migration ledger. These out-of-band routines are
+-- exported here so later immutable migrations have their actual dependencies.
+-- The original historical SQL remains unchanged in database/history/legacy.
+create schema if not exists golf_safe_private;
+revoke all on schema golf_safe_private from public,anon,authenticated;
+CREATE OR REPLACE FUNCTION golf_safe_private.shared_slot(plan jsonb, pid text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO ''
+AS $function$
+ select coalesce((select key from jsonb_each(coalesce(plan->'sharedPositions','{}')) p where p.key=pid or exists(select 1 from jsonb_each_text(p.value) d where d.value=pid) limit 1),pid);
+$function$
+;
+CREATE OR REPLACE FUNCTION golf_safe_private.validate_substitution(before_plan jsonb, after_plan jsonb, cards jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare slot text; history jsonb; prior jsonb; addition jsonb; first_day integer; previous_count integer; d integer;
+begin
+ if coalesce(before_plan->'playerSubstitutions','{}')=coalesce(after_plan->'playerSubstitutions','{}') then return;end if;
+ if jsonb_typeof(after_plan->'playerSubstitutions') is distinct from 'object' then raise exception 'Substitution history cannot be removed';end if;
+ for slot,prior in select key,value from jsonb_each(coalesce(before_plan->'playerSubstitutions','{}')) loop
+  if not (after_plan->'playerSubstitutions' ? slot) then raise exception 'Substitution history cannot be removed';end if;
+ end loop;
+ for slot,history in select key,value from jsonb_each(after_plan->'playerSubstitutions') loop
+  prior=coalesce(before_plan->'playerSubstitutions'->slot,'[]');
+  if history=prior then continue;end if;
+  if jsonb_typeof(history) is distinct from 'array' or jsonb_typeof(prior) is distinct from 'array' then raise exception 'Invalid substitution history';end if;
+  previous_count=jsonb_array_length(prior);
+  if jsonb_array_length(history)<>previous_count+1 or (select coalesce(jsonb_agg(value order by ord),'[]') from jsonb_array_elements(history) with ordinality h(value,ord) where ord<=previous_count) is distinct from prior then raise exception 'Earlier substitution history is immutable';end if;
+  addition=history->previous_count; first_day=(addition->>'fromDay')::integer;
+  if coalesce((before_plan->>'locked')::boolean,false) is not true or first_day is null or first_day not between 1 and (before_plan->>'days')::integer or (previous_count>0 and first_day<=(prior->(previous_count-1)->>'fromDay')::integer) then raise exception 'Invalid substitution round';end if;
+  if length(trim(coalesce(addition->'replacement'->>'name','')))=0 or length(addition->'replacement'->>'name')>120 or nullif(addition->'replacement'->>'id','') is null or (addition->'replacement'->>'ga')::numeric not between -10 and 54 or addition->'replacement'->>'ga' is null then raise exception 'Invalid substitute identity or handicap';end if;
+  if not exists(select 1 from jsonb_array_elements_text(coalesce(before_plan->'dayFields'->('day'||first_day),before_plan->'confirmed','[]')) value where value=slot) then raise exception 'Substitution position is outside the round';end if;
+  if exists(select 1 from jsonb_array_elements(coalesce(cards,'[]')) c cross join lateral jsonb_each(c->'score_data') h where (c->>'day')::integer>=first_day and h.key ~ '^([1-9]|1[0-8])$' and (nullif(h.value->'self'->>'gross','') is not null or nullif(h.value->'self'->>'putts','') is not null or nullif(h.value->'official'->>'gross','') is not null or nullif(h.value->'official'->>'putts','') is not null)) then raise exception 'Scoring has begun in an affected round. Substitution blocked.';end if;
+  for d in first_day..(before_plan->>'days')::integer loop
+   if coalesce(before_plan->'manualScorecards'->('day'||d)->'groups','{}')<>'{}'::jsonb then raise exception 'Paper card entry has begun in an affected round';end if;
+  end loop;
+  for d in 1..first_day-1 loop
+   if before_plan->'dailyHandicaps'->('day'||d) is distinct from after_plan->'dailyHandicaps'->('day'||d) or before_plan->'teeHandicaps'->('day'||d) is distinct from after_plan->'teeHandicaps'->('day'||d) then raise exception 'Earlier round handicaps cannot change during substitution';end if;
+  end loop;
+  if before_plan->'groupSetup' is distinct from after_plan->'groupSetup' or before_plan->'dayFields' is distinct from after_plan->'dayFields' or before_plan->'capTeams' is distinct from after_plan->'capTeams' then raise exception 'Substitution must keep the existing event positions';end if;
+ end loop;
+end;$function$
+;
+CREATE OR REPLACE FUNCTION golf_safe_private.validate_shared_positions(before_plan jsonb, plan jsonb, players jsonb, allowance integer)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO ''
+AS $function$
+declare slot text; assignments jsonb; d integer; pid text; count_positions integer;
+begin
+ if coalesce((before_plan->>'locked')::boolean,false) and coalesce(before_plan->'sharedPositions','{}') is distinct from coalesce(plan->'sharedPositions','{}') then raise exception 'Shared positions are fixed after final publication';end if;
+ if jsonb_typeof(coalesce(plan->'sharedPositions','{}')) is distinct from 'object' then raise exception 'Invalid shared positions';end if;
+ if coalesce(plan->'sharedPositions','{}')='{}'::jsonb then return;end if;
+ if jsonb_typeof(players) is distinct from 'array' then raise exception 'Invalid player roster';end if;
+ select count(distinct golf_safe_private.shared_slot(plan,value->>'id')) into count_positions from jsonb_array_elements(players);
+ if count_positions<1 or count_positions>allowance then raise exception 'Too many playing positions';end if;
+ for slot,assignments in select key,value from jsonb_each(coalesce(plan->'sharedPositions','{}')) loop
+  if jsonb_typeof(assignments) is distinct from 'object' or (select count(distinct value) from jsonb_each_text(assignments))<2 or not exists(select 1 from jsonb_each_text(assignments) where value=slot) then raise exception 'Assign both golfers to the shared position';end if;
+  if not exists(select 1 from jsonb_array_elements_text(coalesce(plan->'confirmed','[]')) where value=slot) then raise exception 'Shared position must belong to the selected field';end if;
+  for d in 1..(plan->>'days')::integer loop
+   pid=assignments->>('day'||d);
+   if pid is null or not exists(select 1 from jsonb_array_elements(players) where value->>'id'=pid) then raise exception 'Assign a registered event golfer to every shared day';end if;
+   if pid<>slot and exists(select 1 from jsonb_array_elements_text(coalesce(plan->'confirmed','[]')) where value=pid) then raise exception 'Shared golfer already has another position';end if;
+   if exists(select 1 from jsonb_each(coalesce(plan->'sharedPositions','{}')) p where p.key<>slot and (p.key=pid or exists(select 1 from jsonb_each_text(p.value) where value=pid))) then raise exception 'A golfer cannot share two positions';end if;
+  end loop;
+ end loop;
+ for d in 1..(plan->>'days')::integer loop
+  if jsonb_array_length(coalesce(plan->'dayFields'->('day'||d),plan->'confirmed','[]'))>allowance or (select count(distinct value) from jsonb_array_elements_text(coalesce(plan->'dayFields'->('day'||d),plan->'confirmed','[]')))<>jsonb_array_length(coalesce(plan->'dayFields'->('day'||d),plan->'confirmed','[]')) then raise exception 'Invalid daily player count';end if;
+  for pid in select value from jsonb_array_elements_text(coalesce(plan->'dayFields'->('day'||d),plan->'confirmed','[]')) loop
+   if pid='system-no-partner' then continue;end if;
+   if not exists(select 1 from jsonb_array_elements(players) where value->>'id'=pid) then raise exception 'Daily golfer outside published roster';end if;
+   slot=golf_safe_private.shared_slot(plan,pid);
+   if plan->'sharedPositions' ? slot and plan->'sharedPositions'->slot->>('day'||d) is distinct from pid then raise exception 'Shared golfer assigned to a different day';end if;
+  end loop;
+ end loop;
+end;$function$
+;
+revoke all on all functions in schema golf_safe_private from public,anon,authenticated;

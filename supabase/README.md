@@ -19,3 +19,11 @@ Run `tests/verify-production-schema.sql` against the target database after deplo
 ## Historical scripts
 
 The former one-off SQL files are retained under `database/history/legacy` for audit reference. They are not deployment inputs and must not be run. The ordered migration directory supersedes them.
+
+## Empty-project reconstruction
+
+Before replaying the ordered history in an empty replacement project, set `away.rebuild_mode` to `fresh` for the migration session and set `away.course_owner_email` to the verified owner account email. Auth users and platform extensions must already exist. The last reconciliation performs its complete routine/ACL reconstruction only in explicit fresh mode and refuses it if event or course rows exist. In production it only retires obsolete bridge triggers/jobs. Never enable fresh mode on the working production database.
+
+The first pre-ledger baseline includes three exported helper prerequisites missing from the historical ledger. Applied production migrations were not rewritten.
+
+The course Edge Function update and the companion GES identity SQL require separate cross-project approval. Until approved, retain the deployed Edge Function version; the Away scoring/archive fixes do not depend on that update.

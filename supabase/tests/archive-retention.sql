@@ -1,0 +1,44 @@
+-- Synthetic fixtures only. Run on an isolated database; all rows roll back.
+begin;
+do $$
+declare owner_id uuid=gen_random_uuid();eid uuid;doc jsonb;rev bigint;rejected boolean;result jsonb;course jsonb;proposal uuid;
+begin
+ insert into auth.users(id) values(owner_id);insert into away_course_private.administrators(user_id) values(owner_id);
+ perform set_config('request.jwt.claim.sub',owner_id::text,true);
+ doc='{"event":{"days":1,"fieldSize":2,"groupSetup":{"day1":{"groups":[["p1","p2"]]}}},"players":[{"id":"p1","name":"Synthetic One"},{"id":"p2","name":"Synthetic Two"}],"courses":[]}';
+ insert into public.away_events(join_code,organiser_id,name,status,event_data) values('RET001',owner_id,'Synthetic retirement','locked',doc) returning id,revision into eid,rev;
+ insert into public.away_event_players(event_id,player_id,display_name) values(eid,'p1','Synthetic One'),(eid,'p2','Synthetic Two');
+ insert into public.away_round_scores(event_id,day,scorer_player_id,score_data) values(eid,1,'p1','{}');
+ rejected=false;begin delete from public.away_event_players where event_id=eid and player_id='p1';exception when sqlstate '42501' then rejected=true;end;
+ if not rejected then raise exception 'Direct roster deletion cascaded a saved card';end if;
+ if has_table_privilege('authenticated','public.away_event_players','DELETE') then raise exception 'Browser roster DELETE remains granted';end if;
+ if has_function_privilege('authenticated','away_course_private.write_master_course(text,jsonb,bigint,text,boolean,text)','EXECUTE') then raise exception 'Private owner-flag writer remains callable';end if;
+ insert into golf_safe_private.conflicts(event_id,kind,local_data,remote_data) values(eid,'score','{}','{}');
+ rejected=false;begin perform public.golf_safe_away_save('event',eid,null,null,doc,rev,false,null,'archived');exception when sqlstate '42501' then rejected=true;end;
+ if not rejected then raise exception 'Archive ignored an unresolved review';end if;
+ update golf_safe_private.conflicts set resolved_at=now() where event_id=eid;
+ perform public.golf_safe_away_save('event',eid,null,null,doc,rev,false,null,'archived');
+ insert into golf_safe_private.conflicts(event_id,kind,local_data,remote_data,created_at,resolved_at) values(eid,'score','{}','{}',now()-interval '120 days',now()-interval '100 days');
+ insert into golf_safe_private.conflicts(event_id,kind,local_data,remote_data,created_at) values(eid,'score','{}','{}',now()-interval '120 days');
+ insert into golf_catalogue_private.outbox(id,course_id,payload,created_at,delivered_at) values(gen_random_uuid(),'retired','{}',now()-interval '120 days',now()-interval '100 days'),(gen_random_uuid(),'unsent','{}',now()-interval '120 days',null);
+ insert into golf_catalogue_private.history(course_id,data,saved_at) values('retired','{}',now()-interval '120 days'),('protected','{}',now()-interval '120 days');
+ insert into golf_catalogue_private.conflicts(id,course_id,incoming,status) values(gen_random_uuid(),'protected','{}','pending');
+ result=public.away_retention_cleanup(false);
+ if (result->'eligible'->>'resolvedReviews')::integer<>1 or (result->'eligible'->>'retiredDeliveries')::integer<>1 or (result->'eligible'->>'retiredCourseBackups')::integer<>1 then raise exception 'Retention preview incorrect: %',result;end if;
+ perform public.away_retention_cleanup(true);
+ if not exists(select 1 from public.away_events where id=eid) or not exists(select 1 from public.away_round_scores where event_id=eid) or not exists(select 1 from golf_safe_private.conflicts where event_id=eid and resolved_at is null) or not exists(select 1 from golf_catalogue_private.history where course_id='protected') then raise exception 'Retention removed protected work or results';end if;
+ if exists(select 1 from golf_safe_private.conflicts where event_id=eid and resolved_at<now()-interval '90 days') then raise exception 'Resolved old review was not cleaned';end if;
+ course=away_course_private.write_master_course('synthetic-retention-course','{"name":"Synthetic Course"}',null,'away:owner',true,'away');
+ result=away_course_private.write_master_course('synthetic-retention-course','{"name":"Synthetic Course","notes":"Proposed correction"}',(course->>'revision')::bigint,'away:editor',false,'away');proposal=(result->>'proposal_id')::uuid;
+ perform public.away_master_gateway('resolve',jsonb_build_object('proposal_id',proposal,'accept',true),'owner',true,'away');
+ if not exists(select 1 from away_course_private.master_proposals where id=proposal and status='accepted' and incoming->>'reviewed'='true') then raise exception 'Reviewed proposal receipt missing';end if;
+ result=public.away_master_gateway('load','{}','editor',false,'away');
+ if result->>'proposalsAuthoritative'<>'true' or jsonb_array_length(result->'proposals')<>1 then raise exception 'Proposal reconciliation response incomplete';end if;
+ delete from public.away_events where id=eid;
+ if exists(select 1 from golf_safe_private.conflicts where event_id=eid) or exists(select 1 from golf_safe_private.corrections where event_id=eid) then raise exception 'Explicit physical delete left orphan recovery records';end if;
+ perform set_config('request.jwt.claim.sub',gen_random_uuid()::text,true);rejected=false;
+ begin perform public.away_retention_cleanup(true);exception when sqlstate '42501' then rejected=true;end;
+ if not rejected then raise exception 'Non-owner performed server cleanup';end if;
+end;
+$$;
+rollback;

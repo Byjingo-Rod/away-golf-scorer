@@ -94,8 +94,23 @@
           const local=this.state().proposals?.[proposal.course_id];
           if(local?.id===proposal.id && proposal.status!=='pending') {
             this.state().reviewedProposals ||= [];
-            this.state().reviewedProposals.push({...copy(local),status:proposal.status,course_id:proposal.course_id});
+            this.state().reviewedProposals.push({id:local.id,status:proposal.status,course_id:proposal.course_id,reviewedAt:new Date().toISOString()});
+            this.state().reviewedProposals=this.state().reviewedProposals.slice(-50);
             delete this.state().proposals[proposal.course_id];
+          }
+        }
+        if(library.proposalsAuthoritative){
+          const pendingIds=new Set((library.proposals||[]).map(row=>row.id));
+          for(const [id,proposal] of Object.entries(this.state().proposals||{})){
+            if(pendingIds.has(proposal.id))continue;
+            const row=library.courses.find(row=>String(row.id)===id);if(!row)continue;
+            if(same(proposal.data,row.data))this.accept(row);
+            else {
+              const index=this.store().courses.findIndex(course=>String(course.id)===id);
+              if(index>=0)this.store().courses[index]=copy(proposal.data);
+              this.state().pending[id]=copy(proposal.data);this.state().conflicts[id]=copy(row);
+            }
+            delete this.state().proposals[id];
           }
         }
         this.merge(library.courses,library.countries);
@@ -125,6 +140,9 @@
         for(const name of [...this.state().countriesPending]) {
           this.durable();await this.api.saveMasterCountry(name);
           this.state().countriesPending=this.state().countriesPending.filter(v=>v!==name);this.durable();
+        }
+        for(const id of Object.keys(this.state().previousAuthorityBases||{})){
+          if(this.state().bases[id]&&!this.state().pending[id]&&!this.state().conflicts[id]&&!this.state().proposals?.[id])delete this.state().previousAuthorityBases[id];
         }
         this.state().lastSync=new Date().toISOString();this.durable();
         const conflicts=Object.keys(this.state().conflicts).length,pending=Object.keys(this.state().pending).length;
