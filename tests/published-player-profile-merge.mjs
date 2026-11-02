@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const app=fs.readFileSync('app.js','utf8');
+const body=app.slice(app.indexOf('  function mergePublishedPlayer('),app.indexOf('  store.players = (store.players || []).map(p => mergePublishedPlayer'));
+const context={window:{},AWAY_SEED:{players:[{id:'p6',name:'Ralph Cadman',golfLink:'known-number'}]}};
+vm.createContext(context);vm.runInContext(body,context);
+const merge=context.mergePublishedPlayer;
+assert.equal(merge({id:'x',golfLink:'edited',homeClub:'Club',notes:'Note'},{id:'x',golfLink:'',homeClub:'',notes:''}).golfLink,'edited');
+assert.equal(merge({id:'x',homeClub:'Club'},{id:'x',homeClub:''}).homeClub,'Club');
+assert.equal(merge({id:'p6',name:'Ralph Cadman',golfLink:''},{}).golfLink,'known-number');
+assert.equal(merge({id:'p6',name:'Another Person',golfLink:''},{}).golfLink,'');
+assert.equal(merge({id:'p6',name:'Ralph Cadman',golfLink:'',noOfficialHandicap:true},{}).golfLink,'');
+assert.equal(merge({id:'p6',name:'Ralph Cadman',golfLink:'updated'},{}).golfLink,'updated');
+context.window.GES_PLANNER_CONTEXT={};
+assert.equal(merge({id:'p6',name:'Ralph Cadman',golfLink:''},{}).golfLink,'');
+assert.equal((app.match(/store.players\[i\] = mergePublishedPlayer/g)||[]).length,4);
+console.log('Published profile merge checks passed.');

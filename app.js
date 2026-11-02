@@ -1515,16 +1515,22 @@
     return true;
   }
   repairIncompleteOatlandsCard();
-  // 15.35 repairs legacy player rows that pre-date the complete seed record.
-  // Only blank values are filled, so organiser changes always win.
-  const seedPlayersById = new Map(
-    (AWAY_SEED.players || []).map((p) => [String(p.id), p]),
-  );
-  (store.players || []).forEach((p) => {
-    const seed = seedPlayersById.get(String(p.id));
-    if (seed && !String(p.golfLink || "").trim())
-      p.golfLink = seed.golfLink || "";
-  });
+  // Published player payloads omit private profile details. A blank omission
+  // must never erase the organiser's local master profile.
+  function mergePublishedPlayer(existing, incoming) {
+    const merged = { ...(existing || {}), ...incoming };
+    for (const key of ["golfLink", "homeClub", "notes"])
+      if (!String(incoming[key] || "").trim() && existing?.[key])
+        merged[key] = existing[key];
+    const seed = (AWAY_SEED.players || []).find(p =>
+      String(p.id) === String(merged.id) &&
+      String(p.name || "").trim().toLowerCase() === String(merged.name || "").trim().toLowerCase());
+    if (!window.GES_PLANNER_CONTEXT && !merged.noOfficialHandicap &&
+        !String(merged.golfLink || "").trim() && seed)
+      merged.golfLink = seed.golfLink || "";
+    return merged;
+  }
+  store.players = (store.players || []).map(p => mergePublishedPlayer(p, {}));
   const rodRuston = (store.players || []).find(
     (p) => String(p.id) === "p42" || /^rod ruston$/i.test(p.name || ""),
   );
@@ -2797,8 +2803,8 @@
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
-        if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
-        else store.players.push({ ...remote });
+        if (i >= 0) store.players[i] = mergePublishedPlayer(store.players[i], remote);
+        else store.players.push(mergePublishedPlayer(null, remote));
       });
       (payload.courses || []).forEach((remote) => {
         const i = store.courses.findIndex(
@@ -3441,8 +3447,8 @@
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
-        if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
-        else store.players.push({ ...remote });
+        if (i >= 0) store.players[i] = mergePublishedPlayer(store.players[i], remote);
+        else store.players.push(mergePublishedPlayer(null, remote));
       });
       (payload.courses || []).forEach((remote) => {
         const i = store.courses.findIndex(
@@ -3535,8 +3541,8 @@
         const i = store.players.findIndex(
           (p) => String(p.id) === String(remote.id),
         );
-        if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
-        else store.players.push({ ...remote });
+        if (i >= 0) store.players[i] = mergePublishedPlayer(store.players[i], remote);
+        else store.players.push(mergePublishedPlayer(null, remote));
       });
       (payload.courses || []).forEach((remote) => {
         const i = store.courses.findIndex(
@@ -3712,8 +3718,8 @@
         const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
         const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex((p) => String(p.id) === String(remote.id));
-        if (i >= 0) store.players[i] = { ...store.players[i], ...remote };
-        else store.players.push({ ...remote });
+        if (i >= 0) store.players[i] = mergePublishedPlayer(store.players[i], remote);
+        else store.players.push(mergePublishedPlayer(null, remote));
       });
       (payload.courses || []).forEach((remote) => {
         const i = store.courses.findIndex((c) => String(c.id) === String(remote.id));
@@ -9052,7 +9058,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       event?.scratchScoringMode === "maxDoubleBogey"
         ? "Scoring is capped at double bogey (2 over par) on each hole. A PICK-UP (P) records a score of 2 over par for that hole."
         : "Pure Stroke scoring applies: every stroke counts. Every hole must be played to completion and a PICK-UP (P) results in disqualification from the Scratch Competition.";
-    return `This event includes a Scratch Competition. Any player with a daily handicap of ${max} or less is included in the Scratch Competition. Any player with a daily handicap greater than ${max} is not included. ${scoring}`;
+    return `This event includes a Scratch Competition that includes ONLY players with a daily handicap of ${max} or less. ${scoring}`;
   }
   function scratchPickupHole(day, playerId) {
     for (let h = 1; h <= 18; h++) {

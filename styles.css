@@ -4352,6 +4352,16 @@ body.playerDevice nav button[data-nav="scorePage"]:after {
   justify-content: space-between;
   gap: 12px;
 }
+.scratchLimitBox .scratchScoringMode label {
+  justify-content: flex-start;
+  text-align: left;
+  gap: 6px;
+  margin-top: 5px;
+}
+.scratchLimitBox .scratchScoringMode input {
+  flex: 0 0 auto;
+  margin: 0;
+}
 .scratchLimitBox input {
   max-width: 110px;
 }

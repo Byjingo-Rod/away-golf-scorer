@@ -1,4 +1,6 @@
-AWAY GOLF SCORER — VERSION 15.97.04
+AWAY GOLF SCORER — VERSION 15.97.05
+
+Preserve organiser player details when loading published events. Repair blank original GolfLink records by matching both ID and name. Align Scratch scoring choices and clarify eligibility wording.
 
 VERSION 15.97.04 — COMPLETION HISTORY RECEIPTS
 
