@@ -1,0 +1,47 @@
+{
+  "awayVersion": "15.97.07",
+  "eventScorerVersion": "0.4.88",
+  "eventScorerChecks": {
+    "passed": 242,
+    "total": 242
+  },
+  "awayReleaseSuite": {
+    "passed": 136,
+    "total": 136
+  },
+  "awayAdditionalActivityAssertions": 9,
+  "gesLayoutProtocolAssertions": 12,
+  "localDialogChecks": [
+    "same-number Hole 14 changed from par 5 to par 3 with blank length",
+    "Hole 3 replaced by Hole 19 before Hole 11: playing 10, Eclectic 3",
+    "local stub publication accepted optional blank length"
+  ],
+  "productionExistingDataUnchanged": true,
+  "productionTestRecordsCreated": false,
+  "migrations": {
+    "away": [
+      {
+        "name": "event_day_course_layout",
+        "version": "20261102200631"
+      },
+      {
+        "name": "course_layout_activity_guard",
+        "version": "20261102201125"
+      }
+    ],
+    "eventScorer": [
+      {
+        "name": "event_day_course_layout",
+        "version": "20261102200648"
+      },
+      {
+        "name": "course_layout_activity_guard",
+        "version": "20261102201134"
+      }
+    ]
+  },
+  "verificationLimits": [
+    "Browser flow uses isolated local fixtures with stubbed cloud calls.",
+    "PC/Samsung field rehearsal remains outstanding."
+  ]
+}

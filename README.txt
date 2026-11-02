@@ -1,4 +1,8 @@
-AWAY GOLF SCORER — VERSION 15.97.06
+AWAY GOLF SCORER — VERSION 15.97.07
+
+Course Layout: event-day replacement/shortened holes, optional length, inherited/revised indexes, reviewed rating/handicaps, physical-hole labels and replacement-aware Eclectic. Pre-start and stale-phone server guards applied to both apps.
+
+VERSION 15.97.06
 
 GA Balanced team draw and visible group GA totals. Same feature and relevant 15.97.05 profile/Scratch fixes carried to Golf Event Scorer 0.4.87.
 

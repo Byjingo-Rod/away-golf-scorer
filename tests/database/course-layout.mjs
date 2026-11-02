@@ -1,0 +1,20 @@
+import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs';import assert from 'node:assert/strict';
+const db=new PGlite();let checks=0;
+try{
+ await db.exec(`create role anon;create role authenticated;create schema golf_safe_private;create table public.away_events(id uuid primary key,event_data jsonb,status text);create table public.away_round_scores(event_id uuid references public.away_events(id),day int,scorer_player_id text,score_data jsonb);create function golf_safe_private.shared_slot(p jsonb,id text)returns text language sql immutable as $$select id$$;create function golf_safe_private.competition_on(p jsonb,id text,d int) returns boolean language sql immutable as $$select coalesce(p->'competitions' ? id,false)$$;`);
+ const dir=new URL('../../supabase/migrations/',import.meta.url),name=fs.readdirSync(dir).find(n=>n.endsWith('_event_day_course_layout.sql'));await db.exec(fs.readFileSync(new URL(name,dir),'utf8'));for(const f of fs.readdirSync(dir).filter(n=>n.endsWith('_course_layout_activity_guard.sql')))await db.exec(fs.readFileSync(new URL(f,dir),'utf8'));
+ const id='00000000-0000-4000-8000-000000000001',card={par:Array(18).fill(4),index:Array.from({length:18},(_,i)=>`${i+1}/${i+19}`),metres:Array(18).fill(350)},course={id:'c',teeScorecards:{middle:card},teeDetails:{middle:{slope:113,scratch:72,par:72}}};
+ const event={days:7,locked:true,course1:'c',course2:'c',course7:'c',competitions:['single'],confirmed:['a','b'],dailyHandicaps:{day1:{a:0,b:0},day2:{a:0,b:0},day7:{a:0,b:0}},groupSetup:{day1:{groups:[['a','b']],starts:[1]},day2:{groups:[['a','b']],starts:[1]},day7:{groups:[['a','b']],starts:[1]}}};
+ const value=async(sql,args=[])=>Object.values((await db.query(sql,args)).rows[0])[0],update=()=>db.query('update public.away_events set event_data=$1 where id=$2',[JSON.stringify({event,courses:[course]}),id]);
+ await db.query("insert into public.away_events values($1,$2,'locked')",[id,JSON.stringify({event,courses:[course]})]);
+ await db.query('insert into public.away_round_scores values($1,1,$2,$3)',[id,'a',JSON.stringify({1:{self:{gross:4}}})]);
+ const change={out:3,replacement:19,placement:'before',beside:11,indexMode:'inherit',ratingMode:'retain',details:{'men:middle':{par:3,length:''}}};event.courseLayouts={day2:{revision:'one',courseId:'c',changes:[change]}};await update();checks++;
+ await assert.rejects(()=>db.query('insert into public.away_round_scores values($1,2,$2,$3)',[id,'a',JSON.stringify({10:{self:{gross:3}}})]),/COURSE_LAYOUT_CHANGED/);checks++;
+ await db.query('insert into public.away_round_scores values($1,2,$2,$3)',[id,'a',JSON.stringify({10:{self:{gross:3}},_meta:{layoutRevision:'one'}})]);checks++;
+ const old=structuredClone(event.courseLayouts.day2);event.courseLayouts.day2.revision='two';event.courseLayouts.day2.changes.push({...change,out:14,replacement:14,placement:'keep'});await assert.rejects(update,/Scoring has begun/);checks++;event.courseLayouts.day2=old;
+ event.courseLayouts.day7={revision:'seven',courseId:'c',changes:[{...change,out:14,replacement:14,placement:'keep'}]};await update();checks++;
+ const p={...event,_scoreAcceptanceCourses:[course]};assert.equal(await value('select golf_safe_private.gross_agree($1,$2,7,14,$3,$4)',[JSON.stringify(p),'a','P','5']),true);assert.equal(await value('select golf_safe_private.gross_agree($1,$2,7,14,$3,$4)',[JSON.stringify(p),'a','P','4']),false);checks+=2;
+ await db.query('insert into public.away_round_scores values($1,3,$2,$3)',[id,'a',JSON.stringify({1:{ambrose:{drivePlayerId:'a'}}})]);assert.equal(await value('select golf_safe_private.layout_started($1,3)',[id]),true);checks++;
+ course.teeScorecards.middle.par[0]=5;await assert.rejects(update,/Original card is frozen/);checks++;
+ console.log('Away course layout database passed:',checks,'assertions: original scored day retained, stale phone rejected, scored layout frozen, later-day self replacement, overlay acceptance maths and immutable original card.');
+}catch(e){console.error('Away layout:',e.message,e.code||'',e.where||'');process.exitCode=1;}finally{await db.close();}

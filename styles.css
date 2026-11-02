@@ -7130,3 +7130,22 @@ body.playerDevice .cloudHeader {
 
 .groupGaTotal { display: block; margin-top: 4px; font-size: 13px; font-weight: 700; }
 .drawMethods { flex-wrap: wrap; }
+
+/* Event-day course layout review. */
+.courseLayoutEditor { max-width: 100%; text-align: left; }
+.layoutForm { display: grid; grid-template-columns: repeat(auto-fit,minmax(165px,1fr)); gap: 12px; }
+.courseLayoutEditor label { display:block; margin: 10px 0; }
+.courseLayoutEditor input:not([type=checkbox]),.courseLayoutEditor select { display:block; width:100%; max-width:100%; box-sizing:border-box; }
+.layoutSequence { display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin:12px 0; }
+.layoutSequence span { border:1px solid #a5bab0;border-radius:6px;padding:8px; }
+.layoutSequence small { display:block; }
+.layoutTable { overflow-x:auto; }
+.layoutTable table { width:100%;border-collapse:collapse; }
+.layoutTable td,.layoutTable th { padding:5px;text-align:left; }
+.layoutTable input { min-width:65px; }
+.layoutConfirm { display:flex!important;gap:10px;align-items:flex-start; }
+.layoutPhysical { font-size:0.34em!important;display:inline!important;margin-left:4px; }
+.layoutNotice { padding:16px; }
+#layoutError,#layoutReviewError { color:#b52821;font-weight:bold; }
+
+.layoutModified { display:block;font-size:12px; }

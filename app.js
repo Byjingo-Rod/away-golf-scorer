@@ -764,6 +764,10 @@
     });
   }
   function teeRatingForDailyHandicap(day, tee, event = store.event, category = "men") {
+    if(event?.courseLayouts?.['day'+day]){
+      const c=course(event['course'+day]),card=eventTeeCard(day,tee,event,category),base=GolfCourseCategories.data(c,category)?.teeDetails?.[tee]||{},par=card.par.reduce((n,v)=>n+(+v),0),rating=GolfCourseLayout.rating(base,event.courseLayouts['day'+day],category+':'+tee,par);
+      return {...rating,valid:true,courseName:c?.name||'Course',teeColour:category+' · '+tee};
+    }
     const c = course(event?.["course" + day]),
       detail = GolfCourseCategories.data(c, category)?.teeDetails?.[tee] || {},
       cardPars = courseScorecard(c, tee, false, category)?.par || [],
@@ -1824,10 +1828,143 @@
     const ids=(event.confirmed?.length?event.confirmed:Object.keys(event.gaCategories||{})).filter(id=>String(id)!==NO_PARTNER_ID);
     return ids.length&&ids.every(id=>GolfCourseCategories.category(event,id,day,eventPlayer)==="women")?"women":"men";
   }
+  function eventTeeCard(day,tee,event=store.event,category='men') {
+    const base=courseScorecard(course(event['course'+day]),tee,false,category)||{};
+    return event.courseLayouts?.['day'+day] ? GolfCourseLayout.card(base,event.courseLayouts['day'+day],category+':'+tee) : base;
+  }
+  function layoutHoleLabel(day,hole,event=store.event) {
+    return event.courseLayouts?.['day'+day] ? GolfCourseLayout.label(event.courseLayouts['day'+day],hole) : String(hole);
+  }
+  function layoutHoleHeading(day,hole) {
+    const layout=store.event.courseLayouts?.['day'+day],h=GolfCourseLayout.sequence(layout)[hole-1];
+    return `${hole}${h.physical!==hole?`<small class="layoutPhysical">/ ${h.physical}</small>`:''}${(layout.changes||[]).some(c=>+c.out===+c.replacement && +c.replacement===h.physical)?'<small class="layoutModified">Modified hole</small>':''}`;
+  }
+  function layoutHasEntries(round) {
+    return Boolean(round?._finalScore?.confirmedAt || Object.entries(round||{}).some(([h,r])=>/^(?:[1-9]|1[0-8])$/.test(h) && (r?.ambrose?.drivePlayerId || r?.ntp?.confirmedAt || ['self','official'].some(k=>['gross','putts'].some(f=>r?.[k]?.[f]!=null && r[k][f]!=='')))));
+  }
+  function showLayoutAcknowledgement(day,selected,host) {
+    const layout=store.event.courseLayouts?.['day'+day];if(!layout || store.cloud?.role!=='player')return false;
+    const round=scorerStore(day,selected),oldEntries=layoutHasEntries(round) && round._meta?.layoutRevision!==layout.revision;
+    if(!oldEntries && store.event.playerLayoutAck?.[day]?.[selected]===layout.revision)return false;
+    host.innerHTML=`<div class="card layoutNotice"><h2>Course layout changed</h2><p>Review the revised playing order before scoring. Small numbers identify the physical course hole.</p>${layoutSequenceHtml(layout)}${oldEntries?'<p role="alert">This phone has saved entries from the previous layout. They are preserved here and will not be submitted against the revised card. The organiser must review these entries. You can retain them in the saved-copy review queue before opening a clean revised card.</p><button class="primary" id="retainOldLayoutEntries">Keep old entries for organiser review</button>':'<button class="primary" id="acceptCourseLayout">Got It — use this layout</button>'}<button class="soft" id="refreshCourseLayout">Refresh event</button></div>`;
+    if($('#acceptCourseLayout'))$('#acceptCourseLayout').onclick=()=>{
+      store.event.playerLayoutAck ||= {};store.event.playerLayoutAck[day] ||= {};store.event.playerLayoutAck[day][selected]=layout.revision;
+      round._meta={...(round._meta||{}),layoutRevision:layout.revision};
+      if(writeLocalStore()===false){delete store.event.playerLayoutAck[day][selected];return;}
+      renderPlayerExperience();
+    };
+    if($('#retainOldLayoutEntries'))$('#retainOldLayoutEntries').onclick=async()=>{
+      const button=$('#retainOldLayoutEntries');button.disabled=true;
+      try{
+        const connection=store.cloud,event=store.event,remote=await AwayCloud.loadRound(connection.eventId,day,selected);
+        const data=remote?.score_data||{};
+        if(layoutHasEntries(data) && data._meta?.layoutRevision!==layout.revision)throw Error('The online card needs organiser review before this phone can continue.');
+        const retained=await AwayCloud.safeControl('retain',{event_id:connection.eventId,kind:'score',day,player_id:String(selected),base:{},local:JSON.parse(JSON.stringify(round)),remote:data,revision:remote?.revision??null});
+        if(!retained?.id)throw Error('The old entries were not confirmed in the review queue. They remain on this phone.');
+        if(store.cloud!==connection || store.event!==event)throw Error('The open event changed. Reopen it to continue.');
+        const oldAck=event.playerLayoutAck?.[day]?.[selected];
+        scoringDayStore(day)[String(selected)]={...data,_meta:{...(data._meta||{}),layoutRevision:layout.revision}};
+        event.playerLayoutAck ||= {};event.playerLayoutAck[day] ||= {};event.playerLayoutAck[day][selected]=layout.revision;
+        if(writeLocalStore()===false){scoringDayStore(day)[String(selected)]=round;event.playerLayoutAck[day][selected]=oldAck;throw Error('The review copy is online but local storage needs attention. Keep this phone open.');}
+        AwayCloud.safeReconcileAcknowledged?.(connection.eventId,'score',data,remote?.revision??null,day,String(selected));
+        event.playerRoundMode='preview';writeLocalStore();renderPlayerExperience();
+      }catch(e){alert(e.message);button.disabled=false;}
+    };
+    $('#refreshCourseLayout').onclick=async()=>{try{await syncCloudNow();renderPlayerExperience();}catch(e){alert(e.message);}};
+    return true;
+  }
+  function layoutSequenceHtml(layout) {
+    return `<div class="layoutSequence">${GolfCourseLayout.sequence(layout).map((h,i)=>`<span><b>${i+1}</b> → Course ${h.physical}<small>Eclectic ${h.eclectic}</small></span>`).join('')}</div>`;
+  }
+  function layoutCardKeys(day,event=store.event) {
+    return eventPlayerCategories(day,event).flatMap(category=>enabledEventTeesForCategory(event,day,category).map(tee=>({category,tee,key:category+':'+tee})));
+  }
+  function prepareLayoutEvent(day,change) {
+    const original=store.event,key='day'+day,event=JSON.parse(JSON.stringify(original)),old=original.courseLayouts?.[key];
+    const layout={revision:Date.now().toString(36)+'-'+uid(),at:new Date().toISOString(),courseId:String(event['course'+day]),changes:[...(old?.changes||[]),change]};
+    if(layout.changes.length>18)throw Error('This day already has 18 recorded adjustments. Review its saved layout before making another.');
+    event.courseLayouts ||= {};event.courseLayouts[key]=layout;
+    for(const c of layoutCardKeys(day,event)){
+      const card=eventTeeCard(day,c.tee,event,c.category),detail=GolfCourseCategories.data(course(event['course'+day]),c.category)?.teeDetails?.[c.tee]||{};
+      const rating=GolfCourseLayout.rating(detail,layout,c.key,card.par.reduce((n,v)=>n+(+v),0));
+      event.teeHandicaps ||= {};event.teeHandicaps[key] ||= {};event.teeHandicaps[key][c.tee] ||= {};
+      event.teeHandicapSources ||= {};event.teeHandicapSources[key] ||= {};event.teeHandicapSources[key][c.tee] ||= {};
+      for(const id of dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID && eventGaCategory(sharedActualId(id,day),event)===c.category)){
+        const actual=sharedActualId(id,day,event),ga=eventGaHandicap(actual,event),calculated=ga!=='' && ga!=null ? calculateDailyHandicap(ga,{...rating,valid:true},c.category):null;
+        if(calculated!=null){event.teeHandicaps[key][c.tee][id]=calculated;event.teeHandicapSources[key][c.tee][id]='calculated';}
+      }
+    }
+    event.dailyHandicaps ||= {};event.dailyHandicaps[key] ||= {};
+    for(const id of dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID)){
+      const category=eventGaCategory(sharedActualId(id,day),event),tee=selectedEventTee(day,event,category);
+      event.dailyHandicaps[key][id]=event.teeHandicaps?.[key]?.[tee]?.[id] ?? event.dailyHandicaps[key][id];
+    }
+    const remap=h=>GolfCourseLayout.remap(old,layout,h);
+    event.startHoles ||= {};event.startHoles[key]=startHolesFor(original,day).map(remap);
+    if(startMethodFor(event,day)==='two'){event.twoTeeStarts ||= {};event.twoTeeStarts[key]=[...event.startHoles[key]];}
+    event.groupSetup[key].starts=(original.groupSetup[key].starts||[]).map(remap);
+    event.ntpSelections ||= {};event.ntpSelections[key]=ntpHolesFor(day).map(remap).map(h=>h && layoutCardKeys(day,event).every(c=>+eventTeeCard(day,c.tee,event,c.category).par[h-1]===3)?h:0);
+    event.playerPreviewAck ||= {};event.playerPreviewAck[day]={};
+    event.layoutHistory ||= {};event.layoutHistory[key]=[...(event.layoutHistory[key]||[]),{at:layout.at,previous:old||null}];
+    delete event.finalUpdateCloudSentAt;
+    return event;
+  }
+  function openCourseLayout(day) {
+    if(isPlayerDevice() || isSpectatorDevice() || store.cloud?.role!=='organiser')return;
+    if(firstDayScoreEntry(day) || Object.values(scoringDayStore(day)).some(layoutHasEntries) || Object.keys(store.event.manualScorecards?.['day'+day]?.groups||{}).length)return alert('Scoring has begun for this day. Its course layout is locked.');
+    const key='day'+day,old=store.event.courseLayouts?.[key],sequence=GolfCourseLayout.sequence(old),keys=layoutCardKeys(day),draftKey=(store.cloud.eventId||store.event.workspaceId)+':'+day;
+    const saved=store.courseLayoutDrafts?.[draftKey],change=saved?.change||{out:sequence[0].physical,replacement:19,placement:'keep',beside:sequence[1].physical,indexMode:'inherit',ratingMode:'retain',details:{},ratings:{}};
+    $('#modalShade').classList.add('open');
+    const options=selected=>sequence.map(h=>`<option value="${h.physical}" ${+selected===h.physical?'selected':''}>Hole ${h.physical}</option>`).join('');
+    $('#modalContent').innerHTML=`<div class="courseLayoutEditor"><h2>Course Layout${store.event.days>1?' — Day '+day:''}</h2><p>Event-day adjustment only. Par is required; length is optional. The original card and course database are retained.</p><div class="layoutForm"><label>Hole out / affected<select id="layoutOut">${options(change.out)}</select></label><label>Replacement hole<input id="layoutReplacement" type="number" min="1" max="99" value="${change.replacement}"></label><label>Position<select id="layoutPlacement"><option value="keep">Keep existing position</option><option value="before">Before</option><option value="after">After</option></select></label><label>Beside physical course hole<select id="layoutBeside">${options(change.beside)}</select></label></div><p>A hole can replace itself, for example Hole 14 shortened from par 5 to par 3.</p><label>Stroke indexes<select id="layoutIndexMode"><option value="inherit">Use the indexes of the hole removed</option><option value="club">Use revised club indexes</option></select></label><label>Course rating and slope<select id="layoutRatingMode"><option value="retain">Retain existing rating and slope for this event</option><option value="club">Use revised club figures</option></select></label>${keys.map(c=>{const rating=teeRatingForDailyHandicap(day,c.tee,store.event,c.category),d=change.details?.[c.key]||{},r=change.ratings?.[c.key]||rating;return `<fieldset><legend>${esc(c.category+' — '+c.tee)}</legend><div class="layoutForm"><label>Replacement par (required)<input data-layoutpar="${c.key}" type="number" min="3" max="6" value="${esc(d.par??'')}"></label><label>Length in metres (optional)<input data-layoutlength="${c.key}" type="number" min="1" max="2000" value="${esc(d.length??'')}"></label><label>Course rating<input data-layoutrating="${c.key}" type="number" step="0.1" value="${esc(r.scratch||'')}"></label><label>Slope<input data-layoutslope="${c.key}" type="number" min="55" max="155" value="${esc(r.slope||'')}"></label></div></fieldset>`;}).join('')}<p id="layoutError" role="alert"></p><div class="rowBtns"><button class="soft" id="layoutCancel">Cancel</button><button class="soft" id="layoutSaveDraft">Save Draft</button><button class="primary" id="layoutPreview">Preview Layout</button></div></div>`;
+    $('#layoutPlacement').value=change.placement;$('#layoutIndexMode').value=change.indexMode;$('#layoutRatingMode').value=change.ratingMode;
+    const modes=()=>{$('#layoutBeside').disabled=$('#layoutPlacement').value==='keep';for(const node of $$('[data-layoutrating],[data-layoutslope]'))node.disabled=$('#layoutRatingMode').value!=='club';};
+    $('#layoutPlacement').onchange=modes;$('#layoutRatingMode').onchange=modes;modes();
+    const read=()=>({out:+$('#layoutOut').value,replacement:+$('#layoutReplacement').value,placement:$('#layoutPlacement').value,beside:+$('#layoutBeside').value,indexMode:$('#layoutIndexMode').value,ratingMode:$('#layoutRatingMode').value,details:Object.fromEntries(keys.map(c=>[c.key,{par:$('#modalContent [data-layoutpar="'+c.key+'"]').value,length:$('#modalContent [data-layoutlength="'+c.key+'"]').value}])),ratings:Object.fromEntries(keys.map(c=>[c.key,{scratch:+$('#modalContent [data-layoutrating="'+c.key+'"]').value,slope:+$('#modalContent [data-layoutslope="'+c.key+'"]').value}])),indexes:change.indexes||{}});
+    const saveDraft=c=>{store.courseLayoutDrafts ||= {};store.courseLayoutDrafts[draftKey]={change:c,at:new Date().toISOString()};return writeLocalStore();};
+    $('#layoutCancel').onclick=()=>$('#modalShade').classList.remove('open');
+    $('#layoutSaveDraft').onclick=()=>{if(saveDraft(read())!==false)$('#modalShade').classList.remove('open');};
+    $('#layoutPreview').onclick=()=>{try{const c=read(),inherited={...c,indexMode:'inherit'},event=prepareLayoutEvent(day,inherited);saveDraft(c);reviewCourseLayout(day,event,c,keys,draftKey);}catch(e){$('#layoutError').textContent=e.message;}};
+  }
+  function reviewCourseLayout(day,preview,change,keys,draftKey) {
+    const key='day'+day,layout=preview.courseLayouts[key],sequence=GolfCourseLayout.sequence(layout),position=sequence.findIndex(h=>h.physical===+change.replacement)+1;
+    const options=(selected,ntp=false)=>'<option value="0">Choose revised hole</option>'+sequence.filter((h,i)=>!ntp || keys.every(c=>+eventTeeCard(day,c.tee,preview,c.category).par[i]===3)).map(h=>{const i=sequence.indexOf(h)+1;return `<option value="${i}" ${+selected===i?'selected':''}>Playing ${i} — Course ${h.physical}</option>`;}).join('');
+    const starts=preview.startHoles[key],groups=preview.groupSetup[key].starts||[],ntps=preview.ntpSelections[key];
+    $('#modalContent').innerHTML=`<div class="courseLayoutEditor"><h2>Review Course Layout</h2><p><b>Course Hole ${change.out} is ${+change.out===+change.replacement?'modified':'out of play'}. Hole ${change.replacement} is playing hole ${position}.</b> For Eclectic it represents original Hole ${sequence[position-1].eclectic}.</p>${layoutSequenceHtml(layout)}${keys.map(c=>{const card=eventTeeCard(day,c.tee,preview,c.category);return `<details open><summary>${esc(c.category+' — '+c.tee)} · ${change.indexMode==='club'?'Edit club indexes':'Inherited indexes'}</summary><div class="layoutTable"><table><thead><tr><th>Play</th><th>Course</th><th>Eclectic</th><th>Par</th><th>Index</th><th>Metres</th></tr></thead><tbody>${sequence.map((h,i)=>`<tr><td>${i+1}</td><td>${h.physical}</td><td>${h.eclectic}</td><td>${card.par[i]}</td><td><input data-layoutindex="${c.key}|${i}" value="${esc(change.indexes?.[c.key]?.[i]??card.index[i])}" ${change.indexMode==='club'?'':'disabled'}></td><td>${card.metres[i]||'—'}</td></tr>`).join('')}</tbody></table></div></details>`;}).join('')}<h3>Confirm starts and NTPs</h3>${starts.map((h,i)=>`<label>Starting tee ${i+1}<select data-layoutstart="${i}">${options(h)}</select></label>`).join('')}${startMethodFor(preview,day)==='shotgun'?groups.map((h,i)=>`<label>Group ${i+1} start<select data-layoutgroupstart="${i}">${options(h)}</select></label>`).join(''):''}${ntps.map((h,i)=>`<label>NTP ${i+1}<select data-layoutntp="${i}">${options(h,true)}</select></label>`).join('')}<h3>Daily handicaps — review before publishing</h3><p>Calculated from GA and the revised par where GA is available. Check or enter any manual handicap with the club.</p>${keys.map(c=>`<fieldset><legend>${esc(c.category+' — '+c.tee)}</legend><div class="layoutForm">${dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID && eventGaCategory(sharedActualId(id,day),preview)===c.category).map(id=>`<label>${esc(eventPlayerName(id,day))}<input data-layouthcp="${c.tee}|${id}" type="number" min="-10" max="54" value="${esc(preview.teeHandicaps?.[key]?.[c.tee]?.[id]??preview.dailyHandicaps?.[key]?.[id]??'')}"></label>`).join('')}</div></fieldset>`).join('')}<label class="layoutConfirm"><input id="layoutConfirmed" type="checkbox"> I have checked the layout, par, indexes, course rating/slope, daily handicaps, starts and NTPs.</label><p id="layoutReviewError" role="alert"></p><div class="rowBtns"><button class="soft" id="layoutBack">Back</button><button class="primary" id="layoutPublish">Publish Revised Layout</button></div></div>`;
+    $('#layoutBack').onclick=()=>openCourseLayout(day);
+    $('#layoutPublish').onclick=async()=>{
+      const button=$('#layoutPublish');button.disabled=true;
+      try{
+        if(!$('#layoutConfirmed').checked)throw Error('Tick the review confirmation before publishing.');
+        if(firstDayScoreEntry(day) || Object.values(scoringDayStore(day)).some(layoutHasEntries) || Object.keys(store.event.manualScorecards?.[key]?.groups||{}).length)throw Error('Scoring has begun. This layout cannot be changed.');
+        if(change.indexMode==='club')change.indexes=Object.fromEntries(keys.map(c=>[c.key,Array.from({length:18},(_,i)=>$('#modalContent [data-layoutindex="'+c.key+'|'+i+'"]').value.trim())]));
+        if((store.event.courseLayouts?.[key]?.revision||'')!==(preview.layoutHistory[key].at(-1).previous?.revision||''))throw Error('The layout changed online while this form was open. Refresh and review it again.');
+        const event=prepareLayoutEvent(day,change),layout=event.courseLayouts[key];layout.revision=preview.courseLayouts[key].revision;layout.at=preview.courseLayouts[key].at;
+        const required=selector=>$$(selector).map(node=>{const value=+node.value;if(!Number.isInteger(value)||value<1||value>18)throw Error('Resolve every starting hole and NTP selection.');return value;});
+        event.startHoles[key]=required('[data-layoutstart]');
+        if(startMethodFor(event,day)==='two'){if(new Set(event.startHoles[key]).size!==2)throw Error('Choose two different starting holes.');event.twoTeeStarts[key]=[...event.startHoles[key]];}
+        event.groupSetup[key].starts=startMethodFor(event,day)==='shotgun'?required('[data-layoutgroupstart]'):event.groupSetup[key].groups.map((g,i)=>event.startHoles[key][i%event.startHoles[key].length]);
+        event.ntpSelections[key]=required('[data-layoutntp]');if(new Set(event.ntpSelections[key]).size!==event.ntpSelections[key].length)throw Error('Choose different NTP holes.');
+        for(const node of $$('[data-layouthcp]')){const [tee,id]=node.dataset.layouthcp.split('|'),v=+node.value;if(node.value.trim()===''||!Number.isInteger(v)||v< -10||v>54)throw Error('Enter each daily handicap from plus 10 (-10) to 54.');event.teeHandicaps[key][tee][id]=v;event.teeHandicapSources[key][tee][id]='layout-reviewed';}
+        for(const id of dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID)){const category=eventGaCategory(sharedActualId(id,day),event);event.dailyHandicaps[key][id]=event.teeHandicaps[key][selectedEventTee(day,event,category)][id];}
+        const old=store.event.courseLayouts?.[key],remap=h=>GolfCourseLayout.remap(old,layout,h);
+        const fixExtras=(assignment,real)=>{const previous=assignment.ntpExtraPlayers||{},mapped=Object.fromEntries(Object.entries(previous).map(([h,id])=>[remap(+h),id]).filter(([h])=>h)),rotation=assignment.ntpRotation?.length?assignment.ntpRotation:real;assignment.ntpExtraPlayers=Object.fromEntries(event.ntpSelections[key].map((h,i)=>[h,mapped[h]||rotation[i%rotation.length]]));};
+        for(const [gi,assignment] of Object.entries(event.groupSetup[key].shortTeams||{}))fixExtras(assignment,event.groupSetup[key].groups[+gi].filter(id=>String(id)!==NO_PARTNER_ID));
+        if(Object.keys(event.groupSetup[key].ntpExtraPlayers||{}).length)fixExtras(event.groupSetup[key],event.groupSetup[key].ntpRotation||[]);
+        event.startingHoleUpdate={day,hole:event.startHoles[key][0]||1,changedAt:layout.at};
+        const sent=cloudPayload(event),result=await AwayCloud.updateEvent(store.cloud.eventId,sent,'locked');
+        const accepted=result?.saved_data?.event || (await AwayCloud.loadEvent(store.cloud.eventId))?.event?.event_data?.event;
+        if(accepted?.courseLayouts?.[key]?.revision!==layout.revision)throw Error('The layout was not confirmed online. Refresh and review before continuing.');
+        const scoring=store.event.scoring;store.event={...event,scoring};delete store.courseLayoutDrafts?.[draftKey];
+        if(writeLocalStore()===false)throw Error('Layout published online. Keep this screen open and refresh to recover its saved copy.');
+        $('#modalShade').classList.remove('open');renderHome();renderTeamsPage();renderPlayerExperience();renderLeaderboard();setCloudMessage('Revised course layout published');
+      }catch(e){$('#layoutReviewError').textContent=e.message;button.disabled=false;}
+    };
+  }
   function eventCourseScorecard(day, event = store.event, id = null) {
     if (!event) return {};
     const category = eventCourseCategory(day,event,id);
-    return courseScorecard(course(event["course"+day]),selectedEventTee(day,event,category),false,category)||{};
+    return event.courseLayouts?.["day"+day] ? eventTeeCard(day,selectedEventTee(day,event,category),event,category) : courseScorecard(course(event["course"+day]),selectedEventTee(day,event,category),false,category)||{};
   }
   function eventCardChecks(day,event=store.event){
     const c=course(event["course"+day]),ids=(event.confirmed?.length?event.confirmed:Object.keys(event.gaCategories||{})).filter(id=>String(id)!==NO_PARTNER_ID),categories=[...new Set(ids.map(id=>eventCourseCategory(day,event,id)))];
@@ -2388,6 +2525,7 @@
     delete event.playerPreviewDay;
     delete event.playerPreviewAck;
     delete event.playerRulesOpen;
+    delete event.playerLayoutAck;
     delete event.playerVerificationStage;
     delete event.returnToMarkedVerification;
     delete event.leaderboardTab;
@@ -2476,6 +2614,7 @@
 
   function resetDuplicatedEventRuntime(event) {
     delete event.courseSnapshot;
+    delete event.courseLayouts;delete event.layoutHistory;delete event.playerLayoutAck;
     event.scoring = { day1: {}, day2: {} };
     event.roundFinalised = { day1: {}, day2: {} };
     event.prizesAwarded = {};
@@ -2661,6 +2800,7 @@
     }catch(error){alert("Saved-copy review could not open. "+(error.message||error));}
   }
   function applyRemoteCloud(bundle) {
+    const localLayoutAck=store.event?.playerLayoutAck||{};
     bundle=safeCloudBundle(bundle);
     const signature = JSON.stringify([store.cloud?.eventId, store.cloud?.role, bundle]);
     if (!store.cloud?.restorePublished && signature === lastCloudBundleSignature) return false;
@@ -2793,6 +2933,7 @@
       store.event = {
         ...JSON.parse(JSON.stringify(payload.event)),
         ...localUi,
+        playerLayoutAck: localLayoutAck,
         scoring: localScoring,
       };
       if (restoreOrganiser && localWorkspaceId)
@@ -4386,6 +4527,12 @@
   }
   async function flushCloudRound(day, playerId) {
     if (!store.cloud?.eventId) return false;
+    const layout=store.event?.courseLayouts?.['day'+day];
+    if(layout){
+      const round=scorerStore(day,playerId);
+      if(store.cloud.role==='player' && (store.event.playerLayoutAck?.[day]?.[playerId]!==layout.revision || (layoutHasEntries(round) && round._meta?.layoutRevision!==layout.revision)))return false;
+      round._meta={...(round._meta||{}),layoutRevision:layout.revision};
+    }
     const connection = store.cloud, key = `${day}:${playerId}`,
       eventId = connection.eventId;
     let snapshot = JSON.parse(JSON.stringify(scorerStore(day, playerId)));
@@ -9092,6 +9239,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const d = scoringDayStore(day),
       id = String(scorerId);
     d[id] = d[id] || {};
+    const layout=store.event?.courseLayouts?.['day'+day];
+    if(layout && !layoutHasEntries(d[id]) && (store.cloud?.role==='organiser' || store.event.playerLayoutAck?.[day]?.[id]===layout.revision))
+      d[id]._meta={...(d[id]._meta||{}),layoutRevision:layout.revision};
     return d[id];
   }
   function scoreRecord(day, scorerId, hole) {
@@ -10504,7 +10654,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       allFinal = Boolean(rows.length && finalised === rows.length),
       scoringOpen = scoringIsOpen(day);
     scheduleScoringOpening(day);
-    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="replaceRealPlayer">${store.event.realPlayerSubstitutionPending ? "Retry Substitute Update" : "Replace Player"}</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(eventPlayer(r.playerId, day)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
+    host.innerHTML = `<section class="liveControlCard"><div class="liveControlHead"><div><small>${store.event.ridgeTestMode ? "RIDGE 16-PLAYER TEST" : store.event.testMode ? "OATLANDS TEST EVENT" : "ORGANISER'S LIVE EVENT CONTROL"}</small><h2>${days === 1 ? "Round Progress" : `Day ${day} Round Progress`}</h2><p>See who is connected, playing, waiting for a score check or finished.</p></div><div class="liveControlActions"><button class="soft" id="liveOrganiserInstructions">Organiser Instructions</button><button class="soft" id="liveCourseLayout">Course Layout</button><button class="manualScoresBtn" id="recordAllScores">Record All Scores</button><button class="emergencyRecoveryBtn" id="replaceRealPlayer">${store.event.realPlayerSubstitutionPending ? "Retry Substitute Update" : "Replace Player"}</button><button class="emergencyRecoveryBtn" id="missingPlayerReplacement">Missing Player</button><button class="emergencyRecoveryBtn" id="emergencyRecovery">Emergency Score Recovery</button><button class="soft" id="refreshLiveControl">Refresh</button></div></div>${dayTabs("liveday", day)}<div class="liveCounters"><div><small>JOINED</small><b>${joined}<em>/${rows.length}</em></b></div><div><small>PLAYING</small><b>${playing}</b></div><div class="${attention ? "warn" : ""}"><small>ATTENTION</small><b>${attention}</b></div><div class="${allFinal ? "done" : ""}"><small>COMPLETE</small><b>${finalised}<em>/${rows.length}</em></b></div></div>${allFinal ? `<div class="prizeReady"><div><b>✓ Prize Giving Ready</b><span>${days === 1 ? "Every scorecard" : `Every Day ${day} scorecard`} is complete.</span></div><button class="primary" id="openPrizeSummary">Open Results Summary</button></div>` : `<div class="resultsWaiting"><b>Results remain In Progress</b><span>${rows.length - finalised} player${rows.length - finalised === 1 ? "" : "s"} still to complete${days === 1 ? "." : ` Day ${day}.`}</span></div>`}<div class="livePlayerList">${rows.map((r) => `<div class="livePlayerRow ${r.state}"><div class="livePlayerName"><i class="${r.joined ? "connected" : ""}"></i><span><b>${esc(eventPlayer(r.playerId, day)?.name || "Player")}</b><small>Group ${r.group} · ${r.joined ? "Phone joined" : "Not joined"}</small></span></div><div class="liveProgress"><span><i style="width:${Math.round((r.entered / 18) * 100)}%"></i></span><small>${r.entered}/18</small></div><div class="livePlayerState"><b>${esc(r.label)}</b><small>${esc(r.detail)}</small></div></div>`).join("") || '<p class="leaderEmpty">No players are assigned for this day.</p>'}</div><p class="liveControlNote">Progress follows each player's official marker card. Attention means a complete official card still has a player/marker discrepancy requiring review. <button class="testToolsLink" id="testEventTools">Testing Tools</button></p></section>`;
     if (!scoringOpen) {
       const actions = host.querySelector(".liveControlActions");
       actions?.insertAdjacentHTML("afterbegin", '<button class="emergencyRecoveryBtn" id="openScoringNow">Open Scoring Now</button>');
@@ -10526,6 +10676,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $("#recordAllScores").onclick = () => openManualScores(day);
     $("#missingPlayerReplacement").onclick = () => openMissingPlayerReplacement(day);
     $("#replaceRealPlayer").onclick = () => openPlayerSubstitution(day);
+    $("#liveCourseLayout").onclick = () => openCourseLayout(day);
     $("#liveOrganiserInstructions").onclick = openOrganiserInstructions;
     if ($("#openScoringNow"))
       $("#openScoringNow").onclick = async () => {
@@ -12178,7 +12329,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       <div class="ambroseRole"><div><small>AMBROSE · TEAM ${ctx.groupIndex + 1}</small><h2>${roleLabel}</h2></div><span>${completeCount}/18 agreed</span></div>
       <div class="holeTracker" aria-label="Ambrose hole status"><div class="holeTrackerKey"><span><i class="complete">✓</i> Agreed</span><span><i class="mismatch">!</i> Check</span><span><i class="current"></i> Current</span></div><div class="holeTrackerGrid">${sequence.map((h, i) => { const state = statusFor(h); return `<button type="button" class="holeTrack ${state}" data-ambrosehole="${i}"><b>${h}</b>${state === "complete" ? "<small>✓</small>" : state === "mismatch" ? "<small>!</small>" : ""}</button>`; }).join("")}</div></div>
       ${agreement.mismatch ? '<div class="mismatchHoleAlert"><div><strong>Score or selected drive does not agree</strong><span>The scorer and marker should check this hole.</span></div></div>' : ""}
-      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres}</b></div></div>
+      <div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${store.event.courseLayouts?.["day"+day] ? layoutHoleHeading(day,hole) : hole}</strong></div><div><small>PAR</small><b>${par}</b></div><div><small>INDEX</small><b>${esc(v.index?.[index] || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres}</b></div></div>
       <div class="scoreEntryCard ambroseScoreCard"><div class="scoreEntryHead"><div><small>TEAM SCORE</small><h3>${editable ? esc(eventPlayer(selected, day)?.name || "Player") : "Read only"}</h3></div><div class="scoreSummary"><div class="runningScore"><span><em>Gross</em><b>${grossTotal || "—"}</b></span><span><em>Hcp</em><b>${handicap == null ? "—" : handicap.toFixed(1)}</b></span><span title="Final net appears after all 18 holes"><em>Final Net</em><b>${teamGross.filter((x) => x != null).length === 18 && handicap != null ? (grossTotal - handicap).toFixed(1) : "—"}</b></span></div></div></div>
         <div class="ambroseGross"><small>Strokes taken on Hole ${hole}</small><div class="scoreStepper ${scoreEntered(gross) ? "set" : "unset"}"><button type="button" id="ambroseMinus" ${editable ? "" : "disabled"}>−</button><button type="button" class="stepValue" id="ambroseGross" ${editable ? "" : "disabled"}>${scoreEntered(gross) ? gross : par}</button><button type="button" id="ambrosePlus" ${editable ? "" : "disabled"}>+</button></div></div>
         <div class="ambroseDrive"><div class="ambroseDriveHeading"><b>Drive taken?</b><small>Tap correct player to correct an error.</small></div><div class="ambroseDriveChoices">${roles.team.map((id) => `<button type="button" data-ambrosedrive="${id}" class="${driveId === id ? "selected" : ""}" ${editable ? "" : "disabled"}><span>${esc(eventPlayer(id, day)?.name || "Player")}</span><small><b>+</b><strong>${counts[id] || 0}</strong><em>of</em><strong>${minimum}</strong></small></button>`).join("")}</div></div>
@@ -12393,8 +12544,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const baseDay = eclecticGroup.days[0], completedDays = eclecticGroup.days.filter((roundDay) => roundDay <= day),
         baseVersion = eventCourseScorecard(baseDay,store.event,playerId), baseHcp = playerDailyHandicap(playerId, baseDay);
       const basePoints = (h) => {
-        const e = playerHoleEntry(baseDay, playerId, h),
-          i = h - 1;
+        const playing=store.event.courseLayouts?.["day"+baseDay] ? GolfCourseLayout.playingHole(store.event.courseLayouts["day"+baseDay],h) : h,
+          e = playerHoleEntry(baseDay, playerId, playing), i = playing - 1;
         return stablefordPoints(
           e?.gross,
           +(baseVersion.par?.[i] || 0),
@@ -12402,10 +12553,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
           baseHcp,
         );
       };
-      const baseHole = basePoints(hole),
+      const originalHole=store.event.courseLayouts?.["day"+day] ? GolfCourseLayout.sequence(store.event.courseLayouts["day"+day])[hole-1].eclectic : hole;
+      const baseHole = basePoints(originalHole),
         values = playedHoles.map((h) => {
           const roundValues = completedDays.map((roundDay) => {
-            const entry = playerHoleEntry(roundDay, playerId, h), card = eventCourseScorecard(roundDay,store.event,playerId), i = h - 1;
+            const original=store.event.courseLayouts?.["day"+day] ? GolfCourseLayout.sequence(store.event.courseLayouts["day"+day])[h-1].eclectic : h, playing=store.event.courseLayouts?.["day"+roundDay] ? GolfCourseLayout.playingHole(store.event.courseLayouts["day"+roundDay],original) : original;
+            const entry = playerHoleEntry(roundDay, playerId, playing), card = eventCourseScorecard(roundDay,store.event,playerId), i = playing - 1;
             return stablefordPoints(entry?.gross, +(card.par?.[i] || 0), card.index?.[i] ?? "", playerDailyHandicap(playerId, roundDay));
           }).filter((value) => value != null);
           return roundValues.length ? Math.max(...roundValues) : null;
@@ -12591,7 +12744,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ? `<div class="startingHoleAlert"><div><strong>Starting hole changed to Hole ${start}</strong><span>The organiser has updated this scorecard. Begin your round here.</span></div><button type="button" id="dismissStartingHoleAlert">Got it</button></div>`
       : "";
     host.innerHTML = `${store.event.returnToMarkedVerification ? '<div class="returnSetupBar verificationReturnBar"><button class="soft" id="returnToMarkedVerification">← Return to Checking</button></div>' : ""}<div class="scorecardExitBar"><button type="button" class="soft" id="exitScorecard">← Exit</button><span>Scores remain saved.</span></div><div class="scoringPhone">${startingHoleAlert}${holeTracker}${mismatchAlert}${missingAlert}
- ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${hole}</strong></div><div class="${ntp ? "ntpParCell" : ""}"><small>${ntp ? "PAR · NTP" : "PAR"}</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
+ ${targetHoleInfo}<div class="holeHero ${ntp ? "isNtp" : ""}"><div><small>HOLE</small><strong>${store.event.courseLayouts?.["day"+day] ? layoutHoleHeading(day,hole) : hole}</strong></div><div class="${ntp ? "ntpParCell" : ""}"><small>${ntp ? "PAR · NTP" : "PAR"}</small><b>${par || "—"}</b></div><div><small>INDEX</small><b>${esc(indexVal || "—")}</b></div><div><small>${courseDistanceUnit(v).toUpperCase()}</small><b>${metres || "—"}</b></div></div>
  ${ntpAcknowledgement}
  <div class="scoreEntryCard official"><div class="scoreEntryHead"><div><small>PLAYER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(targetId)}">${esc(target?.name || "Player")}</h3>${yellowBallButton(targetId)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(targetId, day)))}</span></div></div>${scoreSummary("official", sfOff, totalOff.points, targetId, targetCard.index?.[idx] ?? "")}</div>${scoreEntryControls(puttingOn, "official", rec.official, +targetCard.par?.[idx]||par, stepper, pickup)}</div>
  <div class="scoreEntryCard self"><div class="scoreEntryHead"><div><small>MARKER</small><div class="yellowBallNameLine"><h3 class="${yellowBallClass(selected)}">${esc(p.name)}</h3>${yellowBallButton(selected)}<span class="playerHoleHandicap">Hcp ${esc(formatPlayingHandicap(playerDailyHandicap(selected, day)))}</span></div></div>${scoreSummary("self", sfSelf, totalSelf.points, selected, indexVal)}</div>${scoreEntryControls(puttingOn, "self", rec.self, par, stepper, pickup)}</div>
@@ -13583,7 +13736,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       rows = field(firstDay)
         .filter((id) => eclecticDays.every((day) => field(day).includes(id)))
         .map((id) => {
-          const rounds = eclecticDays.map((day) => points(day, id)), baseline = rounds[0], latest = rounds.at(-1),
+          const rounds = eclecticDays.map((day) => store.event.courseLayouts?.["day"+day] ? GolfCourseLayout.eclectic(points(day,id),store.event.courseLayouts["day"+day]) : points(day,id)), baseline = rounds[0], latest = rounds.at(-1),
             r = leaderRow(
             id,
             eventPlayerName(id, def.day || null),
@@ -14464,6 +14617,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!field.includes(selected)) selected = String(field[0] || "");
     store.event.playerPreviewDay = day;
     store.event.playerPreviewId = selected;
+    if(store.event.courseLayouts?.['day'+day] && showLayoutAcknowledgement(day,selected,host))return;
     if (store.cloud?.role === "player") syncRecoveredPlayerRound(day, selected);
     scheduleScoringOpening(day);
     if (store.event.playerRoundMode === "scoring" && !scoringIsOpen(day)) {
