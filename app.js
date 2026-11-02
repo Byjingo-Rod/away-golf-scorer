@@ -8114,6 +8114,107 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ),
     );
   }
+  // Exact minimax search for fields up to 16. Larger fields use repeated
+  // local improvement; the UI explicitly identifies those results as best found.
+  function solveGaBalancedGroups(ids, sizes, ga, forbidden = new Set(), placeholder = null) {
+    ids = ids.map(String);
+    if (new Set(ids).size !== ids.length || sizes.reduce((a,b)=>a+b,0)!==ids.length ||
+        ids.some(id=>ga[id]==null || ga[id]==="" || !Number.isFinite(+ga[id]))) return null;
+    const values=Object.fromEntries(ids.map(id=>[id,Math.round(+ga[id]*1000)]));
+    const pair=(a,b)=>[String(a),String(b)].sort().join('|');
+    const cache=new Map();
+    const card=(members)=>{
+      const key=JSON.stringify([...members].sort());
+      if(cache.has(key))return cache.get(key);
+      const full=[...members];if(full.length===3 && placeholder)full.push(placeholder);
+      const variants=full.length>=3 ? [[...full],[full[0],full[2],full[1],...full.slice(3)],...(full.length===4 ? [[full[0],full[3],full[1],full[2]]] : [[full[1],full[2],full[0]]])] : [full];
+      const order=variants.find(g=>g.every((id,i)=>i%2!==0 || !g[i+1] || id===placeholder || g[i+1]===placeholder || !forbidden.has(pair(id,g[i+1]))));
+      const result=order ? {group:order.filter(id=>id!=null),sum:members.reduce((n,id)=>n+values[id],0)} : null;
+      cache.set(key,result);return result;
+    };
+    const metric=cards=>{
+      const totals=cards.map(c=>c.sum),lo=Math.min(...totals),hi=Math.max(...totals);
+      return [hi-lo,totals.reduce((n,v)=>n+v*v,0)];
+    };
+    const better=(a,b)=>!b || a[0]<b[0] || (a[0]===b[0] && a[1]<b[1]);
+    let best=null,bestMetric=null;
+    const accept=cards=>{if(cards.some(c=>!c))return;const m=metric(cards);if(better(m,bestMetric)){best=cards.map(c=>c.group);bestMetric=m;}};
+    const random=xs=>{xs=[...xs];for(let i=xs.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[xs[i],xs[j]]=[xs[j],xs[i]];}return xs;};
+    // Seed a good upper bound and improve by every possible cross-group swap.
+    for(let attempt=0;attempt<(ids.length<=16?6:24);attempt++){
+      const ranked=attempt===0 ? [...ids].sort((a,b)=>values[b]-values[a]) : random(ids);
+      let groups=sizes.map(()=>[]),totals=sizes.map(()=>0);
+      for(const id of ranked){let gi=-1;for(let i=0;i<sizes.length;i++)if(groups[i].length<sizes[i] && (gi<0 || totals[i]<totals[gi]))gi=i;groups[gi].push(id);totals[gi]+=values[id];}
+      let cards=groups.map(card);if(cards.some(c=>!c))continue;
+      for(let round=0;round<24;round++){
+        let chosen=null,current=metric(cards);
+        for(let a=0;a<groups.length;a++)for(let b=a+1;b<groups.length;b++)for(let i=0;i<groups[a].length;i++)for(let j=0;j<groups[b].length;j++){
+          const x=[...groups[a]],y=[...groups[b]];[x[i],y[j]]=[y[j],x[i]];
+          const ca=card(x),cb=card(y);if(!ca || !cb)continue;
+          const trial=[...cards];trial[a]=ca;trial[b]=cb;const m=metric(trial);
+          if(better(m,current)){current=m;chosen={a,b,x,y,trial};}
+        }
+        if(!chosen)break;
+        groups[chosen.a]=chosen.x;groups[chosen.b]=chosen.y;cards=chosen.trial;
+      }
+      accept(cards);if(bestMetric?.[0]===0)break;
+    }
+    if(ids.length<=16 && bestMetric?.[0]!==0){
+      const search=(remaining,slots,cards)=>{
+        if(!remaining.length){accept(cards);return;}
+        if(bestMetric?.[0]===0)return;
+        if(cards.length>1 && metric(cards)[0]>bestMetric?.[0])return;
+        const anchor=remaining[0];
+        for(const size of new Set(slots)){
+          const choices=[];
+          const combinations=(start,picked)=>{
+            if(picked.length===size-1){const members=[anchor,...picked],c=card(members);if(c)choices.push({members,c});return;}
+            for(let i=start;i<=remaining.length-(size-1-picked.length);i++)combinations(i+1,[...picked,remaining[i]]);
+          };
+          combinations(1,[]);
+          const total=remaining.reduce((n,id)=>n+values[id],0);
+          choices.sort((a,b)=>Math.abs(a.c.sum*slots.length-total)-Math.abs(b.c.sum*slots.length-total));
+          const restSlots=[...slots];restSlots.splice(restSlots.indexOf(size),1);
+          for(const choice of choices){const used=new Set(choice.members);search(remaining.filter(id=>!used.has(id)),restSlots,[...cards,choice.c]);}
+        }
+      };
+      search(ids,sizes,[]);
+    }
+    return best ? {groups:best,spread:bestMetric[0]/1000,exact:ids.length<=16 || bestMetric[0]===0} : null;
+  }
+  function groupGaTotal(group, day) {
+    const values=group.filter(id=>String(id)!==NO_PARTNER_ID).map(id=>{
+      const actual=sharedActualId(id,day),p=eventPlayer(actual,day);
+      const value=eventGaHandicap(actual);
+      return p?.profileId ? p.ga : value;
+    });
+    return values.some(v=>v==null || v==="" || !Number.isFinite(+v)) ? null : values.reduce((n,v)=>n+(+v),0);
+  }
+  function groupGaLabel(group, day) {
+    const total=groupGaTotal(group,day);
+    return total==null ? 'GA total: incomplete' : `GA total: ${total.toFixed(1)}`;
+  }
+  function applyGaBalancedDraw(day) {
+    const event=store.event,setup=event.groupSetup?.['day'+day];
+    if(!setup || event.locked || setup.saved || firstDayScoreEntry(day) ||
+        Object.keys(event.manualScorecards?.['day'+day]?.groups || {}).length)return;
+    const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID).map(String),ga={};
+    for(const id of ids){const value=groupGaTotal([id],day);if(value==null){alert(`Enter the GA handicap for ${eventPlayerName(id,day)} before using GA Balanced.`);return;}ga[id]=value;}
+    const forbidden=new Set();
+    if(competitionIsOn('fourball',day))for(const other of eventDays(event).filter(d=>d!==day))
+      for(const g of event.groupSetup?.['day'+other]?.groups || [])for(let i=0;i<g.length;i+=2)
+        if(g[i+1] && !g.slice(i,i+2).some(id=>String(id)===NO_PARTNER_ID))forbidden.add([String(g[i]),String(g[i+1])].sort().join('|'));
+    const sizes=makeGroups(ids,day).map(g=>g.filter(id=>String(id)!==NO_PARTNER_ID).length);
+    const result=solveGaBalancedGroups(ids,sizes,ga,forbidden,ambroseIsOn(event,day)?null:NO_PARTNER_ID);
+    if(!result){alert('No GA Balanced draw was found without repeating a 4BBB partnership. The existing teams have been kept. Review the other days or use Manual.');return;}
+    setup.groups=result.groups;setup.starts=defaultStarts(setup.groups,startMethodFor(event,day),day);setup.saved=false;
+    // New memberships need fresh short-team assignments.
+    delete setup.shortTeams;setup.virtualPlayer=null;setup.ntpExtraPlayer=null;setup.ntpExtraPlayers={};
+    ensureShortTeamSelections(setup,day);
+    event.drawMode='ga';event.manualMode=false;event.swapPlayer=null;delete event.teamOrderSwap;
+    event.gaBalanceSearch=result.exact?'exact':'bestFound';
+    writeLocalStore();renderTeamsPage();
+  }
   function historyBalancedGroups(ids, day) {
     const seen = new Set(),
       candidates = [];
@@ -11103,7 +11204,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
    ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "ga" ? "primary" : "soft"}" id="gaBalanced">GA Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "ga" ? (store.event.gaBalanceSearch === "exact" ? "GA Balanced minimises the difference between group GA totals while preserving 4BBB partner restrictions." : "GA Balanced — closest totals found for this larger field; review the group totals below.") : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
  ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button> <button type="button" class="primary" id="lockAllEventTeams" ${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?"disabled":""}>Lock All Teams All Days</button>${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?'<p><b>All days’ teams are saved and locked.</b></p>':''}<p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
  ${mixingSummaryHtml()}
  ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
@@ -11114,7 +11215,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  <div class="groupGrid">${groups
    .map(
      (g, gi) => `<div class="playingGroup">
-   <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected · Cancel" : "Swap"}</button></div>
+   <div class="groupHead"><div><h4>Group ${gi + 1}</h4><small>${g.filter((x) => String(x) !== NO_PARTNER_ID).length} actual player${g.filter((x) => String(x) !== NO_PARTNER_ID).length === 1 ? "" : "s"}${g.some((x) => String(x) === NO_PARTNER_ID) ? " + No Partner" : ""} · Tee time ${groupTeeTime(day, gi)}</small><strong class="groupGaTotal">${esc(groupGaLabel(g, day))}</strong></div>${startControl(gi)}<button type="button" class="${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "primary" : "soft"}" data-swapteam="${gi}" aria-label="Swap whole team ${gi + 1}" ${locked || teamsSaved || teeScoringStarted ? "disabled" : ""}>${store.event.teamOrderSwap?.day === day && store.event.teamOrderSwap.index === gi ? "Selected · Cancel" : "Swap"}</button></div>
    <div class="groupPlayers">${g.map((pid, pi) => playerRow(pid, gi, pi)).join("")}</div>
    ${ambroseRoleBlock(g, gi)}
    ${setup.shortTeams?.[String(gi)] ? (()=>{const a=setup.shortTeams[String(gi)];return `<div class="vpAssignment"><b>${ambroseIsOn(store.event, day)?'Three-player Ambrose team':'Virtual Player: '+esc(eventPlayer(a.virtualPlayer, day)?.name||'Not selected')+' (VP)'}</b>${Object.entries(a.ntpExtraPlayers||{}).map(([hole,id])=>`<span class="ntpExtra"><b>Hole ${hole} NTP Extra Shot:</b> ${esc(eventPlayer(id, day)?.name||'Player')} — two shots</span>`).join('')}${a.ntpExtraPlayer?`<span class="ntpExtra">NTP Extra Shot: ${esc(eventPlayer(a.ntpExtraPlayer, day)?.name||'Player')} — two shots on each NTP hole</span>`:''}</div>`;})():''}
@@ -11312,6 +11413,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       };
     if ($("#lockAllEventTeams")) $("#lockAllEventTeams").onclick = lockAllEventTeams;
     if ($("#maximumPlayerMixing")) $("#maximumPlayerMixing").onclick = applyMaximumPlayerMixing;
+    if ($("#gaBalanced")) $("#gaBalanced").onclick = () => applyGaBalancedDraw(day);
     if ($("#historyBalanced")) $("#historyBalanced").onclick = () => {
       delete store.event.teamOrderSwap;
       store.event.drawMode = "history";

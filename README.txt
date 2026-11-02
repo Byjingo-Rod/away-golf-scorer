@@ -1,4 +1,8 @@
-AWAY GOLF SCORER — VERSION 15.97.05
+AWAY GOLF SCORER — VERSION 15.97.06
+
+GA Balanced team draw and visible group GA totals. Same feature and relevant 15.97.05 profile/Scratch fixes carried to Golf Event Scorer 0.4.87.
+
+VERSION 15.97.05
 
 Preserve organiser player details when loading published events. Repair blank original GolfLink records by matching both ID and name. Align Scratch scoring choices and clarify eligibility wording.
 
