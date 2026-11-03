@@ -1913,6 +1913,7 @@
     if(isPlayerDevice() || isSpectatorDevice() || store.cloud?.role!=='organiser')return;
     if(firstDayScoreEntry(day) || Object.values(scoringDayStore(day)).some(layoutHasEntries) || Object.keys(store.event.manualScorecards?.['day'+day]?.groups||{}).length)return alert('Scoring has begun for this day. Its course layout is locked.');
     const key='day'+day,old=store.event.courseLayouts?.[key],sequence=GolfCourseLayout.sequence(old),keys=layoutCardKeys(day),draftKey=(store.cloud.eventId||store.event.workspaceId)+':'+day;
+    const target={role:String(store.cloud?.role||''),eventId:String(store.cloud?.eventId||''),workspaceId:String(store.event.workspaceId||''),courseId:String(store.event['course'+day]||''),day,layoutRevision:String(old?.revision||'')};
     const saved=store.courseLayoutDrafts?.[draftKey],change=saved?.change||{out:sequence[0].physical,replacement:19,placement:'keep',beside:sequence[1].physical,indexMode:'inherit',ratingMode:'retain',details:{},ratings:{}};
     $('#modalShade').classList.add('open');
     const options=selected=>sequence.map(h=>`<option value="${h.physical}" ${+selected===h.physical?'selected':''}>Hole ${h.physical}</option>`).join('');
@@ -1924,9 +1925,9 @@
     const saveDraft=c=>{store.courseLayoutDrafts ||= {};store.courseLayoutDrafts[draftKey]={change:c,at:new Date().toISOString()};return writeLocalStore();};
     $('#layoutCancel').onclick=()=>$('#modalShade').classList.remove('open');
     $('#layoutSaveDraft').onclick=()=>{if(saveDraft(read())!==false)$('#modalShade').classList.remove('open');};
-    $('#layoutPreview').onclick=()=>{try{const c=read(),inherited={...c,indexMode:'inherit'},event=prepareLayoutEvent(day,inherited);saveDraft(c);reviewCourseLayout(day,event,c,keys,draftKey);}catch(e){$('#layoutError').textContent=e.message;}};
+    $('#layoutPreview').onclick=()=>{try{const c=read(),inherited={...c,indexMode:'inherit'},event=prepareLayoutEvent(day,inherited);saveDraft(c);reviewCourseLayout(day,event,c,keys,draftKey,target);}catch(e){$('#layoutError').textContent=e.message;}};
   }
-  function reviewCourseLayout(day,preview,change,keys,draftKey) {
+  function reviewCourseLayout(day,preview,change,keys,draftKey,target) {
     const key='day'+day,layout=preview.courseLayouts[key],sequence=GolfCourseLayout.sequence(layout),position=sequence.findIndex(h=>h.physical===+change.replacement)+1;
     const options=(selected,ntp=false)=>'<option value="0">Choose revised hole</option>'+sequence.filter((h,i)=>!ntp || keys.every(c=>+eventTeeCard(day,c.tee,preview,c.category).par[i]===3)).map(h=>{const i=sequence.indexOf(h)+1;return `<option value="${i}" ${+selected===i?'selected':''}>Playing ${i} — Course ${h.physical}</option>`;}).join('');
     const starts=preview.startHoles[key],groups=preview.groupSetup[key].starts||[],ntps=preview.ntpSelections[key];
@@ -1938,7 +1939,8 @@
         if(!$('#layoutConfirmed').checked)throw Error('Tick the review confirmation before publishing.');
         if(firstDayScoreEntry(day) || Object.values(scoringDayStore(day)).some(layoutHasEntries) || Object.keys(store.event.manualScorecards?.[key]?.groups||{}).length)throw Error('Scoring has begun. This layout cannot be changed.');
         if(change.indexMode==='club')change.indexes=Object.fromEntries(keys.map(c=>[c.key,Array.from({length:18},(_,i)=>$('#modalContent [data-layoutindex="'+c.key+'|'+i+'"]').value.trim())]));
-        if((store.event.courseLayouts?.[key]?.revision||'')!==(preview.layoutHistory[key].at(-1).previous?.revision||''))throw Error('The layout changed online while this form was open. Refresh and review it again.');
+        if(!GolfCourseLayout.publicationTargetMatches(target,store.cloud,store.event))throw Error('The active event or course changed. Refresh and review the layout again.');
+        if((store.event.courseLayouts?.[key]?.revision||'')!==target.layoutRevision)throw Error('The layout changed while this form was open. Refresh and review it again.');
         const event=prepareLayoutEvent(day,change),layout=event.courseLayouts[key];layout.revision=preview.courseLayouts[key].revision;layout.at=preview.courseLayouts[key].at;
         const required=selector=>$$(selector).map(node=>{const value=+node.value;if(!Number.isInteger(value)||value<1||value>18)throw Error('Resolve every starting hole and NTP selection.');return value;});
         event.startHoles[key]=required('[data-layoutstart]');
@@ -1952,10 +1954,14 @@
         for(const [gi,assignment] of Object.entries(event.groupSetup[key].shortTeams||{}))fixExtras(assignment,event.groupSetup[key].groups[+gi].filter(id=>String(id)!==NO_PARTNER_ID));
         if(Object.keys(event.groupSetup[key].ntpExtraPlayers||{}).length)fixExtras(event.groupSetup[key],event.groupSetup[key].ntpRotation||[]);
         event.startingHoleUpdate={day,hole:event.startHoles[key][0]||1,changedAt:layout.at};
-        const sent=cloudPayload(event),result=await AwayCloud.updateEvent(store.cloud.eventId,sent,'locked');
-        const accepted=result?.saved_data?.event || (await AwayCloud.loadEvent(store.cloud.eventId))?.event?.event_data?.event;
-        if(accepted?.courseLayouts?.[key]?.revision!==layout.revision)throw Error('The layout was not confirmed online. Refresh and review before continuing.');
-        const scoring=store.event.scoring;store.event={...event,scoring};delete store.courseLayoutDrafts?.[draftKey];
+        const latest=await AwayCloud.loadEvent(target.eventId),current=latest?.event?.event_data?.event;
+        if(!GolfCourseLayout.publicationTargetMatches(target,store.cloud,store.event))throw Error('The active event changed. Refresh and review the layout again.');
+        if(!current||String(current['course'+day]||'')!==target.courseId||(current.courseLayouts?.[key]?.revision||'')!==target.layoutRevision)throw Error('The online event or layout changed. Refresh and review the layout again.');
+        const sent=cloudPayload(event),result=await AwayCloud.updateEvent(target.eventId,sent,'locked',latest.event.revision);
+        const accepted=GolfCourseLayout.acceptedEventPlan(result,await AwayCloud.loadEvent(target.eventId));
+        if(!GolfCourseLayout.publicationTargetMatches(target,store.cloud,store.event))throw Error('The active event changed. Refresh before continuing.');
+        if(String(accepted?.['course'+day]||'')!==target.courseId||accepted?.courseLayouts?.[key]?.revision!==layout.revision)throw Error('The layout was not confirmed online. Refresh and review before continuing.');
+        store.event=GolfCourseLayout.restoreAcceptedEvent(accepted,store.event);delete store.courseLayoutDrafts?.[draftKey];
         if(writeLocalStore()===false)throw Error('Layout published online. Keep this screen open and refresh to recover its saved copy.');
         $('#modalShade').classList.remove('open');renderHome();renderTeamsPage();renderPlayerExperience();renderLeaderboard();setCloudMessage('Revised course layout published');
       }catch(e){$('#layoutReviewError').textContent=e.message;button.disabled=false;}

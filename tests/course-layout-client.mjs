@@ -7,6 +7,16 @@ assert.equal(L.sequence(layout)[9].physical,19);assert.equal(L.sequence(layout)[
 for(const c of [{...change,replacement:4},{...change,beside:3},{...change,details:{'men:middle':{par:''}}},{...change,indexMode:'club',indexes:{'men:middle':Array(18).fill(1)}}])assert.throws(()=>L.card(base,{changes:[c]},'men:middle'));
 let same={changes:[{...change,out:14,replacement:14,placement:'keep'}]};assert.equal(L.card(base,same,'men:middle').par[13],3);assert.equal(L.sequence(same)[13].physical,14);
 assert.equal(L.sequence({changes:[{...change,out:8,beside:1}]})[0].physical,19);assert.equal(L.sequence({changes:[{...change,placement:'after',beside:18}]}).at(-1).physical,19);
+const target={role:'organiser',eventId:'event-a',workspaceId:'workspace-a',courseId:'course-a',day:1,layoutRevision:'old'};
+assert.equal(L.publicationTargetMatches(target,{role:'organiser',eventId:'event-a'},{workspaceId:'workspace-a',course1:'course-a'}),true);
+assert.equal(L.publicationTargetMatches(target,{role:'organiser',eventId:'event-b'},{workspaceId:'workspace-a',course1:'course-a'}),false);
+assert.equal(L.publicationTargetMatches(target,{role:'organiser',eventId:'event-a'},{workspaceId:'workspace-a',course1:'course-b'}),false);
+assert.equal(L.publicationTargetMatches({...target,role:'player'},{role:'player',eventId:'event-a'},{workspaceId:'workspace-a',course1:'course-a'}),false);
+const accepted={name:'Server accepted',course1:'course-a',courseLayouts:{day1:{revision:'new'}},layoutHistory:{day1:[{accepted:true}]},courseSnapshots:[{id:'master'}]};
+assert.equal(L.acceptedEventPlan({saved_data:{event:accepted}},null),accepted);
+const restored=L.restoreAcceptedEvent(accepted,{name:'Local stale',workspaceId:'workspace-a',courseSnapshot:{id:'master-local'},scoring:{day1:{p:{1:4}}},leaderboardView:'daily'});
+assert.equal(restored.name,'Server accepted');assert.equal(restored.courseLayouts.day1.revision,'new');assert.equal(JSON.stringify(restored.courseSnapshots),JSON.stringify([{id:'master'}]));assert.deepEqual(JSON.parse(JSON.stringify(restored.courseSnapshot)),{id:'master-local'});assert.equal(JSON.stringify(restored.scoring),JSON.stringify({day1:{p:{1:4}}}));assert.equal(restored.leaderboardView,'daily');
+assert(src.includes('AwayCloud.loadEvent(target.eventId)'));assert(src.includes("target.eventId,sent,'locked',latest.event.revision"));assert(src.includes('GolfCourseLayout.restoreAcceptedEvent(accepted,store.event)'));
 function extract(name){const start=src.indexOf('  function '+name+'(');assert(start>=0,name);const end=src.indexOf('\n  function ',start+10);return src.slice(start,end);}
 const days={1:Array(18).fill(0),2:Array(18).fill(0)};days[1][2]=1;days[1][9]=1;days[2][8]=5;days[2][9]=4;
 Object.assign(ctx,{store:{event:{courseLayouts:{day2:layout}}},NO_PARTNER_ID:'np',dayFieldIds:()=>['a'],sharedPositionId:id=>id,sharedActualId:id=>id,leaderboardPlayerPoints:d=>days[d],eventPlayerName:id=>id,leaderRow:(id,name,detail,holes)=>({id,name,detail,holes,total:holes.reduce((n,v)=>n+(v||0),0)}),rankLeaderRows:rows=>rows});

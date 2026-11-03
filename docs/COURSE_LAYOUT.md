@@ -1,4 +1,4 @@
-# Event-day Course Layout — Away 15.97.07 / Event Scorer 0.4.88
+# Event-day Course Layout — Away 15.97.08 / Event Scorer 0.4.88
 
 Live Event Control → Course Layout selects a published day. Replace a physical hole with a spare or with its own number for a shortened hole. Keep its playing position or insert it before/after a remaining physical hole, including before 1 or after 18. Replacement par is compulsory for all enabled playing tee/category cards. Length is optional and blank lengths do not block publication or scoring.
 

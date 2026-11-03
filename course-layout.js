@@ -52,5 +52,25 @@
   function playingHole(layout,original) {return sequence(layout).findIndex(h=>h.eclectic===+original)+1;}
   function remap(oldLayout,newLayout,hole) {const old=sequence(oldLayout)[+hole-1];return old ? sequence(newLayout).findIndex(h=>h.physical===old.physical)+1 : 0;}
   function label(layout,position) {const h=sequence(layout)[+position-1];return h?`${position}${h.physical!==+position?' / '+h.physical:''}${h.physical===h.eclectic && (layout?.changes||[]).some(c=>+c.replacement===h.physical)?' · Modified hole':''}`:String(position);}
-  window.GolfCourseLayout={initial,step,sequence,card,validateIndexes,rating,eclectic,playingHole,remap,label};
+  function publicationTargetMatches(target,cloud,event) {
+    return !!target && target.role==='organiser' && !!target.eventId &&
+      target.eventId===String(cloud?.eventId||'') && cloud?.role==='organiser' &&
+      target.workspaceId===String(event?.workspaceId||'') &&
+      target.courseId===String(event?.['course'+target.day]||'');
+  }
+  function acceptedEventPlan(result,bundle) {
+    const candidates=[result?.saved_data?.event,result?.saved_data?.event_data?.event,
+      result?.saved_data,bundle?.event?.event_data?.event,bundle?.event?.event_data];
+    return candidates.find(value=>value&&typeof value==='object'&&!Array.isArray(value)&&value.courseLayouts)||null;
+  }
+  function restoreAcceptedEvent(accepted,local) {
+    if(!accepted||typeof accepted!=='object'||Array.isArray(accepted))throw Error('The accepted event plan is unavailable. Refresh before continuing.');
+    const restored=copy(accepted),localFields=['workspaceId','joinCode','courseSnapshot','scoring','roundFinalised','prizesAwarded',
+      'playerRoundMode','playerHolePos','playerPreviewId','playerPreviewDay','playerPreviewAck','playerRulesOpen','playerLayoutAck',
+      'playerVerificationStage','returnToMarkedVerification','leaderboardTab','leaderboardView','liveControlDay','activeGroupDay',
+      'leaderboardScrollLeft','finalUpdateCloudSentAt'];
+    for(const key of localFields)if(Object.hasOwn(local||{},key))restored[key]=copy(local[key]);
+    return restored;
+  }
+  window.GolfCourseLayout={initial,step,sequence,card,validateIndexes,rating,eclectic,playingHole,remap,label,publicationTargetMatches,acceptedEventPlan,restoreAcceptedEvent};
 })();
