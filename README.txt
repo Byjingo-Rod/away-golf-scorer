@@ -1,2 +1,1333 @@
-YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíÛ½9é:-jZ.¶›­–)Ş³Tt’tôÄb44õ$U"(	BdU%4”ôâRã“rã€ ¤6÷W'6RÆ–÷WC¢WfVçBÖF’&WÆ6VÖVçB÷6†÷'FVæVB†öÆW2Â÷F–öæÂÆVæwF‚Â–æ†W&—FVB÷&Wf—6VB–æFW†W2Â&Wf–WvVB&F–ærö†æF–62Â‡—6–6ÂÖ†öÆRÆ&VÇ2æB&WÆ6VÖVçBÖv&RV6ÆV7F–2â&R×7F'BæB7FÆR×†öæR6W'fW"wV&G2Æ–VBFò&÷F‚2à ¥dU%4”ôâRã“rã` ¤t&Ææ6VBFVÒG&ræBf—6–&ÆRw&÷WtF÷FÇ2â6ÖRfVGW&RæB&VÆWfçBRã“rãR&öf–ÆRõ67&F6‚f—†W26'&–VBFòvöÆbWfVçB66÷&W"ãBãƒrà ¥dU%4”ôâRã“rãP ¥&W6W'fR÷&væ—6W"Æ–W"FWF–Ç2v†VâÆöF–ærV&Æ—6†VBWfVçG2â&W—"&Ææ²÷&–v–æÂvöÆdÆ–æ²&V6÷&G2'’ÖF6†–ær&÷F‚”BæBæÖRâÆ–vâ67&F6‚66÷&–ær6†ö–6W2æB6Æ&–g’VÆ–v–&–Æ—G’v÷&F–ærà ¥dU%4”ôâRã“rãB(	B4ôÕÄUD”ôâ„•5Dõ%’$T4T•E0 ¢Ò6VæG2F†R6†&VB†—7F÷'’Ö&¶W"v—F‚F†R66WFVBf–æÂ6Æ÷6Rà¢Ò&V6÷&G2Æö6Â†—7F÷'’öæ6RgFW"6¶æ÷vÆVFvVÖVçBÂ–æ6ÇVF–ær&V6÷fW'’gFW"Æ÷7B&W7öç6Rà¢Ò&WF–ç26ö×7B†—7F÷'’&V6V—B6ò6Æ÷VBöÆÆ–ær6ææ÷B6÷VçBF†R6ÖRWfVçBv–âà¢Ò–æ6ÇVFW2ÆÂæ–æRÆ–fV7–6ÆR6÷'&V7F–öç2g&öÒRã“rã2à  ¥dU%4”ôâRã“rã2(	BUdTåBÄ”dT5”4ÄR44UDä4P ¢Òf–æÂ6Æ÷6R7F—2VæF–ærVçF–ÂF†R6Æ÷VB6¶æ÷vÆVFvW2F†R&Wf–WvVB66÷&R&Wf—6–öç2à¢ÒwVW7B÷&væ—6W"WF†÷&—G’VæG2öâ7V66W76gVÂ6Æ÷6RÂ–æ6ÇVF–ær&÷FV7F–öâf÷"öÆFW"6Æ÷6VBÆç2à¢ÒÖ'&÷6R66WG2öæÇ’V&Æ—6†VB66÷&W"öÖ&¶W"&öÆW2ÂÖF6†–ærFVÒ6&G2æBfÆ–BG&—fW2à¢ÒÖ'&÷6R7V&Ö—76–öç2v—Bf÷"W†7B6Æ÷VB&V6V—G2Âv—F‚&÷FV7FVBöffÆ–æR&WG'’à¢Ò6ö×ÆWFVB6ö×WF—F–öç2v—F‚æòVÆ–v–&ÆRv–ææW"6â6Æ÷6Rv—F†÷WBv&F–ær&—¦Rà¢ÒV&Æ–6F–öâ&WG&–W2&WW6RöæRGW&&ÆRWfVçB–FVçF—G’æBÆ–W"¦ö–â6öFRà¢ÒF†R6Æ÷VBVæf÷&6W2F†RV&Æ—6†VB÷Væ–ærF–ÖRæBW‡Æ–6—B÷&væ—6W"V&Ç’÷Væ–ærà¢Ò&W7VÇBÖffV7F–ær6÷'&V7F–öç2&WV—&R&VæWvVB6–vâÖöfc²&6†—fVB6öFW27F’–æ7F—fRà¢Òf–æÂ×F÷FÂ66÷&W2Æö6²F†RffV7FVB&÷VæBw2–FVçF—G’Â†æF–6ÂFVRæB7F'B6WGF–æw2à¢ÒW†—7F–ær66÷&W2Â7B&W7VÇG2ÂF†R6–ævÆR6÷W'6RÖ7FW"æBVç&W6öÇfVB&Wf–Ww2&R&WF–æVBà  ¥dU%4”ôâRã“2ã"(	BÄ5BÔÔ”åUDRt„äD”4UDDP ¢Ò÷&væ—6W"ÖöFRæ÷r&÷f–FW2WFFRt†æF–62gFW"âWfVçB—2V&Æ—6†VBæBÆöFVBöâÆ–W"†öæW2à¢ÒF†R÷&væ—6W"6â&Wf—6Rtf–wW&W2æB&V6Æ7VÆFRWfW'’Væ&ÆVBFVR7&÷72&÷F‚F—2&Vf÷&R66÷&–ær&Vv–ç2à¢Ò6f–ærÆFRtWFFR&W7F÷&W26VæBÆÂ6WB(	Bf–æÂWFFR6òF†RæWr†æF–626â&R6VçBFòWfW'’†öæRà¢Òt†æF–6VF—F–ærÆö6·2WFöÖF–6ÆÇ’26ööâ2ç’66÷&R—2&V6÷&FVBà ¥dU%4”ôâRã“2ã(	BD…$TRÕDTR„äD”42äBu$TTâÔ$´U%0 ¢Ò6†V6¶VBF†—&B×FVR÷F–öâæ÷rÇv—2F—7Æ—2&6²ÂÖ–FFÆRæBg&öçBF–Ç’†æF–66öÇVÖç2à¢Ò6fVB&6²²g&öçB—'2g&öÒF†R&Wf–÷W2'V–ÆB&R&W—&VBWFöÖF–6ÆÇ’'’&W7F÷&–ærÖ–FFÆRà¢Òw&VVâ—2æ÷rf–Æ&ÆR–âWfW'’6÷W'6RFVRÖ6öÆ÷W"G&÷F÷vâà¢ÒV6‚Æ–W"w2ÆFW7Bt†æF–6æB6FVv÷'’&R&WF–æVB–âF†V—"&öf–ÆRæB&Vf–ÆÆVB–âF†RæW‡BWfVçBà ¥dU%4”ôâRã“2ã(	BUDôÔD”2tD”Å’„äD”40 ¢Ò7F÷&W2öæRg&÷¦Vât†æF–6f÷"V6‚Æ–W"f÷"F†Rv†öÆRWfVçBà¢Ò6Æ7VÆFW2WfW'’Væ&ÆVBFVRöâ&÷F‚WfVçBF—2g&öÒt†æF–6Â6Æ÷R&F–ærÂ67&F6‚&F–æræB"à¢ÒW6W2F†R7W'&VçBvöÆbW7G&Æ–4ôääT5Bã“2æBÖVâõvöÖVâ6öç6—7FVæ7’f7F÷'2à¢Ò7W÷'G2ÇW2t†æF–62æB&÷VæG2F†R&W7VÇBFòv†öÆRF–Ç’†æF–6à¢ÒÆ&VÇ2V6‚F–Ç’†æF–626Æ7VÆFVB÷"ÖçVÂà¢Ò&WF–ç2F—&V7BÖçVÂVF—F–ær26ö×ÆWFRfÆÆ&6²æB÷fW'&–FRà¢Ò6fW2F†RÆFW7Bt†æF–6æB6FVv÷'’–âF†RÆ–W"&öf–ÆRf÷"F†RæW‡BWfVçBà¢ÒfÆ–FFW2F†BWfW'’6VÆV7FVB6÷W'6RFVR†2F†R&WV—&VB&F–ærFF&Vf÷&R6Æ7VÆF–ærà ¥dU%4”ôâRã“"ãb(	B”TÄÄõr$ÄÂÄõEDU%’$•¤P ¢Ò–VÆÆ÷r&ÆÂ6âv&BV—F†W"&ÆÇ2ö&—¦R÷"Æ÷GFW'’ööÂ6öçG&–'WF–öâà¢Ò—G2&ÆÇ2G&÷F÷vâ—2Æ–Ö—FVBFòÂ"÷"2&ÆÇ2W"v–ææW"à¢Ò—G2Æ÷GFW'’ööÂ6öçG&–'WF–öâ6†ö–6W2&RCRÂCÂCR÷"C#W"FVÒÖVÖ&W"à¢Ò&—¦R6†ö–6W2f÷"WfW'’÷F†W"6ö×WF—F–öâ&VÖ–âVæ6†ævVBà ¥dU%4”ôâRã“"ãR(	B4ÄTâDTÒÔ„•5Dõ%’$4TÄ”äP ¢Ò&WÆ6W2ÆÂW†—7F–ærÆ–VB×FövWF†W"æBD$$"×'FæW"6÷VçFW'2öâV6‚FWf–6Rà¢Ò6VVG2F†R6ÆVâ†—7F÷'’g&öÒF†R&–FvRæB&÷F‚vVçV–æRfVFW&Â&÷VæG2à¢Ò–æ6ÇVFW2WfW'’f÷W"×Æ–W"w&÷WæBF†RGvòD$$"'FæW'6†—2v—F†–âV6‚w&÷Wà¢Ò&WfVçG2öÆBÆö6ÆÇ’&WF–æVBFW7BWfVçG2g&öÒ&V–ærWFöÖF–6ÆÇ’FFVB&6²ÆFW"à¢ÒæWrvVçV–æRæöâÕDU5BWfVçG26öçF–çVRFòVçFW"†—7F÷'’æ÷&ÖÆÇ’v†Vâ6ö×ÆWFVBà ¥dU%4”ôâRã“"ãB(	B5BUdTåB$U5TÅE0 ¢ÒFG27BWfVçG226W&FRöæÆ–æR&6†—fRf÷"&WF–æVB6ö×ÆWFVBWfVçG2à¢Ò÷Vç27BWfVçBF—&V7FÇ’B—G26fVB&W7VÇG2v—F†÷WB&V6öææV7F–ær÷"&V7F—fF–ær—G2öÆBÆ–W"¦ö–â6öFRà¢Ò&W6W'fW2F†R7W'&VçBWfVçB–â×’WfVçG2&Vf÷&R÷Væ–ærâ&6†—fVB&W7VÇBà¢ÒW†6ÇVFW2WfW'’WfVçBv†÷6R7GVÂ7F÷&VBæÖR&Vv–ç2v—F‚DU5BÂWfVâ–b—G2öÆB6Æ÷VBÆ&VÂFöW2æ÷Bà ¥dU%4”ôâRã“"ã2(	BDU5BUdTåE2U„4ÅTDTBe$ôÒÄ”U"„•5Dõ% ¢Òç’WfVçBv†÷6RG&–ÖÖVBæÖR&Vv–ç2v—F‚F†Rv÷&BDU5B—2W†6ÇVFVBg&öÒÆ–W"&V6÷&G2æB7FF—7F–72à¢ÒDU5BWfVçG2Fòæ÷BFBw&÷W†—7F÷'’ÂD$$"'FæW'6†—†—7F÷'’÷"6÷W'6RÖ†æF–6†—7F÷'’à¢Ò&Wf–÷W6Ç’&V6÷&FVBDU5BWfVçBw&÷WæB'FæW'6†—6÷VçG2&R&VÖ÷fVBöæ6Rg&öÒW†—7F–ær†—7F÷'’à¢ÒDU5BÖF6†–ær—266RÖ–ç6Vç6—F—fS²W†×ÆW2–æ6ÇVFRDU5BÂFW7BWfVçBæBDU5BÒ66÷&–ær6&B7—7FVÒà ¥dU%4”ôâRã“"ã"(	B$TdU%$TBÄ”U2%’D ¢ÒGvòÖF’WfVçG2†fR6W&FR&VfW'&VBÆ–W26WGF–æw2f÷"F’æBF’"à¢ÒV6‚F’6â–æFWVæFVçFÇ’W6RvVæW&Â&VÂ6Æ÷6VÇ’Ö÷vâ&V2öæÇ’Â÷"Æ’F†R&ÆÂ2—BÆ–W2à¢Òf–æÂ&Wf–WrÂÆ–W"–ç7G'V7F–öç2æBWfVçB'VÆW2F—7Æ’F†R6÷'&V7B'VÆRf÷"V6‚F’à¢ÒW†—7F–ærWfVçG2v—F‚öæR&VfW'&VBÆ–W26WGF–ær&WF–âF†B6WGF–æröâ&÷F‚F—2à ¥dU%4”ôâRã“"ã(	B4õ’DTR44õ$T4$@ ¢Ò6÷W'6RFWF–Ç26â6÷’6ö×ÆWFR7F÷&VBFVR66÷&V6&B–çFòæ÷F†W"FVRà¢ÒF†R6÷’–æ6ÇVFW2ÆÂ‚'2Â7G&ö¶R–æFW†W2æB†öÆRÆVæwF‡2à¢ÒF†RFW7F–æF–öâ6&B&VÖ–ç2–æFWVæFVçB6ò—G2ÆVæwF‡2÷"&F–æw26â&R6÷'&V7FVBÆFW"à ¥dU%4”ôâRã“"ã(	BDTRÕ5T4”d”24õU%4R44õ$T4$E0 ¢Ò7F÷&W2WFòF‡&VR6ö×ÆWFR66÷&V6&G2f÷"V6‚6÷W'6S¢&6²ÂÖ–FFÆRæBg&öçBà¢ÒÆ&VÇ2V6‚6&Bv—F‚—G2Ö&¶W"6öÆ÷W"æB&÷f–FW266÷&V6&BFVRG&÷F÷vâà¢Ò6÷–W2ÆÂ‚"fÇVW2–çFòæWvÇ’7&VFVBFVR6&Bv†–ÆRÆVf–ær—G2–æFW†W2æBÆVæwF‡2&VG’f÷"VçG'’à¢ÒW6W2F†R6VÆV7FVBÆ––ærFVRw2"Â–æFW‚æBÆVæwF‚F‡&÷Vv†÷WB66÷&–ærÂÖçVÂ66÷&RVçG'’æBÆVFW&&ö&G2à¢Ò&V6Æ7VÆFW2WFöÖF–2åE6†ö–6W2v†VâF†R6÷W'6R÷"Æ––ærFVR6†ævW2à¢Ò&W6W'fW2W†—7F–æröæRÖ6&B6÷W'6W2æBÖF6†W2F†RöÆB6&BFòFVR'’F÷FÂÆVæwF‚v†W&R÷76–&ÆRà ¥dU%4”ôâRã“ã‚(	Bd•%ETÂÄ”U"4ôÕUD•D”ôâ4dTuT$E0 ¢ÒÆ&VÇ2WfW'’&÷'&÷vVBÆVFW&&ö&BV&æ6R2f—'GVÂÆ–W"f÷"F†RÖ—76–ærvöÆfW"à¢ÒW6W2F†Rf—'GVÂÆ–W"w2fW&–f–VBF’66÷&W2–âF†RGvòÖF’"26ö×WF—F–öâà¢ÒW†6ÇVFW2F†RÖ—76–ærvöÆfW"w2F’""2'FæW"g&öÒF’f—'GVÂ×Æ–W"6VÆV7F–öâÂ&WfVçF–ærF÷V&ÆVB6öçG&–'WF–öâà¢ÒæÖW2&÷F‚vöÆfW'2–âF†R66÷&V6&Bw2f—'GVÂ×Æ–W"7FGW2æVÂæBW‡Æ–ç2v‡’F÷FÂÖ’&Rv—F–ærà ¥dU%4”ôâRã“ãr(	BÔåTÂD’Edä4U2Ä”U"„ôäU0 ¢Ò6ö×ÆWF–ærF’F‡&÷Vv‚&V6÷&BÆÂ66÷&W2æ÷r6÷VçG22F†Röff–6–Âf–æÂF’7V&Ö—76–öâf÷"WfW'’Æ–W"à¢ÒÆ–W"†öæW2WFöÖF–6ÆÇ’Gfæ6R7BF†V—"VçW6VBF’6&G2FòF†RF’"66÷&V6&Bà¢ÒF’"&VÖ–ç2Æö6¶VBVçF–ÂRÖ–çWFW2&Vf÷&R—G2f—'7BFVRF–ÖRÂW†7FÇ’2v—F‚æ÷&ÖÂ†öæR66÷&–ærà ¥dU%4”ôâRã“ãb(	BD’4TÄT5D”ôâäBd•%ETÂ%DäU"D•5Ä ¢Ò¶VW2F†R÷&væ—6W"w26VÆV7FVBÆVFW&&ö&BF’F‡&÷Vv‚WFöÖF–26Æ÷VB&Vg&W6†W2à¢Ò¶VW2F†Ræò'FæW"Æ–W"&W6–FRæò'FæW"öâF†R†öæRw2GvòÖ6öÇVÖâFVÒF—7Æ’à¢Ò6Æ&–f–W2F†BF†RÆ—7FVBf—'GVÂ'FæW"7WÆ–W2F†RÖ—76–ær×VÇF—Æ–W"66÷&W2à¢ÒÆ6W2F†Rf—'GVÂ×Æ–W"Ö&¶W"&VæVF‚F†R6÷'&V7BD$$"Æ–W"–âW"VçG'’à¢ÒF—7Æ—2F†R6Æ7VÆFVBWGF–ærF÷FÂ–ÖÖVF–FVÇ’–âF†RW‡æFVBgVÆÂÖ6&B6V7F–öâà ¥dU%4”ôâRã“ãR(	B$UdU%4”$ÄReTÄÂ44õ$R4$E0 ¢ÒgVÆÂÖ6&BVçG'’æ÷rW‡Æ–6—FÇ’f–ÆÇ2æBÆö6·2WfW'’"2w&÷7266÷&Rà¢ÒFG26Æ÷6R66÷&R6&G2Fò&WGW&âFò&'&Wf–FVBÖçVÂVçG'’Bç’F–ÖRà¢Ò&Wf–÷W6Ç’VçFW&VBgVÆÂÖ6&Bf–wW&W2&VÖ–â6fVB–bF†R6&G2&R&V÷VæVBà ¥dU%4”ôâRã“ãB(	B4ôÕÄUDRU"DTÒD•5Ä ¢Ò6†÷w2F†R6VÆV7FVBf—'GVÂÆ–W"–âF†R&V6÷&BÆÂ66÷&W2FVÒÆ—7Bà¢ÒFG2F†R6÷W'6R"&W6–FRWfW'’†öÆRöâF†RgVÆÂ–æF—f–GVÂÖ6&Bw&–Bà¢Òæ'&÷w2F†R66÷&–ær6öÇVÖç26ò†öÆRÂ"æBÆÂf÷W"Æ–W'2f—B6öÖf÷'F&Ç’öâF&ÆWBà ¥dU%4”ôâRã“ã2(	BõD”ôäÂeTÄÂ”äD•d”ETÂ44õ$R4$E0 ¢ÒFG2÷Vâ–æF—f–GVÂ66÷&R6&G2FòWfW'’W"FVÒ6&Bà¢Ò&W6VçG2f÷W"Æ–W"6öÇVÖç2v—F‚†öÆW2(	3‚F÷vâF†RÆVgBæBVçFW"Ö÷f–æp¢F÷vâV6‚Æ–W"w26öÇVÖâà¢Ò–æ6ÇVFW2F†Rf—'GVÂÆ–W"2F†Rf÷W'F‚Æ–W"F‡&÷Vv†÷WB6†÷'B×FVÒ6&Bà¢Ò6Æ7VÆFW26–ævÆR7F&ÆVf÷&BÂD$$"Â&W7B2öbBæB"Ó2&W7VÇG2g&öÒF†P¢–æF—f–GVÂw&÷726&G2à¢ÒFG2f÷W"–æF—f–GVÂWGF–ærF÷FÇ2æB6Æ7VÆFW2F†RFVÒF÷FÂWFöÖF–6ÆÇ’à¢Ò¶VW2F†R6Æ7VÆFVB&W7VÇBf–VÆG2&VBÖöæÇ’v†VâgVÆÂÖ6&BVçG'’—2W6VBà ¥dU%4”ôâRã“ã"(	BD’Õ5T4”d”2”TÄÄõr$ÄÂ4„T4° ¢ÒÆÆ÷w2&V6÷&BÆÂ66÷&W2öâF’F†BFöW2æ÷B'Vâ–VÆÆ÷r&ÆÂÂWfVâv†Và¢–VÆÆ÷r&ÆÂ—26VÆV7FVBf÷"F†R÷F†W"F’öbGvòÖF’WfVçBà¢Ò¶VW2ÖçVÂVçG'’&Æö6¶VBöæÇ’öâF†RF’v†W&R–VÆÆ÷r&ÆÂ—27GVÆÇ’Æ–VBà ¥dU%4”ôâRã“ã(	BdU%D”4Â"Ó2U"TåE% ¢ÒÆ6W2Æ–W"æÖW27&÷72F†RF÷æB"Ó2†öÆRçVÖ&W'2F÷vâF†RÆVgBà¢ÒVçFW"Ö÷fW2F÷vâöæRÆ–W"w266÷&R6öÇVÖâ&Vf÷&RÖ÷f–ærFòF†RæW‡BÆ–W"à¢ÒÆ&VÇ2âåE&W7VÇBVçFW&VBF‡&÷Vv‚&V6÷&BÆÂ66÷&W22v–ææW"–çWBÖçVÆÇ’à ¥dU%4”ôâRã“ã(	B$T4õ$BÄÂ44õ$U0 ¢ÒFG2÷&væ—6W"ÖöæÇ’F&ÆWBVçG'’f÷"6–væVBW"FVÒ6&G2öâF’÷"F’"à¢Ò6†÷w2öæÇ’F†RF÷FÇ2æVVFVB'’F†RWfVçBw26VÆV7FVB6ö×WF—F–öç3¢6–ævÆP¢7F&ÆVf÷&BÂD$$"Â&W7B2öbBÂWGF–ærÂ"2—'2æBæV&W7BF†R–âà¢Ò7W÷'G2FVÒWGF–ærF÷FÇ2÷"–æF—f–GVÂWGF–ærF÷FÇ2f÷"6öæf–wW&VB—'2à¢ÒFG2÷F–öæÂ&6²’ÂÆ7BbæBÆ7B26÷VçF&6²f–wW&W2à¢Ò6fW2V6‚FVÒ6&B2G&gBæB&W7VÖW2—BöâF†R6ÖRF&ÆWBà¢ÒÆWG2W"Ö6&BFV×2æB†öæR×66÷&VBFV×26öW†—7BöâF†R6ÖRF’à¢Ò7V&Ö—GFVBW"7VÖÖ&–W2fVVBF†Ræ÷&ÖÂ&W7VÇG2v—F†÷WB–çfVçF–ær†öÆR66÷&W2à¢Ò¶VW267&F6‚ÂV6ÆV7F–2Â–VÆÆ÷r&ÆÂæBÖ'&÷6RVçG'’÷WBöbF†—2f—'7B7FvRà ¥dU%4”ôâRã“ãr(	B4ôÕ5BÔ%$õ4R4ôåE$ôÂ$õp ¢ÒÖ÷fW2F†R7W'&VçBv–âÖ&VæVf—B7VÖÖ'’FòF†RÆVgBöbF†RÖ'&÷6R6öçG&öÇ2à¢ÒÆ6W2&WV—&VBG&—fW2W"Æ–W"öâF†R6ÖRÆ–æR–ÖÖVF–FVÇ’Fò—G2&–v‡Bà ¥dU%4”ôâRã“ãb(	BÔ%$õ4R$UT•$TBÔE$•dU24ôåE$ôÀ ¢Ò&W7F÷&W2F†R&WV—&VBG&—fW2W"Æ–W"6VÆV7F÷"FòF†RÖ'&÷6R6ö×WF—F–öà¢æVÂf÷"WfW'’öæRÖF’Ö'&÷6RWfVçBà ¥dU%4”ôâRã“ãR(	BU%4•5DTåBd”äÂUDDR4ôäd•$ÔD”ôà ¢ÒgFW"7V66W76gVÂf–æÂWÆöBÂF†RV&Æ—6†–ær'WGFöâ&VÖ–ç2f—6–&Ç¢6†ævVBFò'&÷vâf–æÂWFFR6VçB)É26öæf—&ÖF–öâà ¥dU%4”ôâRã“ãB(	BuTU5Bõ$tä•4U"d”äÂÄ”U"T$Ä”4D”ôà ¢Ò6VæBÆÂ6WB(	Bf–æÂWFFRæ÷r7–æ6‡&öæ—6W2F†RwVW7B÷&væ—6W"w26ö×ÆWFV@¢Æ–W"Æ—7B&Vf÷&RÆö6¶–ærF†RFVÆVvFVBWfVçBà¢ÒÆ–W'26â¦ö–ââWfVçBF†Bv2FVÆVvFVB&Vf÷&R—G2&÷7FW"v26VÆV7FVBà¢ÒW†—7F–ærÆ–W"†öæR6öææV7F–öç2&R&W6W'fVBv†VâF†V—"Æ–W"&VÖ–ç2–à¢F†Rf–æÂf–VÆBà ¥dU%4”ôâRã“ã2(	BõtäU"$T4õdU%’äBuTU5B”åd•DD”ôâ$U•  ¢Òâ÷&væ—6W"6÷’6öçF–æ–æröÆBÆö6Âv÷&²6âæ÷r6–vâ–âFòâW†—7F–æp¢W&ÖæVçB÷væW"66÷VçBv—F†÷WBG'––ærFò&÷FV7BF†RöÆBæöç–Ö÷W2–FVçF—G’à¢ÒwVW7B÷&væ—6W"–çf—FF–öâ6öFRvVæW&F–öâæ÷r&W6öÇfW27W&6Rv7'—Fğ¢gVæ7F–öç2g&öÒF†RW‡FVç6–öç266†VÖà¢Ò–æ6ÇVFW2fW'6–öâRã“ã"G&gB&V6÷fW'’æBæÖVBÆ–W"Æ—7G2à ¥dU%4”ôâRã“ã"(	B$U5TÔRE$eE2äBäÔTBÄ”U"Ä•5E0¢Ò×’WfVçG2æ÷r÷Vç26fVBG&gBF—&V7FÇ’BF†R6WGW7FWv†W&Rv÷&²7F÷VBà¢ÒWfVçB÷F–öç2–æ6ÇVFW26öçF–çVRWfVçB6WGWf÷"&÷F‚F†R÷væW"æBwVW7B÷&væ—6W"à¢ÒFG2&WW6&ÆRæÖVBÆ–W"Æ—7G2'V–ÇBg&öÒF†RÖ7FW"Æ–W"Æ—7Bà¢ÒÆöF–æræÖVBÆ—7BFG2—G2f–Æ&ÆRÖVÖ&W'2Fò–çf—FVB2v—F–ær&WÇ’à¢ÒÆ—7G26â&R7&VFVBÂVF—FVBÂ&VæÖVBæBFVÆWFVBv—F†÷WB6†æv–ærF†RÖ7FW"Æ–W"Æ—7Bà ¥dU%4”ôâRã“ã(	B4dR%DÅ’ÄääTBUdTåE0¢ÒFG26fRG&gBF‡&÷Vv†÷WBF†R6—‚WfVçB6WGW7FW2à¢ÒG&gB6â&R6fVBv—F‚öæÇ’F†R–æf÷&ÖF–öâ¶æ÷vâ6òf"æB&V÷VæVBÆFW"à¢Ò6f–ær—26W&FRg&öÒV&Æ—6†–ær÷"FVÆVvF–öâà¢Ò6fVBG&gB6âÆFW"&RFVÆVvFVBg&öÒwVW7B÷&væ—6W"Â÷"6ö×ÆWFVB'’F†R÷væW"à¢Ò¶VW26æ6VÂ2G'VR6æ6VÆÆF–öâF†BFöW2æ÷B7&VFR÷"ÇFW"F†R6fVBG&gBà ¥dU%4”ôâRã“ã(	B4”ätÄRÔUdTåBuTU5Bõ$tä•4U  ¢ÒÆWG2F†R÷væW"÷&væ—6W"FVÆVvFRöæRV&Æ—6†VBWfVçBW6–ær6W&FRÀ¢öæR×W6RwVW7B÷&væ—6W"–çf—FF–öâ6öFRà¢Òv—fW2F†RwVW7BF†Ræ÷&ÖÂWfVçB6WGWæB÷W&F–öâvW2f÷"F†BWfVçBà¢Ò&WfVçG2F†RwVW7Bg&öÒ7&VF–ærWfVçG2Âf–Wv–ærF†R÷væW"w2÷F†W"WfVçG2À¢W6–ærF†R÷væW"66÷VçBÂ÷"7&VF–ær÷&væ—6W"×F&ÆWB66W72à¢ÒÆWG2F†R÷væW"&Wfö¶RwVW7B66W72Bç’F–ÖRà¢ÒWFöÖF–6ÆÇ’&Wfö¶W2wVW7B66W72v†VâF†RWfVçB—26Æ÷6VB÷"&6†—fVBà¢Ò7&VF–ær&WÆ6VÖVçB–çf—FF–öâ&Wfö¶W2F†R&Wf–÷W2wVW7Bà¢Ò–çf—FF–öâ6öFW2W‡—&RgFW"BF—2–bF†W’†fRæ÷B&VVâ66WFVBà ¥dU%4”ôâRãƒ’ã(	BõtäU"TÔ”ÂdU$”d”4D”ôâ4õ%$T5D”ôà ¢Ò6†÷w2fW&–f–6F–öâVæF–ærVçF–Â7W&6R6öæf—&×2F†R÷væW"w2VÖ–Âà¢Ò6†÷w2÷væW"6–væVB–âöæÇ’gFW"vVçV–æRVÖ–Â6öæf—&ÖF–öâà¢Ò6VæG2fW&–f–6F–öâæB6–vâÖ–âÆ–æ·2&6²FòF†RV&Æ—6†VBv’vöÆbvRÀ¢æWfW"FòFV×÷&'’Æö6Æ†÷7BFW7BFG&W72à¢ÒÆÆ÷w2âW‡—&VBfW&–f–6F–öâVÖ–ÂFò&R&WÆ6VBv—F‚æWröæRà ¥dU%4”ôâRãƒ’ã(	BõtäU"õ$tä•4U"4”tâÔ”à ¢Ò6öçfW'G2F†R÷&væ—6W"–FVçF—G’Ç&VG’W6VB'’F†RÆææ–ær2–çFò¢W&ÖæVçB77v÷&FÆW72VÖ–Â66÷VçBv—F†÷WB6†æv–ær—G26V7W&RW6W"”Bà¢Ò¶VW2W†—7F–ærV&Æ—6†VBWfVçG2GF6†VBFòF†R6ÖR÷væW"÷&væ—6W"à¢ÒÆÆ÷w2&Ææ²&WÆ6VÖVçBFWf–6RFò&WVW7B6V7W&R6–vâÖ–âÆ–æ²f÷"à¢W†—7F–ær÷væW"66÷VçBæB&V6÷fW"—G2V&Æ—6†VBWfVçG2à¢Ò6ÆV&Ç’6W&FW2V&Æ—6†VBÖWfVçB&V6÷fW'’g&öÒG&gBÆææ–æs¢G&gG27F¢öâF†RÆææ–ær2VæÆW726fVBv—F‚÷&væ—6W"&6·Wà¢ÒFöW2æ÷B6†ævRF†RW†—7F–ær÷&væ—6W"F&ÆWBWfVçBÖF’6öçG&öÇ2à ¥dU%4”ôâRãƒ‚ãr(	BÔ%$õ4RäUBÄTDU$$ô$BäB4$BÄ”täÔTå@ ¢Ò¶VW2WfW'’Æ–W"w266WFVBÖG&—fR6÷VçBf—6–&ÆRöâWfW'’†öÆRà¢ÒW6W2–VÆÆ÷röæÇ’f÷"F†RG&—fR6VÆV7FVBöâF†R7W'&VçB†öÆRà¢Ò7V&Ö—G2æöâÖ6ö×Æ–çB6&G2v—F‚$UT•$TBE$•dU2äõB$T4õ$DTBæBW†6ÇVFW2F†VÒg&öÒÆ6–æw2à¢Ò6†÷w2F†RæÖVBGvò×6†÷BÆ–W"öâV6‚F‡&VR×Æ–W"×FVÒåE66÷&–æræVÂà¢Ò6ö×7G2f÷W"G&—fR6†ö–6W2–çFòGvòÖ'’×Gvò†öæRÆ–÷WBà¢Ò6Æ&–f–W2F†BæWB—2F†Rf–æÂ‚Ö†öÆRæWB66÷&Rà¢ÒÖ÷fW26†ævRFVR&Vf÷&R66÷&–ær–ÖÖVF–FVÇ’&Vf÷&RF†RWfVçB×v–FR66÷&RÖ&¶W"6öçG&öÂà ¥dU%4”ôâRãƒ‚ãR(	BÔ%$õ4RÔ$´U"äBDTÒÕ$ôÄRÄ”õU@ ¢ÒÆ6W2öæR66÷&RÖ&¶W"6öçG&öÂ&W6–FRF†RÆ––ærFVR6†ö–6W2â—BÆ–W0¢FòWfW'’FVÒ–âF†RWfVçBæBÆö6·2öæ6R66÷&–ær&Vv–ç2à¢ÒæWrÖ'&÷6RWfVçG2FVfVÇBFò†öæ÷W"66÷&–ærv—F‚öæR66÷&W"W"FVÓ²F†P¢÷&væ—6W"6â–æ6ÇVFR6†V6¶–ærÖ&¶W'2v—F‚öæR'WGFöâà¢Ò&VÖ÷fW2F†RÖ'&÷6RFVÒ&öÆW2†VF–æræBVæÆ&vW2F†RFVÒ66÷&W"æ@¢Ö&¶W"6VÆV7F÷'26ò6ö×ÆWFRÆ–W"æÖW2&VÖ–âf—6–&ÆRà ¥dU%4”ôâRãƒ‚ãB(	BD…$TRÕÄ”U"Ô%$õ4RåE$õDD”ôà ¢Òv†VâF‡&VR×Æ–W"Ö'&÷6RFVÒ†2GvòåE†öÆW2Â&æFöÖÇ’76–vç2F†P¢W‡G&FVR6†÷BFòF–ffW&VçBÆ–W"öâF†R6V6öæBåE†öÆRà¢Ò6†÷w2F†R÷&væ—6W"V6‚åE†öÆRæB—G2æöÖ–æFVBW‡G&×6†÷BÆ–W"à¢Ò6†÷w2V6‚æöÖ–æFVBÆ–W"F†R&VÆWfçBåE†öÆR–âFöF’w27V6–À¢–ç7G'V7F–öç2âW†—7F–æröæRÔåEÖ'&÷6RWfVçG2&WF–âöæRæöÖ–æFVBÆ–W"à ¥dU%4”ôâRãƒ‚ã2(	BÔ%$õ4RDU5B%T”Ä@ ¢ÒFG2Ö'&÷6R26W&FRFVÒ×7G&ö¶RWfVçBF†B'Vç2öæÇ’v—F‚÷F–öæÀ¢æV&W7BF†R–âà¢Ò7W÷'G2f÷W"×Æ–W"FV×2æBF‡&VR×Æ–W"FV×2v—F†÷WBf—'GVÂ66÷&Rà¢ÒÆWG2F†R÷&væ—6W"6†ö÷6R66÷&W"öæÇ’÷"66÷&W"æBÖ&¶W"6†V6¶–ærà¢Ò&V6÷&G2öæRFVÒ7G&ö¶R66÷&RæBF†R6VÆV7FVBG&—fRöâWfW'’†öÆRà¢ÒG&6·2V6‚Æ–W"w266WFVBG&—fW2v–ç7Bâ÷&væ—6W"×6WBÖ–æ–×VÒà¢Ò6Æ7VÆFW2F†RFVÒ†æF–62F†R6öÖ&–æVBF–Ç’†æF–62F—f–FVB'¢Gv–6RF†RçVÖ&W"öb7GVÂFVÒÖVÖ&W'2†f÷W"×Æ–W"òƒ²F‡&VR×Æ–W"òb’à¢ÒöffW'2Â÷""WFöÖF–6ÆÇ’6VÆV7FVBåE†öÆW2v—F‚F†RW†—7F–ær6†ævP¢÷F–öâæB&V6÷&G2v†ò6–væVBF†RåE6&BæBv†Vâà¢Òv—fW2öæR&æFöÖÇ’6VÆV7FVBÖVÖ&W"öbF‡&VR×Æ–W"FVÒF†RW‡G&åEFVP¢6†÷BÇ&VG’W6VBf÷"6†÷'BFV×2à ¤t’tôÄb44õ$U"(	BdU%4”ôâRãƒp ¥dU%4”ôâRãƒr(	B”TÄÄõr$ÄÀ ¢ÒFG2–VÆÆ÷r&ÆÂ2F–Ç’FVÒ6ö×WF—F–öâà¢ÒÆWG2GvòÖF’÷&væ—6W"6VÆV7BF’ÂF’"÷"&÷F‚F—2à¢Ò&÷FFW2F†R&ÆÂF‡&÷Vv‚V6‚w&÷W–âÆ––ær÷&FW"Â–æ6ÇVF–ær6†÷FwVâæ@¢÷F†W"æöâÖf—'7BÖ†öÆR7F'G2à¢Ò†–v†Æ–v‡G2F†RæöÖ–æFVBÆ–W.(	—2æÖR'&–v‡B–VÆÆ÷rv—F†÷WBFF–æræ÷F†W ¢66÷&V6&B6öÇVÖâà¢ÒW6W2F†BÆ–W.(	—2w&VVB7F&ÆVf÷&B66÷&RWFöÖF–6ÆÇ’æB7F÷2F†RFVŞ(	—0¢–VÆÆ÷r&ÆÂFÆÇ’v†VâF†R&ÆÂ—2&V6÷&FVBÆ÷7Bà¢Ò6†÷w2Æ–W'2öæÇ’F†V—"÷vâFVŞ(	—2Æ—fR–VÆÆ÷r&ÆÂö–çG2æB&ÆÂ7FGW2à¢÷÷6–ær66÷&W>(	FæBWfW'’66÷&Röâ÷&væ—6W"æB7V7FF÷"67&VVç>(	G&VÖ–à¢†–FFVâVçF–ÂWfW'’66÷&V6&Bf÷"F†BF’—26ö×ÆWFRà¢ÒFG2&VÆV6RÆÂ†öæW2v†–ÆR&WF–æ–ærV6‚–æF—f–GVÂ&VÆV6R†öæR'WGFöâà¢ÒW‡Æ–ç2v†VâöæR×FVÒWfVçB†2æòVÆ–v–&ÆRVÖW&vVæ7’&WÆ6VÖVçBà ¤t’tôÄb44õ$U"(	BdU%4”ôâRãƒbã` ¥dU%4”ôâRãƒbãb(	B4ÄTâäUrUdTåE2äBd•4”$ÄR4UEU$T4õ$@ ¢Ò6ÆV'2ÆÂ66÷&–ærÂf–æÆ—6F–öâÂ&—¦RæBÆ—fRÖWfVçB&VÖæçG2v†VæWfW"¢6ö×ÆWFVÇ’æWrWfVçB—27&VFVBÂ&WfVçF–ærfÇ6R(	Å66÷&–ær†2&VwVî(	Òv&æ–æw2à¢Ò&WVG2F†R7V66W76gVÆÇ’6†V6¶VBf–æÂ6†V6²–æf÷&ÖF–öâ&VæVF‚w&÷W2`¢FV×2Âv†W&R—B&VÖ–ç2f–Æ&ÆRF‡&÷Vv†÷WBÆææ–ærÂV&Æ–6F–öâæBÆ’à¢ÒF†R&WF–æVB6WGW&V6÷&B6†÷w2öæÇ’6öæf—&ÖVBw&VVâ×F–6²—FV×2à ¥dU%4”ôâRãƒbãR(	B”4²ÕUDõDÅ2äBUDôÔD”2d”äÄ•4D”ôà ¢Ò6÷VçG27F&ÆVf÷&B–6²×W–âF—7Æ–VBw&÷72×7G&ö¶RF÷FÇ22F†Rf—'7@¢w&÷7266÷&Rv÷'F‚¦W&òö–çG3¢"ÇW2GvòÇW2F†RÆ–W"w2†æF–6 ¢7G&ö¶W2öâyÓ­¢G§²ÚîÆ­yÒf–Wr&VG&w2à¢ÒWfVçB'VÆW2b6ö×WF—F–öç2æ÷r÷Vç2æB6Æ÷6W26÷'&V7FÇ’à¢Òv÷B—Bæ÷r6¶æ÷vÆVFvW2F†R6VÆV7FVBÆ–W"æBVæ&ÆW2F†R&÷VæBv†VâÆÂ÷F†W"&WV—&VÖVçG2&RÖWBà¢Ò6†æv–ærF†RÆ–W"6VÆV7F÷"æ÷r&VG&w2F†R†öæRf÷"F†R6VÆV7FVBvöÆfW"à ¥dU%4”ôâRã0¢ÒWfVçB'VÆW2b6ö×WF—F–öç2æ÷r÷Vç2æB6Æ÷6W2&VÆ–&Ç’2â–æÆ–æRæVÂ–âÆ–W"f–Wrà¢ÒF’æBF’"6VÆV7F÷'2&WF–âF†V—"gVÆÂv÷&F–æröâæ'&÷r67&VVç2à¢Ò6—¦Röbf–VÆBæ÷rW6W26ÆV"Ö–çW2òçVÖ&W"òÇW26öçG&öÂ–ç7FVBöbF†R'&÷w6W"w2F–ç’7–ææW"à ¤6ÆVâ&öGV7F–öâÖf÷VæFF–öâ&V'V–ÆBà ¤–æ6ÇVFVBæBv÷&¶–æs ¢Ò7FWWfVçBFWF–Ç3¢WfVçBæÖRÂFFRÂÆVæwF‚Â7F'Bf÷&ÖBÂf–VÆB6—¦RÂF’ôF’"6÷W'6W2à¢Ò7FW"Æ–W'3¢7W&æÖR6÷'F–ærÂf—6–&ÆRvöÆdÆ–æ²Â–çf—FRöv—Bö66WBöFV6Æ–æRÂ6öæf—&ÖVBf–VÆBÂ–æ7F—fR†—7F÷&–6ÂÖVÖ&W'2à¢ÒÆ–W"FÖ–æ—7G&F–öã¢FBÂÖ¶R–æ7F—fRÂ&V7F—fFRÂ–æf÷&ÖF–öâæVÂà¢Ò6÷W'6RFÖ–æ—7G&F–öã¢FBÂÖ¶R–æ7F—fRÂ&V7F—fFRÂ6÷W'6RFWF–Ç2†FG&W72ÂÖÆ–æ²Â†öæRÂvV'6—FRÂVÖ–ÂÂæ÷FW2Â7F—fRFVR÷66÷&V6&B7VÖÖ'’’à¢Ò7FW26ö×WF—F–öâ6WGW¢6–ævÆR7F&ÆVf÷&BÂD$$"7F&ÆVf÷&BÂWGF–ærÂ&W7B2öbBÂ"2ÂåEÂ67&F6‚ÂWFöÖF–2V6ÆV7F–2f÷"6ÖRÖ6÷W'6RGvòÖF’WfVçG2à¢Òv–â&VæVf—B6öçG&öÇ2&R†–FFVâVçF–Â6VÆV7FVB6ö×WF—F–öâw26WBv–â&VæVf—B'WGFöâ—2&W76VBà¢Ò&W7B2öbB7W÷'G2Æ÷GFW'’ööÂ÷"&—¦RÂv—F‚CÒCSÆ÷6–ær×FVÒ6öçG&–'WF–öâà¢Ò÷&væ—6W"6ö×WF—F–öâ6†ö–6W2&R&WF–æVB2F†R7F'F–ærFV×ÆFRf÷"F†RæW‡BWfVçBà¢ÒåEW6W26VÆV7FVBv÷&F–æræBWFöÖF–2V6–W7B×&FVB"26VÆV7F–öâà ¤FVÆ–&W&FVÇ’æ÷B6'&–VBf÷'v&B–WC ¢ÒÆVv7’FV×2õ66÷&–ærõfW&–f–6F–öâ–×ÆVÖVçFF–öââF†W6Rv–ÆÂ&R&V'V–ÇBöâF†—26ÆVâ&6†—FV7GW&RæW‡Bà ¤W†—7F–ærv’vöÆbÆ–W"ö6÷W'6RFF—26VVFVBÂæBfW'6–öâ2GFV×G2FòÖ–w&FRW†—7F–ærÆ–W"æB6÷W'6RVF—G2g&öÒF†R&–÷"v”vöÆec'&÷w6W"FF7F÷&Rà ¥dU%4”ôâ2ã¢Ò&W7F÷&VBv—¦&BÖ&v–â÷FF–æræB6†÷'FVæVB†VF–ærFò7&VFRæWrWfVçBà¢ÒÆ–W"Æ—7Bæ÷rÆö6·2–çFòf—†VBÖ†V–v‡B2Ö6öÇVÖâ&ö&Bv—F‚–æFWVæFVçB67&öÆÆ–ærà¢Òf—6–&ÆR&VBöÖ&W"öw&VVâG&ff–2Æ–v‡G2æBÆVvVæB&W7F÷&VBà¢Ò²FBÆ–W"ÂÖ¶R–æ7F—fRæB&V7F—fFR&W7F÷&VB–ç6–FRWfVçB6WGWà¢Ò6÷W'6RFWF–Ç26â&R÷VæVBg&öÒ7FWæB7F÷&W2Æö6F–öâÂ&ò6†÷†öæRÂÖÆ–æ²ÂvV'6—FRÂVÖ–ÂÂæ÷FW2Â&6²ôÖ–FFÆRôg&öçBFVRFFæBVF—F&ÆR66÷&V6&BFFà¢Ò6÷W'6RÆ—7Bæ÷r6†÷w2FF7FGW2æB¶æ÷vâ6Æ÷R÷"öÆVæwF‚ö6öçF7BFWF–Âà¢Ò7V6–g’&—¦R&WÆ6W27V6–g’öæÇ’–b&WV—&VBà¢Ò&W7B2öbBÆ÷GFW'’ööÂF—7Æ—2B6öçG&–'WF–öâæB'W"FVÒÖVÖ&W""à¢ÒV6ÆV7F–2—26†÷vâöâWfW'’"ÖF’6WGW¢6VÆV7FVBf÷"6ÖRÖ6÷W'6RWfVçG2Âw&W–VB÷WBf÷"F–ffW&VçBÖ6÷W'6RWfVçG2à ¥dU%4”ôâ2ã ¢Òg&öçBæ–æRæB&6²æ–æRF—7Æ–VB6–FR'’6–FR–â6÷W'6RFWF–Ç2à¢Ò6ö×7B66÷&V6&B6öÇVÖç2æB7F–6·’†VF–æw2à¢Ò–æFW‚66WG26ö×÷6—FRfÇVW27V6‚2Bó3óC‚à¢Ò&WGW&âFò6WGWFFVBf÷"6÷W'6RæBÆ–W"FÖ–æ—7G&F–öâ÷VæVBg&öÒF†Rv—¦&Bà¢ÒÖævRÆ–W"Æ—7BFFVBFò7FW"à¢Ò76–ærFFVB&WGvVVâf–VÆBçVÖ&W"æBD$tUBd”TÄBà¢Ò7F&ÆR6ö×WF—F–öâ&VæVf—B6öÇVÖç2æB&WGFW"76–ær&Vf÷&R÷F–öæÂ&—¦RFW67&—F–öâà¢ÒGvòÖF’"26†ö–6W26÷'&V7FVC¢öæRWfVçBV6‚F’õ"öæRvw&VvFRWfVçB÷fW""F—2W6–ærF’"D$$"'FæW'2à¢Ò6ÖRÖ6÷W'6RV6ÆV7F–2FWFV7F–öâ†&FVæVBæB&Wf–÷W2"2FV×ÆFRfÇVW2Ö–w&FVBà ¥dU%4”ôâ2ã0¢Òf—†VB&WGW&âFò6WGWæf–vF–öã¢6÷W'6RæBÆ–W"FÖ–âvW2&Ræ÷r&VG&vâgFW"F†Rv—¦&B&WGW&â7FW—26WBÂ6òF†R'WGFöâ7GVÆÇ’V'2à¢ÒV6ÆV7F–26ÖRÖ6÷W'6RFWFV7F–öâæ÷r66WG2V—F†W"F†R6ÖR6÷W'6R”B÷"ÖF6†–ær6÷W'6RæÖW2ÂVÆ–Ö–æF–ærfÇ6Rw&W’Ö÷WBv†VâF†R6ÖR6ÇV"—26VÆV7FVBGv–6Rà¢Ò&W7B2öbB†VF–ær6†ævVBFòÆ÷6–ærFVÒ‡2’6öçG&–'WF–öâà ¥dU%4”ôâ2ã@¢ÒV6ÆV7F–2—2æ÷râ÷&væ—6W"×6VÆV7F&ÆR6ö×WF—F–öâv†VâGvòÖF’WfVçBW6W2F†R6ÖR6÷W'6Röâ&÷F‚F—2à¢ÒV6ÆV7F–2—2æòÆöævW"f÷&6VBöF—6&ÆVBv†Vâf–Æ&ÆRà¢Òv—F‚F–ffW&VçB6÷W'6W2ÂV6ÆV7F–2&VÖ–ç2Væf–Æ&ÆRæBw&W–VB÷WBà ¥dU%4”ôâ2ãP¢ÒvRB'VÆW2&VFW6–væVBà¢Ò&VfW'&VBÆ–W2—2FVF–6FVB–W2ôæò6öçG&öÂæBÅt•27F'G2Bæòf÷"WfW'’æWrWfVçBà¢ÒæòF—7Æ—2%Æ’F†R&ÆÂ2—BÆ–W2"à¢Ò–W2&WfVÇ26†ö–6R&WGvVVâ$–âF†RvVæW&Â&V"æB$öâF†R6Æ÷6VÇ’Ö÷vâ'BöbF†Rf—'v’"à¢Ò&VfW'&VBÆ–W2—2FVÆ–&W&FVÇ’æ÷B–æ†W&—FVBg&öÒF†R&Wf–÷W2WfVçBFV×ÆFRà¢Ò7V6–Â'VÆW2&VÖ–ç2f–Æ&ÆRf÷"WfVçB×7V6–f–2–ç7G'V7F–öç2à¢ÒFFVB6ö×7BÆ–W"Öf6–ær&Wf–WrW6–ærF†R–æf÷&ÖÂ$v÷B—B"6¶æ÷vÆVFvVÖVçBà¢Ò&Wf–WrvRæ÷r7VÖÖ&—6W2&VfW'&VBÆ–W2æB7V6–Â'VÆW2à ¥dU%4”ôâ2ã`¢Ò'VÆW2vR&VfW'&VBÆ–W26öçG&öÂ6–×Æ–f–VC ¢¢6†÷w2öæR7FGW2öæÇ’(	Bæò'’FVfVÇC°¢¢FVfVÇBFW‡B&VG2$FVfVÇBf÷"WfW'’æWrWfVçB—2Æ’F†R&ÆÂ2—BÆ–W2â#°¢¢6†ævR7v—F6†W2&VfW'&VBÆ–W2öâööfc°¢¢v†VâöâÂ7FGW2&V6öÖW2w&VVâ–W2æBF†RÆö6F–öâ6VÆV7F÷"V'2à¢ÒWGF–ær6ö×WF—F–öâ'VÆW2V"WFöÖF–6ÆÇ’öâvRBv†VæWfW"WGF–ær6ö×WF—F–öâv26VÆV7FVBöâvR2à¢ÒWGF–ær'VÆW2–æ6ÇVFRv–ææ–ær6öæF—F–öâÂöâÖ6÷W'6RWGF–ær'VÆW2æB&÷&–FRöæRÖF’÷GvòÖF’6÷VçBÖ&6²à¢Ò7V6–Â'VÆW2&VÖ–ç2&VæVF‚F†RWFöÖF–26ö×WF—F–öâ'VÆW2à ¥dU%4”ôâ2ãp¢ÒvRR—2æ÷råE†öÆR6VÆV7F–öâà¢ÒWFöÖF–6ÆÇ’6VÆV7G2F†RV6–W7B×&FVB"3²GvòF’Ó"åE26VÆV7BF†RV6–W7BæB6V6öæBV6–W7Bà¢Ò6†ævR÷Vç2öæÇ’F†R"26†ö–6W2f÷"F†B6÷W'6RæB&WfVçG2GWÆ–6FRåE†öÆW2öâF†R6ÖRF’à¢Òæò&—¦R–çWB—2&WVFVBöâvRRà¢ÒåEÆ’Æöv–2Æö6¶VB–âf÷"66÷&–ær'V–ÆC¢$6Æ–6²–W2–b–÷RWB–÷W"æÖRöâF†RåE6†VWBâ#²–W2&WV—&W26öæf—&ÖF–öã²6öæf—&ÖVBVçG&–W2&V6V—fRF–ÖW7F×3²ÆFW7B6öæf—&ÖVBVçG'’öâV6‚åE†öÆR—27W'&VçB†öÆFW#²VçG'’Æö6·2gFW"ÆVf–ærF†R†öÆS²Æ—fRÆVFW&&ö&B6â6†÷r7W'&VçB†öÆFW#²f–æÂ†öÆFW"&V6öÖW2v–ææW"à ¥dU%4”ôâ2ã€¢ÒvRb7F'B'V–ÇB2F†Rf–æÂWfVçB&Wf–WræBÆVæ6‚vRà¢Ò6†÷w2WfVçBFWF–Ç2Â6÷W'6W2Â6öæf—&ÖVBÆ–W'2Â6ö×WF—F–öç2Â'VÆW2æBåE6VÆV7F–öç2à¢Ò–æ6ÇVFW26ÆV"f–æÂ6†V6¶Æ—7BæBF—6&ÆW25D%BUdTåB–b&WV—&VB6WGW—2–æ6ö×ÆWFRà¢ÒÆ&vRw&VVâ5D%BUdTåB'WGFöâÆVæ6†W2F†R6öæf–wW&VBWfVçBgFW"6öæf—&ÖF–öâà¢Ò6†÷FwVâ7F'B—2–FVçF–f–VBæBæ÷FW2F†B7F'F–ær†öÆW2v–ÆÂ&R76–væVBv—F‚Æ––ærw&÷W2à¢Ò&VfW'&VBÆ–W2v÷&F–ær6÷'&V7FVBFò$öâF†R6Æ÷6VÇ’Ö÷vâ'BöbF†R6÷W'6R"à ¥dU%4”ôâ2ã¢ÒvRbWfVçBFFRæ÷rF—7Æ—2–âDBôÔÒõ•••’f÷&ÖBà¢ÒvRbåE7VÖÖ'’W6W2æGW&Âv÷&F–æs ¢¢öæRåE¢$†öÆR‚ ¢¢GvòåE3¢$†öÆR‚æB†öÆR’ ¢ÒvRb&Wf–Wr÷7F'BÆ–÷WB÷F†W'v—6RVæ6†ævVBà ¥dU%4”ôâBã ¢Òf—'7Bw&÷W2bFV×2÷W&F–ærvR'V–ÇBà¢Ò5D%BUdTåBæ÷r÷Vç2w&÷W2bFV×2&F†W"F†â6–×Ç’6Æ÷6–ærF†Rv—¦&Bà¢ÒF’æBF’"w&÷W6WGW2&R7F÷&VB–æFWVæFVçFÇ’à¢Ò6öæf—&ÖVBÆ–W'2&RF—f–FVB–çFòf÷W"×W'6öâÆ––ærw&÷W2à¢Ò&æFöÖ—6Rw&÷W26‡VffÆW2F†Rf–VÆBv†–ÆR&W6W'f–ærw&÷W2öbf÷W"f÷"æ÷&ÖÂv’vöÆbf–VÆB6—¦W2à¢Ò&W6WBÇ†&WF–6ÆÇ’&W7F÷&W26–×ÆR7W&æÖRÖ÷&FW"7F'F–ærÆ–÷WBà¢ÒÖçVÂÆ–W"Ö÷fVÖVçBW6W2GvòÖ6Æ–6²7v7—7FVÒà¢ÒD$$"—"æB—""&R6†÷vâv—F†–âV6‚f÷W"×W'6öâw&÷Wv†VâD$$"—26VÆV7FVBà¢ÒWGF–æræB&W7B2öbB–FVçF–g’F†RgVÆÂf÷W"×W'6öâÆ––ærw&÷W2F†RFVÒà¢Ò6–ævÆRFVR6†÷w2w&÷WFVR÷&FW"à¢ÒGvòFVRWfVçG2&÷f–FR7BFVRòF‚FVR6VÆV7F–öâW"w&÷Wà¢Ò6†÷FwVâWfVçG2&÷f–FR7F'F–ær†öÆR(	3‚W"w&÷Wà¢ÒV6‚F’†2—G2÷vâ6fRw&÷W27F–öâà¢Ò66÷&RvR&VÖ–ç2FVÆ–&W&FVÇ’VçF÷V6†VBf÷"F†RæW‡BFW6–vâ7FvRà ¥dU%4”ôâBã¢Òf—†VBÖçVÂ7vöâw&÷W2bFV×3 ¢¢f—'7B6Æ–6²f—6–&Ç’6VÆV7G2Æ–W#°¢¢6V6öæB6Æ–6²7v2F†RGvòÆ–W'3°¢¢6Æ–6¶–ærF†R6VÆV7FVBÆ–W"v–â6æ6VÇ2F†R6VÆV7F–öâà¢Ò&VÖ÷fVBF†R&VGVæFçBgVÆÂf÷W"×W'6öâFVÒ7FFVÖVçBà¢Ò&Wv÷&¶VBD$$"F—7Æ“ ¢¢öæR†VF–æs¢%'FæW'2–âD$$"#°¢¢Gvò6W&FR'FæW"&÷†W3°¢¢&VÖ÷fVB—"ò—""Æ&VÇ2à ¥dU%4”ôâBã ¢Òw&÷W2bFV×2æ÷röffW'2†—7F÷'’&Ææ6VBÂ&æFöÒæBÖçVÂà¢Ò†—7F÷'’&Ææ6VBFW7G2S6æF–FFRG&w2æB6VÆV7G2F†RÆ÷vW7B×&WVBÆ–÷WBà¢Ò&WVBD$$"'FæW'6†—26''’W‡G&vV–v‡F–ær÷fW"6–×Ç’6†&–ærf÷W"×W'6öâw&÷Wà¢ÒÖçVÂÖöFR6†÷w2F–ÖW2Æ–VBFövWF†W"æB&Wf–÷W2D$$"'FæW'6†—2à¢Òw&÷WÖÆWfVÂ†—7F÷'’Gf–6R†VÇ2F†R÷&væ—6W"6†ö÷6RÆW72&WWF—F—fRFW7F–æF–öâà¢Ò&æFöÒ&VÖ–ç2vVçV–æRV–6²&æFöÒG&rà¢Ò—"Ö†—7F÷'’æBD$$"×'FæW"Ö†—7F÷'’7F÷&W2&R–æ6ÇVFVBf÷"WFöÖF–2gWGW&RWfVçB†—7F÷'’à¢ÒÆVv7’†—7F÷'’6â&R6VVFVBÆFW"v—F†÷WBÇFW&–ærF†RG&rVæv–æRà ¥dU%4”ôâBã0¢ÒÖçVÂÖöFRæ÷rf—6–&Ç’7F—fFW2æB&VÖ–ç2†–v†Æ–v‡FVBà¢Ò7v&V'V–ÇBv—F‚6–×ÆRGvòÖ6Æ–6²†æFÆW"æB6ÆV"%6VÆV7FVBf÷"7v"fVVF&6²à¢ÒF’"†—7F÷'’&Ææ6VBæ÷rG&VG2F’2g&W6‚†—7F÷'“ ¢¢7G&öærVæÇG’f÷"&WVF–ærF’w&÷WÖÖFW3°¢¢WfVâ7G&öævW"VæÇG’f÷"&WVF–ærF’D$$"'FæW'6†—à¢Ò†—7F÷'’&Ææ6VBæ÷rWfÇVFW2WFòÃƒVæ—VR6æF–FFRG&w2à¢Ò&WVFVB6Æ–6·26â&WGW&âF–ffW&VçBæV"Ö÷F–ÖÂG&w2&F†W"F†âÇv—2v—f–ærW†7FÇ’F†R6ÖRÆ–÷WBà¢ÒÆVv7’†—7F÷'’–ÖvR6WB&Wf–WvVC¢6÷W&6R—2æ÷r&VF&ÆRgFW"6ö×÷6—F–æröçFòÆ–v‡B&6¶w&÷VæBÂ'WBæòVæ6W'F–â6÷VçG2†fR&VVâwVW76VB–çFòF†R&öGV7F–öâ†—7F÷'’7F÷&Rà ¥dU%4”ôâBãR(	BdU$”d”TB$T%T”Ä@¢Ò6ö×WF—F–öâ6WGW¢6WBô6†ævRv–â&VæVf—BÇW2f—6–&ÆR7W'&VçB6WGF–æròæ÷B–WB6WBà¢Ò'VÆW3¢WGF–ær'VÆW2VF—BôFöæRÂ7V6–Â'VÆW26ÆV"Âv÷B—Bf—6–&ÆR6¶æ÷vÆVFvVÖVçBà¢Ò&Wf–Wrb7F'C¢öæÇ’F†RÆ&vRÖ–ÆW7FöæR5D%BUdTåB'WGFöã²6æ6VÂæB&6²&VÖ–â&VÆ÷rà¢Òw&÷W2bFV×3¢7v6VÆV7F–öâ—2&W6W'fVBF‡&÷Vv‚&W&VæFW"6òF†R6V6öæB7v6Æ–6²6â6ö×ÆWFRF†RW†6†ævRà¢Ò'&÷w6W"66†RÖ'W7F–ærFFVBFò552ô¥2&VfW&Væ6W2æB6W'f–6R×v÷&¶W"7G&FVw’6†ævVBFòæWGv÷&²Öf—'7Bà ¥dU%4”ôâBãb(	BUdTåBÄâò4„õ%BÔd”TÄBDU4”tà¢Ò&Wf–WrÖ–ÆW7FöæR&VæÖVB4dRUdTåBÄâ(	2$ô4TTBDò4UBU44õ$”ärà¢Ò6f–ærF†RÆâæòÆöævW"Æö6·2F†RWfVçBà¢Òw&÷W2bFV×2æ÷r†2&6²FòWfVçB6WGW6òF†R÷&væ—6W"6â&Wf—6RF†RÆâVçF–ÂÆö6²WfVçBà¢ÒÄô4²UdTåB—26W&FRf–æÂ6öçG&öÂæB—2Væ&ÆVBöæÇ’gFW"WfW'’F’w2w&÷W2&R6fVBà¢ÒGvòÖF’WfVçG2æ÷r7W÷'BF’Ö'’ÖF’Æ–W"f–Æ&–Æ—G’âvöÆfW"6âÆ’F’öæÇ’ÂF’"öæÇ’Â÷"&÷F‚F—2à¢ÒF–Ç’f–VÆB6ö×ÆWFVæW72—26†V6¶VB–æFWVæFVçFÇ’v–ç7BF†RF&vWBf–VÆB6—¦Rà¢ÒFFVB7V6–Â7—7FVÒVçG'’æò'FæW"f÷"F†RöæR×Æ–W"×6†÷'B6—GVF–öâà¢Ò–bæò'FæW"—2W6VBöâF“ ¢¢F†R–FVçF–f–W2F†R&VÂÆ–W"v†òæVVG2f—'GVÂ'FæW#°¢¢&æFöÖÇ’6†ö÷6W2f—'GVÂÆ–W"g&öÒF†R÷F†W"vVçV–æRvöÆfW'2ÂW†6ÇVF–ærF†BÆ–W#°¢¢F—7Æ—2F†Rf—'GVÂÆ–W"–â&ÇVRv—F‚…e“°¢¢W6W2F†Re–âF†RD$$"'FæW'6†—F—7Æ’æBgWGW&RFVÒ×66÷&RÆöv–3°¢¢6VÆV7G2öæRöbF†RF‡&VR7GVÂvöÆfW'2–âF†R6†÷'Bw&÷W2åEW‡G&6†÷BÆ–W"v†VâåE—26VÆV7FVC°¢¢W‡Æ–ç2F†R'&ævVÖVçB&VæVF‚F†RFVÒG&rà¢Òf—'GVÂÆ–W"æBåEW‡G&6†÷B6VÆV7F–öç2&R–æFWVæFVçBà¢Ò6ö×WF—F–öâ(	Ä7W'&VçFÇ’6WBB(
-n(	Ò&FvW2&RÆ–væVBFòF†R&–v‡Bf÷"V–6²66ææ–ærà ¥dU%4”ôâBãr(	BÄ”U"„ôÔRòUdTåBD’d•%5BE$e@¢ÒæWrÆ–W"f–Wr&WÆ6W2F†R66÷&–ærÆ6V†öÆFW"æB&÷f–FW2†öæRÖf—'7BW'6öæÆ—6VBWfVçB67&VVâà¢Ò÷&væ—6W"6â&Wf–WrF†R67&VVâ2ç’vöÆfW"æB7v—F6‚F’òF’"à¢Ò6†÷w2WfVçBö6÷W'6RöFFRÂ7F'F–ær÷6—F–öâÂÆ–W"w2w&÷WæBD$$"'FæW"à¢Òæò'FæW"òf—'GVÂÆ–W"æBåEW‡G&6†÷B–ç7G'V7F–öç2V"öæÇ’v†Vâ&VÆWfçBFòF†BvöÆfW"à¢ÒWfVçB'VÆW2b6ö×WF—F–öç2÷Vç2g&öÒF†RÆ–W"67&VVâà¢Òv÷B—B6¶æ÷vÆVFvVÖVçBv÷&·2–âF†R&Wf–Wrà¢Ò7F'B&÷VæB&VÖ–ç2F—6&ÆVBVçF–ÂÆö6²WfVçC²66÷&–ær6öÖW2æW‡Bà¢Ò6VÆV7BÆ–W'26V&6‚fö7W2'Vrf—†VB6ò×VÇF’Ö6†&7FW"G—–ærv÷&·2à¢ÒG&ff–2ÖÆ–v‡B6öçG&öÇ2Æ–væVBà¢Ò–æ—F–ÂF’"w&÷WG&ræ÷r'Vç2†—7F÷'’&Ææ6VBgFW"F’W†—7G2Â&F†W"F†â–æ—F–ÆÇ’6Æöæ–ærF†R6ÖR'&ævVÖVçBà¢Ò–bæò'FæW"—2&WV—&VB&÷F‚F—2ÂF’"fö–G276–væ–æræò'FæW"FòF†R6ÖRvöÆfW"v†W&RâÇFW&æF—fRW†—7G2à ¥dU%4”ôâBã‚(	BEtòÕDTR5D%D”är„ôÄU0¢Ò7FWb†VF–ær6†ævVBFò%&Wf–WræBÖ÷fRFò66÷&–ær"à¢Ò6VÆV7F–ærGvòFVW2öâ7FWæ÷r&WfVÇ2÷&væ—6W"Ö6öçG&öÆÆVB7F'F–ær†öÆW2à¢ÒF’æBF’"V6‚†fRF†V—"÷vâ7F'F–ærFVRò7F'F–ærFVR"6†ö–6W2à¢ÒFVfVÇG2&VÖ–â†öÆW2æBÂ'WBç’GvòF–ffW&VçB†öÆW26â&R6VÆV7FVB†RærâöFÆæG2æB2’à¢Ò&Wf–WrvR6†÷w2F†R7GVÂ6öæf–wW&VB7F'F–ær†öÆW2à¢Òw&÷W2bFV×2W6W2F†÷6R6VÆV7FVB†öÆW2&F†W"F†â†&BÖ6öFVBóà¢ÒÆ–W"f–WrF—7Æ—2F†RvöÆfW"w27GVÂ7F'F–ær†öÆRà¢ÒVæFW&Ç––ær7F'F–ærÖ†öÆRfÇVR—2æ÷r&VG’f÷"w&Ö&÷VæB66÷&–ær†Rærâ>(i#(i#(i#"’à ¥dU%4”ôâBã’(	BU"ÔD’5D%Bdõ$ÔBb5D%D”ärDTP¢ÒF’æBF’"7F'B'&ævVÖVçG2&R–æFWVæFVçBà¢ÒV6‚F’6â&R6–ævÆRFVRÂGvòFVW2÷"6†÷FwVâà¢Ò6–ævÆRFVR&WV—&W2F†R÷&væ—6W"FòæöÖ–æFRF†R7GVÂ7F'F–ær†öÆR†FVfVÇB†öÆR’à¢ÒGvòFVW2&WV—&W2F†RGvò7GVÂ7F'F–ær†öÆW2f÷"F†BF’à¢Ò&Wf–WrvR6†÷w2&÷F‚F—2r7F'F–ær'&ævVÖVçG2æB†26öæf—&Òò6†ævR7F'F–ærFVRà¢ÒF†—2ÆÆ÷w2Æ7BÖÖ–çWFR6†ævW2&Vf÷&RÆö6²WfVçBÂRærâ6ÇV"Ö÷fW2F†Rf–VÆBg&öÒ†öÆRFò†öÆRà¢Òw&÷W2bFV×2æBÆ–W"f–Wr–æ†W&—BF†R7GVÂ7F'Bf÷"F†BF’à ¥dU%4”ôâRã(	Bd•%5B„ôÄRÔ%’Ô„ôÄR44õ$”är$õDõE•P¢ÒF–Ç’†æF–62&RVçFW&VB'’F’&Vf÷&RÆö6²WfVçBà¢ÒÆ–W"5D%B$õTäBæ÷r÷Vç2BF†R76–væVB7F'F–ær†öÆRæBw&2F‡&÷Vv‚ÆÂ‚†öÆW2à¢Ò†öÆR67&VVâ6†÷w2†öÆRÂ"Â–æFW‚æBÖWG&W2à¢ÒV6‚†öæR&V6÷&G2F†R'FæW"öÖ&¶W"öff–6–Â66÷&RæBF†RvöÆfW"w2÷vâfW&–f–6F–öâ66÷&RÂÇW2WGG2à¢Ò7F&ÆVf÷&B—26Æ7VÆFVBWFöÖF–6ÆÇ’g&öÒF†RF–Ç’†æF–6æB6÷W'6R–æFW‚à¢ÒåE†öÆW26†÷rF†RæÖRÖöâ×6†VWB”U2fÆ÷rv—F‚6V6öæBÖ6Æ–6²6öæf—&ÖF–öâÂVæFò&Vf÷&RÆVf–ærF†R†öÆRÂF–ÖW7F×VB7W'&VçB†öÆFW"æBÆö6²gFW"æW‡B†öÆRà¢Òf–æ—6‚&÷VæB÷Vç2fW&–f–6F–öâ6ö×&–ærF†RvöÆfW"w2÷vâVçG&–W2v—F‚F†Röff–6–ÂVçG&–W2ÖFRf÷"F†BvöÆfW"'’F†V—"Ö&¶W"à¢Ò&æ¶VBT’6†ævW2–æ6ÇVFVC¢öæRÖÆ–æR6WGWÖ6ö×ÆWFRÖW76vRæB6†ævR7F'F–ærFVRv÷&F–ærà  ¥dU%4”ôâRã(	BÄ”U"d”UräB44õ$”är$Td”äTÔTåE0¢ÒWfVçB'VÆW2b6ö×WF—F–öç2W‡æG2–âF†R†öæRf–Wrà¢Ò&VÖ÷fVB&VGVæFçBFVRf–VÆBg&öÒÆ–W"&Wf–Wrà¢ÒÆ–W"æÖR—2&öÖ–æVçBæBw&÷WF—7Æ’Æ6W2F†RD$$"'FæW"&W6–FRF†RÆ–W"à¢Ò66÷&RæBWGG2W6RÖ–çW2÷fÇVR÷ÇW27FWW'2Â6VçG&VBöâ"æB"WGG2à¢ÒåE6öæf—&ÖF–öâæ÷r&V6÷&G2F†RvöÆfW"&V–ærÖ&¶VBÂ6†÷w26öæf—&ÖF–öâF–ÖRÂæBW6W2F†RÖ&¶W"×7V6–f–2VW7F–öâà¢Ò&÷VæBfW&–f–6F–öâv÷&F–ær6Æ&–f–VBà ¥dU%4”ôâRã"(	B44õ$”är$Td”äTÔTå@¢ÒF’F–Ç’†æF–6WFöÖF–6ÆÇ’&RÖf–ÆÇ2F’"v†VâF†RF’"fÇVR—2&Ææ³²F’"&VÖ–ç2VF—F&ÆRà¢ÒWfVçB'VÆW2b6ö×WF—F–öç2æ÷r÷Vç2–âFVF–6FVBÆ–W"ÖöFÂWfVâgFW"Æö6²WfVçBà¢Òw&÷7266÷&R6öçG&öÂ—2æ÷rf÷W"×'C¢Ö–çW2ò66÷&RòÇW2òà¢Ò&V6÷&G2–6²×WæB–ÖÖVF–FVÇ’v—fW27F&ÆVf÷&Bö–çG2à¢ÒWGG2&VÖ–ç2æ'&÷vW"F‡&VR×'BÖ–çW2ò"òÇW26öçG&öÂà¢ÒfW&–f–6F–öâ66WG2V—F†W"â–FVçF–6Âw&÷7266÷&Rõ"–FVçF–6Â7F&ÆVf÷&Bö–çG2à¢W†×ÆS¢Ö&¶W"ƒG2’æBÆ–W"‚ƒG2’fW&–f–W27V66W76gVÆÇ’à¢ÒfW&–f–6F–öâ&÷w26†÷r&÷F‚VçFW&VBw&÷72õfÇVRæB7F&ÆVf÷&Bö–çG2à¢ÒW†—7F–æråE6öæf—&ÖF–öâ÷F–ÖRöÆö6²&V†f–÷W"—2Væ6†ævVBà¥dU%4”ôâRã"UDDP¢ÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒÒĞ¢ÒÆ–W"G&ff–2ÖÆ–v‡B6VÆV7F–öç2æòÆöævW"fö7W2F†R6V&6‚&÷‚÷"÷VâF†R†öæR¶W–&ö&Bà¢ÒF†RÆ–W"×6VÆV7F–öâvR&VÖ–ç2B—G27W'&VçB67&öÆÂ÷6—F–öâgFW"&W7öç6R—26†ævVBà¥dU%4”ôâRã#’(	BôäRÔD’tõ$D”är4ÄTåU £ÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓĞ ¢ÒöæRÖF’WfVçB67&VVç2æòÆöævW"F—7Æ’VææV6W76'’F’v÷&F–ærà¢Ò6÷W'6R6WGWÂåE6WGWÂWfVçB&Wf–WrÂw&÷W2bFV×2ÂÆ—fR&öw&W72À¢fW&–f–6F–öâæBF†RÆ–W"†öæRf–Wræ÷rW6RVæ6ÇWGFW&VBöæRÖF’v÷&F–ærà¢ÒF’æBF’"Æ&VÇ2&VÖ–âgVÆÇ’f—6–&ÆRF‡&÷Vv†÷WB×VÇF’ÖF’WfVçG2à¢Ò–æ6ÇVFW2F†RfW'6–öâRã#‚ÇW2Ö†æF–6–çWBæB7F&ÆVf÷&B6Æ7VÆF–öâf—‚à¥dU%4”ôâRã3(	BD„R$”DtRbÕÄ”U"eTÄÂUdTåBDU5@£ÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓĞ ¢ÒFG2&÷FV7FVBFW7BÆöFW"f÷"F†RW6W"w2Æö6¶VBöæRÖF’&–FvRWfVçBà¢Ò6–×VÆFW2æBf–æÆ—6W2b6ö×ÆWFR&÷VæG2ƒ#ƒ‚†öÆW2’W6–ærF†R7GVÀ¢Æ–W'2Âw&÷W2ÂD$$"—'2Â&–FvR†æF–62Â6ö×WF—F–öç2æBåE†öÆRà¢Ò–æ6ÇVFW2&VÆ—7F–27F&ÆVf÷&Bf&–F–öâÂWGG2æB&öw&W76—fRåE†öÆFW'2à¢Ò6Ò&VV6R‚³B’66÷&W2Cö–çG3²¦W&V×’v&B‚³’66÷&W23ƒ²&öB'W7Föà¢&WF–ç2†—2ö÷"×&÷VæBGFW&âæB66÷&W2#Rö–çG2à¢ÒF†RÆö6¶VBWfVçB—2&6¶VBW&Vf÷&RFW7F–æræB—6öÆFVBg&öÒ6Æ÷VBFFà¢Ò&VÖ÷fRFW7B66÷&W2b&W7F÷&RWfVçB&WGW&ç2F†RWfVçBW†7FÇ’Fò—G0¢&R×FW7B7FFRf÷"gWGW&RÆ—fRW6Rà¢Ò6ö×ÆWFW2F†RfW'6–öâRã#’öæRÖF’v÷&F–ær6ÆVçWöâF†RÆ—fR66÷&R67&VVà¢æBöæRÖF’D$$"ÆVFW&&ö&BFWF–Ç2à¥dU%4”ôâRã3(	BôäRÔD’4”ätÄR5D$ÄTdõ$B$Uõ%B4õ%$T5D”ôà£ÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓĞ ¢Ò&VÖ÷fW2âö'6öÆWFRGvòÖF’6–ævÆR7F&ÆVf÷&BfÆrF†B6÷VÆB&R6'&–V@¢–çFòöæRÖF’WfVçB'’âöÆFW"6ö×WF—F–öâFV×ÆFRà¢Ò&WfVçG2F†R–æ6÷'&V7B6–ævÆR7F&ÆVf÷&B(	B"F—2&W7VÇBg&öÒV&–ær–à¢öæRÖF’&W7VÇG27VÖÖ'’à¢Ò&W6W'fW2F†R6÷'&V7BöæRÖF’6–ævÆR7F&ÆVf÷&B&W7VÇBæBÆÂFW7B66÷&W2à¢Ò6ÆVç2F†RfÆr&÷F‚v†VâF†R÷Vç2æBv†Vâ&–FvRFW7BFF—2&VÖ÷fVBà ¥dU%4”ôâRãS(	BÄ”U"¤ô”ä”ärtP£ÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓĞ ¢Òg&W6‚†öæW2æ÷r÷VâöâFVF–6FVBÆ–W"ÖöæÇ’¦ö–æ–ærvRà¢Ò&VÖ÷fW2F†R6öægW6–ær÷&væ—6W"&V6÷fW'’f–VÆBg&öÒF†RÆ–W"w2F‚à¢ÒÆ6W2F†R6—‚Ö6†&7FW"WfVçB6öFR&÷‚æBf–æB×’WfVçB'WGFöâBF†RF÷à¢Ò6†÷w2f—6–&ÆRf–æF–ærÂ7V66W72æBW'&÷"ÖW76vW2gFW"F†R6öFR—2VçFW&VBà¢ÒW‡Æ–ç2F†Bæò²F÷væÆöB—2&WV—&VBæBF†R6â'Vâ–âF†R'&÷w6W"à¥dU%4”ôâRãcB(	BUdTåB$Ud”UrT$Ä”4D”ôâ„õDd•€£ÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓÓĞ ¢Òf—†W2WfVçB&Wf–WrV&Æ–6F–öâv–ç7BF†RW†—7F–ær6Æ÷VB7FGW2'VÆW2à¢Ò&V6÷fW'2F†RW†7B&Wf–Wr&÷r7&VFVB'’â–çFW''WFVBfW'6–öâRãc2GFV×Bà¢Ò&WfVçG2&WG'’g&öÒ7&VF–ærGWÆ–6FRWfVçB÷"¦ö–æ–ær6öFRà
+AWAY GOLF SCORER â€” VERSION 15.97.08
+
+Course Layout: event-day replacement/shortened holes, optional length, inherited/revised indexes, reviewed rating/handicaps, physical-hole labels and replacement-aware Eclectic. Pre-start and stale-phone server guards applied to both apps.
+
+VERSION 15.97.06
+
+GA Balanced team draw and visible group GA totals. Same feature and relevant 15.97.05 profile/Scratch fixes carried to Golf Event Scorer 0.4.87.
+
+VERSION 15.97.05
+
+Preserve organiser player details when loading published events. Repair blank original GolfLink records by matching both ID and name. Align Scratch scoring choices and clarify eligibility wording.
+
+VERSION 15.97.04 â€” COMPLETION HISTORY RECEIPTS
+
+- Sends the shared history marker with the accepted final close.
+- Records local history once after acknowledgement, including recovery after a lost response.
+- Retains a compact history receipt so cloud polling cannot count the same event again.
+- Includes all nine lifecycle corrections from 15.97.03.
+
+
+VERSION 15.97.03 â€” EVENT LIFECYCLE ACCEPTANCE
+
+- Final close stays pending until the cloud acknowledges the reviewed score revisions.
+- Guest Organiser authority ends on successful close, including protection for older closed plans.
+- Ambrose accepts only published scorer/marker roles, matching team cards and valid drives.
+- Ambrose submissions wait for exact cloud receipts, with protected offline retry.
+- Completed competitions with no eligible winner can close without awarding a prize.
+- Publication retries reuse one durable event identity and player join code.
+- The cloud enforces the published opening time and explicit organiser early opening.
+- Result-affecting corrections require renewed sign-off; archived codes stay inactive.
+- Final-total scores lock the affected round's identity, handicap, tee and start settings.
+- Existing scores, past results, the single course master and unresolved reviews are retained.
+
+
+VERSION 15.93.2 â€” LAST-MINUTE GA HANDICAP UPDATE
+
+- Organiser Mode now provides Update GA Handicaps after an event is published and loaded on player phones.
+- The organiser can revise GA figures and recalculate every enabled tee across both days before scoring begins.
+- Saving a late GA update restores Send All Set â€” Final Update so the new handicaps can be sent to every phone.
+- GA Handicap editing locks automatically as soon as any score is recorded.
+
+VERSION 15.93.1 â€” THREE-TEE HANDICAPS AND GREEN MARKERS
+
+- A checked third-tee option now always displays Back, Middle and Front Daily Handicap columns.
+- Saved Back + Front pairs from the previous build are repaired automatically by restoring Middle.
+- Green is now available in every course tee-colour dropdown.
+- Each player's latest GA Handicap and category are retained in their profile and prefilled in the next event.
+
+VERSION 15.93.0 â€” AUTOMATIC GA DAILY HANDICAPS
+
+- Stores one frozen GA Handicap for each player for the whole event.
+- Calculates every enabled tee on both event days from GA Handicap, Slope Rating, Scratch Rating and Par.
+- Uses the current Golf Australia CONNECT 0.93 and Men/Women consistency factors.
+- Supports plus GA Handicaps and rounds the result to a whole Daily Handicap.
+- Labels each Daily Handicap as Calculated or Manual.
+- Retains direct manual editing as a complete fallback and override.
+- Saves the latest GA Handicap and category in the Player Profile for the next event.
+- Validates that every selected course tee has the required rating data before calculating.
+
+VERSION 15.92.6 â€” YELLOW BALL LOTTERY PRIZE
+
+- Yellow Ball can award either balls/a prize or a Lottery Pool contribution.
+- Its balls dropdown is limited to 1, 2 or 3 balls per winner.
+- Its Lottery Pool contribution choices are $5, $10, $15 or $20 per team member.
+- Prize choices for every other competition remain unchanged.
+
+VERSION 15.92.5 â€” CLEAN TEAM-HISTORY BASELINE
+
+- Replaces all existing played-together and 4BBB-partner counters on each device.
+- Seeds the clean history from The Ridge and both genuine Federal rounds.
+- Includes every four-player group and the two 4BBB partnerships within each group.
+- Prevents old locally retained test events from being automatically added back later.
+- New genuine non-TEST events continue to enter history normally when completed.
+
+VERSION 15.92.4 â€” PAST EVENT RESULTS
+
+- Adds Past Events as a separate online archive for retained completed events.
+- Opens a past event directly at its saved results without reconnecting or reactivating its old player join code.
+- Preserves the current event in My Events before opening an archived result.
+- Excludes every event whose actual stored name begins with TEST, even if its old cloud label does not.
+
+VERSION 15.92.3 â€” TEST EVENTS EXCLUDED FROM PLAYER HISTORY
+
+- Any event whose trimmed name begins with the word TEST is excluded from player records and statistics.
+- TEST events do not add group history, 4BBB partnership history or course-handicap history.
+- Previously recorded TEST event group and partnership counts are removed once from existing history.
+- TEST matching is case-insensitive; examples include TEST, Test Event and TEST - Scoring Card System.
+
+VERSION 15.92.2 â€” PREFERRED LIES BY DAY
+
+- Two-day events have separate Preferred Lies settings for Day 1 and Day 2.
+- Each day can independently use General Area, closely mown areas only, or play the ball as it lies.
+- Final Review, player instructions and Event Rules display the correct rule for each day.
+- Existing events with one Preferred Lies setting retain that setting on both days.
+
+VERSION 15.92.1 â€” COPY A TEE SCORECARD
+
+- Course Details can copy a complete stored tee scorecard into another tee.
+- The copy includes all 18 pars, stroke indexes and hole lengths.
+- The destination card remains independent so its lengths or ratings can be corrected later.
+
+VERSION 15.92.0 â€” TEE-SPECIFIC COURSE SCORECARDS
+
+- Stores up to three complete scorecards for each course: Back, Middle and Front.
+- Labels each card with its marker colour and provides a scorecard tee dropdown.
+- Copies all 18 par values into a newly created tee card while leaving its indexes and lengths ready for entry.
+- Uses the selected playing tee's par, index and length throughout scoring, manual score entry and leaderboards.
+- Recalculates automatic NTP choices when the course or playing tee changes.
+- Preserves existing one-card courses and matches the old card to a tee by total length where possible.
+
+VERSION 15.91.8 â€” VIRTUAL PLAYER COMPETITION SAFEGUARDS
+
+- Labels every borrowed leaderboard appearance as a virtual player for the missing golfer.
+- Uses the virtual player's verified Day 1 scores in the two-day Par 3 competition.
+- Excludes the missing golfer's Day 2 Par 3 partner from Day 1 virtual-player selection, preventing a doubled contribution.
+- Names both golfers in the scorecard's virtual-player status panel and explains why a total may be waiting.
+
+VERSION 15.91.7 â€” MANUAL DAY 1 ADVANCES PLAYER PHONES
+
+- Completing Day 1 through Record All Scores now counts as the official final Day 1 submission for every player.
+- Player phones automatically advance past their unused Day 1 cards to the Day 2 scorecard.
+- Day 2 remains locked until 15 minutes before its first tee time, exactly as with normal phone scoring.
+
+VERSION 15.91.6 â€” DAY SELECTION AND VIRTUAL PARTNER DISPLAY
+
+- Keeps the organiser's selected leaderboard day through automatic cloud refreshes.
+- Keeps the No Partner player beside No Partner on the phone's two-column team display.
+- Clarifies that the listed virtual partner supplies the missing multiplayer scores.
+- Places the virtual-player marker beneath the correct 4BBB player in paper entry.
+- Displays the calculated putting total immediately in the expanded full-card section.
+
+VERSION 15.91.5 â€” REVERSIBLE FULL SCORE CARDS
+
+- Full-card entry now explicitly fills and locks every Par 3 gross score.
+- Adds Close Score Cards to return to abbreviated manual entry at any time.
+- Previously entered full-card figures remain saved if the cards are reopened.
+
+VERSION 15.91.4 â€” COMPLETE PAPER TEAM DISPLAY
+
+- Shows the selected virtual player in the Record All Scores team list.
+- Adds the course par beside every hole on the full individual-card grid.
+- Narrows the scoring columns so Hole, Par and all four players fit comfortably on a tablet.
+
+VERSION 15.91.3 â€” OPTIONAL FULL INDIVIDUAL SCORE CARDS
+
+- Adds Open Individual Score Cards to every paper team card.
+- Presents four player columns with holes 1â€“18 down the left and Enter moving
+  down each player's column.
+- Includes the virtual player as the fourth player throughout a short-team card.
+- Calculates Single Stableford, 4BBB, Best 3 of 4 and Par-3 results from the
+  individual gross cards.
+- Adds four individual putting totals and calculates the team total automatically.
+- Keeps the calculated result fields read-only when full-card entry is used.
+
+VERSION 15.91.2 â€” DAY-SPECIFIC YELLOW BALL CHECK
+
+- Allows Record All Scores on a day that does not run Yellow Ball, even when
+  Yellow Ball is selected for the other day of a two-day event.
+- Keeps manual entry blocked only on the day where Yellow Ball is actually played.
+
+VERSION 15.91.1 â€” VERTICAL PAR-3 PAPER ENTRY
+
+- Places player names across the top and Par-3 hole numbers down the left.
+- Enter moves down one player's score column before moving to the next player.
+- Labels an NTP result entered through Record All Scores as Winner input manually.
+
+VERSION 15.91.0 â€” RECORD ALL SCORES
+
+- Adds organiser-only tablet entry for signed paper team cards on Day 1 or Day 2.
+- Shows only the totals needed by the event's selected competitions: Single
+  Stableford, 4BBB, Best 3 of 4, Putting, Par 3 Pairs and Nearest the Pin.
+- Supports team putting totals or individual putting totals for configured pairs.
+- Adds optional Back 9, Last 6 and Last 3 countback figures.
+- Saves each team card as a draft and resumes it on the same tablet.
+- Lets paper-card teams and phone-scored teams coexist on the same day.
+- Submitted paper summaries feed the normal results without inventing hole scores.
+- Keeps Scratch, Eclectic, Yellow Ball and Ambrose entry out of this first stage.
+
+VERSION 15.90.7 â€” COMPACT AMBROSE CONTROL ROW
+
+- Moves the current win-benefit summary to the left of the Ambrose controls.
+- Places Required drives per player on the same line immediately to its right.
+
+VERSION 15.90.6 â€” AMBROSE REQUIRED-DRIVES CONTROL
+
+- Restores the Required drives per player selector to the Ambrose competition
+  panel for every one-day Ambrose event.
+
+VERSION 15.90.5 â€” PERSISTENT FINAL UPDATE CONFIRMATION
+
+- After a successful final upload, the publishing button remains visibly
+  changed to a brown Final Update Sent âœ“ confirmation.
+
+VERSION 15.90.4 â€” GUEST ORGANISER FINAL PLAYER PUBLICATION
+
+- Send All Set â€” Final Update now synchronises the Guest Organiser's completed
+  player list before locking the delegated event.
+- Players can join an event that was delegated before its roster was selected.
+- Existing player phone connections are preserved when their player remains in
+  the final field.
+
+VERSION 15.90.3 â€” OWNER RECOVERY AND GUEST INVITATION REPAIR
+
+- An organiser copy containing old local work can now sign in to an existing
+  permanent Owner account without trying to protect the old anonymous identity.
+- Guest Organiser invitation code generation now resolves Supabase pgcrypto
+  functions from the extensions schema.
+- Includes Version 15.90.2 draft recovery and named Player Lists.
+
+VERSION 15.90.2 â€” RESUME DRAFTS AND NAMED PLAYER LISTS
+- My Events now opens a saved draft directly at the setup step where work stopped.
+- Event Options includes Continue Event Setup for both the Owner and Guest Organiser.
+- Adds reusable named Player Lists built from the Master Player List.
+- Loading a named list adds its available members to Invited as awaiting reply.
+- Lists can be created, edited, renamed and deleted without changing the Master Player List.
+
+VERSION 15.90.1 â€” SAVE PARTLY PLANNED EVENTS
+- Adds Save Draft throughout the six Event Setup steps.
+- A draft can be saved with only the information known so far and reopened later.
+- Saving is separate from publishing or delegation.
+- A saved draft can later be delegated from Guest Organiser, or completed by the Owner.
+- Keeps Cancel as a true cancellation that does not create or alter the saved draft.
+
+VERSION 15.90.0 â€” SINGLE-EVENT GUEST ORGANISER
+
+- Lets the Owner Organiser delegate one published event using a separate,
+  one-use Guest Organiser invitation code.
+- Gives the guest the normal event setup and operation pages for that event.
+- Prevents the guest from creating events, viewing the Owner's other events,
+  using the Owner account, or creating organiser-tablet access.
+- Lets the Owner revoke guest access at any time.
+- Automatically revokes guest access when the event is closed or archived.
+- Creating a replacement invitation revokes the previous guest.
+- Invitation codes expire after 14 days if they have not been accepted.
+
+VERSION 15.89.1 â€” OWNER EMAIL VERIFICATION CORRECTION
+
+- Shows Verification Pending until Supabase confirms the owner's email.
+- Shows Owner Signed In only after a genuine email confirmation.
+- Sends verification and sign-in links back to the published Away Golf page,
+  never to a temporary localhost test address.
+- Allows an expired verification email to be replaced with a new one.
+
+VERSION 15.89.0 â€” OWNER ORGANISER SIGN-IN
+
+- Converts the organiser identity already used by the planning PC into a
+  permanent passwordless email account without changing its secure user ID.
+- Keeps existing published events attached to the same Owner Organiser.
+- Allows a blank replacement device to request a secure sign-in link for an
+  existing Owner account and recover its published events.
+- Clearly separates published-event recovery from draft planning: drafts stay
+  on the planning PC unless saved with Organiser Backup.
+- Does not change the existing Organiser Tablet event-day controls.
+
+VERSION 15.88.7 â€” AMBROSE NET LEADERBOARD AND CARD ALIGNMENT
+
+- Keeps every player's accepted-drive count visible on every hole.
+- Uses yellow only for the drive selected on the current hole.
+- Submits non-compliant cards with REQUIRED DRIVES NOT RECORDED and excludes them from placings.
+- Shows the named two-shot player on each three-player-team NTP scoring panel.
+- Compacts four drive choices into a two-by-two phone layout.
+- Clarifies that Net is the final 18-hole net score.
+- Moves Change Tee Before Scoring immediately before the event-wide Score Marker control.
+
+VERSION 15.88.5 â€” AMBROSE MARKER AND TEAM-ROLE LAYOUT
+
+- Places one Score Marker control beside the Playing Tee choices. It applies
+  to every team in the event and locks once scoring begins.
+- New Ambrose events default to honour scoring with one scorer per team; the
+  organiser can include checking markers with one button.
+- Removes the Ambrose Team Roles heading and enlarges the team Scorer and
+  Marker selectors so complete player names remain visible.
+
+VERSION 15.88.4 â€” THREE-PLAYER AMBROSE NTP ROTATION
+
+- When a three-player Ambrose team has two NTP holes, randomly assigns the
+  extra tee shot to a different player on the second NTP hole.
+- Shows the organiser each NTP hole and its nominated extra-shot player.
+- Shows each nominated player the relevant NTP hole in Today's Special
+  Instructions. Existing one-NTP Ambrose events retain one nominated player.
+
+VERSION 15.88.3 â€” AMBROSE TEST BUILD
+
+- Adds Ambrose as a separate team-stroke event that runs only with optional
+  Nearest the Pin.
+- Supports four-player teams and three-player teams without a virtual score.
+- Lets the organiser choose Scorer Only or Scorer and Marker checking.
+- Records one team stroke score and the selected drive on every hole.
+- Tracks each player's accepted drives against an organiser-set minimum.
+- Calculates the team handicap as the combined daily handicaps divided by
+  twice the number of actual team members (four-player / 8; three-player / 6).
+- Offers 0, 1 or 2 automatically selected NTP holes with the existing Change
+  option and records who signed the NTP card and when.
+- Gives one randomly selected member of a three-player team the extra NTP tee
+  shot already used for short teams.
+
+AWAY GOLF SCORER â€” VERSION 15.87
+
+VERSION 15.87 â€” YELLOW BALL
+
+- Adds Yellow Ball as a daily team competition.
+- Lets a two-day organiser select Day 1, Day 2 or both days.
+- Rotates the ball through each group in playing order, including shotgun and
+  other non-first-hole starts.
+- Highlights the nominated playerâ€™s name bright yellow without adding another
+  scorecard column.
+- Uses that playerâ€™s agreed Stableford score automatically and stops the teamâ€™s
+  Yellow Ball tally when the ball is recorded lost.
+- Shows players only their own teamâ€™s live Yellow Ball points and ball status.
+  Opposing scoresâ€”and every score on organiser and spectator screensâ€”remain
+  hidden until every scorecard for that day is complete.
+- Adds Release All Phones while retaining each individual Release Phone button.
+- Explains when a one-team event has no eligible emergency replacement.
+
+AWAY GOLF SCORER â€” VERSION 15.86.16
+
+VERSION 15.86.16 â€” CLEAN NEW EVENTS AND VISIBLE SETUP RECORD
+
+- Clears all scoring, finalisation, prize and live-event remnants whenever a
+  completely new event is created, preventing false â€œScoring has begunâ€ warnings.
+- Repeats the successfully checked Final Check information beneath Groups &
+  Teams, where it remains available throughout planning, publication and play.
+- The retained setup record shows only confirmed green-tick items.
+
+VERSION 15.86.15 â€” PICK-UP TOTALS AND AUTOMATIC FINALISATION
+
+- Counts a Stableford pick-up in displayed gross-stroke totals as the first
+  gross score worth zero points: par plus two plus the player's handicap
+  strokes on that hole.
+- Automatically treats a round as finalised once all 18 gross scores and,
+  where required, putts agree on both the player's and marker's cards.
+- Removes the redundant manual Complete Round step so the organiser can reach
+  completed results and prize awarding as soon as every card agrees.
+- Missing entries and score or putt discrepancies continue to block completion.
+
+VERSION 15.86.14 â€” AUTHORITATIVE POST-PUBLISH UPDATES
+
+- Keeps a connected organiser tablet aligned with the authoritative cloud event
+  published by the planning PC.
+- Prevents an older tablet snapshot from restoring superseded tee times,
+  handicaps, competition choices or an unlocked event state.
+- Removes a legacy one-day Single Stableford entry whenever the two-day
+  Stableford format is selected, while retaining the chosen daily, aggregate or
+  both format under the two-day competition.
+- No Supabase SQL change is required.
+
+VERSION 15.86.13 â€” INNER RULES PANEL READING POSITION
+
+- Cloud refreshes retain the scroll position inside the independently scrolling Competitions & Rules panel.
+- Supersedes Version 15.86.12, which preserved only the outside browser page.
+
+VERSION 15.86.12 â€” PHONE RULES READING POSITION
+
+- Background cloud refreshes retain the player's exact scroll position while the event rules are open.
+- Players can read long rules without the page repeatedly jumping back to the beginning.
+
+VERSION 15.86.11 â€” PUBLISHED PREVIEW IDENTITY CORRECTION
+
+- A published preview is no longer misclassified as a local Draft during workspace saving.
+- Opening Federal retains its join code and organiser controls through the complete save cycle.
+- Organiser-tablet access is then available from the reopened event.
+
+VERSION 15.86.10 â€” PUBLISHED EVENT ORGANISER RECONNECTION
+
+- Opening an existing published event now retains organiser mode and its join code.
+- The organiser can create a tablet access code immediately after reopening the event.
+- Version 15.86.9's emergency single-tee starting-hole correction remains included.
+
+VERSION 15.86.9 â€” EMERGENCY SINGLE-TEE STARTING-HOLE CORRECTION
+
+- A changed single-tee starting hole is now synchronised into every saved group before publishing.
+- Player preview, live scoring and round verification now use the event's authoritative single starting hole.
+- Existing locked teams and tee times remain unchanged.
+
+VERSION 15.86.8 â€” PHONE LEADERBOARD RATIONALISATION
+
+- Removes the two-day Single Stableford table from Day 1 and the Day 1 Single table from Day 2.
+- Shows Points Gained on the Day 2 Eclectic leaderboard against the same holes on Day 1.
+- Shows the number of Par 3 holes prominently on Par 3 leaderboards.
+- Gives Special Rules proper hanging bullet indents.
+- Replaces detailed scorecard statistics in Final Check with each day's first tee hole.
+- Retains the Version 15.86.7 saved-team lock correction.
+
+VERSION 15.86.5 â€” FEDERAL PREPARATION AND DEVICE CLEANUP
+
+- Gives the six-character event-code field and Join as a Player button equal width on larger screens.
+- Changes the Home summary heading from Players # to Players.
+- Shows events closed with the saved complete status as Completed in My Events.
+- Gives Scratch a choice between Pure Stroke and Maximum Double Bogey scoring.
+- In Maximum Double Bogey Scratch, a P records par plus two and numeric scores are capped at par plus two.
+- Adds a two-confirmation, device-only way to prepare an old organiser phone for player use.
+- Keeps a local recovery copy before clearing that phone's organiser-event list.
+- Explains in My Events that organiser-event lists are stored separately on each device.
+
+VERSION 15.86.4 â€” CLEAN DUPLICATES AND SPECTATOR VIEW
+
+- Duplicating an event preserves its plan but clears every score, completion flag, result, prize and phone position.
+- Spectators can use the normal event code without selecting a player name.
+- Spectator View is read only and shows the live event rules, progress and leaderboards.
+- Spectators cannot score, edit the event, change prizes or occupy a player connection.
+
+VERSION 15.86.3 â€” PROTECTED EVENT WORKSPACE JOURNAL
+
+- Keeps an independent protected copy of the complete My Events workspace.
+- Automatically restores the protected copy if startup attempts to replace it with an older, smaller event list.
+- Preserves the current event and its exact cloud identity together with the event list.
+- Allows intentional deletion and controlled cleanup only through confirmed organiser actions.
+- Uses a new service-worker cache identity for a clean update.
+
+VERSION 15.86.2 â€” NTP JACKPOT CHOICES AND STATUS
+
+- Offers Final NTP Jackpot for the traditional event-ending big prize.
+- Offers Rolling Jackpot to carry to the next NTP and reset when won.
+- Existing jackpot events retain Final NTP Jackpot behaviour.
+- Shows Pending, Current holder, Winner, carried jackpot and unawarded status clearly.
+- Shows the current ball prize, including any jackpot, on player scorecards.
+
+VERSION 15.86.1 â€” EXACT EVENT RESTORATION
+- A remembered cloud event can reopen only when its event ID or joining code matches the current saved event.
+- Being locked is no longer sufficient to let an old cloud event replace another event at startup.
+- Exact duplicate local event records are consolidated even if an older record lacks cloud identity.
+
+VERSION 15.86 â€” RELIABLE STARTING-HOLE UPDATES
+- A locked single-tee event can change starting hole until the first score is entered.
+- Connected phones receive the change live, return to the new starting hole and show a clear acknowledgement notice.
+- Visible player phones also check the event periodically and whenever they return to the foreground, covering delayed realtime delivery.
+- A starting-hole update cannot overwrite any score: the organiser control locks as soon as scoring begins.
+
+VERSION 15.85.4 â€” WORKSPACE IDENTITY REPAIR
+- Reuses the existing local record when the same published cloud event reopens.
+- Consolidates repeated local cards that point to one cloud event.
+- Preserves the local workspace identity when organiser data refreshes from the cloud.
+
+VERSION 15.85.3 â€” CLEAN SCORECARD ON EVENT CHANGE
+- Joining a different cloud event clears the phone's previous local scorecard before the new event loads.
+- Reconnecting to the same event preserves legitimate scores already held on the phone.
+- Existing online scores for the newly joined event are then restored from the cloud normally.
+
+VERSION 15.85.2 â€” SAFE MULTI-TAB WRITES
+- The newest Away Golf Scorer tab becomes the only tab allowed to save the organiser workspace.
+- An older tab is made read-only and clearly labelled, so stale in-memory events cannot overwrite the current event list.
+- Keeps the compact two-day date range introduced in Version 15.85.1.
+
+VERSION 15.85.1 â€” COMPACT EVENT DATE AND FRESH CACHE
+- A two-day event uses a compact date range such as â€œThu 10 â€“ Fri 11 Sep 2026â€.
+- The event-date value uses smaller type so it fits the Home summary cleanly.
+- A new cache identity forces browsers to load the corrected display files.
+
+VERSION 15.85 â€” LIVE DISCREPANCY WARNING
+- The Home summary displays the event date instead of the unhelpful Round / Marker value.
+- During play, the hole strip compares each player's checking entry with the corresponding official marker entry as cloud records arrive.
+- Blue with an exclamation mark identifies a hole where strokes or putts disagree; both affected phones receive the warning automatically.
+- The blue warning names the hole and opens it directly for immediate checking.
+- Red remains reserved for an entry this phone left incomplete; green means complete with no known disagreement.
+- Unpublished drafts cannot retain or resume an unrelated remembered cloud event, preventing a previous live event from replacing a saved plan.
+
+VERSION 15.84.1 â€” ORGANISER CORRECTION COMPLETION
+- When a saved organiser correction resolves every discrepancy, a previously completed player card automatically returns to Complete.
+
+VERSION 15.84 â€” AFTER THE RIDGE SCORE INTEGRITY
+- Organiser card corrections are stored as authoritative event records and cannot be replaced by an older marker-phone upload.
+- â€œCorrect a Playerâ€™s Cardâ€ shows Select Hole beside a persistent Unconfirmed Holes worklist.
+- A complete marker card no longer counts as a completed round when the player checking card is absent.
+- Normal completion requires both cards to agree; emergency completion requires an explicit recorded recovery.
+- The latest round must save online and current cloud cards must reload before COMPLETE ROUND succeeds.
+- The organiser must freshly reload cloud scorecards before closing the event.
+
+VERSION 15.83.1 â€” MOBILE SCORING-OPEN REFRESH
+
+- Rechecks the scoring-opening time every five seconds while a locked scorecard is waiting.
+- Rechecks immediately whenever a phone wakes or the app returns to the foreground.
+
+VERSION 15.83 â€” TIMED SCORECARD OPENING
+
+- Keeps every scorecard locked until 15 minutes before the event's first tee time.
+- Opens all groups together, including events with two tees or a shotgun start.
+- Adds an organiser Open Scoring Now override and bypasses the clock in Testing Tools.
+- Keeps emergency missing-player replacement available until the affected group records its first score.
+- Adds the scoring-opening rule automatically to every event's Rules and Information.
+
+VERSION 15.82.2 â€” DRAFT CLOUD-SEPARATION HOTFIX
+
+- Discards a stale published-event connection carried inside an older draft workspace record.
+- Guarantees that selecting The Ridge draft cannot reopen Another 2 Day test.
+
+VERSION 15.82.1 â€” MY EVENTS LIVE-EVENT HOTFIX
+
+- Keeps a selected local draft current instead of immediately reopening the previously remembered published event.
+
+VERSION 15.82 â€” EMERGENCY MISSING PLAYER
+
+- Removes a selected late withdrawal before play and randomly assigns a locked virtual player from outside the short group.
+- Changes the remaining three golfers to a closed marking loop and automatically includes the virtual score in multiplayer competitions.
+- Rotates the extra NTP attempt between different real players when two NTP holes are selected.
+- Adds the arrangement to Special Rules and a compact, view-only dropdown below the hole navigation buttons.
+- Repairs My Events switching when an archived current event carries a stale workspace identity.
+- Preserves the horizontal Leaderboard competition-strip position after selecting a result.
+
+VERSION 15.81 â€” SINGLE STABLEFORD RESULTS PRESENTATION
+
+- Daily-only two-day events show one prize-winning Single Stableford result
+  for each day and no overall aggregate result.
+- Aggregate-only events show the daily leaders without prize wording or prize
+  buttons, then the prize-winning aggregate result under Overall Event Results.
+- Events running both formats show one prize-winning daily result for each day
+  and the prize-winning aggregate result under Overall Event Results.
+- Removes duplicate daily Single Stableford rows from two-day results.
+- Moves the My Events Close button beside New Event at the top of the window.
+
+VERSION 15.80 â€” TWO-CARD ROUND CHECKING
+
+- A player must confirm both their own card and the card they marked before
+  completing the round.
+- Red disagreements on the marked card open the relevant scoring hole.
+- Day 1 and Day 2 legs of the two-day Stableford show results without separate
+  Award Prize buttons; the overall two-day event retains its prize control.
+- Added spacing below the NTP Holes Jackpot option.
+
+VERSION 15.79.1 â€” NTP JACKPOT, STARTING HOLE AND COURSE-CARD CORRECTION
+
+CORRECTED REBUILD
+- Every saved My Events record remains visible.
+- Stores one authoritative scorecard for each course and removes incomplete
+  duplicate course records after redirecting events and handicaps safely.
+- Restores the complete Oatlands two-rating scorecard if the incomplete first
+  15.78 test package was opened.
+- Preserves Oatlands contact details and the correct 5502 m course total.
+
+- Two-day events can select NTP Holes Jackpot. Each earlier NTP with no winner carries its ball prize to the final NTP hole of the event.
+- Results show each NTP winner's actual ball prize, including any accumulated jackpot.
+- A locked single-tee event's Starting Hole can be changed before any score or putt is recorded.
+- The updated Starting Hole is sent to connected phones and every scorecard opens on the new hole.
+- If scoring has begun, the organiser is shown the player device and hole blocking the change.
+
+VERSION 15.77 â€” PRIZE COUNT-BACKS AND NTP COMPLETION
+
+- Team and Pairs Putting ties now use automatic count-back: back nine, last six, last three, then Hole 18 backwards.
+- Par 3 Pairs ties now use the last Par 3 then each earlier Par 3 working backwards, including multiway ties.
+- Completed NTP holes with no recorded holder now say "No one recorded as NTP. Prize not awarded."
+
+VERSION 15.76 â€” RULES ACCESS AND PLAYER HOME
+==============================================
+
+- Makes Today's Special Rules open the complete event rules from Home.
+- Includes the automatic Putting Competition and Scratch Competition rules in the player display.
+- Returns an active player directly to the scorecard without changing the current hole or entered scores.
+- Gives long event names the full width of the player Home summary and shows the player being marked.
+- Removes the redundant Check for Event Updates button from Player View.
+- Keeps the Competitions & Rules control in position when it is opened or closed.
+- Enlarges the completed-scorecard confirmation wording.
+- Corrects the agreed comma style in app wording.
+- Preserves all existing event records and scores.
+
+VERSION 15.75 â€” CLEAN PLAYER FAREWELL
+=======================================
+
+- Uses the full-size mascot artwork on the player finish screen so it remains sharp on a phone.
+- Replaces winner lists and non-winner messages with the same simple personal farewell for every player.
+- Removes the View Final Results button from the finish screen.
+- Leaves the organiser's complete results, winners and prize controls unchanged.
+- Preserves all existing event records and scores.
+
+VERSION 15.74 â€” COMPLETED ROUND FINISH
+=========================================
+
+- Replaces the final-details banner with â€œAll Set â€” your scores are recorded. Time to play the 19th.â€ when that player's round is complete.
+- Keeps the final-details banner unchanged until the scorecard is genuinely complete.
+- Confirms that Eclectic remains Thru 18 after Day 1 and changes to Final only after Day 2 is complete.
+- Preserves all existing event records and scores.
+
+VERSION 15.73 â€” TWO-DAY EVENT STABILITY
+==========================================
+
+- Keeps players on the selected Day 2 screen instead of reverting to Day 1.
+- Keeps two-day leaderboards available without forcing navigation back to scoring.
+- Shows Final for two-day and Eclectic competitions only after Day 2 is complete.
+- Reports completed Day 1 competitions as Completed and unstarted Day 2 competitions as Not started.
+- Keeps aggregate-only Single Stableford out of the separate Day 1 results.
+- Adds prize-awarding controls to completed results in the Results Summary.
+- Preserves all existing event records and scores.
+
+VERSION 15.69 â€” TABLET JOIN AND LIVE ORGANISER STATUS
+======================================================
+
+- Makes Join as a Player a true form action for more reliable installed-tablet handling.
+- Adds a direct tablet tap path where an installed web app does not forward form submission correctly.
+- Makes the Join button prominent and retains Enter/Go keyboard joining.
+- Refreshes organiser player connections automatically every eight seconds.
+- Refreshes immediately when the organiser window regains focus or becomes visible.
+- Keeps manual Refresh available and leaves the successful Version 15.68 phone recovery unchanged.
+
+VERSION 15.68 â€” PLAYER CONNECTION RECOVERY
+============================================
+
+- Adds Leave This Event and Join Another for phones retained in an old event.
+- Clears only that device's old local connection; submitted scores remain safe online.
+- Shows Finding Event and a plain-language status while a player code is checked.
+- Stops a stalled cloud request after 12 seconds instead of leaving Join apparently inactive.
+- Restores the entered code after a failed lookup so it can be checked and tried again.
+- Applies the same timeout protection when refreshing an existing event connection.
+
+VERSION 15.67 â€” RIDGE-READY SCORING
+=====================================
+
+- Removes Exit Round from every live scoring hole, eliminating the risk of pressing it instead of Finish Round.
+- Keeps Previous, Next Hole and Finish Round as the only round-navigation controls.
+- Retains the Version 15.66 two-tee default with an optional third tee.
+- Moves Return down each tee-handicap column before continuing at the top of the next column.
+- Displays automatic OUT, IN and TOTAL metres and par beneath every course scorecard.
+- Includes the Select your name here join prompt, clearer rule acknowledgement and All Green invitation control.
+- Shows Preferred Lies as the first special rule only when it has been enabled for the event.
+
+VERSION 15.62 â€” MY EVENTS WORKSPACE
+====================================
+
+- Keeps multiple Away Golf events safely on the organiser device at the same time.
+- Shows the current event first, followed by other events in date order.
+- Switches events without replacing their plans, scores or cloud connection details.
+- Creates new events without deleting the event previously being planned.
+- Duplicates an event as a clean draft while retaining its planning setup.
+- Archives or restores old events without deleting them.
+- Uses two deliberate confirmations before deleting only the selected event.
+- Includes the complete event collection in Organiser Backup files.
+
+VERSION 15.61 â€” OFFICIAL CARD ROUND PROGRESS
+================================================
+
+- Makes Round Progress follow each player's official marker card rather than the self-check entries stored on that player's phone.
+- Shows recovered players at 18/18 when all official strokes and required putts are present.
+- Treats organiser-accepted emergency recovery and organiser corrections as completion of the recovered official card.
+- Automatically recognises a complete official card when the player's checking card agrees or no checking card was available.
+- Uses Complete consistently for finished players and for the Round Progress counter.
+- Retrospectively corrects completed field-test cards without requiring the organiser to repeat recovery.
+
+VERSION 15.60 â€” FIELD-TEST RELIABILITY
+========================================
+
+- Validates every 18-hole scorecard before it can be used in an event plan.
+- Accepts only Par 3, 4 or 5 and checks distances and primary indexes 1â€“18.
+- Requires the organiser to confirm Card checked against the official card.
+- Renames the live scoring roles Player and Marker.
+- Shows Shots, Score and Total together without reducing the score numerals.
+- Lists available and previously connected players when joining.
+- Adds one-button Reset Player Connections without deleting scores.
+- Adds a safe Leave Organiser Mode and Join as a Player action.
+- Serialises score uploads and confirms Hole saved online before moving on.
+- Makes emergency self-score recovery editable and blocks incomplete recovery.
+- Adds an audited organiser correction for one isolated official hole.
+- Forces installed apps to take the latest service-worker update on reopening.
+
+VERSION 15.59 â€” LATE TEE SELECTION SAFETY
+==========================================
+
+- Stores separate Back, Middle and Front Tee handicaps for every event player.
+- Gives each tee its own independent Plus-handicap tick.
+- Allows a provisional playing tee to be chosen during relaxed event planning.
+- Allows the organiser to change and finalise the tee after locking and publishing the event.
+- Holds player scoring until the organiser finalises the playing tee.
+- Shares the final tee and its matching handicaps to connected players.
+- Prevents any tee change after the first score or putt is entered.
+- Allows a finalised tee to be reopened safely before scoring if the course changes its instruction again.
+
+VERSION 15.58 â€” ORGANISER BACKUP AND PUBLISHED EVENT SAFETY
+===========================================================
+
+- Exports players, courses, history, event plans and scores into one organiser backup file.
+- Imports a validated organiser backup without transferring a stale device or cloud connection.
+- Creates an automatic local safety copy before every import and permits one-click restoration.
+- Published Events now verifies each cloud record against its actual stored event contents.
+- Shows the real event name, date and field size and warns when an old cloud label is misleading.
+- Allows one incorrect published event to be archived without clearing every other event.
+
+VERSION 15.57 â€” VIRTUAL CARD CLARITY
+====================================
+
+- Shows the selected course prominently above emergency Playerâ€“Marker entry.
+- Makes clear that the organiser enters gross strokes, not Stableford points.
+- Accepts either P or a dash as Pickup and stores the entry consistently as P.
+- Greys unavailable recovery buttons so they cannot look ready to press.
+
+VERSION 15.56 â€” EMERGENCY SCORE RECOVERY
+=========================================
+
+- Adds an organiser-only Emergency Score Recovery button to live round management.
+- Recovers missing official holes from a player's available self-check scores after a marker's phone fails.
+- Provides a fast 18-hole Playerâ€“Marker virtual card for MiScore or manual-card entry.
+- Uses Return to advance through player score, player putts, partner official score and partner putts.
+- Treats zero putts as valid and warns only about missing or impossible entries.
+- Preserves existing phone scores, records a recovery audit trail and feeds accepted entries into every result.
+
+VERSION 15.54 â€” PUBLISHED EVENTS MENU
+========================================
+
+- Adds Published Events beside Todayâ€™s Special Rules.
+- Lists the organiserâ€™s five most recently published events.
+- Opens the selected event directly with its connected players and scores.
+- Changes the player entry label to Insert the Event Code Provided.
+
+VERSION 15.53 â€” SAFE ORGANISER REOPENING
+========================================
+
+- Removes the misleading attempt to recover organiser control with a player code.
+- Existing organiser app copies continue reopening their saved live event automatically.
+- A blank browser copy clearly directs the organiser back to the established copy.
+- Explains that player codes cannot grant organiser control in a different browser.
+- Preserves all event data, scores and connected-player records during upgrades.
+
+VERSION 15.52 â€” CLEAR PHONE INSTALLATION INSTRUCTIONS
+=====================================================
+
+- Replaces technical APK wording with the actual Android choices shown.
+- Tells Android players to select Install, not Create shortcut.
+- Adds the separate Safari and Add to Home Screen instruction for iPhone.
+- Confirms that players can also score directly from the browser page.
+
+VERSION 15.51 â€” RETIRE OLD CLOUD TEST
+=====================================
+
+- Permanently disconnects the obsolete Away Golf 15.39 Test (code 2A40BC).
+- Stops a device from guessing and reopening the latest old cloud event.
+- Preserves the genuine Oatlands Saturday field test (code BE8C94).
+- Organiser recovery remains available when its code is deliberately entered.
+
+VERSION 15.49 â€” CLEAN FIELD-TEST RESET
+
+- Adds an organiser-only Clear All Previous Test Events action under Event Options.
+- Archives all active published events belonging to the organiser.
+- Clears the PC's current event, scores, join code and saved test backups.
+- Causes connected player devices to leave an archived test automatically.
+- Preserves players, GolfLink details, courses, scorecards and app settings.
+
+VERSION 15.48 â€” FIELD-TEST STARTUP PROTECTION
+
+- Restores the organiser's active published event from its secure workspace at startup.
+- If that workspace lookup is unavailable, finds the organiser's newest active published event directly.
+- Prevents an older locked local event from replacing the published field-test event.
+- Leaves protected local tests and unfinished new event plans untouched.
+- Includes the compact Version 15.47 scoring screen.
+
+VERSION 15.47 â€” COMPACT SCORING SCREEN
+
+- Removes the duplicate Away Golf and course panel above the hole controls.
+- Moves Screen awake beside Cloud connected in the permanent player header.
+- Moves Exit Round below the Previous and Next Hole controls.
+- Pulls the hole tracker and scoring controls further up the phone screen.
+
+VERSION 15.46 â€” MINIATURE MASCOT AND ORGANISER WORKSPACE
+
+- Adds a separate wordless miniature mascot beside Away Golf Scorer.
+- Places the miniature in the app root so it loads with the core app files.
+- Saves the active published-event identity to the organiser's secure workspace.
+- Restores that published event automatically if an old PC planning copy appears.
+
+VERSION 15.45 â€” COMPACT MASCOT POSITION
+
+- Moves the small mascot to the top-right of the permanent player-device header.
+- Restores the compact scoring header so the mascot never pushes score controls down.
+- Keeps the large mascot on welcome and completed-round screens.
+
+VERSION 15.44 â€” AWAY GOLF MASCOT
+
+- Adds the approved Away Golf golfer as the permanent app mascot.
+- Welcomes each player by first name once when joining an event.
+- Leads the player from Welcome to Today's Rules, Got It and scoring.
+- Adds a compact mascot to the player card and active scoring header.
+- Adds the first completed-round greeting, ready for final winner messages.
+
+VERSION 15.43 â€” PUBLISHED EVENT STARTUP PROTECTION
+
+- The organiser PC remembers its active published event independently of an older local planning workspace.
+- A published event is restored automatically from its secure cloud copy when the organiser PC starts.
+- Scratch withdrawal details are locked onto one grid row so Pick-up on Hole # aligns with the player entry.
+
+VERSION 15.42 â€” SCRATCH LEADERBOARD WORDING
+
+- A disqualified Scratch row now says Withdrawn from this Competition and keeps Pick-up on Hole # alongside it on one line.
+- The leaderboard note explicitly defines the displayed label with bold quoted wording: â€œThruâ€ is the number of holes with official marker scores.
+
+VERSION 15.41 â€” ORGANISER EVENT RECOVERY
+
+- The original organiser PC can recover an already-published event by entering its six-character player join code, without claiming a player position.
+- Recovery confirms the published event name before replacing a stale local event and restores the event plan, eight-player field, connected-device status and uploaded round scores.
+- The recovered online identity is stored again as the active organiser event so subsequent launches and score refreshes stay attached to it.
+
+VERSION 15.40 â€” ON-COURSE SCORE ENTRY RELIABILITY
+
+- Entered Score and Putts values now change to a black button with a large white number; unentered values remain grey for unmistakable confirmation in sunlight.
+- An incoming cloud refresh can no longer replace the active player's newer local scoring card with an older blank server copy while a tap is uploading.
+- Screen wake lock is renewed when scoring regains focus, returns from the background, is restored from a browser page cache or receives a new scoring tap, with a live status shown on the card.
+- Scratch Pick-up status now has a wide single-line cell immediately to the left of the score column.
+
+VERSION 15.39 â€” NEW EVENT PUBLISHING AND FINAL PLAN CHECK
+
+- A newly created event now disconnects the previous event's online identity and receives its own player join code when published.
+- Existing mismatched local/online event identities are detected safely and detached before publishing, preventing an old event's player list from appearing under a new plan.
+- One-day events may have one or two NTPs, defaulting to one; two distinct Par 3 holes are proposed automatically.
+- Final Check now shows the actual event name, course, start date, invited and confirmed counts, daily team structure, competition count and selected NTP hole or holes.
+- NTP Final Check wording changes automatically between Hole and Holes.
+
+VERSION 15.38 â€” SCRATCH ELIGIBILITY AND PUTTING VERIFICATION
+
+- Scratch setup now includes an editable maximum daily handicap, defaulting to 10 and including players whose handicap is exactly the selected limit.
+- Players above the Scratch handicap limit are omitted from that leaderboard; legacy events without the new setting retain their existing Scratch field.
+- An eligible Scratch player who records a Pick-up is removed from the ranked field and shown as no longer competing, with the Pick-up hole identified.
+- Scratch participation and Pick-up conditions are added automatically to the organiser and player Rules pages.
+- When a Putting Competition is selected, final verification now compares marker and player putts as well as scores, identifies each discrepancy and blocks finalisation until both agree.
+
+VERSION 15.37 â€” FAIR LIVE LEADERBOARDS
+
+- Every live result shows a prominent Thru number based on completed official marker holes.
+- Scratch is ranked against par during play (-2, E or +3), keeping players comparable when groups have completed different numbers of holes.
+- Final Scratch standings retain gross strokes and also show the score against par.
+- Live positions are identified as provisional until scorecards are finalised.
+- GolfLink number is explicitly optional when adding non-golfers and corporate-event players.
+- The approved automatic shotgun starting-hole design is recorded in Ideas Backlog for later implementation.
+
+VERSION 15.36 â€” VISIBLE MISSED HOLES AND CLEAR WAITING RESULTS
+
+- Added a high-contrast 18-hole tracker: green and ticked means scored, red with an exclamation mark means a passed hole is missing, neutral means not yet reached, and a heavy blue border identifies the current hole.
+- Added a persistent missing-hole warning listing the affected holes and a Go to first missing hole button.
+- Hole numbers in the tracker can be tapped directly to return to any hole.
+- Pairs Putting and Best 3 of 4 now show Waiting for Marker to Score instead of a misleading zero until enough official marker scores exist.
+
+VERSION 15.35 â€” COURSE DATA AND LIVE-SCORING RESILIENCE
+- Restored the organiser-verified Oatlands GC card: par 70, 5,503 metres and
+  complete MiScore stroke indices through handicap 54.
+- Expanded course contacts to separate Club and Pro Shop phone/email fields and
+  added the golf professional's name.
+- Rebuilt scorecard entry for direct typing; Enter advances through every cell.
+- Favourite courses now appear first with a visible star.
+- Cleaned and aligned the player profile editor and repaired blank legacy
+  GolfLink data from the built-in player list.
+- One-day/non-NTP Final Check screens no longer show irrelevant completed items.
+- Added a genuine Retry Sync control and renamed Open My Scorecard to Open
+  Scoring Card.
+- Live leaderboards continue from official marker entries, show missing holes as
+  pending and never count an unentered hole as zero.
+
+VERSION 15.34 â€” DAY 2 HANDICAP REVIEW AND GC COURSE NAMES
+- Saving Day 1 handicaps in a two-day event automatically carries them into
+  Day 2. A later Day 1 correction also carries forward unless the organiser
+  has already entered a different Day 2 handicap for that player.
+- The second setup action is now Review Day 2 Hcp. Its review screen is
+  pre-filled and only genuine Day 2 changes need to be entered.
+- Course names use GC instead of the fully written Golf Club. Existing saved
+  course records and recorded player course handicaps are migrated on opening.
+
+VERSION 15.33 â€” BEST 3 OF 4 LOTTERY PRIZE WORDING
+- The winning Best 3 of 4 team's Summary prize now states clearly that it is
+  the only team that does not contribute the selected amount to the Lottery Pool.
+- The displayed amount continues to come from the event's competition setup.
+
+AWAY GOLF SCORER â€” VERSION 15.32
+
+VERSION 15.32 â€” COMPLETED SCORECARD VIEWER
+- A finalised player now sees View Completed Scorecard instead of Start Round.
+- Completed cards are strictly read-only and show all 18 holes, gross score,
+  putts, Stableford points and the exact handicap adjustment used on each hole.
+- Plus-handicap give-back holes are highlighted, making +4 and +1 calculations
+  directly auditable against the course stroke indexes.
+- Front nine, back nine and 18-hole totals are included, with a safe return to
+  Player View.
+
+VERSION 15.28 â€” GUARANTEED PLUS-HANDICAP CONTROL
+
+VERSION 15.28 â€” GUARANTEED PLUS-HANDICAP CONTROL
+- Replaced typed plus signs with a separate, unambiguous Plus checkbox.
+- Quick handicap entry now has Player, Handicap and Plus columns. Ordinary
+  handicaps retain the fast type/Enter/type/Enter workflow.
+- A +4 player is entered as number 4 with Plus ticked; a +1 player is entered as
+  number 1 with Plus ticked.
+- Groups & Teams and Player Profile use the same separate Plus control.
+- Plus handicaps are stored independently of browser number formatting and are
+  visibly rendered with a + prefix.
+- Verified that +4 deducts one stroke on indexes 15, 16, 17 and 18: par scores
+  one point and birdie scores two on those holes; par scores two elsewhere.
+
+VERSION 15.27 â€” PLUS HANDICAPS
+- Added full support for plus playing handicaps such as +4.
+- Plus handicaps retain and display the + sign in quick entry, Groups & Teams,
+  Player Profile, course history and the player's round preview.
+- Stableford scoring correctly deducts strokes on the easiest-ranked holes: a
+  +4 player must birdie stroke indexes 15, 16, 17 and 18 to score two points.
+- Handicap entry instructions now explicitly show the +4 input example.
+- Widened Set Hcp â€” [Course] so longer course names fit on one line and reduced
+  the adjoining player/GolfLink search area to use the available space better.
+- Preserved a stacked, phone-friendly arrangement on narrow screens.
+
+VERSION 15.26 â€” FAST COURSE HANDICAPS AND PROVISIONAL PLANNING
+- Replaced the read-only player information panel with an editable Player Profile.
+- Player Profile now prioritises Name, GolfLink No., Home Club, last Away Golf
+  event, course handicap history, current event course handicap(s), Notes and Status.
+- Removed the stale GA Handicap from the visible Player Profile.
+- Added Set Hcp â€” [Course] beside Manage Player List during event planning.
+- The handicap screen is one vertical list of all selected players; pressing Enter
+  stores the number and advances directly to the next player.
+- Two-day events receive a separate handicap-entry button and list for each course.
+- Entered handicaps automatically populate Groups & Teams and are retained with
+  the event plan. Locked-event handicaps are recorded in each player's course history.
+- Event planning can proceed when the target field is filled by accepted and/or
+  awaiting-reply invitations. Awaiting players remain visibly amber in the groups.
+- Lock Event is prevented until every provisional amber player is confirmed green.
+- Restored a reliable Return to Setup button from the Player List for unlocked events.
+- Corrected the safe-test heading for the 16-player dress rehearsal.
+
+VERSION 15.25 â€” 16-PLAYER DRESS REHEARSAL
+- Added a protected one-day 16-player Oatlands test matching the scale of the
+  first real Away Golf event.
+- Uses four groups of four, eight 4BBB pairs and four competing teams.
+- Provides completed 18-hole gross scores, matched marker scores, realistic
+  putts, NTP progression and finalised rounds for all 16 players.
+- Simulates all 16 player phones as joined so the organiser's live event control,
+  four-group display and Prize Giving Ready state can be tested at full scale.
+- Covers Single Stableford, 4BBB, Team Putting, Best 3 of 4, Par 3 Pairs,
+  Nearest the Pin and Scratch leaderboards plus the complete Results Summary.
+- Testing Tools can switch among the 8-player one-day, 8-player two-day and
+  16-player one-day tests without exposing test data to the live event system.
+
+VERSION 15.24 â€” CLEAN ONE-DAY RESULT NAMES
+- Removed redundant â€œDay 1â€ text from every one-day competition name.
+- One-day Summary heading is now â€œEvent Resultsâ€.
+- Multi-day competition names retain their Day 1 and Day 2 identification.
+
+VERSION 15.23 â€” ONE-DAY SUMMARY FIX
+- Fixed the one-day Summary tab returning immediately to Today's Single Stableford.
+- One-day Summary now displays all selected competition winners and prize controls.
+
+VERSION 15.22 â€” NTP PROGRESSION
+- Daily NTP leaderboard retains each successive provisional holder and time.
+- The last recorded holder is clearly labelled Winner.
+- Prize Summary remains uncluttered and shows only the final NTP winner.
+- Protected test now includes realistic multi-player NTP progressions.
+
+VERSION 15.21 â€” ONE-DAY TEST AND EVENT OPTIONS
+- Added a protected one-day eight-player Oatlands test.
+- Testing Tools can switch safely between one-day and two-day tests.
+- One-day test covers Single Stableford, 4BBB, Team Putting, Best 3 of 4,
+  Par 3 Pairs, Nearest the Pin and Scratch.
+- Added Event Options on Home.
+- Cancel Event closes scoring and archives a published join code while retaining
+  the cancelled event as a record.
+- Delete Event from This Device removes the current event and local scores after
+  two confirmations while retaining players, courses and organiser preferences.
+
+VERSION 15.20 â€” SINGLE STABLEFORD FORMAT CHOICE
+- One-day events retain the normal optional Single Stableford.
+- Two-day events can run daily Single Stableford, two-day aggregate, or both.
+- The protected Oatlands test uses the two-day aggregate only.
+- Team Putting and Best 3 of 4 summary winners include all four player names.
+
+VERSION 15.19 â€” PROTECTED EIGHT-PLAYER OATLANDS TEST
+- Added a reusable two-day test event based on genuine Oatlands scorecards supplied by the organiser.
+- Uses eight existing Away Golf players, two four-player groups and four 4BBB pairs each day.
+- Day 2 partnerships differ from Day 1, allowing the draw and daily team results to be tested properly.
+- Includes realistic completed gross scores, inferred putts and NTP results.
+- Tests Single Stableford, 4BBB, four-player Putting, Best 3 of 4, Par 3 pairs, Scratch, Eclectic, NTP and prize giving.
+- Testing Tools can show no scores, completed Day 1, or both completed days.
+- The existing event, cloud connection and course records are backed up before test mode begins.
+- The test event remains local and cannot accidentally be published to connected players.
+- Restore My Previous Event returns the organiser to the exact event that was open before testing.
+
+VERSION 15.18 â€” ORGANISER'S LIVE EVENT CONTROL
+- Added a phone-friendly organiser panel on Home for locked events.
+- Shows live Joined, Playing, Attention and Finalised counts for each day.
+- Shows every player's group, phone connection, holes entered, next hole and round status.
+- Flags scorecards needing attention when player and marker entries are missing or disagree.
+- A round's finalised status now travels with its live score data from the player's phone.
+- Leaderboard winners remain In Progress until the required player scorecards are checked and finalised.
+- When all players are finalised, Prize Giving Ready opens the Results Summary directly.
+- Editing a score after finalisation automatically returns that round to In Progress until it is checked again.
+
+VERSION 15.17 â€” FAST PRIZE GIVING
+- Results Summary now displays the configured prize or win benefit beside every competition.
+- Final results with a configured prize show an organiser-only Award Prize button.
+- Awarded results are dimmed and clearly marked âœ“ Awarded to prevent accidental duplicate prize giving.
+- Award status is saved with the event and shared with connected player phones.
+- An awarded result can be changed back after a confirmation if the organiser makes a mistake.
+
+VERSION 15.16 â€” LEADERBOARD RANKING CORRECTION
+- Players and teams marked Not Started now always appear below competitors with recorded scores.
+- Corrects live Scratch and Putting leaderboards where a zero from no entries could otherwise appear to lead.
+- Uses the correct golf nomenclature Single Stableford throughout.
+- Two-day leaderboards now have Day 1, Day 2 and Summary views.
+- Day 2 retains Day 1 Single Stableford and the continuing two-day competitions, while completed Day 1-only competitions move off the active display.
+- Added a results summary with Day 1, Day 2 and overall event winners; every result can be opened to see its full standings.
+
+VERSION 15.15 â€” LIVE LEADERBOARDS
+- Added live leaderboard tabs for every competition selected in Event Setup.
+- Supports one-day and two-day Single Stableford, daily 4BBB, Putting pairs/teams, Best 3 of 4, daily or two-day Par 3 pairs, Scratch, Eclectic and NTP holders.
+- Shows each result as Not Started, Thru holes, or Final as shared scores arrive.
+- Applies automatic back 9, last 6, last 3 and hole-by-hole countback to Single Stableford, 4BBB and Scratch ties.
+- Two-day Single Stableford uses Day 2 first for countback.
+- Leaderboards are available on organiser and joined-player devices.
+- Joined-player navigation now labels the scoring area My Golf.
+
+VERSION 15.14 â€” PLAYER-ONLY PHONES
+- Joined players now see a true player-only interface: Home and My Golf only.
+- Player devices cannot open Players, Courses, Teams or event-setup screens.
+- The organiser can see which players have connected to the live event.
+- The organiser can release a player's phone connection so that player may join again on a replacement device.
+
+VERSION 15.13 â€” SECURE SHARED EVENTS
+- Added Supabase-backed shared events with Row Level Security.
+- Devices sign in anonymously without requiring player passwords or accounts.
+- Organisers publish a locked event and receive a six-character player join code.
+- Players join by event code and select their own name.
+- A joined player is restricted to that player's scorecard on the device.
+- Round entries remain saved locally first and synchronise automatically when online.
+- Live event changes and other players' score records refresh through Supabase Realtime.
+- Added secure organiser workspace storage for later cross-device setup synchronisation.
+
+VERSION 15.12
+- Enlarged and separated player response controls on phones.
+- Player selection lists retain their scroll position after each response.
+- Scoring automatically requests a screen wake lock and restores it when the app becomes visible again.
+- The wake lock releases when the player exits or finalises the round.
+- NTP setup shows each day's starting tee arrangement beside the day heading.
+- Two-hole NTP days include a one-click Swap NTP Order control.
+- Competitions & Rules explicitly labels Putting Competition as 2 Player or 4 Player.
+- Best 3 of 4 live totals use bold type.
+- Automatic Day 2 draws prohibit repeat Day 1 4BBB partnerships when another pairing is possible; Manual mode remains the override.
+- Player rules identify the Putting Competition as 2 Player or 4 Player.
+- Day 2 live scoring shows Day 1 hole points and the progressive Eclectic total when Eclectic is selected.
+- Refined Score and Best 3 of 4 live-card alignment.
+- Fixed Day 1 / Day 2 navigation on the locked Groups & Teams screen.
+- Day tabs remain available for viewing while all planning controls remain locked.
+- Putting Competition now offers 4BBB Pairs or Four-Player Team format in Competition Setup.
+- Putting rules and Groups & Teams wording follow the selected format.
+- Live scoring shows both current pair members' progressive putts.
+- Live scoring adds Pairs Total or Team Total, using other-pair entries when available.
+- Added live Best 3 of 4 current-hole and progressive totals.
+
+VERSION 15.6
+- Added Add Course to Favourites checkbox directly to Course Details.
+- Replaced the hole-position line with the player's progressive Total Putts.
+- Replaced the Stableford pill with a Score panel for each golfer.
+- Score panel shows current-hole Stableford points and the progressive round Stableford total.
+- Progressive totals follow the actual playing order, including shotgun starts.
+
+VERSION 15.5
+- Replaced the long setup dropdown with a mouse-first Choose Course panel.
+- Added persistent course Favourites using the + / tick control beside each course.
+- Added editable Golf Region data and same-region Nearby Courses suggestions for Day 2.
+- Renamed the player heading to Competitions & Rules.
+- Added each selected competition's prize or win benefit beside its name.
+- Kept the expanded Competitions & Rules panel compact and internally scrollable on a phone.
+
+VERSION 15.4
+- Fixed the missing competition-name table that interrupted Player View redraws.
+- Event Rules & Competitions now opens and closes correctly.
+- Got It now acknowledges the selected player and enables the round when all other requirements are met.
+- Changing the player selector now redraws the phone for the selected golfer.
+
+VERSION 15.3
+- Event Rules & Competitions now opens and closes reliably as an inline panel in Player View.
+- Day 1 and Day 2 selectors retain their full wording on narrow screens.
+- Size of Field now uses a clear minus / number / plus control instead of the browser's tiny spinner.
+
+Clean production-foundation rebuild.
+
+Included and working:
+- Step 1 Event Details: event name, date, length, start format, field size, Day 1/Day 2 courses.
+- Step 2 Players: surname sorting, visible GolfLink, invite/await/accept/decline, confirmed field, inactive historical members.
+- Player administration: Add, Make Inactive, Reactivate, information panel.
+- Course administration: Add, Make Inactive, Reactivate, Course Details (address, map link, phone, website, email, notes, active tee/scorecard summary).
+- Step 3 Competition Setup: Single Stableford, 4BBB Stableford, Putting, Best 3 of 4, Par 3, NTP, Scratch, automatic Eclectic for same-course two-day events.
+- Win Benefit controls are hidden until a selected competition's Set Win Benefit button is pressed.
+- Best 3 of 4 supports Lottery Pool or Prize, with $10-$50 losing-team contribution.
+- Organiser competition choices are retained as the starting template for the next event.
+- NTP uses Selected wording and automatic easiest-rated Par 3 selection.
+
+Deliberately not carried forward yet:
+- Legacy Teams/Scoring/Verification implementation. These will be rebuilt on this clean architecture next.
+
+Existing Away Golf player/course data is seeded, and Version 13 attempts to migrate existing player and course edits from the prior awayGolfV11 browser data store.
+
+VERSION 13.1
+- Restored wizard margin/padding and shortened heading to Create New Event.
+- Player list now locks into a fixed-height 3-column board with independent scrolling.
+- Visible red/amber/green traffic lights and legend restored.
+- + Add Player, Make Inactive and Reactivate restored inside event setup.
+- Course Details can be opened from Step 1 and stores location, Pro Shop phone, map link, website, email, notes, Back/Middle/Front tee data and editable scorecard data.
+- Course list now shows data status and known slope/par/length/contact detail.
+- Specify Prize replaces Specify only if required.
+- Best 3 of 4 Lottery Pool displays $ contribution and "per team member".
+- Eclectic is shown on every 2-day setup: selected for same-course events, greyed out for different-course events.
+
+VERSION 13.2
+- Front Nine and Back Nine displayed side by side in Course Details.
+- Compact scorecard columns and sticky headings.
+- Index accepts composite values such as 14/30/48.
+- Return to Setup added for Course and Player administration opened from the wizard.
+- Manage Player List added to Step 2.
+- Spacing added between field number and TARGET FIELD.
+- Stable competition benefit columns and better spacing before Optional prize description.
+- Two-day Par 3 choices corrected: one event each day OR one aggregate event over 2 days using Day 2 4BBB partners.
+- Same-course Eclectic detection hardened and previous Par 3 template values migrated.
+
+VERSION 13.3
+- Fixed Return to Setup navigation: Course and Player admin pages are now redrawn after the wizard return step is set, so the button actually appears.
+- Eclectic same-course detection now accepts either the same course ID or matching course names, eliminating false grey-out when the same club is selected twice.
+- Best 3 of 4 heading changed to Losing Team(s) Contribution.
+
+VERSION 13.4
+- Eclectic is now an organiser-selectable competition when a two-day event uses the same course on both days.
+- Eclectic is no longer forced/disabled when available.
+- With different courses, Eclectic remains unavailable and greyed out.
+
+VERSION 13.5
+- Page 4 Rules redesigned.
+- Preferred Lies is a dedicated Yes/No control and ALWAYS starts at No for every new event.
+- No displays "Play the ball as it lies".
+- Yes reveals a choice between "In the General Area" and "On the closely mown part of the fairway".
+- Preferred Lies is deliberately not inherited from the previous event template.
+- Special Rules remains available for event-specific instructions.
+- Added a compact player-facing preview using the informal "Got It" acknowledgement.
+- Review page now summarises Preferred Lies and Special Rules.
+
+VERSION 13.6
+- Rules page Preferred Lies control simplified:
+  * shows one status only â€” No by default;
+  * default text reads "Default for every new event is play the ball as it lies.";
+  * Change switches Preferred Lies on/off;
+  * when on, status becomes green Yes and the location selector appears.
+- Putting Competition Rules appear automatically on Page 4 whenever Putting Competition was selected on Page 3.
+- Putting rules include winning condition, on-course putting rules and appropriate one-day/two-day count-back.
+- Special Rules remains beneath the automatic competition rules.
+
+VERSION 13.7
+- Page 5 is now NTP Hole Selection.
+- Automatically selects the easiest-rated Par 3; two Day-2 NTPs select the easiest and second easiest.
+- Change opens only the Par 3 choices for that course and prevents duplicate NTP holes on the same day.
+- No prize input is repeated on Page 5.
+- NTP play logic locked in for scoring build: "Click Yes if you put your name on the NTP sheet."; Yes requires confirmation; confirmed entries receive timestamps; latest confirmed entry on each NTP hole is current holder; entry locks after leaving the hole; live leaderboard can show current holder; final holder becomes winner.
+
+VERSION 13.8
+- Page 6 Start built as the final event review and launch page.
+- Shows event details, courses, confirmed players, competitions, rules and NTP selections.
+- Includes a clear final checklist and disables START EVENT if required setup is incomplete.
+- Large green START EVENT button launches the configured event after confirmation.
+- Shotgun start is identified and notes that starting holes will be assigned with playing groups.
+- Preferred Lies wording corrected to "On the closely mown part of the course".
+
+VERSION 13.9
+- Page 6 Event date now displays in DD/MM/YYYY format.
+- Page 6 NTP summary uses natural wording:
+  * one NTP: "Hole X"
+  * two NTPs: "Hole X and Hole Y"
+- Page 6 review/start layout otherwise unchanged.
+
+VERSION 14.0
+- First Groups & Teams operating page built.
+- START EVENT now opens Groups & Teams rather than simply closing the wizard.
+- Day 1 and Day 2 group setups are stored independently.
+- Confirmed players are divided into four-person playing groups.
+- Randomise Groups shuffles the field while preserving groups of four for normal Away Golf field sizes.
+- Reset Alphabetically restores a simple surname-order starting layout.
+- Manual player movement uses a two-click Swap system.
+- 4BBB Pair A and Pair B are shown within each four-person group when 4BBB is selected.
+- Putting and Best 3 of 4 identify the full four-person playing group as the team.
+- Single Tee shows group tee order.
+- Two Tee events provide 1st Tee / 10th Tee selection per group.
+- Shotgun events provide Starting Hole 1â€“18 per group.
+- Each day has its own Save Groups action.
+- Score page remains deliberately untouched for the next design stage.
+
+VERSION 14.1
+- Fixed manual Swap on Groups & Teams:
+  * first click visibly selects a player;
+  * second click swaps the two players;
+  * clicking the selected player again cancels the selection.
+- Removed the redundant full four-person team statement.
+- Reworked 4BBB display:
+  * one heading: "Partners in 4BBB";
+  * two separate partner boxes;
+  * removed Pair A / Pair B labels.
+
+VERSION 14.2
+- Groups & Teams now offers History Balanced, Random and Manual.
+- History Balanced tests 500 candidate draws and selects the lowest-repeat layout.
+- Repeat 4BBB partnerships carry extra weighting over simply sharing a four-person group.
+- Manual mode shows times played together and previous 4BBB partnerships.
+- Group-level history advice helps the organiser choose a less repetitive destination.
+- Random remains a genuine quick random draw.
+- Pair-history and 4BBB-partner-history stores are included for automatic future event history.
+- Legacy history can be seeded later without altering the draw engine.
+
+VERSION 14.3
+- Manual mode now visibly activates and remains highlighted.
+- Swap rebuilt with a simple two-click handler and clear "Selected for swap" feedback.
+- Day 2 History Balanced now treats Day 1 as fresh history:
+  * strong penalty for repeating Day 1 group-mates;
+  * even stronger penalty for repeating a Day 1 4BBB partnership.
+- History Balanced now evaluates up to 1,800 unique candidate draws.
+- Repeated clicks can return different near-optimal draws rather than always giving exactly the same layout.
+- Legacy history image set reviewed: source is now readable after compositing onto a light background, but no uncertain counts have been guessed into the production history store.
+
+VERSION 14.5 â€” VERIFIED REBUILD
+- Competition Setup: Set/Change Win Benefit plus visible current setting / Not Yet Set.
+- Rules: Putting Rules Edit/Done, Special Rules Clear, Got It visible acknowledgement.
+- Review & Start: only the large milestone START EVENT button; Cancel and Back remain below.
+- Groups & Teams: Swap selection is preserved through rerender so the second Swap click can complete the exchange.
+- Browser cache-busting added to CSS/JS references and service-worker strategy changed to network-first.
+
+VERSION 14.6 â€” EVENT PLAN / SHORT-FIELD DESIGN
+- Review milestone renamed SAVE EVENT PLAN â€“ PROCEED TO SET UP SCORING.
+- Saving the plan no longer locks the event.
+- Groups & Teams now has Back to Event Setup so the organiser can revise the plan until Lock Event.
+- LOCK EVENT is a separate final control and is enabled only after every day's groups are saved.
+- Two-day events now support day-by-day player availability. A golfer can play Day 1 only, Day 2 only, or both days.
+- Daily field completeness is checked independently against the target field size.
+- Added special system entry No Partner for the one-player-short situation.
+- If No Partner is used on a day:
+  * the app identifies the real player who needs a virtual partner;
+  * randomly chooses a Virtual Player from the other genuine golfers, excluding that player;
+  * displays the Virtual Player in blue with (VP);
+  * uses the VP in the 4BBB partnership display and future team-score logic;
+  * selects one of the three actual golfers in the short group as NTP Extra Shot Player when NTP is selected;
+  * explains the arrangement beneath the team draw.
+- Virtual Player and NTP Extra Shot selections are independent.
+- Competition â€œCurrently Set at â€¦â€ badges are aligned to the right for quick scanning.
+
+VERSION 14.7 â€” PLAYER HOME / EVENT DAY FIRST DRAFT
+- New Player View replaces the scoring placeholder and provides a phone-first personalised event screen.
+- Organiser can preview the screen as any golfer and switch Day 1 / Day 2.
+- Shows event/course/date, starting position, player's group and 4BBB partner.
+- No Partner / Virtual Player and NTP Extra Shot instructions appear only when relevant to that golfer.
+- Event Rules & Competitions opens from the player screen.
+- Got It acknowledgement works in the preview.
+- Start Round remains disabled until Lock Event; scoring comes next.
+- Select Players search focus bug fixed so multi-character typing works.
+- Traffic-light controls aligned.
+- Initial Day 2 group draw now runs History Balanced after Day 1 exists, rather than initially cloning the same arrangement.
+- If No Partner is required both days, Day 2 avoids assigning No Partner to the same golfer where an alternative exists.
+
+VERSION 14.8 â€” TWO-TEE STARTING HOLES
+- Step 6 heading changed to "Review and Move to Scoring".
+- Selecting Two Tees on Step 1 now reveals organiser-controlled starting holes.
+- Day 1 and Day 2 each have their own Starting Tee 1 / Starting Tee 2 choices.
+- Defaults remain Holes 1 and 10, but any two different holes can be selected (e.g. Oatlands 1 and 13).
+- Review page shows the actual configured starting holes.
+- Groups & Teams uses those selected holes rather than hard-coded 1/10.
+- Player View displays the golfer's actual starting Hole.
+- Underlying starting-hole value is now ready for wrap-around scoring (e.g. 13â†’18â†’1â†’12).
+
+VERSION 14.9 â€” PER-DAY START FORMAT & STARTING TEE
+- Day 1 and Day 2 start arrangements are independent.
+- Each day can be Single Tee, Two Tees or Shotgun.
+- Single Tee requires the organiser to nominate the actual starting hole (default Hole 1).
+- Two Tees requires the two actual starting holes for that day.
+- Review page shows both days' starting arrangements and has Confirm / Change Starting Tee.
+- This allows last-minute changes before Lock Event, e.g. a club moves the field from Hole 1 to Hole 10.
+- Groups & Teams and Player View inherit the actual start for that day.
+
+VERSION 15.0 â€” FIRST HOLE-BY-HOLE SCORING PROTOTYPE
+- Daily Handicaps are entered by day before Lock Event.
+- Player START ROUND now opens at the assigned starting hole and wraps through all 18 holes.
+- Hole screen shows Hole, Par, Index and Metres.
+- Each phone records the partner/marker official score and the golfer's own verification score, plus Putts.
+- Stableford is calculated automatically from the Daily Handicap and course index.
+- NTP holes show the name-on-sheet YES flow with a second-click confirmation, Undo before leaving the hole, timestamped current holder and lock after Next Hole.
+- Finish Round opens verification comparing the golfer's own entries with the official entries made for that golfer by their marker.
+- Banked UI changes included: one-line setup-complete message and Change Starting Tee wording.
+
+
+VERSION 15.1 â€” PLAYER VIEW AND SCORING REFINEMENTS
+- Event Rules & Competitions expands in the phone view.
+- Removed redundant Tee field from player preview.
+- Player name is prominent and group display places the 4BBB partner beside the player.
+- Score and Putts use minus/value/plus steppers, centred on Par and 2 putts.
+- NTP confirmation now records the golfer being marked, shows a confirmation time, and uses the marker-specific question.
+- Round verification wording clarified.
+
+VERSION 15.2 â€” SCORING REFINEMENT
+- Day 1 Daily Handicap automatically pre-fills Day 2 when the Day 2 value is blank; Day 2 remains editable.
+- Event Rules & Competitions now opens in a dedicated player modal even after Lock Event.
+- Gross score control is now four-part: minus / score / plus / P.
+- P records Pick-up and immediately gives 0 Stableford points.
+- Putts remains a narrower three-part minus / 2 / plus control.
+- Verification accepts either an identical gross score OR identical Stableford points.
+  Example: Marker P (0 pts) and Player 8 (0 pts) verifies successfully.
+- Verification rows show both entered gross/P value and Stableford points.
+- Existing NTP confirmation/time/lock behaviour is unchanged.
+VERSION 15.12 UPDATE
+--------------------
+- Player traffic-light selections no longer focus the search box or open the phone keyboard.
+- The player-selection page remains at its current scroll position after a response is changed.
+VERSION 15.29 â€” ONE-DAY WORDING CLEANUP
+========================================
+
+- One-day event screens no longer display unnecessary Day 1 wording.
+- Course setup, NTP setup, event review, Groups & Teams, live progress,
+  verification and the player phone view now use uncluttered one-day wording.
+- Day 1 and Day 2 labels remain fully visible throughout multi-day events.
+- Includes the Version 15.28 plus-handicap input and Stableford calculation fix.
+VERSION 15.30 â€” THE RIDGE 16-PLAYER FULL EVENT TEST
+===================================================
+
+- Adds a protected test loader for the user's locked one-day Ridge event.
+- Simulates and finalises 16 complete rounds (288 holes) using the actual
+  players, groups, 4BBB pairs, Ridge handicaps, competitions and NTP hole.
+- Includes realistic Stableford variation, putts and progressive NTP holders.
+- Sam Reece (+4) scores 40 points; Jeremy Ward (+1) scores 38; Rod Ruston
+  retains his poor-round pattern and scores 25 points.
+- The locked event is backed up before testing and isolated from cloud data.
+- Remove Test Scores & Restore Event returns the event exactly to its
+  pre-test state for future live use.
+- Completes the Version 15.29 one-day wording cleanup on the live score screen
+  and one-day 4BBB leaderboard details.
+VERSION 15.31 â€” ONE-DAY SINGLE STABLEFORD REPORT CORRECTION
+===========================================================
+
+- Removes an obsolete two-day Single Stableford flag that could be carried
+  into a one-day event by an older competition template.
+- Prevents the incorrect Single Stableford â€” 2 Days result from appearing in
+  a one-day Results Summary.
+- Preserves the correct one-day Single Stableford result and all test scores.
+- Cleans the flag both when the app opens and when Ridge test data is removed.
+
+VERSION 15.50 â€” PLAYER JOINING PAGE
+===================================
+
+- Fresh phones now open on a dedicated player-only joining page.
+- Removes the confusing organiser recovery field from the player's path.
+- Places the six-character event code box and Find My Event button at the top.
+- Shows visible finding, success and error messages after the code is entered.
+- Explains that no APK download is required and the app can run in the browser.
+VERSION 15.64 â€” EVENT PREVIEW PUBLICATION HOTFIX
+=================================================
+
+- Fixes Event Preview publication against the existing cloud status rules.
+- Recovers the exact preview row created by an interrupted Version 15.63 attempt.
+- Prevents a retry from creating a duplicate event or joining code.
