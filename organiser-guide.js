@@ -3,7 +3,7 @@
  const intro='To provide the greatest protection against data loss during play, it is recommended that each player carries a paper score card. Scores from a paper card can be entered manually using Emergency Score Recovery on the Home page. The instructions included in this list show what steps to take if a paper card is not available.';
  const discretion='If neither recorded copy settles a missing score, agree it with the player and marker. The organiser may use discretion under the group’s agreed rules and save the accepted score through organiser correction.';
  const phases=[
-  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','shared','copies','help']},
+  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','shared','guest','copies','help']},
   {id:'published',title:'After Publishing but before Play',topics:['missing','join','start','hole']},
   {id:'playing',title:'During Play',topics:['phone','offline','wrong','ntp','ambrose']},
   {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next']}
@@ -20,6 +20,13 @@
    'Choose the other golfer, enter both GAs and assign one golfer to each day → Save Shared Position.',
    'Review GA & Tee Hcps and save the groups again before publishing. Each golfer joins under their own name for their assigned days.',
    'Their scores combine for aggregate competitions and they share an aggregate prize. Daily prizes belong to the golfer who played.'
+  ]],
+  ['guest','Appoint or remove a Guest Organiser',[
+   'Save the event and publish its preview first. Open the event on Home → Delegate This Event (or Guest Organiser) → Create Guest Invitation.',
+   'Give the person both the six-character Player Event Code and the ten-character Guest Organiser Code privately. They open the same app → Guest Organiser, enter both codes and press Open My Event. In Event Scorer, Guest Organiser is on the app entry page; sign in using the email link first, then enter both codes. No group approval is needed.',
+   'The invitation works once and expires after 14 days. The guest can plan and operate this event, including correcting scores and closing it. You retain control. Your other events, customer accounts and contact records remain private.',
+   'To remove access, open Delegate This Event → Revoke Existing Guest Access. Creating a replacement invitation also removes the previous guest. Closing the event ends guest access automatically.',
+   'The guest should reconnect and press Share Preview Changes or Send All Set — Final Update after planning changes. Keep the app open if a save or connection warning appears. A different guest device needs a new invitation.'
   ]],
   ['copies','Conflicting saved event information — what to do',[
    'Keep the app and its data. Open Review Saved Copies; for an Event Scorer draft, use Review Draft Saved Copies.',

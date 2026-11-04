@@ -1,3 +1,6 @@
+Version 15.97.09 — Guest Organiser review
+Reject missing invitation secrets at the server. Serialize creation, claim and revocation on the event row. Add appointment/revocation instructions. Database tests cover invalid secrets, one-use access, retry and owner-only revocation.
+
 AWAY GOLF SCORER — VERSION 15.97.08
 
 Course Layout: event-day replacement/shortened holes, optional length, inherited/revised indexes, reviewed rating/handicaps, physical-hole labels and replacement-aware Eclectic. Pre-start and stale-phone server guards applied to both apps.
