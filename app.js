@@ -4347,14 +4347,90 @@
     $("#ownerAccountDone").onclick = () => $("#modalShade").classList.remove("open");
     input.focus();
   }
+  function importFourballHistory(payload) {
+    if (payload?.format !== "Away Golf 4BBB History" || !Array.isArray(payload.events) || !payload.events.length)
+      throw new Error("Choose an Away Golf 4BBB history file.");
+    const previousPlayers = store.players;
+    const players = previousPlayers.map((person) => ({
+      ...person,
+      awayGolfEventsPlayed: [...(person.awayGolfEventsPlayed || [])],
+    }));
+    const seenEvents = new Set();
+    let added = 0;
+    for (const event of payload.events) {
+      if (!event?.course?.trim() || !/^\d{4}-\d{2}(-\d{2})?$/.test(event.date) ||
+          !Array.isArray(event.pairs) || !event.pairs.length)
+        throw new Error("Each event needs a course, a date and at least one pair.");
+      const key = `4bbb-import|${event.course.trim().toLowerCase()}|${event.date}`;
+      if (seenEvents.has(key)) throw new Error(`Duplicate event for ${event.course}.`);
+      seenEvents.add(key);
+      const seenPlayers = new Set();
+      for (const pair of event.pairs) {
+        if (!Array.isArray(pair) || pair.length !== 2)
+          throw new Error(`Each pair at ${event.course} needs two player names.`);
+        const people = pair.map((name) => {
+          const matches = players.filter((person) => !person.system && person.name === name);
+          if (matches.length !== 1) throw new Error(`Could not uniquely match ${name} on this device.`);
+          if (seenPlayers.has(matches[0].id)) throw new Error(`${name} is listed twice at ${event.course}.`);
+          seenPlayers.add(matches[0].id);
+          return matches[0];
+        });
+        const coveredByBaseline = event.course === "The Ridge" && event.date === "2026-09" &&
+          store.historyBaseline?.id === "federal-ridge-2026-v1";
+        const matchingEntries = people.map((person) => person.awayGolfEventsPlayed.find(
+          (entry) => entry.date?.startsWith(event.date) &&
+            entry.courses?.toLowerCase() === event.course.trim().toLowerCase(),
+        ));
+        for (const [index, person] of people.entries()) {
+          const partner = people[1 - index];
+          const entries = person.awayGolfEventsPlayed;
+          if (entries.some((entry) => entry.importKey === key)) continue;
+          const existing = matchingEntries[index];
+          const partners = [...new Set([...(existing?.partners || []), partner.name])];
+          const entry = {
+            ...existing,
+            key: existing?.key || key,
+            importKey: key,
+            date: existing?.date || event.date,
+            courses: event.course.trim(),
+            partners,
+            importedPartnerId: String(partner.id),
+            includeInDrawHistory: !matchingEntries.some(Boolean) && !coveredByBaseline,
+          };
+          if (existing) entries[entries.indexOf(existing)] = entry;
+          else entries.push(entry);
+          added++;
+        }
+      }
+    }
+    if (!added) return 0;
+    store.players = players;
+    if (!writeLocalStore()) {
+      store.players = previousPlayers;
+      throw new Error("The device could not save the history.");
+    }
+    return added;
+  }
   function openOrganiserBackup() {
     let safety = null;
     try { safety = JSON.parse(localStorage.getItem(PRE_IMPORT_BACKUP_KEY) || "null"); } catch (_) {}
     const activeCount = store.players.filter((p) => p.rosterActive !== false).length,
       courseCount = store.courses.length;
-    $("#modalContent").innerHTML = `<h2>Organiser Backup</h2><p>Move your complete planning setup between the Windows folder, desktop app and tablet—or keep an emergency copy.</p><div class="backupSummary"><div><small>PLAYERS</small><b>${activeCount}</b></div><div><small>COURSES</small><b>${courseCount}</b></div><div><small>CURRENT EVENT</small><b>${esc(store.event?.name || "None")}</b></div></div><div class="backupActions"><button class="primary" id="exportOrganiserBackup">Download Backup File</button><label class="backupImportLabel">Import Backup File<input type="file" id="importOrganiserBackup" accept="application/json,.json"></label>${safety ? '<button class="soft" id="undoOrganiserImport">Undo Last Import</button>' : ""}<button class="soft" id="closeOrganiserBackup">Close</button></div><p class="backupSafetyNote"><b>Safe import:</b> Away Golf automatically keeps a copy of the setup currently on this device before replacing it. Online published events and join codes are deliberately not transferred.</p>`;
+    $("#modalContent").innerHTML = `<h2>Organiser Backup</h2><p>Move your complete planning setup between the Windows folder, desktop app and tablet—or keep an emergency copy.</p><div class="backupSummary"><div><small>PLAYERS</small><b>${activeCount}</b></div><div><small>COURSES</small><b>${courseCount}</b></div><div><small>CURRENT EVENT</small><b>${esc(store.event?.name || "None")}</b></div></div><div class="backupActions"><button class="primary" id="exportOrganiserBackup">Download Backup File</button><label class="backupImportLabel">Import Backup File<input type="file" id="importOrganiserBackup" accept="application/json,.json"></label>${safety ? '<button class="soft" id="undoOrganiserImport">Undo Last Import</button>' : ""}<label class="backupImportLabel">Import 4BBB History<input type="file" id="importFourballHistory" accept="application/json,.json"></label><button class="soft" id="closeOrganiserBackup">Close</button></div><p class="backupSafetyNote"><b>Safe import:</b> Away Golf automatically keeps a copy of the setup currently on this device before replacing it. Online published events and join codes are deliberately not transferred.</p>`;
     $("#modalShade").classList.add("open");
     $("#exportOrganiserBackup").onclick = () => downloadOrganiserBackup(organiserBackupPayload());
+    $("#importFourballHistory").onchange = async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        const added = importFourballHistory(JSON.parse(await file.text()));
+        alert(added ? `Added ${added} player event records.` : "This history is already on this device.");
+      } catch (error) {
+        alert("4BBB history could not be imported. " + (error.message || error));
+      } finally {
+        event.target.value = "";
+      }
+    };
     $("#importOrganiserBackup").onchange = async (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -5131,7 +5207,7 @@ Count-back if tied
       ? rows
           .map(
             (entry) =>
-              `${esc(entry.date ? australianDate(entry.date) : australianDate(entry.dateLabel) || "Date not set")} — ${esc(entry.courses || "Course not set")}`,
+              `${esc(entry.date?.length === 7 ? entry.date.slice(5) + "/" + entry.date.slice(2, 4) : entry.date ? australianDate(entry.date) : australianDate(entry.dateLabel) || "Date not set")} — ${esc(entry.courses || "Course not set")}${entry.partners?.length ? " · 4BBB with " + esc(entry.partners.join(", ")) : ""}`,
           )
           .join("<br>")
       : "—";
@@ -8208,7 +8284,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function partneredCount(a, b) {
     if (String(a) === NO_PARTNER_ID || String(b) === NO_PARTNER_ID) return 0;
-    return +(store.partnerHistory?.[pairKey(a, b)] || 0);
+    const person = store.players?.find((candidate) => String(candidate.id) === String(a));
+    const importedCount = (person?.awayGolfEventsPlayed || []).filter(
+      (entry) => entry.includeInDrawHistory && entry.importedPartnerId === String(b),
+    ).length;
+    return +(store.partnerHistory?.[pairKey(a, b)] || 0) + importedCount;
   }
   function groupRepeatScore(g, day) {
     let score = 0;
@@ -8632,6 +8712,25 @@ function estimateEventGa(handicap, rating, category, calculate) {
         courses: courses.join(" · "),
         recordedAt: new Date().toISOString(),
       };
+    const partnersByPlayer = new Map();
+    for (const day of eventDays(event)) {
+      if (!competitionIsOn("fourball", day, event)) continue;
+      for (const group of event.groupSetup?.["day" + day]?.groups || []) {
+        for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
+          if (pair.length !== 2 || pair.some((slot) => slot == null || String(slot) === NO_PARTNER_ID)) continue;
+          const people = pair.map((slot) => {
+            const base = store.players.find((person) => String(person.id) === String(slot));
+            const occupant = window.GolfPlayerSubstitution?.occupant(event, slot, base, day);
+            return { id: String(occupant?.profileId || occupant?.id || slot), name: occupant?.name || base?.name };
+          });
+          if (people.some((person) => !person.name)) continue;
+          for (const [person, partner] of [people, [...people].reverse()]) {
+            if (!partnersByPlayer.has(person.id)) partnersByPlayer.set(person.id, new Set());
+            partnersByPlayer.get(person.id).add(partner.name);
+          }
+        }
+      }
+    }
     let changed = false;
     for (const id of awayGolfEventPlayerIds(event)) {
       const person = store.players.find(
@@ -8642,7 +8741,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? person.awayGolfEventsPlayed
         : [];
       if (person.awayGolfEventsPlayed.some((item) => item.key === key)) continue;
-      person.awayGolfEventsPlayed.push({ ...entry });
+      person.awayGolfEventsPlayed.push({ ...entry, partners: [...(partnersByPlayer.get(id) || [])] });
       changed = true;
     }
     return changed;

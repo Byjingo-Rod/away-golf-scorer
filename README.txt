@@ -1,3 +1,7 @@
+Version 15.97.11 — 4BBB partner history
+
+Import 4BBB History in Organiser Backup merges past events into player profiles. The history-balanced draw uses the imported partnerships. Completed Away Golf events show 4BBB partners in player profiles.
+
 Version 15.97.10 — Player setup and Australian dates
 
 GA and tee handicap entry defaults to surname A–Z, with first-name and selection-order options. Loaded named player lists remain visible beside the invitation key and are retained with the saved event. Display dates use dd/mm/yy.
