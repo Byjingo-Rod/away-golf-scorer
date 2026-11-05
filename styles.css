@@ -7149,3 +7149,11 @@ body.playerDevice .cloudHeader {
 #layoutError,#layoutReviewError { color:#b52821;font-weight:bold; }
 
 .layoutModified { display:block;font-size:12px; }
+
+.playerSelectionHeader{display:grid;grid-template-columns:minmax(230px,1fr) minmax(0,2fr);gap:8px;margin-bottom:7px;align-items:stretch}
+.playerSelectionHeader .trafficLegend{margin:0;gap:8px;flex-wrap:wrap}
+.loadedPlayerListBadge{display:flex;flex-direction:column;justify-content:center;padding:7px 12px;border:1px solid #cbd9d3;border-radius:7px;background:#f3f8f5;min-width:0}
+.loadedPlayerListBadge small{font-size:11px;color:#52655b}.loadedPlayerListBadge b{font-size:15px;overflow-wrap:anywhere}
+.handicapSort{display:flex;align-items:center;gap:8px;margin:0;font-weight:700}.handicapSort select{width:auto;min-width:145px;margin:0}
+.eventGaActions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+@media(max-width:600px){.playerSelectionHeader{grid-template-columns:1fr}.handicapSort{width:100%;justify-content:space-between}}

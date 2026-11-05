@@ -429,8 +429,18 @@
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   }
   function australianDate(value) {
-    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    return match ? `${match[3]}/${match[2]}/${match[1]}` : String(value || "");
+    if (value == null || value === "") return "";
+    const text = String(value), iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/), au = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if (iso) return `${iso[3]}/${iso[2]}/${iso[1].slice(-2)}`;
+    if (au) return `${au[1].padStart(2,"0")}/${au[2].padStart(2,"0")}/${au[3].slice(-2)}`;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return text;
+    return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${String(date.getFullYear()).slice(-2)}`;
+  }
+  function australianDateTime(value) {
+    if (value == null || value === "") return "";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : `${australianDate(date)} ${date.toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})}`;
   }
   function competitionDays(id, event = store.event) {
     const all = eventDays(event);
@@ -3784,7 +3794,7 @@
           }),
         );
       $("#modalContent").innerHTML =
-        `<h2>Published Events</h2><p class="publishedEventsHelp">These details have been checked against the actual event stored online.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<div class="publishedEventChoice ${x.mismatch ? "mismatch" : ""} ${x.readable ? "" : "unreadable"}"><button data-openpublishedevent="${esc(x.id)}" data-joincode="${esc(x.join_code || "")}" data-eventname="${esc(x.name || "Away Golf Event")}" ${x.readable ? "" : "disabled"}><span><b>${esc(x.name || "Away Golf Event")}</b><small>${x.join_code ? `Join code ${esc(x.join_code)} · ` : ""}${x.event_date ? `${esc(formatEventDate(x.event_date))} · ` : ""}${x.field_size ? `${esc(x.field_size)} players` : x.updated_at ? `Updated ${new Date(x.updated_at).toLocaleDateString("en-AU")}` : "Published event"}</small>${x.mismatch ? `<em>Warning: old cloud label “${esc(x.cloud_name)}” did not match the actual event contents.</em>` : ""}${x.readable ? "" : "<em>The stored event contents could not be read.</em>"}</span><strong>Open →</strong></button><button class="archivePublishedEvent" data-archivepublishedevent="${esc(x.id)}" data-archivename="${esc(x.name || "Away Golf Event")}">Archive</button></div>`).join("")}</div>` : '<p class="publishedEventsError">No published events were found for this organiser copy.</p>'}<section class="organiserTabletConnect"><h3>Connect this tablet as an organiser</h3><p>Use the two codes shown by the organiser PC. This is separate from joining as a player.</p><div><input id="tabletEventCode" maxlength="6" placeholder="Player event code"><input id="tabletOrganiserCode" maxlength="8" placeholder="Organiser access code"><button class="primary" id="claimOrganiserTablet">Connect Tablet</button></div></section><button class="soft" id="closePublishedEvents">Close</button>`;
+        `<h2>Published Events</h2><p class="publishedEventsHelp">These details have been checked against the actual event stored online.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<div class="publishedEventChoice ${x.mismatch ? "mismatch" : ""} ${x.readable ? "" : "unreadable"}"><button data-openpublishedevent="${esc(x.id)}" data-joincode="${esc(x.join_code || "")}" data-eventname="${esc(x.name || "Away Golf Event")}" ${x.readable ? "" : "disabled"}><span><b>${esc(x.name || "Away Golf Event")}</b><small>${x.join_code ? `Join code ${esc(x.join_code)} · ` : ""}${x.event_date ? `${esc(formatEventDate(x.event_date))} · ` : ""}${x.field_size ? `${esc(x.field_size)} players` : x.updated_at ? `Updated ${australianDate(x.updated_at)}` : "Published event"}</small>${x.mismatch ? `<em>Warning: old cloud label “${esc(x.cloud_name)}” did not match the actual event contents.</em>` : ""}${x.readable ? "" : "<em>The stored event contents could not be read.</em>"}</span><strong>Open →</strong></button><button class="archivePublishedEvent" data-archivepublishedevent="${esc(x.id)}" data-archivename="${esc(x.name || "Away Golf Event")}">Archive</button></div>`).join("")}</div>` : '<p class="publishedEventsError">No published events were found for this organiser copy.</p>'}<section class="organiserTabletConnect"><h3>Connect this tablet as an organiser</h3><p>Use the two codes shown by the organiser PC. This is separate from joining as a player.</p><div><input id="tabletEventCode" maxlength="6" placeholder="Player event code"><input id="tabletOrganiserCode" maxlength="8" placeholder="Organiser access code"><button class="primary" id="claimOrganiserTablet">Connect Tablet</button></div></section><button class="soft" id="closePublishedEvents">Close</button>`;
       $("#closePublishedEvents").onclick = () =>
         $("#modalShade").classList.remove("open");
       $$("[data-openpublishedevent]").forEach(
@@ -4798,7 +4808,7 @@
       let label=key==="golfSafeSaves.v1"?"Score recovery — pending uploads and temporary online copies":key===AWAY_GOLF_WORKSPACE_JOURNAL_KEY?"Unpublished-plan recovery journal":key.startsWith("awayGolfCourseDraft:")?"Unfinished course edit — retained until master save":/PreImportBackup|PreDeviceClearBackup|PreCourseListImport|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key)?"Retained safety backup":/13$/.test(key)?"Current device data — players, courses and event workspace":/course/i.test(key)?"Course data":/auth|token|Connections/i.test(key)?"Sign-in and event connections":"App settings and saved information";
       if(label==="Retained safety backup"){
         const kind=/PreCourseListImport/.test(key)?"Before course-list replacement":/PreImport/.test(key)?"Before import":/PreDeviceClear/.test(key)?"Before device cleanup":/BeforeLeaving/.test(key)?"Before leaving event":/Ridge/.test(key)?"Ridge test":"Earlier test";
-        try{const snapshot=JSON.parse(value);label+=" — "+kind+(snapshot.event?.name?" · "+snapshot.event.name:"")+(snapshot.savedAt?" · saved "+new Date(snapshot.savedAt).toLocaleDateString("en-AU"):"")+(snapshot.expiresAt?" · expires "+new Date(snapshot.expiresAt).toLocaleDateString("en-AU"):"");}catch{label+=" — "+kind+" (unreadable; protected)";}
+        try{const snapshot=JSON.parse(value);label+=" — "+kind+(snapshot.event?.name?" · "+snapshot.event.name:"")+(snapshot.savedAt?" · saved "+australianDate(snapshot.savedAt):"")+(snapshot.expiresAt?" · expires "+australianDate(snapshot.expiresAt):"");}catch{label+=" — "+kind+" (unreadable; protected)";}
       }
       const activeIds=[store.cloud?.eventId,store.event?.id].filter(Boolean);
       let testBackup=false;
@@ -4816,7 +4826,7 @@
     const label=row=>`${row.eventId===store.cloud?.eventId?store.event?.name||row.name:row.name}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
     const currentIsTest=Boolean(store.event&&(store.event.testMode||store.event.ridgeTestMode||isTestEventName(store.event)));
     const mayDiscard=row=>Boolean(row.pending&&row.status==="Waiting to upload"&&(row.eventId!==store.cloud?.eventId||currentIsTest));
-    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(new Date(item.at).toLocaleString("en-AU"))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
+    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(australianDateTime(item.at))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
     $("#modalShade").classList.add("open");
     $("#storageClose").onclick=()=>$("#modalShade").classList.remove("open");
     $("#storageRefresh").onclick=openAppStorage;
@@ -5121,7 +5131,7 @@ Count-back if tied
       ? rows
           .map(
             (entry) =>
-              `${esc(entry.dateLabel || entry.date || "Date not set")} — ${esc(entry.courses || "Course not set")}`,
+              `${esc(entry.date ? australianDate(entry.date) : australianDate(entry.dateLabel) || "Date not set")} — ${esc(entry.courses || "Course not set")}`,
           )
           .join("<br>")
       : "—";
@@ -5131,7 +5141,7 @@ Count-back if tied
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
-      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(new Date(p.gaUpdatedAt).toLocaleDateString("en-AU"))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
+      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(australianDate(p.gaUpdatedAt))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
     $("#editPlayerProfile")?.insertAdjacentHTML(
       "beforebegin",
@@ -5615,7 +5625,7 @@ Count-back if tied
       `<div id="scorecardTotals">${totalsMarkup()}</div>`,
     );
     $("#modalContent .rowBtns")?.insertAdjacentHTML("beforebegin", '<p id="courseDraftStatus" role="status" style="margin:12px 0">Drafts save automatically on this device. Complete cards are shared with the cloud master.</p>');
-    if (draft?.savedAt) $("#courseDraftStatus").textContent = "Resumed draft saved " + new Date(draft.savedAt).toLocaleString() + ". Drafts stay on this device until the completed course is saved.";
+    if (draft?.savedAt) $("#courseDraftStatus").textContent = "Resumed draft saved " + australianDateTime(draft.savedAt) + ". Drafts stay on this device until the completed course is saved.";
     let selectedCountry = canonicalCourseCountry(c.country || "Australia");
     $("#mccountry").onchange = e => {
       let next = e.target.value;
@@ -6180,6 +6190,7 @@ Count-back if tied
       .map(([id]) => String(id));
     store.event = {
       ...W.event,
+      loadedPlayerLists: JSON.parse(JSON.stringify(W.event.loadedPlayerLists || [])),
       workspaceId: W.event.workspaceId || uid(),
       confirmed,
       invitationStatus,
@@ -6816,12 +6827,14 @@ Count-back if tied
       const need = +W.event.fieldSize || 0;
       const complete = planning.length >= need;
       const status = `${complete ? "✓ Trip field selected" : `${planning.length}/${need} trip players selected`} — ${eventDays(W.event).map(day => `Day ${day}: ${wizardPlanningPlayers(day).length} playing`).join(" · ")}. Untick a day when a golfer is resting.`;
+      const loadedList = loadedPlayerListInfo(W.event, W.invites);
       $("#wizardBody").innerHTML =
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
   <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps</button>${eventDays(W.event).filter(day => day>1).map(day => `<button class="soft" data-setcoursehcp="${day}">Review Day ${day} Calculations</button>`).join("")}<button class="primary" id="wizardAddPlayer">+ Add Player</button>${W.event.days>1 ? `<button class="soft" id="planSharedPosition">Share this position across days</button>` : ""}</div></div>
   <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
-  <div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div>
+  <div class="playerSelectionHeader"><div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div><div class="loadedPlayerListBadge"><small>${esc(loadedList.label)}</small><b>${loadedList.names.length ? loadedList.names.map(esc).join(" + ") : "No named list loaded"}</b></div></div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
+      $("#availablePlayerList").value = loadedList.id;
       $("#wpSearch").value = q;
       if (keepSearchFocus) {
         try {
@@ -6844,6 +6857,10 @@ Count-back if tied
           (item) => String(item.id) === String($("#availablePlayerList").value),
         );
         if (!list) return alert("Choose a named Player List first.");
+        W.event.loadedPlayerLists ||= [];
+        const loaded = {id:String(list.id),name:String(list.name)};
+        const existingIndex = W.event.loadedPlayerLists.findIndex(item=>String(item.id)===loaded.id);
+        if(existingIndex<0)W.event.loadedPlayerLists.push(loaded);else W.event.loadedPlayerLists[existingIndex]=loaded;
         let added = 0;
         for (const id of list.playerIds || []) {
           if (!player(id) || W.invites.has(String(id))) continue;
@@ -7110,8 +7127,29 @@ function estimateEventGa(handicap, rating, category, calculate) {
     refreshLabel();
   }
 
+  function handicapDisplayOrder(ids, order = W.handicapPlayerOrder || "surname") {
+    const result = [...ids];
+    if (order === "selected") return result;
+    const key = (id) => {
+      const person = player(id) || {}, words = String(person.name || "").trim().split(/\s+/);
+      const last = person.lastName || words.at(-1) || "";
+      const first = person.firstName || words.slice(0, -1).join(" ");
+      return order === "first" ? first + " " + last : last + " " + first;
+    };
+    return result.sort((a, b) => key(a).localeCompare(key(b), "en-AU", {sensitivity:"base",numeric:true}) || String(a).localeCompare(String(b)));
+  }
+  function loadedPlayerListInfo(event, invites) {
+    const loaded = event.loadedPlayerLists || [];
+    if (loaded.length) return {label:"Loaded player list" + (loaded.length > 1 ? "s" : ""),names:loaded.map(list=>list.name),id:loaded.at(-1).id};
+    const ids = [...invites.keys()].map(String).filter(id=>id!==NO_PARTNER_ID&&player(id)).sort();
+    const matches = (store.playerLists || []).filter(list=>{
+      const members = [...new Set((list.playerIds||[]).map(String).filter(id=>id!==NO_PARTNER_ID&&player(id)))].sort();
+      return members.length > 0 && JSON.stringify(members) === JSON.stringify(ids);
+    });
+    return matches.length===1 ? {label:"Matching player list",names:[matches[0].name],id:matches[0].id} : {label:"Player list",names:[],id:""};
+  }
   function openWizardHandicapEntry(day) {
-    const ids = wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID),
+    const ids = handicapDisplayOrder(wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID)),
       c = course(W.event["course" + day], Boolean(W.event.locked)),
       key = "day" + day;
     ensureEventTeePlanning(W.event);
@@ -7131,11 +7169,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
             d2[id] = d1[id];
         }),
       );
-    const allIds = [...new Set(
+    const allIds = handicapDisplayOrder([...new Set(
       Array.from({ length: W.event.days || 1 }, (_, index) =>
         wizardPlanningPlayers(index + 1),
       ).flat().filter((id) => id !== NO_PARTNER_ID),
-    )];
+    )]);
     const categoryIds = ids.filter(id => eventGaCategory(id,W.event) === activeCategory);
     const teeHead = tees.map(
       (tee) => `<span>${esc(eventTeeDisplayName(day,tee,W.event,activeCategory,c))}</span><span>Plus</span>`,
@@ -7163,7 +7201,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       .join("");
     const availableTees=courseEventTees(day,W.event,activeCategory,c);
     const teeChoices=availableTees.map(tee=>`<label class="eventTeeChoice"><input type="checkbox" data-categorytee="${tee}" ${tees.includes(tee)?"checked":""}><span>${esc(eventTeeDisplayName(day,tee,W.event,activeCategory,c))}</span></label>`).join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap and category. Calculate and save the selected Men's and Women's tee handicaps separately.</p></div><div class="handicapCategorySwitch"><b>Calculate Hcps</b><button type="button" class="${activeCategory==="men"?"primary":"soft"}" data-hcpcategory="men">Men</button><button type="button" class="${activeCategory==="women"?"primary":"soft"}" data-hcpcategory="women">Women</button></div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(new Date(W.event.gaHandicapSetAt).toLocaleDateString("en-AU"))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><section class="categoryTeePlanner"><div><h3>${activeCategory==="women"?"Women's":"Men's"} tee positions</h3><p>Choose ${activeCategory==="women"?"Women's":"Men's"} tee positions (Max 3)</p></div><div class="categoryTeeChoices">${teeChoices||"<span>No completed tee cards are available for this category.</span>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Handicaps — ${esc(c?.name || "Course")} · ${activeCategory==="women"?"Women":"Men"}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || `<p>No ${activeCategory==="women"?"women":"men"} are currently selected for this event.</p>`}</div></div><div class="rowBtns handicapEntryActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="primary" id="saveQuickHandicaps">Save ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap and category. Calculate and save the selected Men's and Women's tee handicaps separately.</p></div><div class="handicapCategorySwitch"><b>Calculate Hcps</b><button type="button" class="${activeCategory==="men"?"primary":"soft"}" data-hcpcategory="men">Men</button><button type="button" class="${activeCategory==="women"?"primary":"soft"}" data-hcpcategory="women">Women</button></div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(australianDate(W.event.gaHandicapSetAt))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button><label class="handicapSort">Player order<select id="handicapPlayerOrder"><option value="surname">Surname A–Z</option><option value="first">First name A–Z</option><option value="selected">Selection order</option></select></label></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><section class="categoryTeePlanner"><div><h3>${activeCategory==="women"?"Women's":"Men's"} tee positions</h3><p>Choose ${activeCategory==="women"?"Women's":"Men's"} tee positions (Max 3)</p></div><div class="categoryTeeChoices">${teeChoices||"<span>No completed tee cards are available for this category.</span>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Handicaps — ${esc(c?.name || "Course")} · ${activeCategory==="women"?"Women":"Men"}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || `<p>No ${activeCategory==="women"?"women":"men"} are currently selected for this event.</p>`}</div></div><div class="rowBtns handicapEntryActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="primary" id="saveQuickHandicaps">Save ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     const bulkCategoryButton = $("#changeAllGaCategories");
     if (bulkCategoryButton)
       bulkCategoryButton.textContent = activeCategory === "women"
@@ -7229,6 +7267,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
           if (inp) storeGaValue(inp);
         }),
     );
+    $("#handicapPlayerOrder").value = W.handicapPlayerOrder || "surname";
+    $("#handicapPlayerOrder").onchange = (event) => {
+      gaInputs.forEach(storeGaValue);
+      inputs.forEach(input => storeValue(input, false));
+      W.handicapPlayerOrder = event.target.value;
+      openWizardHandicapEntry(day);
+    };
     gesBindProposedHandicaps(day);
     bindEventGaControls(gaInputs, storeGaValue, (target) => {
       W.handicapCategory = target;
@@ -8095,6 +8140,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     store.event = {
       ...W.event,
+      loadedPlayerLists: JSON.parse(JSON.stringify(W.event.loadedPlayerLists || [])),
       workspaceId: W.event.workspaceId || uid(),
       confirmed,
       invitationStatus,
@@ -8570,7 +8616,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const courses = awayGolfEventCourseNames(event),
       date = String(event?.date || ""),
       dateLabel = date
-        ? new Date(date + "T12:00:00").toLocaleDateString("en-AU")
+        ? australianDate(date + "T12:00:00")
         : "",
       key = String(
         event?.workspaceId ||
@@ -11744,38 +11790,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
 
   function formatEventDate(iso, day = 1) {
     if (!iso) return "";
-    let d = new Date((iso === store.event?.date ? eventDate(day) : iso) + "T12:00:00");
-    if (iso !== store.event?.date) d.setDate(d.getDate() + day - 1);
-    return d.toLocaleDateString("en-AU", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
+    const date = new Date((iso === store.event?.date ? eventDate(day) : iso) + "T12:00:00");
+    if (iso !== store.event?.date) date.setDate(date.getDate() + day - 1);
+    return australianDate(date);
   }
   function homeEventDate(event) {
     if (!event?.date) return "Not set";
-    const start = new Date(event.date + "T12:00:00"),
-      days = Math.max(1, +event.days || 1),
-      shortPart = (date) =>
-        date.toLocaleDateString("en-AU", {
-          weekday: "short",
-          day: "numeric",
-        });
-    if (days === 1)
-      return start.toLocaleDateString("en-AU", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
-    const end = new Date(eventDate(days, event) + "T12:00:00");
-    return `${shortPart(start)} – ${end.toLocaleDateString("en-AU", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    })}`;
+    const days = Math.max(1, +event.days || 1);
+    return days === 1 ? australianDate(event.date) : `${australianDate(event.date)} – ${australianDate(eventDate(days,event))}`;
   }
   function playerGroupContext(pid, day) {
     const setup = store.event?.groupSetup?.["day" + day];
@@ -14729,7 +14751,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       rulesOpen = Boolean(store.event.playerRulesOpen);
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
  <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
- <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(new Date(store.event.finalUpdateAt || store.event.lockedAt || Date.now()).toLocaleString("en-AU"))}`}</span></div>
+ <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(australianDateTime(store.event.finalUpdateAt || store.event.lockedAt || Date.now()))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : "Awaiting"}</b></div><div><small>Daily Handicap</small><b>${hcp != null ? esc(formatPlayingHandicap(hcp)) : "—"}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>
  ${completeDraw}

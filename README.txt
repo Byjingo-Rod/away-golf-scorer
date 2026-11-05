@@ -1,3 +1,7 @@
+Version 15.97.10 — Player setup and Australian dates
+
+GA and tee handicap entry defaults to surname A–Z, with first-name and selection-order options. Loaded named player lists remain visible beside the invitation key and are retained with the saved event. Display dates use dd/mm/yy.
+
 Version 15.97.09 — Guest Organiser review
 Reject missing invitation secrets at the server. Serialize creation, claim and revocation on the event row. Add appointment/revocation instructions. Database tests cover invalid secrets, one-use access, retry and owner-only revocation.
 

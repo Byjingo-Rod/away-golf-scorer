@@ -16,7 +16,7 @@ assert.ok(
 );
 assert.match(app, /function recordAwayGolfEventPlayed\(event\)/);
 assert.match(app, /\/\^Away Golf\\b\/i\.test\(eventName\)/);
-assert.match(app, /new Date\(date \+ "T12:00:00"\)\.toLocaleDateString\("en-AU"\)/);
+assert.match(app, /australianDate\(date \+ "T12:00:00"\)/);
 assert.match(app, /courses: courses\.join\(" · "\)/);
 assert.match(app, /const awayGolfHistoryChanged = recordAwayGolfEventPlayed\(event\)/);
 assert.match(app, /return awayGolfHistoryChanged;/);

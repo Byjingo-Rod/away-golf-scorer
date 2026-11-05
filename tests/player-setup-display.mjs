@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const app=fs.readFileSync(process.argv[2]||'app.js','utf8');
+function fn(name){const a=app.indexOf('  function '+name+'(');assert(a>=0,name);const b=app.indexOf('\n  function ',a+10);return app.slice(a,b<0?undefined:b);}
+const players=[{id:'melan',name:'Maurice Melan',firstName:'Maurice',lastName:'Melan'},{id:'reece',name:'Wil Reece'},{id:'ward',name:'Jeremy Ward',lastName:'Ward',firstName:'Jeremy'},{id:'lomas',name:'Grant Lomas',lastName:'Lomas',firstName:'Grant'}];
+const ids=['melan','reece','ward','lomas'],list={id:'stags',name:'Test STAGS Golfers',playerIds:[...ids]};
+const fields={ '#availablePlayerList':{value:'stags'} };let draws=0,gaStored=0,teeStored=0,reopened=0;
+const scope={W:{event:{workspaceId:'event'},invites:new Map(),competitions:new Set(),benefits:{},step:2,newEvent:false},store:{players,playerLists:[list],event:{workspaceId:'event'}},NO_PARTNER_ID:'virtual',player:id=>players.find(p=>p.id===id),$ :q=>fields[q]||=( {}),draw:()=>draws++,alert(){},Date,JSON,Map,Set,localStorage:{getItem:()=> 'tab'},AWAY_GOLF_WRITER_LEASE_KEY:'lease',appTabId:'tab',eventDays:()=>[1],wizardPlanningPlayers:()=>ids,save:()=>true,uid:()=> 'id',captureCurrentEvent(){},sharedPositionId:id=>id};
+vm.createContext(scope);for(const name of ['handicapDisplayOrder','loadedPlayerListInfo','australianDate','australianDateTime','eventDate','homeEventDate','saveWizardDraft'])vm.runInContext(fn(name),scope);
+const plain=v=>JSON.parse(JSON.stringify(v));
+assert.deepEqual(plain(scope.handicapDisplayOrder(ids)),['lomas','melan','reece','ward']);assert.deepEqual(ids,['melan','reece','ward','lomas']);
+assert.deepEqual(plain(scope.handicapDisplayOrder(ids,'first')),['lomas','ward','melan','reece']);assert.deepEqual(plain(scope.handicapDisplayOrder(ids,'selected')),ids);
+assert.equal(scope.australianDate('2026-11-05'),'05/11/26');assert.equal(scope.australianDate('2027-01-02'),'02/01/27');assert.equal(scope.australianDate('5/11/2026'),'05/11/26');assert.equal(scope.australianDate(''),'');assert.equal(scope.australianDate('Not recorded'),'Not recorded');assert.match(scope.australianDateTime(new Date(2026,10,5,9,8)),/^05\/11\/26 /);
+assert.equal(scope.homeEventDate({date:'2026-11-05',days:2,dayDates:{day2:'2026-11-07'}}),'05/11/26 – 07/11/26');
+const start=app.indexOf('      $("#loadPlayerList").onclick = '),end=app.indexOf('      if ($("#wizardAllGreen"))',start);assert(start>=0&&end>start);vm.runInContext(app.slice(start,end),scope);fields['#loadPlayerList'].onclick();
+assert.equal(draws,1);assert.equal(scope.W.event.loadedPlayerLists[0].name,'Test STAGS Golfers');assert.deepEqual([...scope.W.invites.keys()],ids);
+assert.equal(scope.loadedPlayerListInfo(scope.W.event,scope.W.invites).label,'Loaded player list');assert.equal(scope.saveWizardDraft(),true);assert.equal(scope.store.event.loadedPlayerLists[0].name,list.name);scope.W.event.loadedPlayerLists[0].name='Uncommitted rename';assert.equal(scope.store.event.loadedPlayerLists[0].name,list.name,'saved list labels are independent of unsaved edits');
+assert.equal(scope.loadedPlayerListInfo({},new Map(ids.map(id=>[id,'accepted']))).label,'Matching player list');assert.equal(scope.loadedPlayerListInfo({},new Map([['melan','accepted']])).names.length,0);
+scope.store.playerLists.push({...list,id:'other',name:'Other identical list'});assert.equal(scope.loadedPlayerListInfo({},new Map(ids.map(id=>[id,'accepted']))).names.length,0,'ambiguous legacy groups are not guessed');
+const marker='    $("#handicapPlayerOrder").onchange = ';const a=app.indexOf(marker),b=app.indexOf('    gesBindProposedHandicaps(day);',a);assert(a>=0&&b>a);
+fields['#handicapPlayerOrder']={};scope.gaInputs=[{value:'4.0'}];scope.inputs=[{value:'3'}];scope.storeGaValue=()=>gaStored++;scope.storeValue=(_,manual)=>{assert.equal(manual,false);teeStored++;};scope.openWizardHandicapEntry=()=>reopened++;scope.day=1;
+vm.runInContext(app.slice(a,b),scope);fields['#handicapPlayerOrder'].onchange({target:{value:'first'}});assert.equal(gaStored,1);assert.equal(teeStored,1);assert.equal(reopened,1);assert.equal(scope.W.handicapPlayerOrder,'first');
+assert(app.includes('playerSelectionHeader'));assert(app.includes('loadedPlayerListBadge'));assert(app.includes('$("#availablePlayerList").value = loadedList.id;'));
+console.log('Player setup passed: surname/first-name/selection display order, unchanged invitation identities, GA/tee edits retained on sorting, persisted loaded-list labels, honest legacy matches and dd/mm/yy dates.');
