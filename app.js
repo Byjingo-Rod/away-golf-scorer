@@ -2521,6 +2521,7 @@
     event.scoring = { day1: {}, day2: {} };
     event.roundFinalised = { day1: {}, day2: {} };
     event.prizesAwarded = {};
+    delete event.awardedResults;
     delete event.finalResults;
     delete event.lastFinalResults;
     delete event.publicationId;
@@ -2643,6 +2644,7 @@
     event.liveControlDay = 1;
     event.leaderboardTab = "";
     event.leaderboardView = "";
+    delete event.awardedResults;
     delete event.finalResults;
     delete event.roundClosedAt;
     delete event.scoringOpenedEarly;
@@ -2991,6 +2993,9 @@
         scoringDayStore(+row.day)[String(row.scorer_player_id)] =
           row.score_data || {};
     });
+    if(payload.event?.awardedResults?.finishedAt){
+      try{clearFinishedEventCopies(String(bundle.event.id));}catch(error){console.warn("Finished-event cleanup will retry",error);}
+    }
     const closeReceipt = payload.event?.finalResults;
     if (store.cloud?.role === "organiser" && closeReceipt?.cloudAcceptedAt &&
         store.pendingEventClose?.eventId === String(bundle.event?.id) &&
@@ -3273,13 +3278,14 @@
   function retirePhoneFromArchivedEvent(bundle) {
     if (bundle?.event?.status !== "archived" || !["player", "spectator"].includes(store.cloud?.role)) return false;
     const retiredEventId = String(store.cloud?.eventId || "");
+    if(bundle.event.event_data?.event?.awardedResults?.finishedAt)clearFinishedEventCopies(retiredEventId);
     const health = GolfSafeCloud.saveHealth(retiredEventId), playerId = String(store.cloud?.playerId || "");
     const rounds = Object.entries(store.event?.scoring || {}).flatMap(([dayKey, cards]) => {
       const data = cards?.[playerId];
       return data && Object.keys(data).length ? [{day:+dayKey.replace("day",""),playerId,data:JSON.parse(JSON.stringify(data))}] : [];
     });
     const differs = rounds.some(row => !GolfSafeCloud.equal(row.data,(bundle.scores||[]).find(remote=>+remote.day===row.day&&String(remote.scorer_player_id)===playerId)?.score_data||{}));
-    const protect = Boolean(health.pending || health.conflicts || health.blocked || differs);
+    const protect = !bundle.event.event_data?.event?.awardedResults?.finishedAt && Boolean(health.pending || health.conflicts || health.blocked || differs);
     const previous = {event:store.event,cloud:store.cloud,cloudPlayers:store.cloudPlayers,eventWorkspace:store.eventWorkspace,activeEventId:store.activeEventId,closedEventRecoveries:store.closedEventRecoveries};
     if(protect){
       store.closedEventRecoveries={...(store.closedEventRecoveries||{}),[retiredEventId]:{
@@ -3666,7 +3672,7 @@
     setCloudMessage("Opening published event…", true);
     try {
       captureCurrentEvent();
-      const bundle = await AwayCloud.loadEvent(eventId),
+      const bundle = await (AwayCloud.loadAcceptedEvent || AwayCloud.loadEvent)(eventId),
         payload = bundle?.event?.event_data || {};
       if (!payload.event)
         throw new Error("The published event plan could not be read.");
@@ -3854,7 +3860,7 @@
     setCloudMessage("Opening past results…", true);
     try {
       captureCurrentEvent();
-      const bundle = await AwayCloud.loadEvent(eventId),
+      const bundle = await (AwayCloud.loadAcceptedEvent || AwayCloud.loadEvent)(eventId),
         payload = bundle?.event?.event_data || {};
       if (!payload.event) throw new Error("The saved event results could not be read.");
       closeCloudConnection();
@@ -3937,6 +3943,11 @@
         events = checked.filter(Boolean);
       $("#modalContent").innerHTML =
         `<h2>Past Events</h2><p class="publishedEventsHelp">Open a retained event to review its saved final results. Events whose actual stored name begins with TEST are excluded.</p>${events.length ? `<div class="publishedEventList">${events.map((x) => `<div class="publishedEventChoice"><button data-openpastevent="${esc(x.id)}" data-eventname="${esc(x.name)}"><span><b>${esc(x.name)}</b><small>${x.event_date ? `${esc(formatEventDate(x.event_date))} · ` : ""}${x.field_size ? `${esc(x.field_size)} players` : "Past event"}</small></span><strong>Open Results →</strong></button><button class="soft" data-reviewpastevent="${esc(x.id)}">Review Saved Copies</button></div>`).join("")}</div>` : '<p class="publishedEventsError">No retained non-TEST past events were found.</p>'}<button class="soft" id="closePastEvents">Close</button>`;
+      document.querySelectorAll('[data-openpastevent]').forEach(button=>{
+        const finish=document.createElement('button');finish.className='soft';finish.textContent='Finish Event and Keep Final Results';
+        finish.onclick=async()=>{if(await openPastEvent(button.dataset.openpastevent,button.dataset.eventname))await finishAwardedEvent();};
+        button.parentElement.append(finish);
+      });
       $("#closePastEvents").onclick = () => $("#modalShade").classList.remove("open");
       $$('[data-openpastevent]').forEach((button) =>
         button.onclick = () => openPastEvent(button.dataset.openpastevent, button.dataset.eventname),
@@ -4864,6 +4875,7 @@
     if(test?.savedAt && Date.now()-test.savedAt>=TEST_STORAGE_RETENTION_MS)removeRetainedTestData(test);
   }
   function renderAppStorage() {
+    if(typeof clearKnownFinishedStorage==="function")void clearKnownFinishedStorage();
     expireDeviceSafetyBackups();
     try { expireRetainedTestData(); }
     catch (error) { console.warn("Old TEST-event storage could not be expired", error); }
@@ -4899,7 +4911,11 @@
       inventory.splice(Math.min(first,inventory.length),0,grouped);
     }
     const size=bytes=>bytes>=1024*1024?(bytes/1024/1024).toFixed(2)+" MB":(bytes/1024).toFixed(1)+" KB";
-    const label=row=>`${row.eventId===store.cloud?.eventId?store.event?.name||row.name:row.name}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
+    const storageEventName=row=>{
+      const saved=(store.eventWorkspace||[]).find(item=>[item.cloud?.eventId,item.event?.pastCloudEventId,item.event?.cloudEventId].some(id=>String(id||"")===String(row.eventId)));
+      return row.eventId===store.cloud?.eventId?store.event?.name||row.name:saved?.event?.name||store.closedEventRecoveries?.[row.eventId]?.name||(/^[0-9a-f-]{36}$/i.test(row.name)?"Older event — open Past Events to identify it":row.name);
+    };
+    const label=row=>`${storageEventName(row)}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
     const currentIsTest=Boolean(store.event&&(store.event.testMode||store.event.ridgeTestMode||isTestEventName(store.event)));
     const mayDiscard=row=>Boolean(row.pending&&row.status==="Waiting to upload"&&(row.eventId!==store.cloud?.eventId||currentIsTest));
     panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(australianDateTime(item.at))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
@@ -4942,6 +4958,16 @@
     $$('[data-storagebackup]').forEach(button=>button.onclick=()=>{const row=inventory[+button.dataset.storagebackup];if((!exported&&!row.testBackup)||!row.removable)return;if(GolfSafeCloud.storageRecords().some(r=>r.pending||r.status.includes("review"))||[store.cloud?.eventId,store.event?.id].filter(Boolean).some(id=>row.value.includes(id))){$("#storageMessage").textContent="New or active work is protected. Refresh Storage.";return;}if(localStorage.getItem(row.key)!==row.value){$("#storageMessage").textContent="This backup changed. Refresh Storage before removing it.";return;}const question=row.testBackup?"Remove this local TEST-event backup now? It is not required online.":"Confirm the downloaded App Storage backup is saved, then remove this older local backup copy?";if(!confirm(question))return;localStorage.removeItem(row.key);openAppStorage();});
     $$('[data-storageremove]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storageremove];if(!confirm(`Remove the local saved copy of ${label(row)}? Its confirmed online copy remains.`))return;try{GolfSafeCloud.removeStorageRecord(row.record);openAppStorage();}catch(error){$("#storageMessage").textContent=error.message;}});
     $$('[data-storageretry]').forEach(button=>button.onclick=async()=>{button.disabled=true;$("#storageMessage").textContent="Retrying upload…";try{await GolfSafeCloud.retryStorageRecord(rows[+button.dataset.storageretry].record);openAppStorage();$("#storageMessage").textContent="Upload confirmed online.";}catch(error){$("#storageMessage").textContent="Upload not completed: "+error.message;button.disabled=false;}});
+  }
+  let finishedStorageCheck=false;
+  async function clearKnownFinishedStorage(){
+    if(finishedStorageCheck||typeof AwayCloud==="undefined"||!AwayCloud.loadAcceptedEvent)return;
+    finishedStorageCheck=true;let removed=0;
+    try{
+      const ids=[...new Set([...GolfSafeCloud.storageRecords().map(row=>row.eventId),...Object.keys(store.closedEventRecoveries||{})])];
+      for(const id of ids){try{const bundle=await AwayCloud.loadAcceptedEvent(id);if(bundle?.event?.event_data?.event?.awardedResults?.finishedAt){clearFinishedEventCopies(id);removed++;}}catch(_){/* Unavailable events stay protected. */}}
+      if(removed){writeLocalStore();if(document.querySelector('.appStoragePage'))renderAppStorage();}
+    }finally{finishedStorageCheck=false;}
   }
   function openAppStorage() {
     try { renderAppStorage(); }
@@ -13427,6 +13453,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return defs;
   }
   function calculateLeaderboard(def) {
+    const frozen=store.event?.awardedResults?.competitions?.find(row=>row.id===def.id);
+    if(store.event?.awardedResults?.finishedAt && frozen)return JSON.parse(JSON.stringify(frozen.rows));
     const field = (day) =>
         dayFieldIds(day)
           .filter((id) => String(id) !== NO_PARTNER_ID)
@@ -13904,6 +13932,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return Boolean(finalised && eligible.length && eligible.every(row => row.thru === row.target));
   }
   function summaryCompetitionResult(def) {
+    const frozen=store.event?.awardedResults?.competitions?.find(row=>row.id===def.id);
+    if(store.event?.awardedResults?.finishedAt && frozen)return JSON.parse(JSON.stringify(frozen.result));
     if (def.type === "ntp") {
       const holders = ntpHolesInPlayingOrder(def.day).map((h) => ({
           hole: h,
@@ -14046,7 +14076,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   async function reconfirmArchivedResults() {
     const id = store.event?.pastCloudEventId;
-    if (!id || !store.event.pastEventReadOnly) return;
+    if (!id || !store.event.pastEventReadOnly || store.event.awardedResults?.finishedAt) return;
     try {
       const bundle = await AwayCloud.loadEvent(id), payload = bundle.event.event_data;
       if (bundle.event.status !== "archived") throw new Error("Reopen this event from Published Events to confirm it.");
@@ -14145,6 +14175,61 @@ function estimateEventGa(handicap, rating, category, calculate) {
     renderLeaderboard();renderHome();
   }
 
+  function buildAwardedSnapshot(eventId) {
+    const event=store.event;
+    if(!event?.finalResults?.cloudAcceptedAt)throw Error("Confirm the final results online first.");
+    const rounds=eventDays(event).map(day=>{
+      const method=dayScoringMethod(day,event);let eligible=method!=="finalGross" && !ambroseIsOn(event,day);
+      const rows=eligible?calculateLeaderboard({type:"single",day}):[];
+      if(eligible && (!rows.length||rows.some(row=>row.thru!==18 || !Number.isFinite(row.total))))eligible=false;
+      return {day,date:eventDate(day,event),eligible,reason:eligible?"":"Individual Stableford unavailable for this round",players:(eligible?rows:[]).map(row=>{const occupant=window.GolfPlayerSubstitution?.occupant(event,row.id,player(row.id),day);return {id:String(occupant?.profileId||occupant?.id||row.id),name:row.name,points:row.total,handicap:playerDailyHandicap(row.id,day)};})};
+    });
+    return {version:1,eventId,name:event.name,date:event.date,test:isTestEvent(event)||/\bTEST\b/i.test(event.name||""),signoff:event.finalResults.confirmedAt,
+      rounds,competitions:leaderboardDefinitions().map(def=>({id:def.id,label:def.label,type:def.type,day:def.day,result:summaryCompetitionResult(def),rows:calculateLeaderboard(def)}))};
+  }
+  function clearFinishedEventCopies(eventId) {
+    GolfSafeCloud.discardEventCopies(eventId);
+    delete store.closedEventRecoveries?.[eventId];
+    workspaceShrinkAuthorised=true;
+    store.eventWorkspace=(store.eventWorkspace||[]).filter(r=>![r.cloud?.eventId,r.event?.pastCloudEventId,r.event?.cloudEventId,r.event?.awardedResults?.eventId].some(id=>String(id||"")===eventId));
+    for(const key of Object.keys(localStorage)){
+      if(key!==AWAY_GOLF_WORKSPACE_JOURNAL_KEY && !/PreImportBackup|PreDeviceClearBackup|PreCourseListImport|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key))continue;
+      try{
+        const wrapper=JSON.parse(localStorage.getItem(key)),backup=key===AWAY_GOLF_WORKSPACE_JOURNAL_KEY?wrapper.data:wrapper;
+        if(!backup)continue;
+        const id=String(backup?.cloud?.eventId||backup?.event?.pastCloudEventId||backup?.event?.cloudEventId||"");
+        // A complete organiser backup may contain unrelated work: do not remove it wholesale.
+        let changed=false;
+        if(id===eventId){backup.event=null;delete backup.cloud;backup.cloudPlayers=[];changed=true;}
+        if(Array.isArray(backup.eventWorkspace)){
+          const remaining=backup.eventWorkspace.filter(r=>![r.cloud?.eventId,r.event?.pastCloudEventId,r.event?.cloudEventId].some(id=>String(id||"")===eventId));
+          if(remaining.length!==backup.eventWorkspace.length){backup.eventWorkspace=remaining;changed=true;}
+        }
+        if(changed)localStorage.setItem(key,JSON.stringify(wrapper));
+      }catch(_){/* Keep unreadable data rather than deleting unrelated work. */}
+    }
+  }
+  async function finishAwardedEvent() {
+    const id=String(store.cloud?.eventId||store.event?.pastCloudEventId||"");
+    if(!id)return alert("Publish and confirm this event online before finishing it.");
+    const name=store.event?.name||"this event";
+    if(!confirm(`Finish ${name} (${australianDate(store.event.date)}) and keep final results?\n\nPrizes have been awarded. Accepted scores, final leaderboards and player history will remain. Backup cards, conflicting copies and temporary recovery data will be removed. These results cannot subsequently be changed. Individual Stableford is retained for annual use wherever the accepted cards allow it.`))return;
+    try{
+      // Read canonical scores, never merge an abandoned recovery card into the awarded record.
+      const bundle=await AwayCloud.loadAcceptedEvent(id), event=bundle.event.event_data.event;
+      if(event.awardedResults?.finishedAt){clearFinishedEventCopies(id);return openPastEvent(id,name,true);}
+      if(!event.finalResults?.cloudAcceptedAt)throw Error("This event needs final online sign-off before it can be finished.");
+      if(!await openPastEvent(id,name,true))return;
+      const snapshot=buildAwardedSnapshot(id);
+      const result=await AwayCloud.finishAwardedEvent(id,snapshot,bundle.event.revision);
+      if(!result?.finishedAt)throw Error("The final results were not acknowledged. No local copies were removed.");
+      store.event.awardedResults=result;
+      recordCompletedEventHistory(store.event,false);
+      clearFinishedEventCopies(id);persistStore();
+      await openPastEvent(id,name,true);
+      alert(`${name} is finished. Final results and player history are retained. Connected phones will clear their temporary cards when they reconnect.`);
+    }catch(error){alert("The event was not finished: "+error.message);}
+  }
   async function archiveCompletedEvent() {
     if (!store.event?.finalResults?.confirmedAt) return alert("Confirm the final results before archiving this event.");
     const eventName=store.event.name||"this completed event",cloudEventId=String(store.cloud?.eventId||"");
@@ -14287,7 +14372,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       eventControl = `<section class="finishControl"><h3>Finish the Event</h3><p>Review the results, record the prizes, then confirm the results and close the event.</p><button class="finishEventBtn" id="finishEventBtn">${store.pendingEventClose?.eventId === String(store.cloud?.eventId || store.event.workspaceId || "local") ? "RETRY EVENT CLOSE" : "CONFIRM RESULTS &amp; CLOSE EVENT"}</button></section>`;
     }
     const pastEventNotice = store.event.pastEventReadOnly
-      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${store.event.lastFinalResults && !store.event.finalResults ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM CORRECTED RESULTS</button>' : ''}</div>`
+      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${!store.event.awardedResults?.finishedAt && (!store.event.finalResults?.cloudAcceptedAt || store.event.lastFinalResults && !store.event.finalResults) ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM FINAL RESULTS ONLINE</button>' : ''}</div>`
       : "";
     host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(store.event.name)} · ${store.event.pastEventReadOnly ? "retained final results" : "winners and prize giving"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}<div class="summaryGroups">${groups
       .map(
@@ -14348,7 +14433,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if ($("#finishEventBtn"))
       $("#finishEventBtn").onclick = confirmResultsAndCloseEvent;
     if ($("#archiveCompletedEvent"))
-      $("#archiveCompletedEvent").onclick = archiveCompletedEvent;
+      $("#archiveCompletedEvent").onclick = finishAwardedEvent;
     if ($("#openNextDayBtn"))
       $("#openNextDayBtn").onclick = () => {
         store.event.leaderboardView = +$("#openNextDayBtn").dataset.nextday;
@@ -14483,7 +14568,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         ? `<span class="par3Total">Total Par 3 Holes <b>${def.day ? par3Count : eventDays().reduce((n,day) => n + (eventCourseScorecard(day).par || []).filter(p => +p === 3).length,0)}</b></span>`
         : "";
     const pastEventNotice = store.event.pastEventReadOnly
-      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${store.event.lastFinalResults && !store.event.finalResults ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM CORRECTED RESULTS</button>' : ''}</div>`
+      ? `<div class="cloudNote"><b>Past Event Results</b><span>This is a disconnected saved copy. Its old player join code remains inactive.</span>${!store.event.awardedResults?.finishedAt && (!store.event.finalResults?.cloudAcceptedAt || store.event.lastFinalResults && !store.event.finalResults) ? '<p>Scores changed after sign-off. Review the corrected results, then confirm them again.</p><button class="primary" id="reconfirmArchivedResults">CONFIRM FINAL RESULTS ONLINE</button>' : ''}</div>`
       : "";
     host.innerHTML = `${pastEventNotice}<div class="leaderHead"><div><h2>${store.event.pastEventReadOnly ? "Final Results" : "Live Leaderboard"}</h2><p>${esc(store.event.name)}${store.event.pastEventReadOnly ? " · retained event record" : " · official marker scores update as they arrive"}</p></div>${store.event.pastEventReadOnly ? "" : '<button class="soft leaderRefresh" id="leaderRefresh">Refresh</button>'}</div>${viewTabs}${tabs}<div class="leaderCard ${def.type === "yellowBall" ? "yellowBallLeaderboard" : ""}"><div class="leaderTitle"><div><h3>${esc(def.label)}${def.day && course(store.event["course"+def.day])?.name ? ` — ${esc(course(store.event["course"+def.day]).name)}` : ""}</h3><span>${def.countback ? "Automatic countback" : "Live standings"}</span></div>${par3Total}</div>${body}</div><p class="leaderNote">Live positions are provisional. <b>“Thru”</b> is the number of holes with official marker scores, regardless of the starting hole. Pending holes are never counted as zero. Scratch is shown against par during play and as gross strokes when final. Finalisation also requires the player’s checking scores to agree. CB means countback.</p>`;
     const tabStrip = host.querySelector(".leaderTabs");

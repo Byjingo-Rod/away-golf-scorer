@@ -6,9 +6,15 @@
   {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','shared','guest','copies','help']},
   {id:'published',title:'After Publishing but before Play',topics:['missing','join','start','hole']},
   {id:'playing',title:'During Play',topics:['phone','offline','wrong','ntp','ambrose']},
-  {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next']}
+  {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next','finish']}
  ];
  const topics=[
+  ['finish','After prize-giving — finish the event',[
+   'Review the accepted final scores and confirm the final results online first.',
+   'Choose Finish Event and Keep Final Results. Check the event name and date. This makes the awarded results permanent.',
+   'Accepted scores, final prize leaderboards and player participation/partner history remain. Backup cards, conflicting copies and recovery records are removed. Phones clear temporary copies when they reconnect.',
+   'For an older event, open Past Events and use its named Finish Event action. If needed, confirm its final results online before finishing.'
+  ]],
   ['prepare','Plan and check the event',[
    'Check dates, players, courses, tee colours and scorecards.',
    'Set each golfer’s GA or event estimate. Review Daily Handicaps for every enabled tee and day.',

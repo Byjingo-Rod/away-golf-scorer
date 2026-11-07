@@ -48,6 +48,7 @@
     return {data:copy(local),conflicts:[{path,base:copy(base),local:copy(local),remote:copy(remote)}]};
   }
   const key="golfSafeSaves.v1", retentionMs=30*24*60*60*1000;
+  const finishedIds=new Set();
   let activeEvent="",cloudStatus="",state={},unreadable=false;
   const storageFailures=new Map();
   const storageFailureDetails=[];
@@ -175,7 +176,9 @@
     return data;
   }
   function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
+  const finished = bundle => Boolean(bundle?.event?.event_data?.event?.awardedResults?.finishedAt);
   function ingest(id,bundle){
+    if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);return bundle;}
     remember(entry(id,"event"),bundle.event.event_data,bundle.event.revision,"event");
     for(const row of bundle.scores||[])remember(entry(id,"score",row.day,row.scorer_player_id),row.score_data,row.revision,"score");
     return bundle;
@@ -191,6 +194,7 @@
   }
   async function save(id,kind,data,day,player,options={}) {
     activeEvent=id;
+    if(finishedIds.has(id))throw error("GOLF_FINISHED: Awarded results are final.","GOLF_FINISHED");
     if(kind==="score"&&options.expectedPlayerId!=null&&String(player)!==String(options.expectedPlayerId))
       throw error("The scorecard identity changed before upload. The score remains saved on this phone.","GOLF_IDENTITY");
     const k=entry(id,kind,day,player);
@@ -214,6 +218,7 @@
     for(let attempt=0;attempt<3;attempt++) {
       if(kind==="event"){
         const bundle=await raw.loadEvent(id),row=bundle.event;
+        if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);throw error("GOLF_FINISHED: Awarded results are final.","GOLF_FINISHED");}
         remote={data:row.event_data,revision:row.revision};
       }
       const result=merge(base,local,remote.data);
@@ -229,6 +234,7 @@
         persist();
         return {...response,revision:ackRevision,saved_data:copy(acknowledged)};
       }catch(e){
+        if(/GOLF_FINISHED/.test(e.message||"")){finishedIds.add(id);discardEventCopies(id);throw e;}
         if(e.code!=="40001"){
           if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}
           throw e;
@@ -242,6 +248,7 @@
     throw error("Other devices are still saving. Your changes remain on this device. Retry shortly.","GOLF_BUSY");
   }
   function reconcile(id,kind,local,remote,revision,day,player){
+    if(finishedIds.has(id))return copy(remote);
     local=safeData(kind,local);remote=safeData(kind,remote);
     const k=entry(id,kind,day,player),s=remember(k,remote,revision,kind);
     s.base=safeData(kind,s.base);
@@ -259,9 +266,11 @@
   }
   function install(adapter){
     raw={...adapter};api=adapter;
+    adapter.loadAcceptedEvent=async id=>{const bundle=await raw.loadEvent(id);if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);}return bundle;};
     adapter.loadEvent=async id=>{
       activeEvent=id;
       const bundle=await raw.loadEvent(id);
+      if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);return bundle;}
       for(const [k,s] of Object.entries(state))if(s.conflict?.event_id===id){
         try{
           // Repair reviews produced by the pre-15.96.44 timing race. Their
@@ -301,7 +310,7 @@
       state[k]={base:copy(response.data),revision:response.revision,acknowledged:true,savedAt:Date.now()};persist();return response;
     };
     adapter.pendingRounds=id=>Object.entries(state).filter(([k,s])=>k.startsWith(id+":score:")&&s.pending&&!s.conflict&&!s.blocked).map(([k])=>{const parts=k.split(":");return {day:+parts[2],playerId:parts[3]};});
-    adapter.stageRound=(id,day,player,data)=>{activeEvent=id;const s=state[entry(id,"score",day,player)]||={};s.pending=copy(data);persist();};
+    adapter.stageRound=(id,day,player,data)=>{if(finishedIds.has(id))return;activeEvent=id;const s=state[entry(id,"score",day,player)]||={};s.pending=copy(data);persist();};
     adapter.roundSaveState=(id,day,player)=>{
       const s=state[entry(id,"score",day,player)]||{};
       return {
@@ -317,6 +326,7 @@
     adapter.saveHealth=saveHealth;
     adapter.retainClosedEventCopies=async(id,rounds=[])=>{
       const bundle=await raw.loadEvent(id);
+      if(finished(bundle)){discardEventCopies(id);return {retained:0,resolved:0,finished:true};}
       if(bundle.event?.status!=="archived")throw Error("This event is not archived. Open it and use normal sync.");
       for(const row of rounds){
         const remote=(bundle.scores||[]).find(r=>+r.day===+row.day&&String(r.scorer_player_id)===String(row.playerId));

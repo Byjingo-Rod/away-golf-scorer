@@ -1,3 +1,7 @@
+Version 15.97.13 — Finish events and retain awarded results
+
+Explicit prize-giving finish seals accepted scores and final leaderboards, removes obsolete recovery/review copies and clears returning phones. Past Events offers named finish actions. Requires awarded-results database migration before deployment.
+
 Version 15.97.12 — Player email and partnership priorities
 
 Optional Email Address in player profiles. History Balanced prioritises avoiding repeat 4BBB partners and spaces unavoidable partnerships, then shared groups, across playing days. All draws are checked for fields up to eight players; larger fields use a sampled search. Only days with 4BBB enabled add new partnership history.

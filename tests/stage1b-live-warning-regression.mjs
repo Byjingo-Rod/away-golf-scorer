@@ -6,8 +6,8 @@ const css = fs.readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
 
 assert.match(app, /function homeEventDate\(event\)/);
-assert.match(app, /shortPart\(start\)/);
-assert.match(app, /month: "short"/);
+// The shared date formatter now uses the requested Australian numeric dates.
+assert.match(app, /australianDate\(event\.date\)/);
 assert.match(app, /roundLabel\.textContent = isPlayerDevice\(\) \? "Marking" : "Event date"/);
 assert.match(html, /<small id="homeRoundLabel">Event date<\/small>/);
 

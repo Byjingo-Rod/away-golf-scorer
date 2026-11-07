@@ -1,0 +1,26 @@
+import {PGlite} from '@electric-sql/pglite';import fs from 'node:fs';import assert from 'node:assert/strict';
+const db=new PGlite();
+try{
+ await db.exec(`create role anon;create role authenticated;create schema auth;create schema golf_safe_private;
+ create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+ create table public.away_events(id uuid primary key,organiser_id uuid,name text,status text,event_data jsonb,revision bigint default 1);
+ create table public.away_round_scores(event_id uuid,day integer,scorer_player_id text,revision bigint,score_data jsonb);
+ create table golf_safe_private.conflicts(event_id uuid);create table golf_safe_private.corrections(event_id uuid);
+ create function public.is_away_event_organiser(eid uuid) returns boolean language sql as $$select organiser_id=auth.uid() from public.away_events where id=eid$$;`);
+ await db.exec(fs.readFileSync(new URL('../../database/awarded-results.sql',import.meta.url),'utf8'));
+ const eid='00000000-0000-4000-8000-000000000001',owner='00000000-0000-4000-8000-000000000002';
+ const document={event:{date:'2026-09-10',finalResults:{confirmedAt:'accepted',cloudAcceptedAt:'accepted',acceptedScoreRevisions:{'1:a':1}}}};
+ await db.query("insert into public.away_events values($1,$2,'Federal GC','complete',$3,1)",[eid,owner,JSON.stringify(document)]);
+ await db.query("insert into public.away_round_scores values($1,1,'a',1,'{}')",[eid]);await db.query('insert into golf_safe_private.conflicts values($1)',[eid]);await db.query('insert into golf_safe_private.corrections values($1)',[eid]);
+ const snapshot={version:1,eventId:eid,signoff:'accepted',rounds:[],competitions:[]};
+ const finish=async (rev=1)=>(await db.query('select public.golf_finish_awarded_event($1,$2,$3) v',[eid,JSON.stringify(snapshot),rev])).rows[0].v;
+ await assert.rejects(()=>finish());await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await assert.rejects(()=>finish(2));
+ const result=await finish();assert(result.finishedAt);assert.equal((await finish()).finishedAt,result.finishedAt);
+ assert.equal((await db.query('select count(*)::int n from golf_safe_private.conflicts')).rows[0].n,0);assert.equal((await db.query('select count(*)::int n from golf_safe_private.corrections')).rows[0].n,0);
+ assert.equal((await db.query('select count(*)::int n from public.away_round_scores')).rows[0].n,1);
+ await assert.rejects(()=>db.query("update public.away_round_scores set score_data='{}' where event_id=$1",[eid]));
+ await assert.rejects(()=>db.query("update public.away_events set event_data='{}' where id=$1",[eid]));
+ await assert.rejects(()=>db.query('insert into golf_safe_private.conflicts values($1)',[eid]));
+ await assert.rejects(()=>db.query('delete from public.away_events where id=$1',[eid]));
+ console.log('Away finish: owner-only action, revision race rejection, immutable official scores, obsolete review/audit cleanup, lost-response retry and final result retention passed.');
+}finally{await db.close();}
