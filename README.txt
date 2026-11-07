@@ -1,3 +1,7 @@
+Version 15.97.12 — Player email and partnership priorities
+
+Optional Email Address in player profiles. History Balanced prioritises avoiding repeat 4BBB partners and spaces unavoidable partnerships, then shared groups, across playing days. All draws are checked for fields up to eight players; larger fields use a sampled search. Only days with 4BBB enabled add new partnership history.
+
 Version 15.97.11 — 4BBB partner history
 
 Import 4BBB History in Organiser Backup merges past events into player profiles. The history-balanced draw uses the imported partnerships. Completed Away Golf events show 4BBB partners in player profiles.

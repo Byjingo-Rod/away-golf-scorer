@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const app=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
 const block=app.slice(app.indexOf('  function editPlayerProfile('),app.indexOf('  function renderPlayersAdmin()'));
-const makeNode=value=>({value,checked:false,disabled:false,hidden:false,options:[makeOption(),makeOption()],insertAdjacentHTML(){this.options.unshift(makeOption())},classList:{add(){},remove(){}},closest(){return {querySelector(){return makeNode('')}}}});
+const makeNode=value=>({value,reportValidity(){return true;},checked:false,disabled:false,hidden:false,options:[makeOption(),makeOption()],insertAdjacentHTML(){this.options.unshift(makeOption())},classList:{add(){},remove(){}},closest(){return {querySelector(){return makeNode('')}}}});
 function makeOption(){return {textContent:''};}
 function editor(record,choice,id){
- const nodes=Object.fromEntries(Object.entries({epFirst:'Jane',epLast:'Smith',epHandicapStatus:choice,epGolfLink:choice==='insert'?'0001234567':'',epNickname:'Janey',epPhone:'0400123456',epStreetType:'Street',epGa:'',epGaCategory:'men',epNotes:'Contact notes',epStatus:'active',epHomeClub:'Oatlands'}).map(([k,v])=>['#'+k,makeNode(v)]));
+ const nodes=Object.fromEntries(Object.entries({epFirst:'Jane',epLast:'Smith',epHandicapStatus:choice,epGolfLink:choice==='insert'?'0001234567':'',epNickname:'Janey',epPhone:'0400123456',epEmail:record.email||'',epStreetType:'Street',epGa:'',epGaCategory:'men',epNotes:'Contact notes',epStatus:'active',epHomeClub:'Oatlands'}).map(([k,v])=>['#'+k,makeNode(v)]));
  nodes['#sidePanel']=makeNode('');nodes['#sideContent']=makeNode('');nodes['#epGaPlus']=makeNode('');nodes['#epOtherStreetLabel']=makeNode('');
  const address=['houseNo','streetName','otherStreetType','suburb','state','postCode','legacyAddress'].map((k,i)=>({...makeNode(['12','Golf Road','','Sydney','NSW','2000',''][i]),dataset:{playeraddress:k}}));
  const store={players:record.pendingNewPlayer?[]:[record]},alerts=[];let saved=0;
@@ -15,6 +15,16 @@ function editor(record,choice,id){
  vm.createContext(context);vm.runInContext(block,context);context.editPlayerProfile(id||record);
  return {context,nodes,store,alerts,save:()=>nodes['#savePlayerProfile'].onclick(),cancel:()=>nodes['#cancelPlayerProfile'].onclick(),saved:()=>saved};
 }
+// Email is optional, trimmed and validated before the profile is changed.
+let emailEdit=editor({id:'mail',name:'Jane Smith',email:'old@example.com'},'insert');
+emailEdit.nodes['#epEmail'].value=' jane@example.com ';
+emailEdit.save();assert.equal(emailEdit.store.players[0].email,'jane@example.com');
+emailEdit.nodes['#epEmail'].value='invalid';
+emailEdit.nodes['#epEmail'].reportValidity=()=>false;
+emailEdit.save();assert.equal(emailEdit.saved(),1);assert.equal(emailEdit.store.players[0].email,'jane@example.com');
+emailEdit.nodes['#epEmail'].value='';
+emailEdit.nodes['#epEmail'].reportValidity=()=>true;
+emailEdit.save();assert.equal(emailEdit.store.players[0].email,'');
 // Missing fields fail before modifying an existing player or saving.
 const old={id:'p1',name:'Jane Smith',golfLink:'0001234567',ga:12.4,gaUpdatedAt:'2026-10-01',eventsPlayed:7,lastEvent:'Federal',courseHandicaps:{c1:13}};
 let edit=editor(structuredClone(old),'');edit.save();assert.equal(edit.saved(),0);assert.equal(edit.store.players[0].name,old.name);assert.equal(edit.alerts.length,1);

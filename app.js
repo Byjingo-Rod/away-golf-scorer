@@ -5217,7 +5217,7 @@ Count-back if tied
     if (!p) return;
     const eventRows = profileCourseHandicaps(p);
     showSide(
-      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(australianDate(p.gaUpdatedAt))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
+      `<h2>${esc(p.name)}</h2><p><small>GOLF ID / GOLFLINK NUMBER</small><br><b>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "—")}</b></p><p><small>CURRENT GA HANDICAP</small><br><b>${p.noOfficialHandicap ? "No Official Handicap — event estimate only" : p.gaUpdatedAt ? esc(formatGaHandicap(p.ga)) : "Not yet entered"}</b>${p.gaUpdatedAt ? `<br><small>${p.gaCategory === "women" ? "Women" : "Men"} factor · updated ${esc(australianDate(p.gaUpdatedAt))}</small>` : ""}</p><p><small>NICK NAME</small><br>${esc(p.nickname || "—")}</p><p><small>CELL PHONE</small><br>${esc(p.cellPhone || "—")}</p><p><small>EMAIL ADDRESS</small><br>${esc(p.email || "—")}</p><p><small>ADDRESS</small><br>${esc(p.address || "—").replace(/\n/g,"<br>")}</p><p><small>HOME CLUB</small><br><b>${esc(p.homeClub || "—")}</b></p><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p>${eventRows.map((x) => `<p><small>HANDICAP FOR ${esc(x.name).toUpperCase()}</small><br><b>${x.value === "" ? "Not yet entered" : esc(formatPlayingHandicap(x.value))}</b></p>`).join("")}<p><small>NOTES</small><br>${esc(p.notes || "—")}</p><p><small>STATUS</small><br><b>${p.rosterActive === false ? "Inactive" : "Active"}${status ? " • " + esc(status) : ""}</b></p><button class="primary profileEditBtn" id="editPlayerProfile">Edit Player Profile</button>`,
     );
     $("#editPlayerProfile")?.insertAdjacentHTML(
       "beforebegin",
@@ -5239,7 +5239,7 @@ Count-back if tied
       handicapsLocked = Boolean(plan?.locked);
     const nameWords=String(p.name||'').trim().split(/\s+/), first=p.firstName??nameWords.slice(0,-1).join(' '), last=p.lastName??nameWords.at(-1)??'', address=p.addressDetails||{};
     const stateChoices=[['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
-    const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
+    const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><label><span>Email Address</span><input id="epEmail" type="email" autocomplete="email" maxlength="254" value="${esc(p.email||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
     $("#sideContent").innerHTML =
       `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
     const categorySelect = $("#epGaCategory"), categoryLabel = categorySelect?.closest("label")?.querySelector("span");
@@ -5260,9 +5260,12 @@ Count-back if tied
       if(!firstName||!lastName||firstName.length+lastName.length+1>120)return alert('Enter First Name and Last Name (up to 120 characters together).');
       if(!category)return alert('Choose Male or Female for this player.');
       if(!choice||(choice==='insert'&&!/^[0-9]+$/.test(golfLink)))return alert('Insert a Golf ID number or choose No Official Handicap.');
+      const emailInput = $("#epEmail");
+      emailInput.value = emailInput.value.trim();
+      if (!emailInput.reportValidity()) return;
       const addressDetails={...address};$$('[data-playeraddress]').forEach(input=>addressDetails[input.dataset.playeraddress]=input.value.trim());addressDetails.streetType=$('#epStreetType').value;
       if(addressDetails.streetType==='Other'&&!addressDetails.otherStreetType)return alert('Please insert the other street type.');
-      p.firstName=firstName;p.lastName=lastName;p.name=firstName+' '+lastName;p.golfLink=golfLink;p.noOfficialHandicap=choice==='none';p.nickname=$('#epNickname').value.trim();p.cellPhone=$('#epPhone').value.trim();p.addressDetails=addressDetails;
+      p.firstName=firstName;p.lastName=lastName;p.name=firstName+' '+lastName;p.golfLink=golfLink;p.noOfficialHandicap=choice==='none';p.nickname=$('#epNickname').value.trim();p.cellPhone=$('#epPhone').value.trim();p.email=emailInput.value;p.addressDetails=addressDetails;
       p.address=[[addressDetails.houseNo,addressDetails.streetName,addressDetails.streetType==='Other'?addressDetails.otherStreetType:addressDetails.streetType].filter(Boolean).join(' '),[addressDetails.suburb,addressDetails.state,addressDetails.postCode].filter(Boolean).join(' '),addressDetails.legacyAddress].filter(Boolean).join('\n');
       p.homeClub = $("#epHomeClub").value.trim();
       p.gaCategory = category;
@@ -8290,74 +8293,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
     ).length;
     return +(store.partnerHistory?.[pairKey(a, b)] || 0) + importedCount;
   }
-  function groupRepeatScore(g, day) {
-    let score = 0;
-    for (let i = 0; i < g.length; i++)
-      for (let j = i + 1; j < g.length; j++) {
-        score += playedTogetherCount(g[i], g[j]);
-        // Strongly discourage repeating Day 1 group-mates on Day 2.
-        if (day > 1) {
-          const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-          if (
-            d1.some(
-              (old) =>
-                old.some((x) => String(x) === String(g[i])) &&
-                old.some((x) => String(x) === String(g[j])),
-            )
-          )
-            score += 12;
-        }
-      }
-    // Repeated 4BBB partnerships are more important than simply sharing the four.
-    if (g.length >= 2) {
-      score += 2 * partneredCount(g[0], g[1]);
-      if (day > 1) {
-        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 2 &&
-              pairKey(old[0], old[1]) === pairKey(g[0], g[1]),
-          )
-        )
-          score += 25;
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 4 &&
-              pairKey(old[2], old[3]) === pairKey(g[0], g[1]),
-          )
-        )
-          score += 25;
-      }
-    }
-    if (g.length >= 4) {
-      score += 2 * partneredCount(g[2], g[3]);
-      if (day > 1) {
-        const d1 = eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[]);
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 2 &&
-              pairKey(old[0], old[1]) === pairKey(g[2], g[3]),
-          )
-        )
-          score += 25;
-        if (
-          d1.some(
-            (old) =>
-              old.length >= 4 &&
-              pairKey(old[2], old[3]) === pairKey(g[2], g[3]),
-          )
-        )
-          score += 25;
-      }
-    }
-    return score;
-  }
-  function drawRepeatScore(groups, day) {
-    return groups.reduce((n, g) => n + groupRepeatScore(g, day), 0);
-  }
   function fourballDrawSignature(groups) {
     return groups
       .map((g) => {
@@ -8374,24 +8309,6 @@ function estimateEventGa(handicap, rating, category, calculate) {
       })
       .sort()
       .join("|");
-  }
-  function repeatsDay1Fourball(groups, day = 2) {
-    const oldPairs = new Set(
-      eventDays().filter(previous=>previous<day).flatMap(previous=>store.event?.groupSetup?.["day"+previous]?.groups||[])
-        .flatMap((g) => [g.slice(0, 2), g.slice(2, 4)])
-        .filter(
-          (p) => p.length === 2 && !p.some((x) => String(x) === NO_PARTNER_ID),
-        )
-        .map((p) => pairKey(p[0], p[1])),
-    );
-    return groups.some((g) =>
-      [g.slice(0, 2), g.slice(2, 4)].some(
-        (p) =>
-          p.length === 2 &&
-          !p.some((x) => String(x) === NO_PARTNER_ID) &&
-          oldPairs.has(pairKey(p[0], p[1])),
-      ),
-    );
   }
   // Exact minimax search for fields up to 16. Larger fields use repeated
   // local improvement; the UI explicitly identifies those results as best found.
@@ -8495,29 +8412,81 @@ function estimateEventGa(handicap, rating, category, calculate) {
     writeLocalStore();renderTeamsPage();
   }
   function historyBalancedGroups(ids, day) {
-    const seen = new Set(),
-      candidates = [];
-    for (let n = 0; n < 1800; n++) {
-      const cand = makeGroups(shuffleCopy(ids), day);
-      const signature = fourballDrawSignature(cand);
-      if (seen.has(signature)) continue;
-      seen.add(signature);
-      candidates.push({
-        groups: cand,
-        score: drawRepeatScore(cand, day),
-        repeatsPartner: day > 1 && repeatsDay1Fourball(cand, day),
-      });
+    const previousPartners = new Map(), previousGroups = new Map();
+    const virtualPartners = (groups) => groups.flatMap((group) =>
+      [group.slice(0, 2), group.slice(2, 4)].flatMap((pair) =>
+        pair.length === 2 && pair.some((id) => String(id) === NO_PARTNER_ID)
+          ? pair.filter((id) => id != null && String(id) !== NO_PARTNER_ID).map(String)
+          : [],
+      ),
+    );
+    const previousVirtualPartners = new Set(virtualPartners(store.event?.groupSetup?.["day" + (day - 1)]?.groups || []));
+    const visitPairs = (groups, onPartner, onGroup) => {
+      for (const group of groups) {
+        const real = group.filter((id) => id != null && String(id) !== NO_PARTNER_ID);
+        for (let i = 0; i < real.length; i++)
+          for (let j = i + 1; j < real.length; j++) onGroup(real[i], real[j]);
+        for (const pair of [group.slice(0, 2), group.slice(2, 4)])
+          if (pair.length === 2 && pair.every((id) => id != null && String(id) !== NO_PARTNER_ID))
+            onPartner(...pair);
+      }
+    };
+    for (const previousDay of eventDays().filter((d) => d < day)) {
+      visitPairs(store.event?.groupSetup?.["day" + previousDay]?.groups || [],
+        (a, b) => previousPartners.set(pairKey(a, b), previousDay),
+        (a, b) => previousGroups.set(pairKey(a, b), previousDay));
     }
-    if (!candidates.length) return makeGroups(ids, day);
-    const eligible =
-      day > 1 && candidates.some((x) => !x.repeatsPartner)
-        ? candidates.filter((x) => !x.repeatsPartner)
-        : candidates;
-    eligible.sort((a, b) => a.score - b.score);
-    const best = eligible[0].score;
-    // Allow a few near-equal good solutions so repeated clicks can show another sensible draw.
-    const shortlist = eligible.filter((x) => x.score <= best + 2).slice(0, 12);
-    return shortlist[Math.floor(Math.random() * shortlist.length)].groups;
+
+    const seen = new Set();
+    let best = null, choices = [];
+    const consider = (order) => {
+      const groups = makeGroups(order, day);
+      const signature = fourballDrawSignature(groups);
+      if (seen.has(signature)) return;
+      seen.add(signature);
+
+      let partnerRepeats = 0, groupRepeats = 0, pastPartners = 0, pastGroups = 0;
+      const partnerGaps = Array(day - 1).fill(0), groupGaps = Array(day - 1).fill(0);
+      visitPairs(groups, (a, b) => {
+        const last = previousPartners.get(pairKey(a, b));
+        if (last != null) {
+          partnerRepeats++;
+          partnerGaps[day - last - 1]++;
+        }
+        pastPartners += partneredCount(a, b);
+      }, (a, b) => {
+        const last = previousGroups.get(pairKey(a, b));
+        if (last != null) {
+          groupRepeats++;
+          groupGaps[day - last - 1]++;
+        }
+        pastGroups += playedTogetherCount(a, b);
+      });
+
+      // Fewer repeats come first. Among equal totals, avoid the shortest gaps.
+      const virtualRepeats = virtualPartners(groups).filter((id) => previousVirtualPartners.has(id)).length;
+      const score = [partnerRepeats, ...partnerGaps, pastPartners, groupRepeats, ...groupGaps, virtualRepeats, pastGroups];
+      const firstDifference = best ? score.findIndex((value, index) => value !== best[index]) : -1;
+      if (!best || (firstDifference >= 0 && score[firstDifference] < best[firstDifference])) {
+        best = score;
+        choices = [groups];
+      } else if (firstDifference === -1) {
+        choices.push(groups);
+      }
+    };
+
+    if (ids.length <= 8) {
+      // Search all pairings and groups for small fields, including two fours.
+      const permutations = (order, remaining) => {
+        if (!remaining.length) return consider(order);
+        for (let index = 0; index < remaining.length; index++)
+          permutations([...order, remaining[index]], remaining.filter((_, i) => i !== index));
+      };
+      permutations([], ids);
+    } else {
+      for (let attempt = 0; attempt < 1800; attempt++) consider(shuffleCopy(ids));
+    }
+    return choices[Math.floor(Math.random() * choices.length)];
   }
   function drawMixingStats(draw) {
     const groups = new Map(), partners = new Map(), mates = new Map();
@@ -8759,6 +8728,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     for (let day = 1; day <= (event.days || 1); day++) {
       const gs = event.groupSetup["day" + day]?.groups || [];
+      const playedFourball = competitionIsOn("fourball", day, event);
       for (const g of gs) {
         const realPlayers = g.filter(
           (id) => id != null && String(id) !== NO_PARTNER_ID,
@@ -8768,6 +8738,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             let k = pairKey(realPlayers[i], realPlayers[j]);
             store.pairHistory[k] = (store.pairHistory[k] || 0) + 1;
           }
+        if (!playedFourball) continue;
         const pairs = [g.slice(0, 2), g.slice(2, 4)];
         for (const pair of pairs) {
           if (
@@ -9210,36 +9181,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       if (!same) {
         // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
         // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
-        let groups = historyBalancedGroups(ids, day);
-        // Extra safeguard: if No Partner exists on both days, avoid allocating it to the same golfer where alternatives exist.
-        if (
-          day === 2 &&
-          groups.some((g) => g.some((x) => String(x) === NO_PARTNER_ID))
-        ) {
-          const d1 = store.event.groupSetup.day1,
-            ctx1 = d1 ? noPartnerContext(d1.groups, 1) : null;
-          let ctx2 = noPartnerContext(groups, 2);
-          if (ctx1 && ctx2 && String(ctx1.affected) === String(ctx2.affected)) {
-            const npG = ctx2.groupIndex,
-              npI = ctx2.noPartnerIndex;
-            let swapped = false;
-            for (let gi = 0; gi < groups.length && !swapped; gi++)
-              for (let pi = 0; pi < groups[gi].length && !swapped; pi++) {
-                const candidate = String(groups[gi][pi]);
-                if (
-                  candidate !== NO_PARTNER_ID &&
-                  candidate !== String(ctx1.affected)
-                ) {
-                  const temp =
-                    groups[npG][npI === 0 ? 1 : npI === 2 ? 3 : npI - 1];
-                  const partnerIndex = npI === 0 ? 1 : npI === 2 ? 3 : npI - 1;
-                  groups[npG][partnerIndex] = groups[gi][pi];
-                  groups[gi][pi] = temp;
-                  swapped = true;
-                }
-              }
-          }
-        }
+        const groups = historyBalancedGroups(ids, day);
         store.event.groupSetup[key] = {
           groups,
           starts: defaultStarts(groups, startMethodFor(store.event, day), day),
@@ -11506,7 +11448,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
    <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
    ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
- ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "ga" ? "primary" : "soft"}" id="gaBalanced">GA Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "ga" ? (store.event.gaBalanceSearch === "exact" ? "GA Balanced minimises the difference between group GA totals while preserving 4BBB partner restrictions." : "GA Balanced — closest totals found for this larger field; review the group totals below.") : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced uses previous playing history and earlier days of this event to reduce repeated groups and partners."}</div></div>`}
+ ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "ga" ? "primary" : "soft"}" id="gaBalanced">GA Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "ga" ? (store.event.gaBalanceSearch === "exact" ? "GA Balanced minimises the difference between group GA totals while preserving 4BBB partner restrictions." : "GA Balanced — closest totals found for this larger field; review the group totals below.") : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced looks for new partners first and spaces unavoidable group repeats across playing days."}</div></div>`}
  ${!locked ? `<div class="ntpBox mixingChoice"><button type="button" class="${store.event.drawMode === "mixing" ? "primary" : "soft"}" id="maximumPlayerMixing" ${eventDays().some(d=>firstDayScoreEntry(d) || Object.keys(store.event.manualScorecards?.["day"+d]?.groups || {}).length)?"disabled":""}>Maximum Player Mixing</button> <button type="button" class="primary" id="lockAllEventTeams" ${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?"disabled":""}>Lock All Teams All Days</button>${eventDays().every(d=>store.event.groupSetup?.["day"+d]?.saved)?'<p><b>All days’ teams are saved and locked.</b></p>':''}<p>Draw all days together to maximise different groupmates and avoid repeated 4BBB partners. Existing saved days are replaced only after confirmation.</p></div>` : ""}
  ${mixingSummaryHtml()}
  ${day > 1 && !locked && !teamsSaved ? `<div class="day2HistoryNote"><b>Day ${day} balancing:</b> today's draw treats earlier groups and 4BBB partnerships as fresh history and gives them strong repeat penalties.</div>` : ""}
