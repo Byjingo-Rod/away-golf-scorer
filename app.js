@@ -3278,14 +3278,15 @@
   function retirePhoneFromArchivedEvent(bundle) {
     if (bundle?.event?.status !== "archived" || !["player", "spectator"].includes(store.cloud?.role)) return false;
     const retiredEventId = String(store.cloud?.eventId || "");
-    if(bundle.event.event_data?.event?.awardedResults?.finishedAt)clearFinishedEventCopies(retiredEventId);
+    const permanentlyFinished=Boolean(bundle.event.event_data?.event?.awardedResults?.finishedAt || bundle.event.status==='archived'&&bundle.event.event_data?.event?.finalResults?.confirmedAt&&!bundle.event.event_data.event.finalResults.cloudAcceptedAt);
+    if(permanentlyFinished)clearFinishedEventCopies(retiredEventId);
     const health = GolfSafeCloud.saveHealth(retiredEventId), playerId = String(store.cloud?.playerId || "");
     const rounds = Object.entries(store.event?.scoring || {}).flatMap(([dayKey, cards]) => {
       const data = cards?.[playerId];
       return data && Object.keys(data).length ? [{day:+dayKey.replace("day",""),playerId,data:JSON.parse(JSON.stringify(data))}] : [];
     });
     const differs = rounds.some(row => !GolfSafeCloud.equal(row.data,(bundle.scores||[]).find(remote=>+remote.day===row.day&&String(remote.scorer_player_id)===playerId)?.score_data||{}));
-    const protect = !bundle.event.event_data?.event?.awardedResults?.finishedAt && Boolean(health.pending || health.conflicts || health.blocked || differs);
+    const protect = !permanentlyFinished && Boolean(health.pending || health.conflicts || health.blocked || differs);
     const previous = {event:store.event,cloud:store.cloud,cloudPlayers:store.cloudPlayers,eventWorkspace:store.eventWorkspace,activeEventId:store.activeEventId,closedEventRecoveries:store.closedEventRecoveries};
     if(protect){
       store.closedEventRecoveries={...(store.closedEventRecoveries||{}),[retiredEventId]:{
@@ -3849,10 +3850,10 @@
     }
   }
 
-  async function openPastEvent(eventId, name) {
+  async function openPastEvent(eventId, name, skipConfirm = false) {
     if (cloudBusy) return false;
     if (
-      store.event &&
+      store.event && !skipConfirm &&
       !confirm(
         `Open the saved results for ${name || "this past event"}? Your current event will remain saved in My Events.`,
       )
@@ -3866,6 +3867,9 @@
       closeCloudConnection();
       const archivedJoinCode = String(bundle.event?.join_code || "").toUpperCase();
       store.event = JSON.parse(JSON.stringify(payload.event));
+      if(bundle.event.status==='archived'&&store.event.finalResults?.confirmedAt&&!store.event.finalResults.cloudAcceptedAt&&!store.event.awardedResults){
+        store.event.awardedResults={version:1,legacy:true,localReceipt:true,finishedAt:store.event.finalResults.confirmedAt,originalFinalResults:JSON.parse(JSON.stringify(store.event.finalResults))};
+      }
       store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       const existingRecord = store.eventWorkspace.find(
         (item) => String(item.event?.pastCloudEventId || "") === String(eventId),
@@ -4852,7 +4856,7 @@
 
   const TEST_STORAGE_RETENTION_MS = 24 * 60 * 60 * 1000;
   function isTestEventName(event) {
-    return /^TEST\b/i.test(String(event?.name || event || "").trim());
+    return /\bTEST\b/i.test(String(event?.name || event || "").trim());
   }
   function retainedTestEvent() {
     try {
@@ -4887,7 +4891,7 @@
     const rows=GolfSafeCloud.storageRecords(),panel=$("#modalContent"),retainedTest=retainedTestEvent();
     const closedRecoveries=Object.entries(store.closedEventRecoveries||{});
     const activeStorageEventId=String(store.cloud?.eventId||"");
-    const retiredTestEventIds=[...new Set(rows.filter(row=>String(row.eventId)!==activeStorageEventId&&isTestEventName({name:row.name||""})).map(row=>String(row.eventId)).filter(Boolean))];
+    const retiredTestEventIds=[...new Set(rows.filter(row=>String(row.eventId)!==activeStorageEventId&&isTestEventName({name:window.AwayGolfStorageEventMetadata?.[row.eventId]?.name||rows.find(plan=>plan.eventId===row.eventId&&plan.kind==="event")?.name||row.name||""})).map(row=>String(row.eventId)).filter(Boolean))];
     const retiredTestRows=rows.filter(row=>retiredTestEventIds.includes(String(row.eventId)));
     const inventory=[];let total=0,exported=false;
     const hasProtectedWork=rows.some(row=>row.pending || row.status.includes("review"));
@@ -4913,12 +4917,14 @@
     const size=bytes=>bytes>=1024*1024?(bytes/1024/1024).toFixed(2)+" MB":(bytes/1024).toFixed(1)+" KB";
     const storageEventName=row=>{
       const saved=(store.eventWorkspace||[]).find(item=>[item.cloud?.eventId,item.event?.pastCloudEventId,item.event?.cloudEventId].some(id=>String(id||"")===String(row.eventId)));
-      return row.eventId===store.cloud?.eventId?store.event?.name||row.name:saved?.event?.name||store.closedEventRecoveries?.[row.eventId]?.name||(/^[0-9a-f-]{36}$/i.test(row.name)?"Older event — open Past Events to identify it":row.name);
+      return row.eventId===store.cloud?.eventId?store.event?.name||row.name:window.AwayGolfStorageEventMetadata?.[row.eventId]?.name||rows.find(plan=>plan.eventId===row.eventId&&plan.kind==="event")?.name||saved?.event?.name||store.closedEventRecoveries?.[row.eventId]?.name||(/^[0-9a-f-]{36}$/i.test(row.name)?"Older event — open Past Events to identify it":row.name);
     };
     const label=row=>`${storageEventName(row)}${row.kind==="score"?" · Day "+row.day+" · "+(player(row.playerId)?.name||row.playerId):" · Event plan"}`;
     const currentIsTest=Boolean(store.event&&(store.event.testMode||store.event.ridgeTestMode||isTestEventName(store.event)));
     const mayDiscard=row=>Boolean(row.pending&&row.status==="Waiting to upload"&&(row.eventId!==store.cloud?.eventId||currentIsTest));
-    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(australianDateTime(item.at))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table><h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
+    const storageGroups=limited?[]:[...new Set(rows.map(row=>row.eventId))].map(id=>({id,details:window.AwayGolfStorageEventMetadata?.[id]})).filter(group=>group.id!==activeStorageEventId&&group.details?.name&&!isTestEventName(group.details.name)&&!group.details.finished&&['locked','complete','archived'].includes(group.details.status));
+    const storageGroupHtml=storageGroups.length?`<section><h3>Events with retained copies</h3>${storageGroups.map(group=>`<article class="storageRecord"><b>${esc(group.details.name)}</b><p>${esc(australianDate(group.details.date))} · ${group.details.confirmed?'Results confirmed; finish this event to remove its recovery copies.':'This event has not been marked finished. Review its accepted final results after prize-giving.'}</p><button class="primary" data-storagefinish="${esc(group.id)}">Review Final Results and Finish Event</button></article>`).join('')}</section>`:'';
+    panel.innerHTML=`<section class="appStoragePage"><h2>App Storage</h2><p>This browser’s local app data: <b>${size(total)}</b>. This is separate from the tablet’s total storage. The warning starts at 4 MB; it is an estimate, not a measured storage limit.</p><p>${limited?"This player-phone view safely identifies work waiting to upload. Old work and explicitly named TEST-event copies may be deliberately discarded.":"Cleanup removes local copies only. Your current genuine event, players, courses and cloud events are protected."}</p>${!limited&&saveDiagnostics.length?`<details class="storageDiagnostics"><summary>Local save diagnostics (${saveDiagnostics.length})</summary>${saveDiagnostics.map(item=>`<p><b>${esc(australianDateTime(item.at))} · ${esc(item.area)}</b><br>${esc(item.message)}</p>`).join("")}</details>`:""}${retainedTest?`<div class="storageTestCleanup"><b>${esc(retainedTest.name)}</b><p>This abandoned TEST-event copy is not required online. TEST data expires automatically 24 hours after leaving the event.</p><button class="danger" id="deleteRetainedTestData">Delete Test Data Now</button></div>`:""}${retiredTestRows.length?`<div class="storageTestCleanup"><b>Retired TEST-event data</b><p>${retiredTestRows.length} protected ${retiredTestRows.length===1?"copy belongs":"copies belong"} to a TEST event that is no longer open. Genuine events are not included.</p><button class="danger" id="deleteRetiredTestRecords">Remove Retired Test Data</button></div>`:""}<div class="rowBtns">${isSpectatorDevice()?"":'<button class="primary" id="storageExport">Download App Storage Backup</button>'}<button class="soft" id="storageRefresh">Refresh Storage</button><button class="soft" id="storageClose">Close</button></div><p id="storageMessage" role="status"></p><h3>Stored information</h3><table><thead><tr><th>Information</th><th>Space used</th><th>Action</th></tr></thead><tbody>${inventory.sort((a,b)=>b.bytes-a.bytes).map((r,index)=>`<tr><td>${esc(r.label)}</td><td>${size(r.bytes)}</td><td>${!limited&&r.removable?`<button class="soft" data-storagebackup="${index}" ${r.testBackup?"": "disabled"}>${r.testBackup?"Remove Test Backup":"Remove Backup Copy"}</button>`:"Protected"}</td></tr>`).join("")}</tbody></table>${storageGroupHtml}<h3>Saved cards and plans</h3><p>Waiting to upload means a local change has not yet been confirmed online. Genuine current-event cards remain protected.</p>${rows.map((row,index)=>`<article class="storageRecord"><b>${esc(label(row))}</b><p>${esc(row.status)} · ${size(row.bytes)}</p>${row.pending && row.status==="Waiting to upload"?`<button class="primary" data-storageretry="${index}" ${row.eventId!==store.cloud?.eventId?"disabled":""}>Retry Upload</button>${mayDiscard(row)?`<button class="danger" data-storagediscard="${index}">Discard This Unsent Copy</button>`:""}`:""}${!limited&&row.removable?`<button class="danger" data-storageremove="${index}">Remove Local Copy</button>`:`<span>Protected</span>`}</article>`).join("")||"<p>No saved card or plan copies.</p>"}<p>${limited?"Current genuine-event work cannot be deleted. TEST-event data requires two confirmations before it is discarded.":"Retained safety backups are included in the download above. Confirmed online copies expire after 30 days; abandoned TEST-event data expires after 24 hours."}</p></section>`;
     $("#modalShade").classList.add("open");
     $("#storageClose").onclick=()=>$("#modalShade").classList.remove("open");
     $("#storageRefresh").onclick=openAppStorage;
@@ -4957,17 +4963,31 @@
     if($("#storageExport"))$("#storageExport").onclick=()=>{const data={...organiserBackupPayload(),appStorage:{savedAt:new Date().toISOString(),localSaveDiagnostics:saveDiagnostics,localData:{}}};for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(/auth|token|Connections|Writer|Lease/i.test(key))continue;data.appStorage.localData[key]=localStorage.getItem(key);}downloadOrganiserBackup(data);exported=true;$("#storageMessage").textContent="Backup downloaded. Confirm it is saved before removing any backup copy.";$$('[data-storagebackup]').forEach(button=>button.disabled=false);};
     $$('[data-storagebackup]').forEach(button=>button.onclick=()=>{const row=inventory[+button.dataset.storagebackup];if((!exported&&!row.testBackup)||!row.removable)return;if(GolfSafeCloud.storageRecords().some(r=>r.pending||r.status.includes("review"))||[store.cloud?.eventId,store.event?.id].filter(Boolean).some(id=>row.value.includes(id))){$("#storageMessage").textContent="New or active work is protected. Refresh Storage.";return;}if(localStorage.getItem(row.key)!==row.value){$("#storageMessage").textContent="This backup changed. Refresh Storage before removing it.";return;}const question=row.testBackup?"Remove this local TEST-event backup now? It is not required online.":"Confirm the downloaded App Storage backup is saved, then remove this older local backup copy?";if(!confirm(question))return;localStorage.removeItem(row.key);openAppStorage();});
     $$('[data-storageremove]').forEach(button=>button.onclick=()=>{const row=rows[+button.dataset.storageremove];if(!confirm(`Remove the local saved copy of ${label(row)}? Its confirmed online copy remains.`))return;try{GolfSafeCloud.removeStorageRecord(row.record);openAppStorage();}catch(error){$("#storageMessage").textContent=error.message;}});
+    $$('[data-storagefinish]').forEach(button=>button.onclick=async()=>{const info=window.AwayGolfStorageEventMetadata?.[button.dataset.storagefinish];if(info&&await openPastEvent(button.dataset.storagefinish,info.name))await finishAwardedEvent();});
     $$('[data-storageretry]').forEach(button=>button.onclick=async()=>{button.disabled=true;$("#storageMessage").textContent="Retrying upload…";try{await GolfSafeCloud.retryStorageRecord(rows[+button.dataset.storageretry].record);openAppStorage();$("#storageMessage").textContent="Upload confirmed online.";}catch(error){$("#storageMessage").textContent="Upload not completed: "+error.message;button.disabled=false;}});
   }
   let finishedStorageCheck=false;
   async function clearKnownFinishedStorage(){
     if(finishedStorageCheck||typeof AwayCloud==="undefined"||!AwayCloud.loadAcceptedEvent)return;
-    finishedStorageCheck=true;let removed=0;
+    finishedStorageCheck=true;let changed=false;
     try{
       const ids=[...new Set([...GolfSafeCloud.storageRecords().map(row=>row.eventId),...Object.keys(store.closedEventRecoveries||{})])];
-      for(const id of ids){try{const bundle=await AwayCloud.loadAcceptedEvent(id);if(bundle?.event?.event_data?.event?.awardedResults?.finishedAt){clearFinishedEventCopies(id);removed++;}}catch(_){/* Unavailable events stay protected. */}}
-      if(removed){writeLocalStore();if(document.querySelector('.appStoragePage'))renderAppStorage();}
-    }finally{finishedStorageCheck=false;}
+      if(AwayCloud.storageEventMetadata){
+        const metadata=window.AwayGolfStorageEventMetadata ||= {};
+        for(let offset=0;offset<ids.length;offset+=100){
+          const batch=await AwayCloud.storageEventMetadata(ids.slice(offset,offset+100));
+          for(const info of batch){
+            if(JSON.stringify(metadata[info.id])!==JSON.stringify(info)){metadata[info.id]=info;changed=true;}
+            if(info.finished){await AwayCloud.loadAcceptedEvent(info.id);clearFinishedEventCopies(info.id);changed=true;}
+            else if(info.status==='deleted'&&GolfSafeCloud.discardDeletedEventCopies(info.id,String(store.cloud?.eventId||'')))changed=true;
+          }
+        }
+      }else{
+        for(const id of ids){try{const bundle=await AwayCloud.loadAcceptedEvent(id);if(bundle?.event?.event_data?.event?.awardedResults?.finishedAt){clearFinishedEventCopies(id);changed=true;}}catch(_){/* Unavailable events stay protected. */}}
+      }
+      if(changed){writeLocalStore();if(document.querySelector('.appStoragePage'))renderAppStorage();}
+    }catch(error){console.warn('Saved-event identification will retry',error);}
+    finally{finishedStorageCheck=false;}
   }
   function openAppStorage() {
     try { renderAppStorage(); }
@@ -14216,12 +14236,20 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if(!confirm(`Finish ${name} (${australianDate(store.event.date)}) and keep final results?\n\nPrizes have been awarded. Accepted scores, final leaderboards and player history will remain. Backup cards, conflicting copies and temporary recovery data will be removed. These results cannot subsequently be changed. Individual Stableford is retained for annual use wherever the accepted cards allow it.`))return;
     try{
       // Read canonical scores, never merge an abandoned recovery card into the awarded record.
-      const bundle=await AwayCloud.loadAcceptedEvent(id), event=bundle.event.event_data.event;
-      if(event.awardedResults?.finishedAt){clearFinishedEventCopies(id);return openPastEvent(id,name,true);}
-      if(!event.finalResults?.cloudAcceptedAt)throw Error("This event needs final online sign-off before it can be finished.");
+      const bundle=await AwayCloud.loadAcceptedEvent(id);let event=bundle.event.event_data.event,revision=bundle.event.revision;
+      if(event.awardedResults?.finishedAt || bundle.event.status==='archived'&&event.finalResults?.confirmedAt&&!event.finalResults.cloudAcceptedAt){clearFinishedEventCopies(id);return openPastEvent(id,name,true);}
       if(!await openPastEvent(id,name,true))return;
+      if(!event.finalResults?.cloudAcceptedAt){
+        const defs=leaderboardDefinitions();
+        if(!eventDays().every(eventDayComplete)||defs.some(def=>!summaryCompetitionResult(def).complete))throw Error("The online cards are not all accepted yet. Final results and recovery copies have been kept.");
+        const document={...bundle.event.event_data,event:{...event,status:"complete",finalResults:{scoringRulesVersion:2,confirmedAt:new Date().toISOString(),outcomes:buildFinalPlayerMessages(defs)}}};
+        const revisions=Object.fromEntries((bundle.scores||[]).map(row=>[`${row.day}:${row.scorer_player_id}`,row.revision]));
+        const confirmed=await AwayCloud.confirmEvent(id,document,revision,revisions,bundle.event.status==='archived');
+        if(!confirmed.saved_data?.event?.finalResults?.cloudAcceptedAt)throw Error("Final result confirmation is still pending; recovery copies were kept.");
+        revision=confirmed.revision;event=confirmed.saved_data.event;Object.assign(store.event,event);
+      }
       const snapshot=buildAwardedSnapshot(id);
-      const result=await AwayCloud.finishAwardedEvent(id,snapshot,bundle.event.revision);
+      const result=await AwayCloud.finishAwardedEvent(id,snapshot,revision);
       if(!result?.finishedAt)throw Error("The final results were not acknowledged. No local copies were removed.");
       store.event.awardedResults=result;
       recordCompletedEventHistory(store.event,false);

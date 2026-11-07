@@ -1,3 +1,7 @@
+Version 15.97.14 — Retire old storage copies
+
+Recognise archived legacy prize sign-offs without recalculating prizes; identify TEST anywhere in event names; clear unchanged caches for deleted events; identify saved cards by online event names and dates; finish accepted older events directly from App Storage.
+
 Version 15.97.13 — Finish events and retain awarded results
 
 Explicit prize-giving finish seals accepted scores and final leaderboards, removes obsolete recovery/review copies and clears returning phones. Past Events offers named finish actions. Requires awarded-results database migration before deployment.

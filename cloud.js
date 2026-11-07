@@ -627,6 +627,7 @@
     loadPastOwnedEvents,
     archiveAllOwnedEvents,
     finishAwardedEvent:async(id,snapshot,revision)=>{await ensureSignedIn();const {data,error}=await client.rpc("golf_finish_awarded_event",{p_event_id:id,p_snapshot:snapshot,p_expected_revision:revision});if(error)throw error;return data;},
+    storageEventMetadata:async ids=>{await ensureSignedIn();const {data,error}=await client.rpc('golf_storage_event_metadata',{p_event_ids:ids});if(error)throw error;return data||[];},
     archiveEvent,
     retentionCleanup,
     createOrganiserKey,

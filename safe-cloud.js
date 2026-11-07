@@ -119,6 +119,15 @@
   // longer needs that event's local recovery records. The confirmed cloud
   // scores are not touched; this only clears this browser's Safe Cloud copy.
   function discardEventCopies(eventId){return discardTestEvent(eventId);}
+  function discardDeletedEventCopies(eventId,currentEventId){
+    if(!eventId||eventId===currentEventId||unreadable)return 0;
+    let latest;try{latest=JSON.parse(localStorage.getItem(key)||'{}');}catch(_){return 0;}
+    if(!object(latest))return 0;
+    if(!equal(latest,state))state=latest;
+    const rows=Object.entries(state).filter(([key])=>key.startsWith(eventId+":"));
+    if(rows.some(([,s])=>s.pending||s.conflict||s.conflictId||s.blocked||s.reviewedFrom))return 0;
+    return discardEventCopies(eventId);
+  }
   function discardAbandonedRecord(record,allowActiveTest=false){
     if(unreadable)throw Error("Saved-copy recovery data is unreadable; nothing was removed.");
     const stored=JSON.parse(localStorage.getItem(key)||"{}");
@@ -176,7 +185,10 @@
     return data;
   }
   function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
-  const finished = bundle => Boolean(bundle?.event?.event_data?.event?.awardedResults?.finishedAt);
+  const finished = bundle => {
+    const event=bundle?.event?.event_data?.event;
+    return Boolean(event?.awardedResults?.finishedAt || (bundle?.event?.status==='archived' && event?.finalResults?.confirmedAt && !event.finalResults.cloudAcceptedAt));
+  };
   function ingest(id,bundle){
     if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);return bundle;}
     remember(entry(id,"event"),bundle.event.event_data,bundle.event.revision,"event");
@@ -361,6 +373,6 @@
     adapter.safeReconcileAcknowledged=(id,kind,data,revision,day,player)=>{state[entry(id,kind,day,player)]={base:safeData(kind,data),revision,acknowledged:true,savedAt:Date.now()};persist();};
     return adapter;
   }
-  window.GolfSafeCloud={storageRecords,storageDiagnostics:()=>copy(storageFailureDetails),removeStorageRecord,discardTestEvent,discardEventCopies,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
+  window.GolfSafeCloud={storageRecords,storageDiagnostics:()=>copy(storageFailureDetails),removeStorageRecord,discardTestEvent,discardEventCopies,discardDeletedEventCopies,discardAbandonedRecord,retryStorageRecord,merge,equal,install,storageWrite,pruneRecords,saveHealth,reportStatus:(message,id)=>{activeEvent=id||"";cloudStatus=message;showHealth();}};
   if(typeof window.addEventListener==="function")window.addEventListener("DOMContentLoaded",showHealth);
 })();

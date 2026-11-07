@@ -22,5 +22,21 @@ try{
  await assert.rejects(()=>db.query("update public.away_events set event_data='{}' where id=$1",[eid]));
  await assert.rejects(()=>db.query('insert into golf_safe_private.conflicts values($1)',[eid]));
  await assert.rejects(()=>db.query('delete from public.away_events where id=$1',[eid]));
+ // Archived September-style sign-offs gain a retention receipt without recalculation.
+ const legacy='00000000-0000-4000-8000-000000000003',active='00000000-0000-4000-8000-000000000004',missing='00000000-0000-4000-8000-000000000005';
+ await db.exec('alter table public.away_events add column join_code text');
+ const oldDoc={event:{date:'2026-09-10',finalResults:{confirmedAt:'2026-09-12T23:39:37.441Z',outcomes:{a:['4BBB']}}}};
+ await db.query("insert into public.away_events(id,organiser_id,name,status,event_data)values($1,$2,'Old Federal','archived',$3),($4,$2,'Not finished','locked',$3)",[legacy,owner,JSON.stringify(oldDoc),active]);
+ await db.query("insert into public.away_round_scores values($1,1,'a',1,$2)",[legacy,JSON.stringify({_meta:{emergencyFinalised:true}})]);
+ await db.query('insert into golf_safe_private.conflicts values($1)',[legacy]);
+ const before=(await db.query('select score_data from public.away_round_scores where event_id=$1',[legacy])).rows;
+ await db.exec(fs.readFileSync(new URL('../../database/storage-event-metadata.sql',import.meta.url),'utf8'));
+ const after=(await db.query('select event_data from public.away_events where id=$1',[legacy])).rows[0].event_data;
+ assert.deepEqual(after,oldDoc);assert.equal(after.event.awardedResults,undefined);
+ assert.deepEqual((await db.query('select score_data from public.away_round_scores where event_id=$1',[legacy])).rows,before);
+ assert.equal((await db.query('select event_data from public.away_events where id=$1',[active])).rows[0].event_data.event.awardedResults,undefined);
+ const meta=(await db.query('select public.golf_storage_event_metadata($1) v',[[legacy,active,missing]])).rows[0].v;
+ assert.equal(meta.find(x=>x.id===legacy).finished,true);assert.equal(meta.find(x=>x.id===active).finished,false);assert.equal(meta.find(x=>x.id===missing).status,'deleted');
+ console.log('Legacy final prizes and emergency scores preserved; read-only legacy recognition, active-event protection and deleted-event metadata passed.');
  console.log('Away finish: owner-only action, revision race rejection, immutable official scores, obsolete review/audit cleanup, lost-response retry and final result retention passed.');
 }finally{await db.close();}

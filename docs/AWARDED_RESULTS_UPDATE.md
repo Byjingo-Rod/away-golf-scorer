@@ -15,3 +15,11 @@ Individual Stableford totals can be retained even when the daily prize was only 
 No live events have been finished and no production data has been deleted while developing this update.
 
 Validation: Away release suite 138/138; Scorer current checks 270/270; isolated database tests verify finalization, permissions, revision checks, immutable scores and results, retry receipts, and retention. Annual calculation and returning-phone cleanup tests pass. A graphical browser check could not run in this execution environment. Production migrations and app publication are pending.
+
+## Older-storage repair (Away 15.97.14 / Scorer 0.5.08)
+
+App Storage now resolves cloud event names/dates in one metadata request. Unchanged caches whose original cloud events have been deleted can be removed; pending edits, conflicts, and the current event remain protected. TEST is recognised as a whole word anywhere in an event name.
+
+Away recognises already-archived historical prize sign-offs, using a local receipt without altering any cloud scores, emergency recoveries, correction records or recorded prize outcomes. These copies are then eligible for automatic local cleanup. The metadata repair also provides a named route for older events whose accepted cards are complete but whose organiser never pressed Close. Only an explicit organiser confirmation can finish such an event, using atomic online sign-off before any local deletion.
+
+Safety review rejected the earlier broad cloud backfill/deletion. The published repair uses read-only metadata and local cache cleanup instead; no cloud event, score, recovery or correction record is deleted by the repair.
