@@ -1,3 +1,7 @@
+Version 15.97.15 — Tee availability and Belmont
+
+Tee Positions reductions persist through draft reload and saving. Hidden cards are retained for later re-enabling; men and women remain independent. Correct Bellmont to Belmont in the existing shared course record.
+
 Version 15.97.14 — Retire old storage copies
 
 Recognise archived legacy prize sign-offs without recalculating prizes; identify TEST anywhere in event names; clear unchanged caches for deleted events; identify saved cards by online event names and dates; finish accepted older events directly from App Storage.

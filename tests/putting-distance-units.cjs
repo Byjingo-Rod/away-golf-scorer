@@ -104,3 +104,20 @@ assert.equal(node('#scMet0').value,String(ctx.courseInputDistance(acceptedBefore
 assert.equal(localStorage.getItem('awayGolfCourseDraft:'+acceptedId),null);
 assert.deepEqual(plain(ctx.store.courses[0]),acceptedBeforeDraft);
 console.log('Passed: incomplete device drafts cannot replace the complete accepted course card.');
+
+// A complete hidden Red card must not cause the two-tee choice to reset to three.
+const limitedCourse={id:'tee-count-test',name:'Tee Count Test',teePositionCount:3,activeScorecardTee:'front',teeDetails:{back:{colour:'Blue'},middle:{colour:'White'},front:{colour:'Red'}},teeScorecards:Object.fromEntries(['back','middle','front'].map((tee,i)=>[tee,{tee,distanceUnit:'metres',distanceInputUnit:'metres',par:Array(18).fill(4),index:Array.from({length:18},(_,n)=>String(n+1)),metres:Array(18).fill(400-i*10)}]))};
+limitedCourse.womenTeeData=ctx.GolfCourseCategories.copyMen(limitedCourse).womenTeeData;limitedCourse.womenTeeData.needsReview=false;ctx.store.courses=[limitedCourse];
+const savedRed=plain(limitedCourse.teeScorecards.front);
+ctx.courseDetail(limitedCourse.id,'front');
+node('#courseTeePositionCount').value='2';node('#courseTeePositionCount').onchange({target:node('#courseTeePositionCount')});
+assert.equal(node('#courseTeePositionCount').value,'2');
+assert.deepEqual(node('#scorecardTeeSelect').options.map(o=>o.value),['back','middle']);
+assert.deepEqual(plain(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+limitedCourse.id)).course.teeScorecards.front),savedRed);
+node('#saveCourseModal').onclick();ctx.courseDetail(limitedCourse.id);
+assert.equal(node('#courseTeePositionCount').value,'2');
+assert.deepEqual(ctx.GolfCourseCategories.positions(ctx.store.courses[0]),['back','middle']);assert.equal(ctx.GolfCourseCategories.positions(ctx.store.courses[0].womenTeeData).length,3);
+node('#courseTeePositionCount').value='3';node('#courseTeePositionCount').onchange({target:node('#courseTeePositionCount')});
+assert.equal(node('#courseTeePositionCount').value,'3');assert(node('#scorecardTeeSelect').options.some(o=>o.value==='front'));
+assert.deepEqual(plain(JSON.parse(localStorage.getItem('awayGolfCourseDraft:'+limitedCourse.id)).course.teeScorecards.front),savedRed);
+console.log('Passed: three-to-two tee selection, draft reopen, completed save/reopen, Red hidden from selection, and three-tee restoration without changing the saved Red card.');
