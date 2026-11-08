@@ -499,40 +499,40 @@
         nav("home");
       }
       const RIDGE_TEST_TOTALS = {
-        "sam reece": 40,
-        "jeremy ward": 38,
-        "grant lomas": 37,
-        "christian fong": 36,
-        "jerry maher": 36,
-        "peter rolfe": 35,
-        "rob blain": 35,
-        "ross smith": 34,
-        "ralph cadman": 34,
-        "david fairweather": 34,
-        "graeme hennessy": 33,
-        "ben mees": 32,
-        "ian priest": 31,
-        "bob valk": 30,
-        "luke bradshaw": 27,
-        "rod ruston": 25,
+        "Example Golfer 38": 40,
+        "Example Golfer 48": 38,
+        "Example Golfer 26": 37,
+        "Example Golfer 12": 36,
+        "Example Golfer 27": 36,
+        "Example Golfer 40": 35,
+        "Example Golfer 01": 35,
+        "Example Golfer 43": 34,
+        "Example Golfer 06": 34,
+        "Example Golfer 11": 34,
+        "Example Golfer 17": 33,
+        "Example Golfer 30": 32,
+        "Example Golfer 37": 31,
+        "Example Golfer 46": 30,
+        "Example Golfer 04": 27,
+        "Example Golfer 42": 25,
       };
       const RIDGE_TEST_PUTTS = {
-        "sam reece": 28,
-        "jeremy ward": 31,
-        "grant lomas": 30,
-        "christian fong": 30,
-        "jerry maher": 30,
-        "peter rolfe": 32,
-        "rob blain": 32,
-        "ross smith": 32,
-        "ralph cadman": 33,
-        "david fairweather": 34,
-        "graeme hennessy": 33,
-        "ben mees": 31,
-        "ian priest": 31,
-        "bob valk": 35,
-        "luke bradshaw": 35,
-        "rod ruston": 37,
+        "Example Golfer 38": 28,
+        "Example Golfer 48": 31,
+        "Example Golfer 26": 30,
+        "Example Golfer 12": 30,
+        "Example Golfer 27": 30,
+        "Example Golfer 40": 32,
+        "Example Golfer 01": 32,
+        "Example Golfer 43": 32,
+        "Example Golfer 06": 33,
+        "Example Golfer 11": 34,
+        "Example Golfer 17": 33,
+        "Example Golfer 30": 31,
+        "Example Golfer 37": 31,
+        "Example Golfer 46": 35,
+        "Example Golfer 04": 35,
+        "Example Golfer 42": 37,
       };
       function ridgeTestEligible() {
         const e = store.event,
@@ -546,7 +546,7 @@
         );
       }
       function ridgePointPattern(name, target, seed) {
-        if (name.toLowerCase() === "rod ruston")
+        if (name.toLowerCase() === "Example Golfer 42")
           return [1, 0, 2, 1, 2, 1, 2, 3, 2, 1, 2, 1, 0, 2, 2, 0, 2, 1];
         const out = Array(18).fill(2),
           order = Array.from(
@@ -659,9 +659,9 @@
             );
         if (hole) {
           const changes = [
-            ["Rob Blain", "Jeremy Ward", "2026-08-22T09:24:00+10:00"],
-            ["Jerry Maher", "Sam Reece", "2026-08-22T10:15:00+10:00"],
-            ["Peter Rolfe", "Grant Lomas", "2026-08-22T11:02:00+10:00"],
+            ["Example Golfer 01", "Example Golfer 48", "2026-08-22T09:24:00+10:00"],
+            ["Example Golfer 27", "Example Golfer 38", "2026-08-22T10:15:00+10:00"],
+            ["Example Golfer 40", "Example Golfer 26", "2026-08-22T11:02:00+10:00"],
           ];
           changes.forEach(([entrant, scorer, at], i) => {
             const entrantId =

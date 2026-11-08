@@ -1327,7 +1327,7 @@ VERSION 15.30 — THE RIDGE 16-PLAYER FULL EVENT TEST
 - Simulates and finalises 16 complete rounds (288 holes) using the actual
   players, groups, 4BBB pairs, Ridge handicaps, competitions and NTP hole.
 - Includes realistic Stableford variation, putts and progressive NTP holders.
-- Sam Reece (+4) scores 40 points; Jeremy Ward (+1) scores 38; Rod Ruston
+- Example Golfer 38 (+4) scores 40 points; Example Golfer 48 (+1) scores 38; Example Golfer 42
   retains his poor-round pattern and scores 25 points.
 - The locked event is backed up before testing and isolated from cloud data.
 - Remove Test Scores & Restore Event returns the event exactly to its

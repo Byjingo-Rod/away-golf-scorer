@@ -1,0 +1,14 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const scope={window:{}};
+vm.runInNewContext(fs.readFileSync('data.js','utf8'),scope);
+assert.equal(scope.window.AWAY_SEED.players.length,0,'Public bundles must not distribute real player profiles');
+const app=fs.readFileSync('app.js','utf8');
+const start=app.indexOf('  function mergePublishedPlayer('),end=app.indexOf('  store.players = (store.players || []).map(p => mergePublishedPlayer',start);
+const ctx={};vm.runInNewContext(app.slice(start,end),ctx);
+const profile={id:'example',name:'Example Person',golfLink:'private-registration',homeClub:'Example Club',notes:'Private note'};
+assert.deepEqual(JSON.parse(JSON.stringify(ctx.mergePublishedPlayer(profile,{id:'example',golfLink:'',homeClub:'',notes:''}))),profile,'Existing private device profiles survive empty public seeds and publication omissions');
+assert.equal(ctx.mergePublishedPlayer({id:'example',golfLink:''},{}).golfLink,'','Missing private fields must not be recovered from public fixtures');
+assert(!/playerIdByName/.test(app.slice(app.indexOf('function installFederalRidgeHistoryBaseline'),app.indexOf('function backfillCompletedEventHistory'))),'Legacy history must use stable IDs, not embedded private names');
+console.log('Public seed empty; existing private profile preserved; no private profile fallback.');

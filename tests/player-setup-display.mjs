@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const app=fs.readFileSync(process.argv[2]||'app.js','utf8');
 function fn(name){const a=app.indexOf('  function '+name+'(');assert(a>=0,name);const b=app.indexOf('\n  function ',a+10);return app.slice(a,b<0?undefined:b);}
-const players=[{id:'melan',name:'Maurice Melan',firstName:'Maurice',lastName:'Melan'},{id:'reece',name:'Wil Reece'},{id:'ward',name:'Jeremy Ward',lastName:'Ward',firstName:'Jeremy'},{id:'lomas',name:'Grant Lomas',lastName:'Lomas',firstName:'Grant'}];
+const players=[{id:'melan',name:'Cara Cooper',firstName:'Cara',lastName:'Cooper'},{id:'reece',name:'Dana Davis',firstName:'Dana',lastName:'Davis'},{id:'ward',name:'Beth Evans',firstName:'Beth',lastName:'Evans'},{id:'lomas',name:'Ann Brown',firstName:'Ann',lastName:'Brown'}];
 const ids=['melan','reece','ward','lomas'],list={id:'stags',name:'Test STAGS Golfers',playerIds:[...ids]};
 const fields={ '#availablePlayerList':{value:'stags'} };let draws=0,gaStored=0,teeStored=0,reopened=0;
 const scope={W:{event:{workspaceId:'event'},invites:new Map(),competitions:new Set(),benefits:{},step:2,newEvent:false},store:{players,playerLists:[list],event:{workspaceId:'event'}},NO_PARTNER_ID:'virtual',player:id=>players.find(p=>p.id===id),$ :q=>fields[q]||=( {}),draw:()=>draws++,alert(){},Date,JSON,Map,Set,localStorage:{getItem:()=> 'tab'},AWAY_GOLF_WRITER_LEASE_KEY:'lease',appTabId:'tab',eventDays:()=>[1],wizardPlanningPlayers:()=>ids,save:()=>true,uid:()=> 'id',captureCurrentEvent(){},sharedPositionId:id=>id};

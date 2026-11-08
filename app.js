@@ -16,7 +16,7 @@
       );
   const uid = () =>
     Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-  const inactiveNames = new Set(["Denis Lenard", "John Herbert", "Rolly Nice"]);
+  const inactiveNames = new Set();
   const NO_PARTNER_ID = "system-no-partner";
   const NO_PARTNER = {
     id: NO_PARTNER_ID,
@@ -1501,7 +1501,6 @@
     oatlands.phone = oatlands.proPhone;
     oatlands.clubEmail = "administration@oatlandsgolf.com.au";
     oatlands.email = oatlands.clubEmail;
-    oatlands.proName = "Jeremy Ward";
     oatlands.address = "Bettington Rd Oatlands";
     oatlands.teeDetails = oatlands.teeDetails || {};
     for (const key of ["back", "middle", "front"])
@@ -1536,20 +1535,9 @@
     for (const key of ["golfLink", "homeClub", "notes"])
       if (!String(incoming[key] || "").trim() && existing?.[key])
         merged[key] = existing[key];
-    const seed = (AWAY_SEED.players || []).find(p =>
-      String(p.id) === String(merged.id) &&
-      String(p.name || "").trim().toLowerCase() === String(merged.name || "").trim().toLowerCase());
-    if (!window.GES_PLANNER_CONTEXT && !merged.noOfficialHandicap &&
-        !String(merged.golfLink || "").trim() && seed)
-      merged.golfLink = seed.golfLink || "";
     return merged;
   }
   store.players = (store.players || []).map(p => mergePublishedPlayer(p, {}));
-  const rodRuston = (store.players || []).find(
-    (p) => String(p.id) === "p42" || /^rod ruston$/i.test(p.name || ""),
-  );
-  if (rodRuston && !String(rodRuston.homeClub || "").trim())
-    rodRuston.homeClub = "Oatlands GC";
   store.pairHistory = store.pairHistory || {};
   store.partnerHistory = store.partnerHistory || {};
   if (
@@ -2153,7 +2141,6 @@
       oatlandsCourse.clubEmail =
         oatlandsCourse.clubEmail || "administration@oatlandsgolf.com.au";
       oatlandsCourse.email = oatlandsCourse.clubEmail;
-      oatlandsCourse.proName = oatlandsCourse.proName || "Jeremy Ward";
       oatlandsCourse.website =
         oatlandsCourse.website || "https://www.oatlandsgolf.com.au/";
       oatlandsCourse.teeDetails.middle = {
@@ -8878,25 +8865,23 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const baselineId = "federal-ridge-2026-v1";
     if (store.historyBaseline?.id === baselineId) return false;
     const ridgeGroups = [
-        ["Jeremy Ward", "Graeme Hennessy", "Ben Mees", "Rod Ruston"],
-        ["Sam Reece", "Jerry Maher", "Ian Priest", "Maurice Melan"],
-        ["Grant Lomas", "Luke Bradshaw", "Bob Valk", "David Fairweather"],
-        ["Christian Fong", "Peter Rolfe", "Rob Blain", "Ross Smith"],
+        ["p48", "p17", "p30", "p42"],
+        ["p38", "p27", "p37", "p31"],
+        ["p26", "p4", "p46", "p11"],
+        ["p12", "p40", "p1", "p43"],
       ],
       federalDay1Groups = [
-        ["Rod Bowyer", "Jerry Maher", "Graeme Hennessy", "Ross Smith"],
-        ["David Fairweather", "Rod Ruston", "David Gaffaney", "Ben Mees"],
+        ["p3", "p27", "p17", "p43"],
+        ["p11", "p42", "p14", "p30"],
       ],
       federalDay2Groups = [
-        ["Rod Ruston", "Ben Mees", "Graeme Hennessy", "Jerry Maher"],
-        ["Rod Bowyer", "Ross Smith", "David Gaffaney", "David Fairweather"],
+        ["p42", "p30", "p17", "p27"],
+        ["p3", "p43", "p14", "p11"],
       ],
-      playerIdByName = new Map(
-        (store.players || []).map((person) => [person.name, String(person.id)]),
-      ),
+      existingIds = new Set((store.players || []).map(person => String(person.id))),
       namedRounds = [ridgeGroups, federalDay1Groups, federalDay2Groups],
       rounds = namedRounds.map((round) =>
-        round.map((names) => names.map((name) => playerIdByName.get(name))),
+        round.map((names) => names.map((id) => existingIds.has(id) ? id : undefined)),
       );
     if (rounds.some((round) => round.some((group) => group.some((id) => !id))))
       return false;

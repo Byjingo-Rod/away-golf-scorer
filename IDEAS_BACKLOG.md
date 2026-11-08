@@ -145,7 +145,7 @@ Placing the course and tee time together makes the organiser explicitly verify t
 **Priority:** Minor
 
 **Correction:**
-In the Record All Scores 4BBB section, place **(VIRTUAL PLAYER)** directly beneath the virtual player's own name. For the tested Team 1 pairing, the label belongs beneath **Peter Dodd**, not beneath **David Gaffaney**.
+In the Record All Scores 4BBB section, place **(VIRTUAL PLAYER)** directly beneath the virtual player's own name. For the tested Team 1 pairing, the label belongs beneath **Example Golfer 08**, not beneath **Example Golfer 14**.
 
 **Reason:**
 The present pair label joins both player names before displaying the virtual-player marker, which can make the marker appear to belong to the first player in the pair.
