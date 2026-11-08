@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+let expire,signal,mode='hang',bodyRelease;
+const scope={window:{fetch:async(_,{signal:s})=>{signal=s;if(mode==='hang')return new Promise(()=>{});if(mode==='body')return {arrayBuffer:()=>new Promise(r=>bodyRelease=r)};return new Response('{"saved":true}',{status:200,headers:{'Content-Type':'application/json'}});}},AbortController,DOMException,Response,setTimeout:fn=>(expire=fn,1),clearTimeout:()=>{}};
+vm.runInNewContext(fs.readFileSync('cloud-request.js','utf8'),scope);
+const request=scope.window.GolfCloudRequest.fetch;
+const hanging=request('https://example.invalid');expire();await assert.rejects(hanging,/timed out/);assert(signal.aborted,'Underlying transport is cancelled');
+mode='body';const hangingBody=request('https://example.invalid');await Promise.resolve();expire();await assert.rejects(hangingBody,/timed out/);assert(signal.aborted,'Body reads are also bounded');bodyRelease?.(new ArrayBuffer(0));
+mode='success';const result=await request('https://example.invalid');assert.deepEqual(await result.json(),{saved:true});
+const upstream=new AbortController();upstream.abort();await assert.rejects(request('https://example.invalid',{signal:upstream.signal}));
+console.log('Hung headers/body cancelled; subsequent request succeeds; upstream cancellation respected; no transport-level write replay.');

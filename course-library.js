@@ -32,20 +32,14 @@
       s.bases[id]={revision:row.revision,data:copy(row.data)};delete s.conflicts[id];
     }
     replaceDeviceDuplicate(row) {
+      // A matching name suggests a review, never proves course identity.
       const store=this.store(),s=this.state(),id=String(row.id),key=courseNameKey(row.data?.name);
       if(!key)return;
-      const duplicates=store.courses.filter(c=>String(c.id)!==id && courseNameKey(c.name)===key && !s.bases[String(c.id)]);
-      for(const local of duplicates) {
+      s.identityReviews ||= {};
+      for(const local of store.courses.filter(c=>String(c.id)!==id && courseNameKey(c.name)===key && !s.bases[String(c.id)])) {
         const oldId=String(local.id);
-        delete s.pending[oldId];delete s.conflicts[oldId];
-        const remapEvent=event=>{if(!event)return;for(const k of Object.keys(event))if(/^course\d+$/.test(k)&&String(event[k])===oldId)event[k]=id;};
-        remapEvent(store.event);remapEvent(store.template);for(const record of store.eventWorkspace||[])remapEvent(record?.event);
-        store.courseFavourites=(store.courseFavourites||[]).map(v=>String(v)===oldId?id:v);
-        for(const player of store.players||[])if(player.courseHandicaps?.[oldId]){
-          player.courseHandicaps[id] ||= {...player.courseHandicaps[oldId],courseId:id,courseName:row.data.name};
-          delete player.courseHandicaps[oldId];
-        }
-        store.courses=store.courses.filter(c=>String(c.id)!==oldId);
+        s.identityReviews[oldId] ||= {};
+        s.identityReviews[oldId][id]={id,name:row.data.name,country:row.data.country,state:row.data.state,region:row.data.region};
       }
     }
     merge(rows,countries) {
@@ -115,7 +109,7 @@
         }
         this.merge(library.courses,library.countries);
         for(const [id,payload] of Object.entries(this.state().pending)) {
-          if(this.state().conflicts[id])continue;
+          if(this.state().conflicts[id] || this.state().identityReviews?.[id])continue;
           try {
             const base=this.state().bases[id];
             this.durable();
@@ -146,7 +140,8 @@
         }
         this.state().lastSync=new Date().toISOString();this.durable();
         const conflicts=Object.keys(this.state().conflicts).length,pending=Object.keys(this.state().pending).length;
-        this.message=conflicts ? `${conflicts} course${conflicts===1?'':'s'} need review` : pending ? `${pending} course save${pending===1?'':'s'} pending` : 'Cloud master course list is up to date';
+        const identities=Object.keys(this.state().identityReviews||{}).length;
+        this.message=identities ? `${identities} course identities need review — existing event cards kept` : conflicts ? `${conflicts} course${conflicts===1?'':'s'} need review` : pending ? `${pending} course save${pending===1?'':'s'} pending` : 'Cloud master course list is up to date';
       } catch(error) {
         if(error.code==='42501'){this.allowed=false;this.message='Owner Sign-In or approved Organiser Tablet access is required for the cloud master list';}
         else this.message='Cloud sync pending — '+(error.message||'connection unavailable');
@@ -163,7 +158,7 @@
       this.durable();this.notify();
     }
     status(id) {
-      const s=this.state();if(s.conflicts[id])return 'Review two copies';if(s.pending[id])return 'Cloud save pending';
+      const s=this.state();if(s.identityReviews?.[id])return 'Course identity needs review — select the accepted course explicitly';if(s.conflicts[id])return 'Review two copies';if(s.pending[id])return 'Cloud save pending';
       const base=s.bases[id],local=this.store().courses.find(c=>String(c.id)===String(id));
       if(base && local && !same(local,base.data))return 'Device changes — save Course Details to share';
       return s.proposals?.[id] ? 'Correction submitted for owner approval' : base ? 'Master revision '+base.revision : 'On this device';

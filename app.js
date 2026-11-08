@@ -1384,82 +1384,7 @@
         event[key] = idMap.get(String(event[key]));
   }
   function consolidateCourseCards() {
-    // Cloud record IDs are authoritative; do not merge same-named clubs from different locations.
-    if (Object.keys(store.courseLibrary?.bases || {}).length) return;
-    const groups = new Map();
-    for (const item of store.courses || []) {
-      const key = String(item.name || "").trim().toLowerCase();
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(item);
-    }
-    const idMap = new Map(), consolidated = [];
-    for (const records of groups.values()) {
-      const ranked = [...records].sort(
-          (a, b) => courseQuality(b) - courseQuality(a),
-        ),
-        keeper = ranked[0],
-        allCards = ranked.flatMap((item) => [
-          ...Object.values(item.teeScorecards || {}),
-          ...(item.versions || []),
-        ]),
-        bestCard = [...allCards].sort((a, b) => cardQuality(b) - cardQuality(a))[0];
-      for (const record of records) idMap.set(String(record.id), String(keeper.id));
-      for (const source of ranked.slice(1)) {
-        for (const key of [
-          "region", "clubPhone", "proPhone", "phone", "clubEmail", "proEmail",
-          "email", "proName", "address", "mapLink", "website", "notes",
-        ])
-          if (!String(keeper[key] || "").trim() && String(source[key] || "").trim())
-            keeper[key] = source[key];
-        keeper.teeDetails = keeper.teeDetails || {};
-        keeper.teeScorecards = keeper.teeScorecards || {};
-        for (const [tee, card] of Object.entries(source.teeScorecards || {}))
-          if (!keeper.teeScorecards[tee] || cardQuality(card) > cardQuality(keeper.teeScorecards[tee]))
-            keeper.teeScorecards[tee] = card;
-        for (const tee of ["back", "middle", "front"]) {
-          keeper.teeDetails[tee] = keeper.teeDetails[tee] || {};
-          for (const key of ["colour", "slope", "scratch", "par", "length"])
-            if (
-              !String(keeper.teeDetails[tee][key] || "").trim() &&
-              String(source.teeDetails?.[tee]?.[key] || "").trim()
-            )
-              keeper.teeDetails[tee][key] = source.teeDetails[tee][key];
-        }
-      }
-      if (bestCard) {
-        keeper.teeScorecards = keeper.teeScorecards || {};
-        if (!Object.keys(keeper.teeScorecards).length)
-          keeper.teeScorecards.middle = { ...bestCard, tee: "middle" };
-        keeper.activeScorecardTee = keeper.teeScorecards[keeper.activeScorecardTee]
-          ? keeper.activeScorecardTee
-          : Object.keys(keeper.teeScorecards)[0];
-      }
-      delete keeper.versions;
-      delete keeper.activeVersionId;
-      consolidated.push(keeper);
-    }
-    store.courses = consolidated;
-    remapEventCourseIds(store.event, idMap);
-    remapEventCourseIds(store.template, idMap);
-    for (const record of store.eventWorkspace || [])
-      remapEventCourseIds(record.event, idMap);
-    for (const person of store.players || []) {
-      const old = person.courseHandicaps || {}, next = {};
-      for (const [courseId, details] of Object.entries(old)) {
-        const mapped = idMap.get(String(courseId)) || String(courseId);
-        if (!next[mapped] || String(details.updatedAt || "") > String(next[mapped].updatedAt || ""))
-          next[mapped] = { ...details, courseId: mapped };
-      }
-      person.courseHandicaps = next;
-    }
-    store.courseFavourites = [
-      ...new Set(
-        (store.courseFavourites || []).map(
-          (id) => idMap.get(String(id)) || String(id),
-        ),
-      ),
-    ];
-    writeLocalStore();
+    // Course identity is immutable; same-named clubs must remain separate.
   }
   consolidateCourseCards();
   // Version 15.78 recovery: the first test package could expose the packaged
@@ -1467,65 +1392,8 @@
   // After duplicate consolidation, repair only the exact incomplete signature.
   // A genuine organiser-edited card is always left untouched.
   function repairIncompleteOatlandsCard() {
-    const oatlands = (store.courses || []).find((c) =>
-      /^oatlands gc$/i.test(String(c.name || "").trim()),
-    );
-    if (!oatlands || store.courseLibrary?.bases?.[String(oatlands.id)]) return false;
-    const card = oatlands.teeScorecards?.[oatlands.activeScorecardTee] ||
-      oatlands.teeScorecards?.middle ||
-      (oatlands.versions || []).find(
-        (item) => String(item.id) === String(oatlands.activeVersionId || ""),
-      ) || oatlands.versions?.[0];
-    if (!card) return false;
-    const indexes = Array.isArray(card.index) ? card.index.map(String) : [];
-    const metres = Array.isArray(card.metres) ? card.metres.map(Number) : [];
-    const primaryOnly = [
-      "8", "12", "7", "6", "13", "2", "18", "15", "10",
-      "17", "11", "3", "16", "4", "5", "9", "14", "1",
-    ];
-    const metreTotal = metres.reduce(
-      (total, value) => total + (value || 0),
-      0,
-    );
-    const isIncomplete1578Card =
-      indexes.length === 18 &&
-      indexes.every((value, i) => value === primaryOnly[i]) &&
-      (metreTotal === 5503 || metreTotal === 0) &&
-      !String(oatlands.clubPhone || "").trim() &&
-      !String(oatlands.proPhone || "").trim();
-    if (!isIncomplete1578Card) return false;
-
-    oatlands.region = "Sydney";
-    oatlands.clubPhone = "+61 2 9630 4444";
-    oatlands.proPhone = "+61 2 9630 1423";
-    oatlands.phone = oatlands.proPhone;
-    oatlands.clubEmail = "administration@oatlandsgolf.com.au";
-    oatlands.email = oatlands.clubEmail;
-    oatlands.address = "Bettington Rd Oatlands";
-    oatlands.teeDetails = oatlands.teeDetails || {};
-    for (const key of ["back", "middle", "front"])
-      oatlands.teeDetails[key] = {
-        ...(oatlands.teeDetails[key] || {}),
-        slope: "",
-        scratch: "70",
-        par: "70",
-      };
-    oatlands.teeDetails.middle.length = "5502";
-    card.teeName = "Middle";
-    card.slope = "";
-    card.scratch = "70";
-    card.par = [4, 3, 4, 4, 3, 4, 3, 4, 5, 3, 4, 4, 3, 5, 4, 5, 4, 4];
-    card.index = [
-      "8/28", "12/33", "7/25", "6/24", "13/32", "2/21",
-      "18/36", "15/31", "10/27", "17/35", "11/29", "3/23",
-      "16/34", "4/19", "5/22", "9/26", "14/30", "1/20",
-    ];
-    card.metres = [
-      315, 193, 351, 369, 158, 397, 116, 276, 478,
-      117, 301, 316, 137, 466, 366, 495, 272, 379,
-    ];
-    writeLocalStore();
-    return true;
+    // Accepted course corrections come from the master, never bundled fallback cards.
+    return false;
   }
   repairIncompleteOatlandsCard();
   // Published player payloads omit private profile details. A blank omission
@@ -1594,7 +1462,7 @@
     store.courses
       .filter((c) => c.available !== false)
       .sort((a, b) => a.name.localeCompare(b.name));
-  const course = (id, master = false) => (!master && store.event?.locked && (store.cloud?.courseCards || store.event.courseSnapshot)?.find(c => String(c.id) === String(id))) || store.courses.find((c) => c.id === id),
+  const course = (id, master = false) => !master && store.event?.locked ? (store.cloud?.courseCards || store.event.courseSnapshot)?.find(c => String(c.id) === String(id)) : store.courses.find((c) => String(c.id) === String(id)),
     player = (id) =>
       String(id) === NO_PARTNER_ID
         ? NO_PARTNER
@@ -2111,54 +1979,7 @@
     ],
   };
   function enforceAuthoritativeOatlandsCard() {
-    const oatlandsCourse = (store.courses || []).find((c) =>
-      /^oatlands(?: gc| golf club)?$/i.test(String(c.name || "").trim()),
-    );
-    if (!oatlandsCourse || store.courseLibrary?.bases?.[String(oatlandsCourse.id)]) return false;
-    ensureCourseData(oatlandsCourse);
-    const ov = version(oatlandsCourse) || {},
-      cardMatches =
-        JSON.stringify(ov.metres || []) === JSON.stringify(OATLANDS_CARD_2026.metres) &&
-        JSON.stringify(ov.par || []) === JSON.stringify(OATLANDS_CARD_2026.par) &&
-        JSON.stringify(ov.index || []) === JSON.stringify(OATLANDS_CARD_2026.index);
-    if (
-      oatlandsCourse.scorecardAuthorityVersion !== "15.79-oatlands-v1" ||
-      !cardMatches ||
-      Boolean(oatlandsCourse.versions?.length)
-    ) {
-      ov.metres = [...OATLANDS_CARD_2026.metres];
-      ov.par = [...OATLANDS_CARD_2026.par];
-      ov.index = [...OATLANDS_CARD_2026.index];
-      ov.slope = "";
-      ov.scratch = "70";
-      ov.teeName = "Middle";
-      oatlandsCourse.region = oatlandsCourse.region || "Sydney";
-      oatlandsCourse.address =
-      oatlandsCourse.address || "Bettington Rd Oatlands";
-      oatlandsCourse.clubPhone = oatlandsCourse.clubPhone || "+61 2 9630 4444";
-      oatlandsCourse.proPhone = oatlandsCourse.proPhone || "+61 2 9630 1423";
-      oatlandsCourse.phone = oatlandsCourse.proPhone;
-      oatlandsCourse.clubEmail =
-        oatlandsCourse.clubEmail || "administration@oatlandsgolf.com.au";
-      oatlandsCourse.email = oatlandsCourse.clubEmail;
-      oatlandsCourse.website =
-        oatlandsCourse.website || "https://www.oatlandsgolf.com.au/";
-      oatlandsCourse.teeDetails.middle = {
-        ...(oatlandsCourse.teeDetails.middle || {}),
-        name: "Middle",
-        colour: "White",
-        slope: "",
-        scratch: "70",
-        par: "70",
-        length: "5502",
-      };
-      oatlandsCourse.teeScorecards.middle = cloneCourseCard(ov, "middle");
-      oatlandsCourse.activeScorecardTee = "middle";
-      delete oatlandsCourse.versions;
-      delete oatlandsCourse.activeVersionId;
-      oatlandsCourse.scorecardAuthorityVersion = "15.79-oatlands-v1";
-      return true;
-    }
+    // Never overwrite a device or event card using a hardcoded course name.
     return false;
   }
   enforceAuthoritativeOatlandsCard();
@@ -3240,6 +3061,7 @@
         if (cloudBusy) return false;
         if (retirePhoneFromArchivedEvent(bundle)) return true;
         applyRemoteCloud(bundle);
+        setCloudMessage(`Live · updated ${new Date().toLocaleTimeString("en-AU", {hour:"numeric",minute:"2-digit"})}`);
         return true;
       }
       clearTimeout(cloudReloadTimer);
@@ -14769,6 +14591,10 @@ function estimateEventGa(handicap, rating, category, calculate) {
     initialiseGroups();
     const days = store.event.days || 1;
     let day = Math.min(store.event.playerPreviewDay || 1, days);
+    if(store.event.locked && !course(store.event['course'+day])) {
+      host.innerHTML='<div class="card"><h2>Published course card unavailable</h2><p>Reconnect and use Retry Sync to load this event’s saved course card. Scoring is paused so that another course or a newer master card cannot be used accidentally.</p></div>';
+      return;
+    }
     if(isPlayerDevice() && Object.keys(store.event.sharedPositions || {}).length && !dayFieldIds(day).includes(String(store.cloud?.playerId))) {
       day=eventDays().find(d=>dayFieldIds(d).includes(String(store.cloud.playerId))) || day;
       store.event.playerRoundMode="preview";store.event.playerHolePos=0;

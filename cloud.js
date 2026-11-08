@@ -6,6 +6,7 @@
   const OWNER_REDIRECT_URL = "https://byjingo-rod.github.io/away-golf-scorer/";
   const AUTH_STORAGE_PREFIX = "sb-qlxcpsbyfhgatujrqxkd-auth-token";
   const makeClient = () => window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    global: {fetch:window.GolfCloudRequest?.fetch},
     auth: {
       persistSession: true,
       autoRefreshToken: true,

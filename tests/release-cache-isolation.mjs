@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const handlers={};let network=0,response;
+const cached=new Response('old release script');
+const scope={URL,Response,self:{location:{origin:'https://example.invalid'},addEventListener:(name,fn)=>handlers[name]=fn},caches:{open:async()=>({match:async req=>String(req.url||req).includes('app.js')?cached:null})},fetch:()=>{network++;return new Response('new script');}};
+vm.runInNewContext(fs.readFileSync('sw.js','utf8'),scope);
+handlers.fetch({request:{method:'GET',url:'https://example.invalid/app.js?v=old'},respondWith:p=>response=p});
+assert.equal(await (await response).text(),'old release script');assert.equal(network,0);
+handlers.fetch({request:{method:'GET',url:'https://example.invalid/missing.mjs'},respondWith:p=>response=p});
+assert.equal((await response).status,503);assert.equal(network,0,'An uncached release module must not come from a different deployed version');
+assert(!fs.readFileSync('sw.js','utf8').includes('self.clients.claim()'),'Activation must not take over running scorecards');
+console.log('Release cache stays internally consistent; missing scripts fail visibly; running clients are not claimed.');

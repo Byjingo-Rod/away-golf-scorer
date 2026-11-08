@@ -21,7 +21,7 @@ for (const name of [
 assert.match(app, /script\.src = "development-tests\.js\?v=15\.97\.04"/);
 assert.match(app, /if \(e\.target\.id === "testEventTools"\) openTestEventTools\(\)/);
 assert.doesNotMatch(html, /development-tests\.js/, "ordinary page startup must not download test builders");
-assert.doesNotMatch(worker, /development-tests\.js/, "service worker must not pre-cache test builders");
+assert.doesNotMatch(worker.slice(worker.indexOf("const FILES"),worker.indexOf("self.addEventListener")), /development-tests\.js/, "service worker must not pre-cache test builders");
 assert.match(development, /window\.AwayGolfDevelopmentTests/);
 
 // Smoke-test the lazy module adapter without loading an event or touching

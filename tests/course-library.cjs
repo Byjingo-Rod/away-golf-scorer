@@ -8,12 +8,13 @@ function device(initial){let store={courses:copy(initial),courseCountries:['Aust
 (async()=>{
  const pc=device([card('c1','Course One'),card('c2','Course Two')]);await pc.library.sync();assert.equal(records.size,2);assert.match(pc.library.status('c1'),/revision 1/);assert(countries.includes('Vietnam'));
  const tablet=device([]);await tablet.library.sync();assert.equal(tablet.store.courses.length,2);assert.equal(tablet.store.courses[0].teeScorecards.middle.yards[0],300);
- // A pre-existing blank device course with the same club name must not hide
- // the accepted shared card or upload as a second master course.
- const namedDraft=card('device-bonnie','Bonnie Doon Golf Club');namedDraft.teeScorecards={};
- records.set('bonnie-doon-gc',{id:'bonnie-doon-gc',data:card('bonnie-doon-gc','Bonnie Doon GC'),revision:3});
- const bonnie=device([namedDraft]);bonnie.store.event={days:1,course1:'device-bonnie'};bonnie.store.courseFavourites=['device-bonnie'];bonnie.store.players=[{courseHandicaps:{'device-bonnie':{handicap:12,courseId:'device-bonnie'}}}];await bonnie.library.sync();
- assert.equal(bonnie.store.courses.filter(c=>/Bonnie Doon/.test(c.name)).length,1);assert.equal(bonnie.store.courses.find(c=>/Bonnie Doon/.test(c.name)).id,'bonnie-doon-gc');assert.equal(bonnie.store.event.course1,'bonnie-doon-gc');assert.deepEqual(bonnie.store.courseFavourites,['bonnie-doon-gc']);assert.equal(bonnie.store.players[0].courseHandicaps['bonnie-doon-gc'].handicap,12);assert.equal(bonnie.library.state().retainedLocal,undefined);
+ // Same-named clubs retain separate IDs, including locked event snapshots.
+ const namedDraft=card('device-example','Example Golf Club');namedDraft.country='Australia';namedDraft.teeScorecards={};
+ records.set('other-example',{id:'other-example',data:{...card('other-example','Example GC'),country:'United Kingdom'},revision:3});
+ const bonnie=device([namedDraft]);bonnie.store.event={locked:true,days:1,course1:'device-example',courseSnapshot:[copy(namedDraft)]};
+ const beforeEvent=copy(bonnie.store.event);await bonnie.library.sync();
+ assert.deepEqual(bonnie.store.event,beforeEvent);assert(bonnie.store.courses.some(c=>c.id==='device-example'));assert(bonnie.store.courses.some(c=>c.id==='other-example'));
+ assert(!records.has('device-example'),'Ambiguous device-only course must not automatically upload');assert.match(bonnie.library.status('device-example'),/identity needs review/);
  pc.store.courses[0].teeScorecards.middle.index[0]='1/19';pc.library.queue(pc.store.courses[0]);await pc.library.sync();await tablet.library.sync();assert.equal(tablet.store.courses[0].teeScorecards.middle.index[0],'1/19');assert.equal(history.get('c1').length,2);
  offline=true;tablet.store.courses[0].region='Hoi An';tablet.library.queue(tablet.store.courses[0]);await tablet.library.sync();assert.match(tablet.library.status('c1'),/save pending/);const resumed=tablet.restart();assert.equal(resumed.state().pending.c1.region,'Hoi An');offline=false;
  pc.store.courses[1].name='Course Two Updated';pc.library.queue(pc.store.courses[1]);await pc.library.sync();await resumed.sync();assert.equal(records.get('c1').data.region,'Hoi An');assert.equal(tablet.store.courses[1].name,'Course Two Updated');
@@ -29,7 +30,7 @@ function device(initial){let store={courses:copy(initial),courseCountries:['Aust
  allowed=false;await pc.library.sync();assert.equal(pc.library.allowed,false);assert.match(pc.library.message,/Owner Sign-In/);allowed=true;
  assert(same({activeScorecardTee:'back',name:'A',x:{b:1,a:2}},{activeScorecardTee:'middle',x:{a:2,b:1},name:'A'}));
  // Current published cards use their snapshot; Course Details uses the master.
- const app=fs.readFileSync('app.js','utf8');const getter=app.match(/  const course = ([^\n]+),\n/)[1];const ctx={store:{courses:[{id:'c1',name:'New Master'}],event:{locked:true},cloud:{eventId:'event',courseCards:[{id:'c1',name:'Published Card'}]}}};vm.createContext(ctx);vm.runInContext('globalThis.course='+getter+';',ctx);assert.equal(ctx.course('c1').name,'Published Card');assert.equal(ctx.course('c1',true).name,'New Master');ctx.store.event.locked=false;assert.equal(ctx.course('c1').name,'New Master');
+ const app=fs.readFileSync('app.js','utf8');const getter=app.match(/  const course = ([^\n]+),\n/)[1];const ctx={store:{courses:[{id:'c1',name:'New Master'}],event:{locked:true},cloud:{eventId:'event',courseCards:[{id:'c1',name:'Published Card'}]}}};vm.createContext(ctx);vm.runInContext('globalThis.course='+getter+';',ctx);assert.equal(ctx.course('c1').name,'Published Card');assert.equal(ctx.course('c1',true).name,'New Master');ctx.store.cloud.courseCards=[];assert.equal(ctx.course('c1'),undefined,'Missing published snapshot must not fall back to a different master revision');ctx.store.event.locked=false;assert.equal(ctx.course('c1').name,'New Master');
  // Legacy repair/consolidation must never rewrite the cloud master.
  ctx.store={courses:[{id:'oat',name:'Oatlands GC'}],courseLibrary:{bases:{oat:{revision:2}}}};
  for(const name of ['repairIncompleteOatlandsCard','enforceAuthoritativeOatlandsCard','consolidateCourseCards']){const start=app.indexOf('  function '+name+'('),end=app.indexOf('\n  }',start);vm.runInContext(app.slice(start,end+4),ctx);}
