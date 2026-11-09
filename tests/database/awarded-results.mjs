@@ -36,7 +36,7 @@ try{
  assert.deepEqual((await db.query('select score_data from public.away_round_scores where event_id=$1',[legacy])).rows,before);
  assert.equal((await db.query('select event_data from public.away_events where id=$1',[active])).rows[0].event_data.event.awardedResults,undefined);
  const meta=(await db.query('select public.golf_storage_event_metadata($1) v',[[legacy,active,missing]])).rows[0].v;
- assert.equal(meta.find(x=>x.id===legacy).finished,true);assert.equal(meta.find(x=>x.id===active).finished,false);assert.equal(meta.find(x=>x.id===missing).status,'deleted');
+ assert.equal(meta.find(x=>x.id===legacy).finished,false);assert.equal(meta.find(x=>x.id===active).finished,false);assert.equal(meta.find(x=>x.id===missing).status,'deleted');
  console.log('Legacy final prizes and emergency scores preserved; read-only legacy recognition, active-event protection and deleted-event metadata passed.');
  console.log('Away finish: owner-only action, revision race rejection, immutable official scores, obsolete review/audit cleanup, lost-response retry and final result retention passed.');
 }finally{await db.close();}

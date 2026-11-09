@@ -1089,7 +1089,11 @@
       // megabytes and could exhaust a mobile browser's storage quota mid-round.
       // Keep the in-memory store intact; only the durable player copy is slim.
       let durableStore = store;
-      if (playerOnly && store.event) {
+      if(store.event?.awardedResults?.finishedAt){
+        durableStore={...store,event:null,activeEventId:null,cloudPlayers:[],lastFinishedEvent:{eventId:store.event.awardedResults.eventId||store.event.pastCloudEventId,name:store.event.name,date:store.event.date}};
+        delete durableStore.cloud;
+      }
+      if (playerOnly && store.event && !store.event.awardedResults?.finishedAt) {
         durableStore = JSON.parse(JSON.stringify(store));
         const participantIds = new Set(
           eventDays(store.event)
@@ -1114,7 +1118,8 @@
       // The primary player copy and Safe Cloud score copy already provide two
       // independent protections. The organiser workspace journal is both
       // irrelevant and dangerously large on a player phone.
-      if (!playerOnly) {
+      if(store.event?.awardedResults?.finishedAt){/* Matching event copies were scrubbed after the cloud receipt; preserve unrelated journal data. */}
+      else if (!playerOnly) {
         // The workspace journal is a secondary organiser safeguard. Once the
         // primary store is durable, a journal failure must not make a valid
         // score appear unsaved or cause the in-memory card to be rolled back.
@@ -1274,7 +1279,7 @@
     return String(event.workspaceId);
   }
   function captureCurrentEvent() {
-    if (!store.event) return;
+    if (!store.event || store.event.awardedResults?.finishedAt) return;
     let id = workspaceIdFor(store.event);
     let record = store.eventWorkspace.find((item) => String(item.id) === id);
     if (!record) {
@@ -1462,13 +1467,13 @@
     store.courses
       .filter((c) => c.available !== false)
       .sort((a, b) => a.name.localeCompare(b.name));
-  const course = (id, master = false) => !master && store.event?.locked ? (store.cloud?.courseCards || store.event.courseSnapshot)?.find(c => String(c.id) === String(id)) : store.courses.find((c) => String(c.id) === String(id)),
+  const course = (id, master = false) => !master && (store.event?.locked || store.event?.pastEventReadOnly) ? (store.cloud?.courseCards || store.event.courseSnapshot)?.find(c => String(c.id) === String(id)) : store.courses.find((c) => String(c.id) === String(id)),
     player = (id) =>
       String(id) === NO_PARTNER_ID
         ? NO_PARTNER
         : eventPlayer(id);
   function eventPlayer(id, day = null) {
-    const base=store.players.find(p=>String(p.id)===String(id));
+    const base=(store.event?.pastEventReadOnly?store.event.playerSnapshot?.find(p=>String(p.id)===String(id)):null)||store.players.find(p=>String(p.id)===String(id));
     return GolfPlayerSubstitution.occupant(store.event,id,base,day);
   }
   function sharedPositionId(id, event = store.event) { return GolfSharedPositions.position(event,id); }
@@ -2803,7 +2808,7 @@
           row.score_data || {};
     });
     if(payload.event?.awardedResults?.finishedAt){
-      try{clearFinishedEventCopies(String(bundle.event.id));}catch(error){console.warn("Finished-event cleanup will retry",error);}
+      try{clearFinishedEventCopies(String(bundle.event.id),payload.event.awardedResults.retentionReceipt);}catch(error){console.warn("Finished-event cleanup will retry",error);}
     }
     const closeReceipt = payload.event?.finalResults;
     if (store.cloud?.role === "organiser" && closeReceipt?.cloudAcceptedAt &&
@@ -3088,7 +3093,7 @@
   function retirePhoneFromArchivedEvent(bundle) {
     if (bundle?.event?.status !== "archived" || !["player", "spectator"].includes(store.cloud?.role)) return false;
     const retiredEventId = String(store.cloud?.eventId || "");
-    const permanentlyFinished=Boolean(bundle.event.event_data?.event?.awardedResults?.finishedAt || bundle.event.status==='archived'&&bundle.event.event_data?.event?.finalResults?.confirmedAt&&!bundle.event.event_data.event.finalResults.cloudAcceptedAt);
+    const permanentlyFinished=Boolean(bundle.event.event_data?.event?.awardedResults?.finishedAt);
     if(permanentlyFinished)clearFinishedEventCopies(retiredEventId);
     const health = GolfSafeCloud.saveHealth(retiredEventId), playerId = String(store.cloud?.playerId || "");
     const rounds = Object.entries(store.event?.scoring || {}).flatMap(([dayKey, cards]) => {
@@ -3677,9 +3682,6 @@
       closeCloudConnection();
       const archivedJoinCode = String(bundle.event?.join_code || "").toUpperCase();
       store.event = JSON.parse(JSON.stringify(payload.event));
-      if(bundle.event.status==='archived'&&store.event.finalResults?.confirmedAt&&!store.event.finalResults.cloudAcceptedAt&&!store.event.awardedResults){
-        store.event.awardedResults={version:1,legacy:true,localReceipt:true,finishedAt:store.event.finalResults.confirmedAt,originalFinalResults:JSON.parse(JSON.stringify(store.event.finalResults))};
-      }
       store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       const existingRecord = store.eventWorkspace.find(
         (item) => String(item.event?.pastCloudEventId || "") === String(eventId),
@@ -3688,21 +3690,12 @@
       store.event.pastCloudEventId = String(eventId);
       store.event.archivedJoinCode = archivedJoinCode;
       store.event.pastEventReadOnly = true;
+      store.event.playerSnapshot = JSON.parse(JSON.stringify(payload.players || []));
       store.event.status = "completed";
       store.event.joinCode = "";
       store.event.leaderboardView = "summary";
-      (payload.players || []).forEach((incoming) => {
-        const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
-        const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
-        const i = store.players.findIndex((p) => String(p.id) === String(remote.id));
-        if (i >= 0) store.players[i] = mergePublishedPlayer(store.players[i], remote);
-        else store.players.push(mergePublishedPlayer(null, remote));
-      });
-      (payload.courses || []).forEach((remote) => {
-        const i = store.courses.findIndex((c) => String(c.id) === String(remote.id));
-        if (i >= 0) { if (!store.courseLibrary?.bases?.[String(remote.id)]) store.courses[i] = remote; }
-        else store.courses.push(remote);
-      });
+      // Historical participant names are event snapshots, never updates to current profiles.
+      // Historical course cards stay in this event snapshot, not the master catalogue.
       consolidateCourseCards();
       store.event.scoring = { day1: {}, day2: {} };
       (bundle.scores || []).forEach((row) => {
@@ -3714,6 +3707,7 @@
       store.cloudPlayers = [];
       forgetOrganiserEvent();
       workspaceShrinkAuthorised = true;
+      if(store.event.awardedResults?.finishedAt)clearFinishedEventCopies(String(eventId),store.event.awardedResults.retentionReceipt);
       persistStore();
       cloudBusy = false;
       cloudMessage = "Past results opened";
@@ -4599,6 +4593,7 @@
       cloudReady = true;
       setCloudMessage("Secure connection ready");
       await refreshOwnerAccount();
+      void clearKnownFinishedStorage();
       void syncMasterCourses();
       if (sessionStorage.getItem("awayGolfRetired1539")) {
         try {
@@ -4781,14 +4776,14 @@
     if(finishedStorageCheck||typeof AwayCloud==="undefined"||!AwayCloud.loadAcceptedEvent)return;
     finishedStorageCheck=true;let changed=false;
     try{
-      const ids=[...new Set([...GolfSafeCloud.storageRecords().map(row=>row.eventId),...Object.keys(store.closedEventRecoveries||{})])];
+      const ids=[...new Set([...GolfSafeCloud.storageRecords().map(row=>row.eventId),...Object.keys(store.closedEventRecoveries||{}),...(store.eventWorkspace||[]).flatMap(r=>[r.cloud?.eventId,r.event?.pastCloudEventId,r.event?.cloudEventId,r.event?.awardedResults?.eventId]).filter(Boolean)])];
       if(AwayCloud.storageEventMetadata){
         const metadata=window.AwayGolfStorageEventMetadata ||= {};
         for(let offset=0;offset<ids.length;offset+=100){
           const batch=await AwayCloud.storageEventMetadata(ids.slice(offset,offset+100));
           for(const info of batch){
             if(JSON.stringify(metadata[info.id])!==JSON.stringify(info)){metadata[info.id]=info;changed=true;}
-            if(info.finished){await AwayCloud.loadAcceptedEvent(info.id);clearFinishedEventCopies(info.id);changed=true;}
+            if(info.finished){const retained=await AwayCloud.loadAcceptedEvent(info.id);clearFinishedEventCopies(info.id,retained?.event?.event_data?.event?.awardedResults?.retentionReceipt);changed=true;}
             else if(info.status==='deleted'&&GolfSafeCloud.discardDeletedEventCopies(info.id,String(store.cloud?.eventId||'')))changed=true;
           }
         }
@@ -13207,6 +13202,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return rows;
   }
   function leaderboardDefinitions() {
+    if(store.event?.awardedResults?.finishedAt && !store.event.awardedResults.legacy && !store.event.awardedResults.referenceOnly)return (store.event.awardedResults.competitions||[]).map(row=>JSON.parse(JSON.stringify(row.definition||{id:row.id,label:row.label,type:row.type,day:row.day,scope:row.day||"overall"})));
     const selected = new Set(store.event.competitions || []),
       days = store.event.days || 1,
       defs = [],
@@ -14012,12 +14008,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const method=dayScoringMethod(day,event);let eligible=method!=="finalGross" && !ambroseIsOn(event,day);
       const rows=eligible?calculateLeaderboard({type:"single",day}):[];
       if(eligible && (!rows.length||rows.some(row=>row.thru!==18 || !Number.isFinite(row.total))))eligible=false;
-      return {day,date:eventDate(day,event),eligible,reason:eligible?"":"Individual Stableford unavailable for this round",players:(eligible?rows:[]).map(row=>{const occupant=window.GolfPlayerSubstitution?.occupant(event,row.id,player(row.id),day);return {id:String(occupant?.profileId||occupant?.id||row.id),name:row.name,points:row.total,handicap:playerDailyHandicap(row.id,day)};})};
+      return {day,date:eventDate(day,event),eligible,reason:eligible?"":"Individual Stableford unavailable for this round",players:(eligible?rows:[]).map(row=>{const occupant=window.GolfPlayerSubstitution?.occupant(event,row.id,player(row.id),day);return {id:String(occupant?.profileId||occupant?.id||row.id),sourceId:String(row.id),name:row.name,points:row.total,handicap:playerDailyHandicap(row.id,day)};})};
     });
-    return {version:1,eventId,name:event.name,date:event.date,test:isTestEvent(event)||/\bTEST\b/i.test(event.name||""),signoff:event.finalResults.confirmedAt,
-      rounds,competitions:leaderboardDefinitions().map(def=>({id:def.id,label:def.label,type:def.type,day:def.day,result:summaryCompetitionResult(def),rows:calculateLeaderboard(def)}))};
+    return {version:2,eventId,name:event.name,date:event.date,test:isTestEvent(event)||/\bTEST\b/i.test(event.name||""),signoff:event.finalResults.confirmedAt,
+      rounds,competitions:leaderboardDefinitions().map(def=>({id:def.id,label:def.label,type:def.type,day:def.day,definition:JSON.parse(JSON.stringify(def)),winnerIds:competitionWinnerIds(def).map(String),result:summaryCompetitionResult(def),rows:calculateLeaderboard(def)}))};
   }
-  function clearFinishedEventCopies(eventId) {
+  function clearFinishedEventCopies(eventId,receipt = null) {
+    receipt=receipt||((store.event?.awardedResults?.eventId===eventId)?store.event.awardedResults.retentionReceipt:null);
+    if(typeof window!=="undefined" && receipt?.schema===2 && String(receipt.eventId)===String(eventId)){window.GES_RETAIN_FINISHED_EVENT?.(receipt);window.GES_STORAGE?.retireLocalEvent({liveId:eventId,draftId:receipt.draftId,workspaceId:receipt.workspaceId,finishedReceipt:receipt});}
     GolfSafeCloud.discardEventCopies(eventId);
     delete store.closedEventRecoveries?.[eventId];
     workspaceShrinkAuthorised=true;
@@ -14027,12 +14025,12 @@ function estimateEventGa(handicap, rating, category, calculate) {
       try{
         const wrapper=JSON.parse(localStorage.getItem(key)),backup=key===AWAY_GOLF_WORKSPACE_JOURNAL_KEY?wrapper.data:wrapper;
         if(!backup)continue;
-        const id=String(backup?.cloud?.eventId||backup?.event?.pastCloudEventId||backup?.event?.cloudEventId||"");
+        const id=String(backup?.cloud?.eventId||backup?.event?.pastCloudEventId||backup?.event?.cloudEventId||backup?.event?.awardedResults?.eventId||"");
         // A complete organiser backup may contain unrelated work: do not remove it wholesale.
         let changed=false;
         if(id===eventId){backup.event=null;delete backup.cloud;backup.cloudPlayers=[];changed=true;}
         if(Array.isArray(backup.eventWorkspace)){
-          const remaining=backup.eventWorkspace.filter(r=>![r.cloud?.eventId,r.event?.pastCloudEventId,r.event?.cloudEventId].some(id=>String(id||"")===eventId));
+          const remaining=backup.eventWorkspace.filter(r=>![r.cloud?.eventId,r.event?.pastCloudEventId,r.event?.cloudEventId,r.event?.awardedResults?.eventId].some(id=>String(id||"")===eventId));
           if(remaining.length!==backup.eventWorkspace.length){backup.eventWorkspace=remaining;changed=true;}
         }
         if(changed)localStorage.setItem(key,JSON.stringify(wrapper));
@@ -14043,11 +14041,19 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const id=String(store.cloud?.eventId||store.event?.pastCloudEventId||"");
     if(!id)return alert("Publish and confirm this event online before finishing it.");
     const name=store.event?.name||"this event";
-    if(!confirm(`Finish ${name} (${australianDate(store.event.date)}) and keep final results?\n\nPrizes have been awarded. Accepted scores, final leaderboards and player history will remain. Backup cards, conflicting copies and temporary recovery data will be removed. These results cannot subsequently be changed. Individual Stableford is retained for annual use wherever the accepted cards allow it.`))return;
+    const legacyReview=store.event?.pastEventReadOnly && store.event.finalResults?.confirmedAt && !store.event.finalResults.cloudAcceptedAt;
+    const finishMessage=legacyReview?`Preserve the original awarded results for ${name} (${australianDate(store.event.date)}) and remove its redundant backups?\n\nOriginal awarded outcomes and accepted scorecards will remain unchanged. A missing historical leaderboard will not be recalculated. Only verified individual history can enter an annual award.`:`Finish ${name} (${australianDate(store.event.date)}) and keep final results?\n\nPrizes have been awarded. Accepted scores, final leaderboards and player history will remain. Backup cards, conflicting copies and temporary recovery data will be removed. These results cannot subsequently be changed. Individual Stableford is retained for annual use wherever the accepted cards allow it.`;
+    if(!confirm(finishMessage))return;
     try{
       // Read canonical scores, never merge an abandoned recovery card into the awarded record.
       const bundle=await AwayCloud.loadAcceptedEvent(id);let event=bundle.event.event_data.event,revision=bundle.event.revision;
-      if(event.awardedResults?.finishedAt || bundle.event.status==='archived'&&event.finalResults?.confirmedAt&&!event.finalResults.cloudAcceptedAt){clearFinishedEventCopies(id);return openPastEvent(id,name,true);}
+      if(event.awardedResults?.finishedAt){clearFinishedEventCopies(id);return openPastEvent(id,name,true);}
+      if(bundle.event.status==='archived'&&event.finalResults?.confirmedAt&&!event.finalResults.cloudAcceptedAt){
+        const retained=await AwayCloud.finishAwardedEvent(id,{version:2,legacy:true},revision);
+        if(!retained?.finishedAt)throw Error('Original results were not acknowledged; recovery copies were kept.');
+        clearFinishedEventCopies(id,retained.retentionReceipt);writeLocalStore();await openPastEvent(id,name,true);
+        alert(`${name}: original awarded outcomes and accepted scorecards are preserved. Redundant recovery copies have been removed.`);return;
+      }
       if(!await openPastEvent(id,name,true))return;
       if(!event.finalResults?.cloudAcceptedAt){
         const defs=leaderboardDefinitions();
@@ -14286,6 +14292,18 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!store.event) {
       host.innerHTML =
         '<div class="card"><h2>Leaderboard</h2><p>Create an event first.</p></div>';
+      return;
+    }
+    const historical=store.event.awardedResults?.legacy || store.event.pastEventReadOnly && store.event.finalResults?.confirmedAt && !store.event.finalResults.cloudAcceptedAt;
+    if(historical){
+      const original=store.event.awardedResults?.originalFinalResults||store.event.finalResults;
+      const outcomes=Object.entries(original?.outcomes||{}).filter(([,awards])=>Array.isArray(awards)&&awards.length);
+      host.innerHTML=`<div class="card"><h2>Original Awarded Results</h2><p><b>${esc(store.event.name)}</b> · ${esc(australianDate(store.event.date))}</p><p>The original awarded outcomes and accepted scorecards are retained. A frozen historical leaderboard was not stored, so it is not recalculated using current rules.</p>${outcomes.map(([id,awards])=>`<p><b>${esc(player(id)?.name||'Recorded player')}</b>: ${awards.map(esc).join(' · ')}</p>`).join('')||'<p>No individual winner labels were recorded in the original sign-off.</p>'}${store.event.awardedResults?.finishedAt?'':'<button class="primary" id="preserveOriginalResults">Preserve Original Results and Remove Backups</button>'}</div>`;
+      const finish=$('#preserveOriginalResults');if(finish)finish.onclick=finishAwardedEvent;return;
+    }
+    const retained=store.event.awardedResults;
+    if(retained?.finishedAt&&!retained.referenceOnly){
+      host.innerHTML=`<div class="card"><h2>Final Awarded Results</h2><p><b>${esc(retained.name||store.event.name)}</b> · ${esc(australianDate(retained.date||store.event.date))}</p><p>These are the saved prize-giving results. Later course, player or scoring-rule changes do not recalculate them.</p></div>${(retained.competitions||[]).map(comp=>`<section class="card"><h3>${esc(comp.label)}</h3><p><b>${esc(comp.result?.text||'No eligible winner')}</b></p>${comp.rows?.length?`<details><summary>Accepted leaderboard</summary><div style="overflow:auto"><table><thead><tr><th>Place</th><th>Player / Team</th><th>Result</th></tr></thead><tbody>${comp.rows.map(row=>`<tr><td>${row.disqualified?'Ineligible':esc(row.rank??'')}</td><td>${esc(row.name||'')} ${row.cb?'(CB)':''}${row.detail?`<small> · ${esc(row.detail)}</small>`:''}</td><td>${esc(row.total??'')}</td></tr>`).join('')}</tbody></table></div></details>`:''}</section>`).join('')}<section class="card"><h3>Accepted Individual Stableford History</h3>${(retained.rounds||[]).map(round=>`<details><summary>${esc(australianDate(round.date))}${store.event.days>1?' · Day '+round.day:''}</summary>${round.eligible?round.players.map(p=>`<p>${esc(p.name)}: <b>${esc(p.points)}</b>${p.handicap!=null?' · Handicap '+esc(p.handicap):''}</p>`).join(''):`<p>${esc(round.reason||'Individual Stableford unavailable')}</p>`}</details>`).join('')}</section>`;
       return;
     }
     const defs = leaderboardDefinitions();

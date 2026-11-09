@@ -1,0 +1,7 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(process.argv[2]||'app.js','utf8'),a=source.indexOf('  function eventPlayer('),b=source.indexOf('\n  }',a)+4;
+const store={players:[{id:'a',name:'Current name',golfLink:'private'}],courses:[{id:'course',name:'Current master'}],event:{pastEventReadOnly:true,playerSnapshot:[{id:'a',name:'Historical name'}],courseSnapshot:[{id:'course',name:'Historical card'}]}};
+const ctx={store,GolfPlayerSubstitution:{occupant:(_event,_id,base)=>base}};vm.createContext(ctx);vm.runInContext(source.slice(a,b),ctx);vm.runInContext('globalThis.course='+source.match(/  const course = ([^\n]+),\n/)[1]+';',ctx);
+assert.equal(ctx.eventPlayer('a').name,'Historical name');assert.equal(ctx.course('course').name,'Historical card');assert.equal(store.players[0].name,'Current name');assert.equal(store.players[0].golfLink,'private');assert.equal(store.courses[0].name,'Current master');store.event.pastEventReadOnly=false;assert.equal(ctx.eventPlayer('a').name,'Current name');assert.equal(ctx.course('course').name,'Current master');
+const start=source.indexOf('  async function openPastEvent('),end=source.indexOf('  async function openPastEvents',start);assert(!source.slice(start,end).includes('store.players[i] ='));assert(!source.slice(start,end).includes('store.courses[i] ='));
+console.log('Past event names and course cards remain event-scoped; current private profiles and master courses remain unchanged.');

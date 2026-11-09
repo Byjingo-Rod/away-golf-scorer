@@ -14,5 +14,5 @@ assert.equal(merge({id:'p6',name:'Example Golfer 06',golfLink:'',noOfficialHandi
 assert.equal(merge({id:'p6',name:'Example Golfer 06',golfLink:'updated'},{}).golfLink,'updated');
 context.window.GES_PLANNER_CONTEXT={};
 assert.equal(merge({id:'p6',name:'Example Golfer 06',golfLink:''},{}).golfLink,'');
-assert.equal((app.match(/store.players\[i\] = mergePublishedPlayer/g)||[]).length,4);
+assert.equal((app.match(/store.players\[i\] = mergePublishedPlayer/g)||[]).length,3);
 console.log('Published profile merge checks passed.');

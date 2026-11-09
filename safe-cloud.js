@@ -187,7 +187,7 @@
   function remember(k,data,revision,kind){if(!state[k]?.acknowledged){state[k]={...state[k],base:safeData(kind,data),revision,acknowledged:true,virgin:true};persist();}return state[k];}
   const finished = bundle => {
     const event=bundle?.event?.event_data?.event;
-    return Boolean(event?.awardedResults?.finishedAt || (bundle?.event?.status==='archived' && event?.finalResults?.confirmedAt && !event.finalResults.cloudAcceptedAt));
+    return Boolean(event?.awardedResults?.finishedAt);
   };
   function ingest(id,bundle){
     if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);return bundle;}
