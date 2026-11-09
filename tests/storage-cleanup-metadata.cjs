@@ -9,12 +9,16 @@ assert.deepEqual(finished,['federal']);assert.deepEqual(orphans,[['gone','active
 const nameFn=app.slice(app.indexOf('  function isTestEventName('),app.indexOf('  function retainedTestEvent()'));
 const isTest=vm.runInNewContext(nameFn+';isTestEventName');for(const name of ['TEST – One','Player Short Day 2 TEST','Record All Scores TEST — Copy','Manual Score Entry - Test 2','Away Golf - 15.38 Test'])assert(isTest(name));assert(!isTest('Federal GC'));assert(!isTest('Contest Golf'));
 const finishFn=app.slice(app.indexOf('  async function finishAwardedEvent()'),app.indexOf('  async function archiveCompletedEvent()'));
-async function runFinish({incomplete=false,failConfirmation=false}={}){
+const identityFn=app.slice(app.indexOf('  function assertPastEventIdentity('),app.indexOf('  async function openPastEvent('));
+async function runFinish({incomplete=false,failConfirmation=false,savedName}={}){
  const calls=[],alerts=[];const event={name:'St Georges Basin & Mollymook',date:'2026-10-29',pastCloudEventId:'trip'};
- const ctx={store:{event},Date,console,confirm:()=>true,alert:m=>alerts.push(m),australianDate:v=>v,eventDays:()=>[1,2],eventDayComplete:()=>!incomplete,leaderboardDefinitions:()=>[],summaryCompetitionResult:()=>({complete:true}),openPastEvent:async()=>true,buildFinalPlayerMessages:()=>({}),buildAwardedSnapshot:()=>({version:1}),recordCompletedEventHistory:()=>calls.push('history'),clearFinishedEventCopies:()=>calls.push('clear'),persistStore:()=>calls.push('persist'),AwayCloud:{loadAcceptedEvent:async()=>({event:{revision:17,status:'locked',event_data:{event}},scores:[{day:1,scorer_player_id:'ann',revision:3}]}),confirmEvent:async()=>{calls.push('confirm');if(failConfirmation)throw Error('Offline');return {revision:18,saved_data:{event:{...event,finalResults:{cloudAcceptedAt:'yes',confirmedAt:'now'}}}};},finishAwardedEvent:async(id,snapshot,revision)=>{calls.push('finish');assert.equal(revision,18);return {finishedAt:'sealed'};}}};
- vm.createContext(ctx);await vm.runInContext(finishFn+';finishAwardedEvent()',ctx);return {calls,alerts};
+ const ctx={store:{event},Date,console,confirm:()=>true,alert:m=>alerts.push(m),australianDate:v=>v,eventDays:()=>[1,2],eventDayComplete:()=>!incomplete,leaderboardDefinitions:()=>[],summaryCompetitionResult:()=>({complete:true}),openPastEvent:async()=>true,buildFinalPlayerMessages:()=>({}),buildAwardedSnapshot:()=>({version:1}),recordCompletedEventHistory:()=>calls.push('history'),clearFinishedEventCopies:()=>calls.push('clear'),persistStore:()=>calls.push('persist'),AwayCloud:{loadAcceptedEvent:async()=>({event:{id:'trip',revision:17,status:'locked',event_data:{event:{...event,name:savedName||event.name}}},scores:[{day:1,scorer_player_id:'ann',revision:3}]}),confirmEvent:async()=>{calls.push('confirm');if(failConfirmation)throw Error('Offline');return {revision:18,saved_data:{event:{...event,finalResults:{cloudAcceptedAt:'yes',confirmedAt:'now'}}}};},finishAwardedEvent:async(id,snapshot,revision)=>{calls.push('finish');assert.equal(revision,18);return {finishedAt:'sealed'};}}};
+ vm.createContext(ctx);await vm.runInContext(identityFn+finishFn+';finishAwardedEvent()',ctx);return {calls,alerts};
 }
 assert.deepEqual((await runFinish()).calls,['confirm','finish','history','clear','persist']);
 assert(!(await runFinish({incomplete:true})).calls.includes('clear'));assert(!(await runFinish({failConfirmation:true})).calls.includes('clear'));
+const mismatch=await runFinish({savedName:'Away Golf - 15.38 Test'});
+assert.deepEqual(mismatch.calls,[]);
+assert.match(mismatch.alerts[0],/does not match/);
 console.log('Storage repair: legacy final cleanup, named metadata, deleted-cache checks, TEST anywhere in names, and accepted-card sign-off before finishing passed; incomplete/offline events retain their copies.');
 })().catch(e=>{console.error(e);process.exit(1)});

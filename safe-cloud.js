@@ -278,7 +278,7 @@
   }
   function install(adapter){
     raw={...adapter};api=adapter;
-    adapter.loadAcceptedEvent=async id=>{const bundle=await raw.loadEvent(id);if(finished(bundle)){finishedIds.add(id);discardEventCopies(id);}return bundle;};
+    adapter.loadAcceptedEvent=async (id, {readOnly=false}={})=>{const bundle=await raw.loadEvent(id);if(!readOnly&&finished(bundle)){finishedIds.add(id);discardEventCopies(id);}return bundle;};
     adapter.loadEvent=async id=>{
       activeEvent=id;
       const bundle=await raw.loadEvent(id);
