@@ -14003,7 +14003,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (writeLocalStore() === false) return alert("The close request was not saved. Keep this event open and try again.");
     const finalResults = {scoringRulesVersion:2,confirmedAt:pending.confirmedAt,outcomes:buildFinalPlayerMessages(defs)};
     try {
-      const document = cloudPayload({...store.event,status:"complete",historyRecordedAt:store.event.historyRecordedAt || pending.confirmedAt,finalResults});
+      const savedDocument = closeBundle?.event?.event_data;
+      if (connection?.eventId) assertPastEventIdentity(closeBundle, connection.eventId, store.event.name);
+      const closeFields = {status:"complete",historyRecordedAt:store.event.historyRecordedAt || pending.confirmedAt,finalResults};
+      // Sign-off uses the published round settings and course snapshots verbatim.
+      const document = connection?.eventId
+        ? {...savedDocument,event:{...savedDocument.event,...closeFields,prizesAwarded:store.event.prizesAwarded ?? savedDocument.event.prizesAwarded}}
+        : cloudPayload({...store.event,...closeFields});
       const revisions = Object.fromEntries((closeBundle?.scores || []).map(row=>[`${row.day}:${row.scorer_player_id}`,row.revision]));
       const alreadyAccepted = closeBundle?.event?.event_data?.event?.finalResults;
       const result = connection?.eventId ? (alreadyAccepted?.confirmedAt === pending.confirmedAt && alreadyAccepted.cloudAcceptedAt

@@ -23,13 +23,13 @@ for (const role of ["player","organiser"]) {
 // Close intent persists, but complete status and history require the exact receipt.
 {
  let durable=false,online=false,calls=0,history=0;const alerts=[];
- const event={days:1,status:'locked',workspaceId:'w'},connection={eventId:'synthetic',role:'organiser'};
- const c={store:{event,cloud:connection},GolfSafeCloud:{saveHealth:()=>({})},isGuestOrganiser:()=>false,syncCloudNow:async()=>({event:{revision:7},scores:[{day:1,scorer_player_id:'p1',revision:3}]}),
+ const event={name:'Trip',days:1,status:'locked',workspaceId:'w',courseId:'local',prizesAwarded:{daily:true}},connection={eventId:'synthetic',role:'organiser'};
+ const c={store:{event,cloud:connection},GolfSafeCloud:{saveHealth:()=>({})},isGuestOrganiser:()=>false,syncCloudNow:async()=>({event:{id:'synthetic',revision:7,event_data:{event:{name:'Trip',courseId:'published'},courses:[{id:'published'}],players:[]}},scores:[{day:1,scorer_player_id:'p1',revision:3}]}),
  eventDayComplete:()=>true,leaderboardDefinitions:()=>[],summaryCompetitionResult:()=>({complete:true}),confirm:()=>true,buildFinalPlayerMessages:()=>({}),recordCompletedEventHistory(e,force){if(!e.historyRecordedAt||force){history++;e.historyRecordedAt='recorded';}},
  writeLocalStore:()=>durable,persistStore:()=>durable,cloudPayload:e=>({event:e,players:[],courses:[]}),setCloudMessage(){},renderLeaderboard(){},renderHome(){},alert:m=>alerts.push(m),
- AwayCloud:{confirmEvent:async(id,doc,rev,revisions)=>{calls++;assert.equal(rev,7);assert.deepEqual(JSON.parse(JSON.stringify(revisions)),{'1:p1':3});if(!online)throw Error('offline');return {saved_data:{...doc,event:{...doc.event,finalResults:{...doc.event.finalResults,cloudAcceptedAt:'accepted'}}},revision:8};}},
+ AwayCloud:{confirmEvent:async(id,doc,rev,revisions)=>{calls++;assert.equal(doc.event.courseId,'published');assert.equal(doc.courses[0].id,'published');assert.equal(doc.event.prizesAwarded.daily,true);assert.equal(rev,7);assert.deepEqual(JSON.parse(JSON.stringify(revisions)),{'1:p1':3});if(!online)throw Error('offline');return {saved_data:{...doc,event:{...doc.event,finalResults:{...doc.event.finalResults,cloudAcceptedAt:'accepted'}}},revision:8};}},
  };
- vm.createContext(c);vm.runInContext(extract('confirmResultsAndCloseEvent'),c);
+ vm.createContext(c);vm.runInContext(extract('assertPastEventIdentity')+extract('confirmResultsAndCloseEvent'),c);
  await c.confirmResultsAndCloseEvent();assert.equal(calls,0);assert.equal(event.finalResults,undefined);assert.equal(history,0);
  durable=true;await c.confirmResultsAndCloseEvent();const intent=c.store.pendingEventClose.confirmedAt;assert.equal(calls,1);assert.equal(event.finalResults,undefined);assert.equal(event.status,'locked');assert.equal(history,0);
  online=true;await c.confirmResultsAndCloseEvent();assert.equal(event.finalResults.confirmedAt,intent);assert.equal(event.status,'complete');assert.equal(history,1);assert.equal(c.store.pendingEventClose,undefined);
