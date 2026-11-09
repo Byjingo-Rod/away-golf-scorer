@@ -9609,17 +9609,63 @@ function estimateEventGa(handicap, rating, category, calculate) {
       )
       .join("");
   }
+  function canFinaliseAgreedCard(day, id) {
+    return store.cloud?.role === "organiser" && store.cloud.eventId &&
+      store.event?.locked && !store.event.pastEventReadOnly &&
+      !store.event.finalResults?.confirmedAt && !store.event.awardedResults?.finishedAt &&
+      !ambroseIsOn(store.event, day) && String(id) !== NO_PARTNER_ID &&
+      dayFieldIds(day).map(String).includes(String(id)) &&
+      officialCardProgress(day, id).complete && livePlayerStatus(day, id).state === "ready";
+  }
+  function openAgreedCardFinalisation(day) {
+    const ids = dayFieldIds(day).filter(id => canFinaliseAgreedCard(day, id));
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><h2>Finalise Player’s Card</h2><p>Day ${day}. Both cards must agree on all 18 scores and on putts when putting is a competition.</p></div>${ids.length?`<label class="emergencySelect">Player<select id="agreedCardPlayer"><option value="">Choose a player</option>${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayer(id,day)?.name||"Player")}</option>`).join("")}</select></label><button class="primary" id="finalisePlayerCard" disabled>Finalise Player’s Card</button>`:"<p>No cards are ready for organiser finalisation on this day.</p>"}<p role="status" id="agreedCardStatus"></p><button class="soft" id="backAgreedCard">Back</button>`;
+    $("#backAgreedCard").onclick = openEmergencyRecovery;
+    const select = $("#agreedCardPlayer"), button = $("#finalisePlayerCard");
+    if (!select) return;
+    select.onchange = () => {button.disabled = !select.value;};
+    button.onclick = async () => {
+      const id = select.value, connection = store.cloud, status = $("#agreedCardStatus");
+      button.disabled = select.disabled = true;
+      try {
+        const bundle = await syncCloudNow();
+        if (bundle?.event?.status !== "locked" || store.cloud !== connection || !canFinaliseAgreedCard(day,id)) {
+          throw Error("The latest online cards are unavailable or no longer ready to finalise.");
+        }
+        const health = GolfSafeCloud.saveHealth(connection.eventId);
+        if (health.pending || health.conflicts || health.blocked) throw Error("Sync or review saved copies before finalising.");
+        const round = scorerStore(day,id), previous = round._meta;
+        round._meta = {...previous,finalisedAt:new Date().toISOString()};
+        if (writeLocalStore() === false) {
+          if (previous) round._meta = previous;
+          else delete round._meta;
+          throw Error("This device could not save the finalisation.");
+        }
+        if (!await flushCloudRound(day,id)) throw Error("Online finalisation is unconfirmed. Check Review Saved Copies or refresh Round Progress.");
+        if (store.cloud !== connection) return;
+        renderHome();
+        openAgreedCardFinalisation(day);
+        $("#agreedCardStatus").textContent = "Player’s card finalised online.";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        select.disabled = false;
+        button.disabled = !select.value;
+      }
+    };
+  }
   function openEmergencyRecovery() {
     const day = Math.min(
       store.event.days || 1,
       +(store.event.liveControlDay || 1),
     );
-    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button><button type="button" id="correctOfficialHole"><b>Correct One Official Hole</b><span>Fix an isolated accepted score or missing putts after checking the manual card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
+    $("#modalContent").innerHTML = `<div class="emergencyHead"><small>ORGANISER ONLY</small><h2>Emergency Score Recovery</h2><p>Use this only when normal phone scoring cannot be completed.</p></div><div class="emergencyChoices"><button type="button" id="finaliseAgreedPlayer"><b>Finalise Player’s Card</b><span>Use when all scores agree, including putts if putting is a competition.</span></button><button type="button" id="recoverSelfScores"><b>Phone Failed During Play</b><span>Copy a player's available self-check scores into the official card their failed marker could not finish.</span></button><button type="button" id="enterVirtualCard"><b>Enter Player–Marker Card</b><span>Enter all 18 holes from MiScore or a manually completed card.</span></button><button type="button" id="correctOfficialHole"><b>Correct One Official Hole</b><span>Fix an isolated accepted score or missing putts after checking the manual card.</span></button></div><button class="soft emergencyClose" id="closeEmergencyRecovery">Close</button>`;
     $("#modalShade").classList.add("open");
     $("#correctOfficialHole b").textContent = "Correct a Player’s Card";
     $("#correctOfficialHole span").textContent =
       "Select a player, work through every unconfirmed hole and save authoritative organiser corrections.";
     $("#closeEmergencyRecovery").onclick = closeEmergencyRecovery;
+    $("#finaliseAgreedPlayer").onclick = () => openAgreedCardFinalisation(day);
     $("#recoverSelfScores").onclick = () =>
       renderSelfScoreRecovery(day);
     $("#enterVirtualCard").onclick = () => renderVirtualCard(day);
@@ -14046,7 +14092,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return {day,date:eventDate(day,event),eligible,reason:eligible?"":"Individual Stableford unavailable for this round",players:(eligible?rows:[]).map(row=>{const occupant=window.GolfPlayerSubstitution?.occupant(event,row.id,player(row.id),day);return {id:String(occupant?.profileId||occupant?.id||row.id),sourceId:String(row.id),name:row.name,points:row.total,handicap:playerDailyHandicap(row.id,day)};})};
     });
     return {version:2,eventId,name:event.name,date:event.date,test:isTestEvent(event)||/\bTEST\b/i.test(event.name||""),signoff:event.finalResults.confirmedAt,
-      rounds,competitions:leaderboardDefinitions().map(def=>({id:def.id,label:def.label,type:def.type,day:def.day,definition:JSON.parse(JSON.stringify(def)),winnerIds:competitionWinnerIds(def).map(String),result:summaryCompetitionResult(def),rows:calculateLeaderboard(def)}))};
+      rounds,competitions:leaderboardDefinitions().map(def=>({id:def.id,label:def.label,type:def.type,day:def.day,definition:JSON.parse(JSON.stringify(def)),prize:summaryPrizeDetails(def),winnerIds:competitionWinnerIds(def).map(String),result:summaryCompetitionResult(def),rows:calculateLeaderboard(def)}))};
   }
   function clearFinishedEventCopies(eventId,receipt = null) {
     receipt=receipt||((store.event?.awardedResults?.eventId===eventId)?store.event.awardedResults.retentionReceipt:null);
@@ -14322,6 +14368,48 @@ function estimateEventGa(handicap, rating, category, calculate) {
         renderLeaderboard();
       };
   }
+  function renderArchivedLeaderboard(host, retained, legacy) {
+    const event = store.event;
+    const competitions = legacy ? [] : retained.competitions || [];
+    if (legacy) {
+      const byLabel = new Map();
+      const original = retained?.originalFinalResults || event.finalResults;
+      for (const [id, awards] of Object.entries(original?.outcomes || {})) {
+        if (!Array.isArray(awards)) continue;
+        for (const label of awards) {
+          if (typeof label !== "string") continue;
+          if (!byLabel.has(label)) byLabel.set(label, new Set());
+          byLabel.get(label).add(player(id)?.name || "Recorded player");
+        }
+      }
+      for (const [label, names] of byLabel) {
+        const day = Number(label.match(/\bDay (\d+)$/i)?.[1]) || "overall";
+        competitions.push({label,day,result:{text:[...names].join(" · ")},prize:{awarded:true}});
+      }
+    }
+    const groups = new Map();
+    for (const comp of competitions) {
+      const day = Number(comp.definition?.scope ?? comp.day) || "overall";
+      if (!groups.has(day)) groups.set(day, []);
+      groups.get(day).push(comp);
+    }
+    const sections = [...groups].sort(([a],[b]) => (Number(a)||Infinity)-(Number(b)||Infinity));
+    const rows = comp => {
+      const prize = comp.prize || {awarded:Boolean(event.prizesAwarded?.[comp.id])};
+      const summary = `<span class="summaryEvent"><b>${esc(comp.label)}</b></span><span class="summaryOutcome"><strong>${esc(comp.result?.text || "No eligible winner")}</strong>${prize.configured?`<small class="summaryPrize">Prize: ${esc(prize.text)}</small>`:""}</span><span class="summaryActions">${prize.awarded?'<span class="prizeAwarded">✓ Awarded</span>':""}</span>`;
+      if (!comp.rows?.length) return `<div class="summaryResult ${prize.awarded?"awarded":""}">${summary}</div>`;
+      return `<details><summary class="summaryResult ${prize.awarded?"awarded":""}">${summary}<em>›</em></summary><div style="overflow:auto"><table><thead><tr><th>Place</th><th>Player / Team</th><th>Result</th></tr></thead><tbody>${comp.rows.map(row=>`<tr><td>${row.disqualified?'Ineligible':esc(row.rank??'')}</td><td>${esc(row.name||'')} ${row.cb?'(CB)':''}${row.detail?`<small> · ${esc(row.detail)}</small>`:''}</td><td>${esc(row.total??'')}</td></tr>`).join('')}</tbody></table></div></details>`;
+    };
+    const history = retained?.rounds?.length ? `<details class="card"><summary>Accepted Individual Stableford History</summary>${retained.rounds.map(round=>`<details><summary>${esc(australianDate(round.date))}${event.days>1?' · Day '+round.day:''}</summary>${round.eligible?round.players.map(p=>`<p>${esc(p.name)}: <b>${esc(p.points)}</b>${p.handicap!=null?' · Handicap '+esc(p.handicap):''}</p>`).join(''):`<p>${esc(round.reason||'Individual Stableford unavailable')}</p>`}</details>`).join('')}</details>` : "";
+    host.innerHTML = `<div class="leaderHead"><div><h2>Results Summary</h2><p>${esc(retained?.name||event.name)} · ${esc(australianDate(retained?.date||event.date))}</p></div></div><p class="leaderNote">${legacy?"Original recorded awards. Full standings were not saved and are not recalculated.":"Saved prize-giving results. Open a competition to see its accepted standings."}</p><div class="summaryGroups">${sections.map(([day, comps])=>{
+      const courseName = event.courseSnapshot?.find(card=>String(card.id)===String(event["course"+day]))?.name;
+      const title = day==="overall" ? "Overall Event Results" : event.days===1 ? "Event Results" : `Day ${day} Results`;
+      return `<section class="summaryCard"><h3>${esc(courseName?`${title} — ${courseName}`:title)}</h3>${comps.map(rows).join("")}</section>`;
+    }).join("") || "<p>No awards were recorded.</p>"}</div>${history}${legacy&&!retained?.finishedAt?'<button class="primary" id="preserveOriginalResults">Preserve Original Results and Remove Backups</button>':""}`;
+    const finish = $("#preserveOriginalResults");
+    if (finish) finish.onclick = finishAwardedEvent;
+  }
+
   function renderLeaderboard() {
     const host = $("#leaderboardExperience");
     const previousTabScroll = host?.querySelector(".leaderTabs")?.scrollLeft ?? +(store.event?.leaderboardScrollLeft || 0);
@@ -14332,15 +14420,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return;
     }
     const historical=store.event.awardedResults?.legacy || store.event.pastEventReadOnly && store.event.finalResults?.confirmedAt && !store.event.finalResults.cloudAcceptedAt;
-    if(historical){
-      const original=store.event.awardedResults?.originalFinalResults||store.event.finalResults;
-      const outcomes=Object.entries(original?.outcomes||{}).filter(([,awards])=>Array.isArray(awards)&&awards.length);
-      host.innerHTML=`<div class="card"><h2>Original Awarded Results</h2><p><b>${esc(store.event.name)}</b> · ${esc(australianDate(store.event.date))}</p><p>The original awarded outcomes and accepted scorecards are retained. A frozen historical leaderboard was not stored, so it is not recalculated using current rules.</p>${outcomes.map(([id,awards])=>`<p><b>${esc(player(id)?.name||'Recorded player')}</b>: ${awards.map(esc).join(' · ')}</p>`).join('')||'<p>No individual winner labels were recorded in the original sign-off.</p>'}${store.event.awardedResults?.finishedAt?'':'<button class="primary" id="preserveOriginalResults">Preserve Original Results and Remove Backups</button>'}</div>`;
-      const finish=$('#preserveOriginalResults');if(finish)finish.onclick=finishAwardedEvent;return;
-    }
     const retained=store.event.awardedResults;
-    if(retained?.finishedAt&&!retained.referenceOnly){
-      host.innerHTML=`<div class="card"><h2>Final Awarded Results</h2><p><b>${esc(retained.name||store.event.name)}</b> · ${esc(australianDate(retained.date||store.event.date))}</p><p>These are the saved prize-giving results. Later course, player or scoring-rule changes do not recalculate them.</p></div>${(retained.competitions||[]).map(comp=>`<section class="card"><h3>${esc(comp.label)}</h3><p><b>${esc(comp.result?.text||'No eligible winner')}</b></p>${comp.rows?.length?`<details><summary>Accepted leaderboard</summary><div style="overflow:auto"><table><thead><tr><th>Place</th><th>Player / Team</th><th>Result</th></tr></thead><tbody>${comp.rows.map(row=>`<tr><td>${row.disqualified?'Ineligible':esc(row.rank??'')}</td><td>${esc(row.name||'')} ${row.cb?'(CB)':''}${row.detail?`<small> · ${esc(row.detail)}</small>`:''}</td><td>${esc(row.total??'')}</td></tr>`).join('')}</tbody></table></div></details>`:''}</section>`).join('')}<section class="card"><h3>Accepted Individual Stableford History</h3>${(retained.rounds||[]).map(round=>`<details><summary>${esc(australianDate(round.date))}${store.event.days>1?' · Day '+round.day:''}</summary>${round.eligible?round.players.map(p=>`<p>${esc(p.name)}: <b>${esc(p.points)}</b>${p.handicap!=null?' · Handicap '+esc(p.handicap):''}</p>`).join(''):`<p>${esc(round.reason||'Individual Stableford unavailable')}</p>`}</details>`).join('')}</section>`;
+    if(historical || retained?.finishedAt&&!retained.referenceOnly){
+      renderArchivedLeaderboard(host,retained,historical);
       return;
     }
     const defs = leaderboardDefinitions();
