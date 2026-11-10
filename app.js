@@ -14309,7 +14309,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
               const r = summaryCompetitionResult(d),
                 p = summaryPrizeDetails(d),
                 awardable = r.awardable !== false;
-              return `<div class="summaryResult ${awardable && p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${["scratch", "scratchaggregate"].includes(d.type) ? esc(r.text).replace(/−(?=\d)/g, '<span class="scratchMinus">−</span>') : esc(r.text)}</strong>${awardable ? `<small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small>` : ""}</span><span class="summaryActions">${awardable && p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && awardable && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
+              return `<div class="summaryResult ${awardable && p.awarded ? "awarded" : ""}" data-summaryopen="${d.id}" role="button" tabindex="0"><span class="summaryEvent"><b>${esc(d.label)}</b><small>${esc(r.status || (r.complete ? "Completed" : "In Progress"))}</small></span><span class="summaryOutcome"><strong>${["scratch", "scratchaggregate"].includes(d.type) ? esc(r.text).replace(/−(?=\d)/g, '<span class="scratchMinus">−</span>') : esc(r.text)}</strong>${r.complete && d.type!=="ntp" ? summaryRunnerUp(d,calculateLeaderboard(d)) : ""}${awardable ? `<small class="summaryPrize ${p.configured ? "" : "notSet"}">Prize: ${esc(p.text)}</small>` : ""}</span><span class="summaryActions">${awardable && p.awarded ? `<button class="prizeAwarded" data-prizeaward="${d.id}" data-awarded="1">✓ Awarded</button>` : organiser && awardable && r.complete && p.configured ? `<button class="prizeAward" data-prizeaward="${d.id}">✓ Award Prize</button>` : ""}<em>›</em></span></div>`;
             })
             .join("")}</section>`,
       )
@@ -14368,6 +14368,15 @@ function estimateEventGa(handicap, rating, category, calculate) {
         renderLeaderboard();
       };
   }
+  function summaryRunnerUp(def, rows) {
+    const row = rows?.find(entry=>!entry.disqualified && Number(entry.rank)===2);
+    if (!row || row.total == null) return "";
+    const scratch = ["scratch","scratchaggregate"].includes(def.type);
+    const score = scratch && row.grossTotal != null ? row.grossTotal : row.total;
+    const unit = scratch || ["strokeGross","strokeNet"].includes(def.type) ? "strokes"
+      : def.type==="putts" ? "putts" : def.type==="ambrose" ? "net" : "pts";
+    return `<small class="summaryRunnerUp">Runner-up: ${esc(row.name)} · ${esc(score)} ${unit}${row.cb?" CB":""}</small>`;
+  }
   function renderArchivedLeaderboard(host, retained, legacy) {
     const event = store.event;
     const competitions = legacy ? [] : retained.competitions || [];
@@ -14396,7 +14405,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const sections = [...groups].sort(([a],[b]) => (Number(a)||Infinity)-(Number(b)||Infinity));
     const rows = comp => {
       const prize = comp.prize || {awarded:Boolean(event.prizesAwarded?.[comp.id])};
-      const summary = `<span class="summaryEvent"><b>${esc(comp.label)}</b></span><span class="summaryOutcome"><strong>${esc(comp.result?.text || "No eligible winner")}</strong>${prize.configured?`<small class="summaryPrize">Prize: ${esc(prize.text)}</small>`:""}</span><span class="summaryActions">${prize.awarded?'<span class="prizeAwarded">✓ Awarded</span>':""}</span>`;
+      const summary = `<span class="summaryEvent"><b>${esc(comp.label)}</b></span><span class="summaryOutcome"><strong>${esc(comp.result?.text || "No eligible winner")}</strong>${summaryRunnerUp(comp,comp.rows)}${prize.configured?`<small class="summaryPrize">Prize: ${esc(prize.text)}</small>`:""}</span><span class="summaryActions">${prize.awarded?'<span class="prizeAwarded">✓ Awarded</span>':""}</span>`;
       if (!comp.rows?.length) return `<div class="summaryResult ${prize.awarded?"awarded":""}">${summary}</div>`;
       return `<details><summary class="summaryResult ${prize.awarded?"awarded":""}">${summary}<em>›</em></summary><div style="overflow:auto"><table><thead><tr><th>Place</th><th>Player / Team</th><th>Result</th></tr></thead><tbody>${comp.rows.map(row=>`<tr><td>${row.disqualified?'Ineligible':esc(row.rank??'')}</td><td>${esc(row.name||'')} ${row.cb?'(CB)':''}${row.detail?`<small> · ${esc(row.detail)}</small>`:''}</td><td>${esc(row.total??'')}</td></tr>`).join('')}</tbody></table></div></details>`;
     };

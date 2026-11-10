@@ -7157,3 +7157,5 @@ body.playerDevice .cloudHeader {
 .handicapSort{display:flex;align-items:center;gap:8px;margin:0;font-weight:700}.handicapSort select{width:auto;min-width:145px;margin:0}
 .eventGaActions{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 @media(max-width:600px){.playerSelectionHeader{grid-template-columns:1fr}.handicapSort{width:100%;justify-content:space-between}}
+
+.summaryOutcome .summaryRunnerUp { display: block; font-size: .875em; font-weight: 500; color: inherit; }
