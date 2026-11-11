@@ -7159,3 +7159,10 @@ body.playerDevice .cloudHeader {
 @media(max-width:600px){.playerSelectionHeader{grid-template-columns:1fr}.handicapSort{width:100%;justify-content:space-between}}
 
 .summaryOutcome .summaryRunnerUp { display: block; font-size: .875em; font-weight: 500; color: inherit; }
+
+/* File selection uses the same presentation as its adjacent soft button. */
+.courseTransferActions > .backupImportLabel {
+  display:inline-flex; min-height:0; margin:0; padding:10px 13px;
+  font-family:Arial,sans-serif; font-size:13.3333px; font-weight:700; line-height:normal;
+  background:#edf4ef; color:#275a43; border:1px solid #cbded1; border-radius:8px;
+}

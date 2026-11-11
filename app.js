@@ -1473,14 +1473,14 @@
         ? NO_PARTNER
         : eventPlayer(id);
   function eventPlayer(id, day = null) {
-    const base=(store.event?.pastEventReadOnly?store.event.playerSnapshot?.find(p=>String(p.id)===String(id)):null)||store.players.find(p=>String(p.id)===String(id));
+    const base=(store.event?.pastEventReadOnly?store.event.playerSnapshot?.find(p=>String(p.id)===String(id)):null)||store.players.find(p=>String(p.id)===String(id))||store.deletedPlayerHistory?.[String(id)];
     return GolfPlayerSubstitution.occupant(store.event,id,base,day);
   }
   function sharedPositionId(id, event = store.event) { return GolfSharedPositions.position(event,id); }
   function sharedActualId(id, day, event = store.event) { return GolfSharedPositions.actual(event,id,day); }
   function eventPlayerName(id, day = null) {
-    if(day!=null)return eventPlayer(sharedActualId(id,day),day)?.name || "Player";
-    return GolfSharedPositions.label(store.event,id,person=>GolfPlayerSubstitution.aggregateName(store.event,person,player(person)?.name || "Player"));
+    if(day!=null)return demoPlayerLabel(eventPlayer(sharedActualId(id,day),day));
+    return GolfSharedPositions.label(store.event,id,person=>GolfPlayerSubstitution.aggregateName(store.event,person,demoPlayerLabel(player(person))));
   }
   function substitutionOptions(day, slot) {
     return {
@@ -2378,6 +2378,8 @@
       return {
         id: String(p.id),
         name: p.name,
+        ...(p.demoBatch ? {demoBatch:p.demoBatch,demoCode:p.demoCode} : {}),
+        gaCategory: p.gaCategory === "women" ? "women" : "men",
         ga: sourceEvent?.gaHandicaps?.[String(id)] ?? p.ga ?? "",
         rosterActive: true,
         golfLink: "",
@@ -2398,7 +2400,7 @@
       const p = player(id);
       return {
         id: String(id),
-        name: p.name,
+        name: demoPlayerLabel(p),
         dailyHandicaps: Object.fromEntries(eventDays().map(day => ["day" + day, playerDailyHandicap(id, day)])),
       };
     });
@@ -2800,6 +2802,7 @@
       if (restoreOrganiser && localWorkspaceId)
         store.event.workspaceId = localWorkspaceId;
       (payload.players || []).forEach((incoming) => {
+        if(store.deletedPlayerHistory?.[String(incoming.id)])return;
         const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
         const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
@@ -3453,6 +3456,7 @@
       store.event.courseSnapshot = JSON.parse(JSON.stringify(payload.courses || []));
       store.event.workspaceId = store.event.workspaceId || uid();
       (payload.players || []).forEach((incoming) => {
+        if(store.deletedPlayerHistory?.[String(incoming.id)])return;
         const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
         const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
@@ -3546,6 +3550,7 @@
       );
       store.event.workspaceId = existingRecord?.id || store.event.workspaceId || uid();
       (payload.players || []).forEach((incoming) => {
+        if(store.deletedPlayerHistory?.[String(incoming.id)])return;
         const original=GolfPlayerSubstitution.history(payload.event,incoming.id)[0]?.previous;
         const remote=original ? {...incoming,...original,id:incoming.id} : incoming;
         const i = store.players.findIndex(
@@ -5154,7 +5159,7 @@ Count-back if tied
     const stateChoices=[['ACT','Australian Capital Territory'],['NSW','New South Wales'],['NT','Northern Territory'],['QLD','Queensland'],['SA','South Australia'],['TAS','Tasmania'],['VIC','Victoria'],['WA','Western Australia']];
     const contactFields=`<label><span>Nick Name</span><input id="epNickname" maxlength="80" value="${esc(p.nickname||'')}"></label><label><span>Cell Phone No</span><input id="epPhone" type="tel" maxlength="80" value="${esc(p.cellPhone||'')}"></label><label><span>Email Address</span><input id="epEmail" type="email" autocomplete="email" maxlength="254" value="${esc(p.email||'')}"></label><fieldset class="playerContactAddress"><legend>Address</legend>${[['houseNo','House/Apt No'],['streetName','Street Name']].map(([k,label])=>`<label><span>${label}</span><input data-playeraddress="${k}" maxlength="160" value="${esc(address[k]||'')}"></label>`).join('')}<label><span>Street Type</span><select id="epStreetType"><option value="">Choose</option>${['Street','Rd','Close','Pde','Hwy','Other'].map(t=>`<option ${address.streetType===t?'selected':''}>${t}</option>`).join('')}</select></label><label id="epOtherStreetLabel"><span>Other — please insert</span><input data-playeraddress="otherStreetType" maxlength="80" value="${esc(address.otherStreetType||'')}"></label><label><span>Suburb</span><input data-playeraddress="suburb" maxlength="160" value="${esc(address.suburb||'')}"></label><label><span>State</span><select data-playeraddress="state"><option value="">Choose</option>${stateChoices.map(([c,n])=>`<option value="${c}" ${address.state===c||address.state===n?'selected':''}>${c} — ${n}</option>`).join('')}${address.state&&!stateChoices.some(([c,n])=>address.state===c||address.state===n)?`<option selected value="${esc(address.state)}">${esc(address.state)}</option>`:''}</select></label><label><span>Post Code</span><input data-playeraddress="postCode" maxlength="20" value="${esc(address.postCode||'')}"></label><label><span>Previously saved address</span><textarea data-playeraddress="legacyAddress" maxlength="1000">${esc(address.legacyAddress||(!p.addressDetails?p.address:'')||'')}</textarea></label></fieldset>`;
     $("#sideContent").innerHTML =
-      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option><option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
+      `<h2>Edit Player Profile</h2><div class="profileEditForm"><label><span>First Name (required)</span><input id="epFirst" maxlength="80" value="${esc(first)}"></label><label><span>Last Name (required)</span><input id="epLast" maxlength="80" value="${esc(last)}"></label><label><span>Golf ID / GolfLink Number (required)</span><select id="epHandicapStatus"><option value="">Choose</option><option value="insert" ${p.golfLink?"selected":""}>Insert</option>${p.demoBatch?`<option value="demo" ${!p.noOfficialHandicap&&!p.golfLink?"selected":""}>DEMO — no real GolfLink number</option>`:""}<option value="none" ${p.noOfficialHandicap?"selected":""}>No Official Handicap</option></select><input id="epGolfLink" inputmode="numeric" maxlength="80" value="${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink || "")}"></label>${contactFields}<label><span>Home club</span><input id="epHomeClub" value="${esc(p.homeClub || "")}"></label><label><span>GA Handicap</span><input id="epGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" value="${p.gaUpdatedAt ? esc(Math.abs(+p.ga).toFixed(1)) : ""}" placeholder="e.g. 18.4"></label><label class="plusCheck"><input type="checkbox" id="epGaPlus" ${p.gaUpdatedAt && +p.ga < 0 ? "checked" : ""}> Plus GA Handicap</label><label><span>Handicap category</span><select id="epGaCategory"><option value="men" ${p.gaCategory !== "women" ? "selected" : ""}>Men</option><option value="women" ${p.gaCategory === "women" ? "selected" : ""}>Women</option></select></label></div><div class="profileReadOnly"><p><small>AWAY GOLF EVENTS PLAYED</small><br><b>${awayGolfEventsPlayedText(p)}</b></p><p><small>COURSES PLAYED — HANDICAP WHEN LAST PLAYED</small><br><b>${profileHistoryText(p)}</b></p></div>${eventRows.map((x) => `<div class="profileHcpEdit"><label><span>Handicap for ${esc(x.name)}</span><input type="text" inputmode="numeric" data-profilehcp="${x.courseId}" data-profileday="${x.day}" value="${esc(handicapMagnitude(x.value))}" ${handicapsLocked ? "disabled" : ""}></label><label class="plusCheck"><input type="checkbox" data-profileplus="${x.courseId}|${x.day}" ${Number(x.value) < 0 ? "checked" : ""} ${handicapsLocked ? "disabled" : ""}> Plus handicap</label></div>`).join("")}${handicapsLocked ? '<p class="hint">Event handicaps are fixed because this event is locked.</p>' : ""}<div class="profileEditForm"><label><span>Notes</span><textarea id="epNotes" rows="4">${esc(p.notes || "")}</textarea></label><label><span>Status</span><select id="epStatus"><option value="active" ${p.rosterActive !== false ? "selected" : ""}>Active</option><option value="inactive" ${p.rosterActive === false ? "selected" : ""}>Inactive</option></select></label></div><div class="rowBtns profileEditActions"><button class="primary" id="savePlayerProfile">Save Profile</button><button class="soft" id="cancelPlayerProfile">Cancel</button></div>`;
     const categorySelect = $("#epGaCategory"), categoryLabel = categorySelect?.closest("label")?.querySelector("span");
     if (categoryLabel) categoryLabel.textContent = "Male/Female (required)";
     if (categorySelect) {
@@ -5169,7 +5174,7 @@ Count-back if tied
     const toggleOtherStreet=()=>{$('#epOtherStreetLabel').hidden=$('#epStreetType').value!=='Other';};$('#epStreetType').onchange=toggleOtherStreet;toggleOtherStreet();
     $("#cancelPlayerProfile").onclick = () => p.pendingNewPlayer ? $("#sidePanel").classList.remove("open") : playerInfo(id, status);
     $("#savePlayerProfile").onclick = () => {
-      const firstName=$('#epFirst').value.trim(),lastName=$('#epLast').value.trim(),category=$('#epGaCategory').value,choice=$('#epHandicapStatus').value,golfLink=choice==='none'?'':$('#epGolfLink').value.trim();
+      const firstName=$('#epFirst').value.trim(),lastName=$('#epLast').value.trim(),category=$('#epGaCategory').value,choice=$('#epHandicapStatus').value,golfLink=['none','demo'].includes(choice)?'':$('#epGolfLink').value.trim();
       if(!firstName||!lastName||firstName.length+lastName.length+1>120)return alert('Enter First Name and Last Name (up to 120 characters together).');
       if(!category)return alert('Choose Male or Female for this player.');
       if(!choice||(choice==='insert'&&!/^[0-9]+$/.test(golfLink)))return alert('Insert a Golf ID number or choose No Official Handicap.');
@@ -5208,6 +5213,104 @@ Count-back if tied
       playerInfo(p.id, status);
     };
   }
+  function demoPlayerLabel(person) {
+    return person ? person.name + (person.demoCode ? ` [${person.demoCode}]` : "") : "Player";
+  }
+  function buildDemoPlayerList(sourcePlayers) {
+    const original = sourcePlayers.filter(p => !p.system && !p.demoBatch && !p.deleted && p.rosterActive !== false && String(p.id)!==NO_PARTNER_ID);
+    const men = original.filter(p=>p.gaCategory!=="women"), women = original.filter(p=>p.gaCategory==="women");
+    if (men.length > 39 || women.length > 10)
+      throw new Error("This demo needs room for 40 men (including a second Ross Smith) and 10 women. More current players are present than fit those totals; no profiles were changed.");
+    const maleNames = ["Adam Brooks","Andrew Clarke","Anthony Hughes","Brian Walsh","Chris Morgan","Daniel Evans","Edward Turner","Frank Wilson","George Harris","Harry Cooper","Ian Bennett","Jack Thompson","Keith Walker","Liam Campbell","Mark Anderson","Nathan Scott","Oliver Wright","Patrick Lewis","Quentin Adams","Robert Taylor","Stephen Collins","Thomas Reed","Victor James","William Foster","Zachary Hill","Aaron Price","Brendan Cole","Caleb Wood","Dennis King","Ethan Shaw","Felix Young","Gavin Bell","Henry Green","Isaac Ford","James White","Kevin Moore","Luke Hall","Martin West","Noah Stone","Owen Lane"];
+    const femaleNames = ["Alice Park","Beth Wilson","Claire Morgan","Diana Chen","Emma Taylor","Fiona Hughes","Grace Patel","Helen Brooks","Isabel Turner","Jane Williams"];
+    const used = new Set(original.map(p=>p.name.toLowerCase()));
+    const fill = (rows,n,names) => { for(const name of names) { if(rows.length>=n)break; if(!used.has(name.toLowerCase())){rows.push({name});used.add(name.toLowerCase());} } };
+    fill(men,39,maleNames); men.push({name:"Ross Smith"}); fill(women,10,femaleNames);
+    if(men.length!==40 || women.length!==10)throw new Error("Could not build the complete demonstration list.");
+    const batch="demo-"+uid(), now=new Date().toISOString();
+    const players=[...men,...women].map((person,index)=>{
+      const missing=index===38||index===39, code="D"+String(index+1).padStart(2,"0");
+      return {id:batch+"-"+code,name:person.name,firstName:person.name.split(" ").slice(0,-1).join(" "),lastName:person.name.split(" ").at(-1),
+        demoCode:code,demoBatch:batch,rosterActive:true,gaCategory:index<40?"men":"women",
+        golfLink:"",noOfficialHandicap:missing,ga:missing?"":Number((-3.4+(index*7.3)%48).toFixed(1)),
+        ...(missing?{}:{gaUpdatedAt:now}),notes:"DEMO only — invented handicap; no real contact or GolfLink details.",eventsPlayed:0};
+    });
+    return {players,list:{id:batch,name:"DEMO - 50 players",demoBatch:batch,playerIds:players.map(p=>p.id),createdAt:now,updatedAt:now}};
+  }
+  function createDemoPlayerList() {
+    if ((store.playerLists||[]).some(list=>list.demoBatch))return alert("The DEMO player list already exists. Use that list, or delete its demo players before creating it again.");
+    try {
+      const demo=buildDemoPlayerList(store.players);
+      store.players.push(...demo.players);store.playerLists ||= [];store.playerLists.push(demo.list);
+      if(writeLocalStore()===false)throw new Error("The demo list could not be saved. Keep this app open and retry.");
+      renderPlayersAdmin();return demo.list;
+    } catch(error){alert(error.message);return null;}
+  }
+  function eventUsesPlayer(event,id) {
+    const key=String(id);
+    return Boolean(event && ([...(event.confirmed||[]),...(event.invited||[]),...Object.values(event.dayFields||{}).flat(),...Object.values(event.groupSetup||{}).flatMap(day=>(day.groups||[]).flat())].some(value=>String(value)===key) || Object.hasOwn(event.invites||{},key) || Object.hasOwn(event.invitationStatus||{},key)));
+  }
+  function removePlayerProfile(id, inactive = false) {
+    const person=store.players.find(p=>String(p.id)===String(id));
+    if(!person || person.system || String(id)===NO_PARTNER_ID)throw new Error("The virtual player cannot be removed.");
+    if(inactive){person.rosterActive=false;return;}
+    const events=[store.event,...(store.eventWorkspace||[]).map(r=>r.event)];
+    if(events.some(event=>eventUsesPlayer(event,id) && (event.locked||event.publishedAt||event.previewPublishedAt) && !event.awardedResults?.finishedAt && eventWorkspaceStatus(event)!=="Completed" && eventWorkspaceStatus(event)!=="Cancelled"))
+      throw new Error("This player belongs to an unfinished published event. Finish the event or replace the player first. Make inactive is available now.");
+    store.deletedPlayerHistory ||= {};
+    store.deletedPlayerHistory[String(id)]={id:String(id),name:demoPlayerLabel(person),rosterActive:false,deleted:true};
+    scrubRemovedPlayerCopies([id]);
+    store.players=store.players.filter(p=>String(p.id)!==String(id));
+    for(const list of store.playerLists||[])list.playerIds=(list.playerIds||[]).filter(pid=>String(pid)!==String(id));
+    for(const event of events){
+      if(!event || event.locked || event.publishedAt || event.awardedResults?.finishedAt)continue;
+      event.confirmed=(event.confirmed||[]).filter(pid=>String(pid)!==String(id));
+      event.invited=(event.invited||[]).filter(pid=>String(pid)!==String(id));
+      if(event.invites)delete event.invites[id];
+      if(event.invitationStatus)delete event.invitationStatus[id];
+      for(const ids of Object.values(event.dayFields||{})){const i=ids.indexOf(id);if(i>=0)ids.splice(i,1);}
+    }
+  }
+  function scrubRemovedPlayerCopies(ids, erase = false) {
+    const selected=new Set([...ids].map(String));
+    const scrub=(value,key="")=>{
+      if(Array.isArray(value))return value.filter(row=>!(key==="players"&&selected.has(String(row?.id)))).map(row=>selected.has(String(row?.id)) && key==="playerSnapshot" ? {id:String(row.id),name:demoPlayerLabel(row),rosterActive:false,deleted:true} : scrub(row));
+      if(value && typeof value==="object"){
+        for(const [field,item] of Object.entries(value)){
+          if(field==="deletedPlayerHistory"&&erase){for(const id of selected)delete item?.[id];}
+          else value[field]=scrub(item,field);
+        }
+      }
+      return value;
+    };
+    // Full organiser backups can contain unrelated events: scrub selected
+    // profiles only, retaining accepted scores and every other person's data.
+    for(const key of Object.keys(localStorage)){
+      if(key!==AWAY_GOLF_WORKSPACE_JOURNAL_KEY && !/PreImportBackup|PreDeviceClearBackup|PreCourseListImport|BeforeLeavingPlayerEvent|TestBackup|RidgeTestBackup/.test(key))continue;
+      try { const snapshot=JSON.parse(localStorage.getItem(key));localStorage.setItem(key,JSON.stringify(scrub(snapshot))); }
+      catch(error){console.warn("A retained backup could not be updated after removing a player",key);}
+    }
+    for(const event of [store.event,...(store.eventWorkspace||[]).map(record=>record.event)])if(event?.playerSnapshot)event.playerSnapshot=scrub(event.playerSnapshot,"playerSnapshot");
+  }
+  function openRemovePlayer(id, refresh = renderPlayersAdmin) {
+    const person=store.players.find(p=>String(p.id)===String(id));
+    if(!person || person.system || String(id)===NO_PARTNER_ID)return alert("The virtual player is maintained by the app.");
+    $("#modalContent").innerHTML=`<h2>Remove ${esc(demoPlayerLabel(person))} from the Active List</h2><p>Both actions retain the player's name and scores recorded while playing in Away Golf events.</p><p><b>Delete</b> removes the player’s personal profile. <b>Make inactive</b> retains their personal details and lets them rejoin as an Active player.</p><div class="rowBtns"><button class="danger" id="deletePlayerProfile">Delete</button><button class="soft" id="makePlayerInactive">Make inactive</button><button class="soft" id="cancelRemovePlayer">Cancel</button></div>`;
+    $("#modalShade").classList.add("open");
+    const apply=inactive=>{try{if(!inactive&&!confirm(`Delete ${demoPlayerLabel(person)} and their personal profile? Past-event names and scores remain.`))return;removePlayerProfile(id,inactive);if(typeof W!=="undefined"&&W.invites)W.invites.delete(String(id));save();$("#modalShade").classList.remove("open");refresh();}catch(error){alert(error.message);}};
+    $("#deletePlayerProfile").onclick=()=>apply(false);$("#makePlayerInactive").onclick=()=>apply(true);$("#cancelRemovePlayer").onclick=()=>$("#modalShade").classList.remove("open");
+  }
+  function deleteDemoPlayerList(list) {
+    const ids=new Set([...store.players.filter(p=>p.demoBatch===list.demoBatch).map(p=>String(p.id)),...Object.keys(store.deletedPlayerHistory||{}).filter(id=>id.startsWith(list.demoBatch+"-"))]);
+    const events=[store.event,...(store.eventWorkspace||[]).map(r=>r.event)];
+    if(events.some(event=>[...ids].some(id=>eventUsesPlayer(event,id))))
+      throw new Error("Remove the demo events from My Events first, then delete this demo list and its players. Your genuine events and players will stay unchanged.");
+    scrubRemovedPlayerCopies(ids,true);
+    store.players=store.players.filter(p=>!ids.has(String(p.id)));
+    store.playerLists=(store.playerLists||[]).filter(item=>item.demoBatch!==list.demoBatch);
+    for(const id of ids){delete store.deletedPlayerHistory?.[id];delete store.pairHistory?.[id];delete store.partnerHistory?.[id];}
+    return ids.size;
+  }
   function renderPlayersAdmin() {
     let q = ($("#playerSearchMain").value || "").toLowerCase(),
       ps = [...store.players]
@@ -5224,7 +5327,7 @@ Count-back if tied
       act
         .map(
           (p) =>
-            `<div class="playerRow"><div><b>${esc(p.name)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
+            `<div class="playerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
         )
         .join("") +
       (ina.length
@@ -5232,7 +5335,7 @@ Count-back if tied
           ina
             .map(
               (p) =>
-                `<div class="playerRow inactive"><div><b>${esc(p.name)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button></div></div>`,
+                `<div class="playerRow inactive"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button><button class="danger" data-pinactive="${p.id}">Delete</button></div></div>`,
             )
             .join("")
         : "");
@@ -5978,11 +6081,7 @@ Count-back if tied
     }
     if (t.dataset.pinfo) playerInfo(t.dataset.pinfo);
     if (t.dataset.pinactive) {
-      let p = player(t.dataset.pinactive);
-      if (confirm(`Make ${p.name} inactive?`)) {
-        p.rosterActive = false;
-        save();
-      }
+      openRemovePlayer(t.dataset.pinactive);
     }
     if (t.dataset.preactivate) {
       player(t.dataset.preactivate).rosterActive = true;
@@ -6660,9 +6759,10 @@ Count-back if tied
       const lists = [...store.playerLists].sort((a, b) =>
         String(a.name).localeCompare(String(b.name)),
       );
-      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>REUSABLE INVITATION GROUPS</small><h2>Named Player Lists</h2><p>Create lists from the Master Player List and reuse them in future events.</p></div><button class="primary" id="newNamedPlayerList">+ Create Player List</button></div><div class="namedPlayerListCards">${lists.map((list) => `<article><div><b>${esc(list.name)}</b><small>${(list.playerIds || []).filter((id) => player(id)).length} players</small></div><div class="rowBtns"><button class="soft" data-editplayerlist="${esc(list.id)}">Edit</button><button class="danger" data-deleteplayerlist="${esc(list.id)}">Delete</button></div></article>`).join("") || '<p class="hint">No named lists have been created yet.</p>'}</div><div class="ownerAccountActions"><button class="soft" id="closePlayerLists">Done</button></div>`;
+      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>REUSABLE INVITATION GROUPS</small><h2>Named Player Lists</h2><p>Create lists from the Master Player List and reuse them in future events.</p></div><div class="rowBtns"><button class="primary" id="newNamedPlayerList">+ Create Player List</button><button class="soft" id="createDemoPlayerList">Create DEMO - 50 players</button></div></div><div class="namedPlayerListCards">${lists.map((list) => `<article><div><b>${esc(list.name)}</b><small>${(list.playerIds || []).filter((id) => player(id)).length} players</small></div><div class="rowBtns"><button class="soft" data-editplayerlist="${esc(list.id)}">Edit</button><button class="danger" data-deleteplayerlist="${esc(list.id)}">${list.demoBatch ? "Delete DEMO list and players" : "Delete"}</button></div></article>`).join("") || '<p class="hint">No named lists have been created yet.</p>'}</div><div class="ownerAccountActions"><button class="soft" id="closePlayerLists">Done</button></div>`;
       $("#modalShade").classList.add("open");
       $("#newNamedPlayerList").onclick = () => showEditor();
+      $("#createDemoPlayerList").onclick = () => {if(createDemoPlayerList())showManager();};
       $("#closePlayerLists").onclick = () => {
         $("#modalShade").classList.remove("open");
         onClose();
@@ -6673,6 +6773,10 @@ Count-back if tied
       $$("[data-deleteplayerlist]").forEach(
         (button) => button.onclick = () => {
           const list = store.playerLists.find((x) => String(x.id) === String(button.dataset.deleteplayerlist));
+          if (list?.demoBatch) {
+            if(!confirm("Delete this DEMO list and its demo-only player profiles? Your original players will remain unchanged."))return;
+            try{deleteDemoPlayerList(list);writeLocalStore();renderPlayersAdmin();showManager();}catch(error){alert(error.message);}return;
+          }
           if (!list || !confirm(`Delete the named list "${list.name}"?\n\nThe players remain in the Master Player List.`)) return;
           store.playerLists = store.playerLists.filter((x) => String(x.id) !== String(list.id));
           writeLocalStore();
@@ -6684,7 +6788,7 @@ Count-back if tied
       const existing = store.playerLists.find((x) => String(x.id) === String(listId));
       const selected = new Set((existing?.playerIds || []).map(String));
       const players = activePlayers();
-      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>MASTER PLAYER LIST</small><h2>${existing ? "Edit Player List" : "Create Player List"}</h2><p>Name the list and tick every player to include.</p></div></div><label>Player List name<input id="namedPlayerListName" maxlength="60" value="${esc(existing?.name || "")}" placeholder="e.g. Volunteers' Ambrose"></label><div class="namedPlayerChecklist">${players.map((person) => `<label><input type="checkbox" data-listplayer="${esc(person.id)}" ${selected.has(String(person.id)) ? "checked" : ""}><span><b>${esc(person.name)}</b><small>${esc(person?.noOfficialHandicap ? "No Official Handicap" : person.golfLink || "")}</small></span></label>`).join("") || "<p>No active players are available.</p>"}</div><div class="ownerAccountActions"><button class="primary" id="saveNamedPlayerList">Save Player List</button><button class="soft" id="backToPlayerLists">Back</button></div>`;
+      $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>MASTER PLAYER LIST</small><h2>${existing ? "Edit Player List" : "Create Player List"}</h2><p>Name the list and tick every player to include.</p></div></div><label>Player List name<input id="namedPlayerListName" maxlength="60" value="${esc(existing?.name || "")}" placeholder="e.g. Volunteers' Ambrose"></label><div class="namedPlayerChecklist">${players.map((person) => `<label><input type="checkbox" data-listplayer="${esc(person.id)}" ${selected.has(String(person.id)) ? "checked" : ""}><span><b>${esc(demoPlayerLabel(person))}</b><small>${esc(person?.noOfficialHandicap ? "No Official Handicap" : person.golfLink || "")}</small></span></label>`).join("") || "<p>No active players are available.</p>"}</div><div class="ownerAccountActions"><button class="primary" id="saveNamedPlayerList">Save Player List</button><button class="soft" id="backToPlayerLists">Back</button></div>`;
       $("#namedPlayerListName").focus();
       $("#backToPlayerLists").onclick = showManager;
       $("#saveNamedPlayerList").onclick = () => {
@@ -6853,6 +6957,7 @@ Count-back if tied
         if (!list) return alert("Choose a named Player List first.");
         W.event.loadedPlayerLists ||= [];
         const loaded = {id:String(list.id),name:String(list.name)};
+        if(list.demoBatch){W.event.demoBatch=list.demoBatch;W.event.testMode=true;}
         const existingIndex = W.event.loadedPlayerLists.findIndex(item=>String(item.id)===loaded.id);
         if(existingIndex<0)W.event.loadedPlayerLists.push(loaded);else W.event.loadedPlayerLists[existingIndex]=loaded;
         let added = 0;
@@ -6900,8 +7005,8 @@ Count-back if tied
         available
           .map((p) =>
             p.system
-              ? `<div class="playerRow noPartnerRow"><div><b>${esc(p.name)}</b><small>Use only when one playing position cannot be filled</small></div><button class="invite" data-winvite="${p.id}">Invite</button></div>`
-              : `<div class="playerRow"><div><b>${esc(p.name)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="invite" data-winvite="${p.id}">Invite</button><button class="danger miniMinus" title="Make inactive" data-wpinactive="${p.id}">−</button></div></div>`,
+              ? `<div class="playerRow noPartnerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>Use only when one playing position cannot be filled</small></div><button class="invite" data-winvite="${p.id}">Invite</button></div>`
+              : `<div class="playerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="invite" data-winvite="${p.id}">Invite</button><button class="danger miniMinus" title="Delete or make inactive" data-wpinactive="${p.id}">−</button></div></div>`,
           )
           .join("") +
         (inactive.length
@@ -6909,7 +7014,7 @@ Count-back if tied
             inactive
               .map(
                 (p) =>
-                  `<div class="playerRow inactive"><div><b>${esc(p.name)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="soft" data-wpreactivate="${p.id}">Reactivate</button></div></div>`,
+                  `<div class="playerRow inactive"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="soft" data-wpreactivate="${p.id}">Reactivate</button></div></div>`,
               )
               .join("")
           : "");
@@ -7405,21 +7510,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     if (t.dataset.wpinfo)
       playerInfo(t.dataset.wpinfo, W.invites.get(t.dataset.wpinfo) || "");
-    if (t.dataset.wpinactive) {
-      let p = player(t.dataset.wpinactive);
-      if (
-        p &&
-        confirm(
-          `Make ${p.name} inactive?\n\nThe player remains in Away Golf history.`,
-        )
-      ) {
-        p.rosterActive = false;
-        if(W.event.sharedPositions)delete W.event.sharedPositions[String(p.id)];
-        W.invites.delete(p.id);
-        save();
-        renderStep2();
-      }
-    }
+    if (t.dataset.wpinactive) openRemovePlayer(t.dataset.wpinactive, renderStep2);
     if (t.dataset.wpreactivate) {
       let p = player(t.dataset.wpreactivate);
       if (p) {
@@ -11332,14 +11423,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
         awaiting = store.event.invitationStatus?.[String(pid)] === "awaiting";
       return `<div class="groupPlayer ${selected ? "swapSelected" : ""} ${np ? "noPartnerGroupPlayer" : ""} ${awaiting ? "awaitingPlayer" : ""}">
      <div class="slotNo">${pi + 1}</div>
-     <div class="groupPlayerName"><b>${esc(p?.name || "Unknown")}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p?.golfLink || "")}</small></div>
+     <div class="groupPlayerName"><b>${esc(demoPlayerLabel(p))}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p?.golfLink || "")}</small></div>
      ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
    </div>`;
     };
     const pairName = (id, gi) => {
       if (String(id) === NO_PARTNER_ID)
-        return `<span class="vpName">${esc(player(setupForTeam(setup,gi).virtualPlayer)?.name || "Virtual Player")} (VP)</span>`;
-      return esc(eventPlayer(id, day)?.name || "");
+        return `<span class="vpName">${esc(demoPlayerLabel(player(setupForTeam(setup,gi).virtualPlayer)))} (VP)</span>`;
+      return esc(eventPlayerName(id,day));
     };
     const pairBlock = (g, gi) => {
       if (!competitionIsOn("fourball", day)) return "";
@@ -11354,7 +11445,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         started = ambroseTeamHasEntries(day, gi),
         options = (selectedId, excludeId = "") => team
           .filter((id) => id !== excludeId)
-          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "Player")}</option>`)
+          .map((id) => `<option value="${id}" ${id === selectedId ? "selected" : ""}>${esc(eventPlayerName(id,day))}</option>`)
           .join("");
       return `<div class="ambroseTeamRoles ${store.event.ambroseScoringMode === "scorerOnly" ? "scorerOnly" : ""}"><label>Scorer<select data-ambrosescorer="${gi}" ${started ? "disabled" : ""}>${options(roles.scorerId)}</select></label>${store.event.ambroseScoringMode === "scorerOnly" ? "" : `<label>Marker<select data-ambrosemarker="${gi}" ${started ? "disabled" : ""}>${options(roles.markerId, roles.scorerId)}</select></label>`}</div>`;
     };
@@ -11447,7 +11538,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
          .map((id) => {
            const h = playerDailyHandicap(id, day),
              plus = Number(h) < 0;
-           return `<div class="dailyHcpRow"><span>${esc(eventPlayer(id, day)?.name || "")}</span><div class="teamHcpControls"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teamsigned="${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-dailyhcp="${id}" value="${esc(handicapMagnitude(h))}" placeholder="Hcp"></div><label class="teamPlusCheck"><input type="checkbox" data-dailyplus="${id}" ${plus ? "checked" : ""}> Plus</label></div></div>`;
+           return `<div class="dailyHcpRow"><span>${esc(eventPlayerName(id,day))}</span><div class="teamHcpControls"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teamsigned="${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-dailyhcp="${id}" value="${esc(handicapMagnitude(h))}" placeholder="Hcp"></div><label class="teamPlusCheck"><input type="checkbox" data-dailyplus="${id}" ${plus ? "checked" : ""}> Plus</label></div></div>`;
          })
          .join("")}</div></div>`
      : ""
