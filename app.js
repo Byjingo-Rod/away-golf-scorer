@@ -4925,6 +4925,7 @@
     if (id === "teamsPage") renderTeamsPage();
     if (id === "scorePage") renderPlayerExperience();
     if (id === "leaderboardPage") renderLeaderboard();
+    window.GolfSafeCloud?.reportStatus(cloudMessage, store.cloud?.eventId);
   }
   $$("nav button").forEach((b) => (b.onclick = () => nav(b.dataset.nav)));
   function showSide(html) {

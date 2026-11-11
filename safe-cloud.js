@@ -71,9 +71,9 @@
     }
     if(cloudStatus)messages.push(cloudStatus);
     let messageNode=node.querySelector(".golfSaveHealthMessage"),exitCell=node.querySelector(".golfSaveHealthExit");
-    if(!messageNode){node.textContent="";messageNode=document.createElement("span");messageNode.className="golfSaveHealthMessage";exitCell=document.createElement("span");exitCell.className="golfSaveHealthExit";const button=document.createElement("button"),note=document.createElement("span");button.type="button";button.textContent="← Exit";button.onclick=()=>document.getElementById("exitScorecard")?.click();note.textContent="Scores remain saved.";exitCell.append(button,note);node.append(messageNode,exitCell);}
+    if(!messageNode){node.textContent="";messageNode=document.createElement("span");messageNode.className="golfSaveHealthMessage";exitCell=document.createElement("span");exitCell.className="golfSaveHealthExit";const button=document.createElement("button"),note=document.createElement("span");button.type="button";button.textContent="← Exit";button.onclick=()=>document.querySelector(".page.active #exitScorecard")?.click();note.textContent="Scores remain saved.";exitCell.append(button,note);node.append(messageNode,exitCell);}
     messageNode.textContent=messages.join(" ");
-    const scorecardExit=document.getElementById("exitScorecard");exitCell.hidden=!scorecardExit;
+    const scorecardExit=document.querySelector(".page.active #exitScorecard");exitCell.hidden=!scorecardExit;
     node.hidden=!messages.length&&!scorecardExit;
     // App Storage already has a permanent button on the home page. Keep this
     // strip as a concise warning instead of presenting the same action twice.
