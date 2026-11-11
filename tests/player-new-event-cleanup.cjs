@@ -1,0 +1,17 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const app=fs.readFileSync('app.js','utf8');
+const helper=app.slice(app.indexOf('  function cleanPreviousPhoneEvents('),app.indexOf('  function resetDuplicatedEventRuntime('));
+const scrub=app.slice(app.indexOf('  function clearFinishedEventCopies('),app.indexOf('  async function finishAwardedEvent('));
+const copies=new Set(['pending','review','clean','new','draft']);
+const localStorage={awayGolfBeforeLeavingPlayerEvent:JSON.stringify({cloud:{eventId:'review'},event:{name:'Old'}}),remembered:'clean',unrelated:'keep'};
+Object.defineProperties(localStorage,{getItem:{value:k=>localStorage[k]||null},setItem:{value:(k,v)=>localStorage[k]=v},removeItem:{value:k=>delete localStorage[k]}});
+let saves=0;
+const ctx={store:{cloud:{role:'player',eventId:'new'},event:{name:'New'},activeEventId:'old',closedEventRecoveries:{review:{}},eventWorkspace:[{id:'old',cloud:{role:'player',eventId:'review'},event:{}},{id:'draft',cloud:{role:'organiser',eventId:'draft'},event:{status:'Draft'}}]},GolfSafeCloud:{storageRecords:()=>[...copies].map(eventId=>({eventId})),discardEventCopies:id=>copies.delete(id)},eventWorkspaceStatus:e=>e.status||'Completed',window:{},localStorage,AWAY_GOLF_WORKSPACE_JOURNAL_KEY:'journal',forgetOrganiserEvent:()=>delete localStorage.remembered,writeLocalStore:()=>{saves++;return true;}};
+vm.createContext(ctx);vm.runInContext('let workspaceShrinkAuthorised=false;'+scrub+helper+';cleanPreviousPhoneEvents("new","clean");',ctx);
+assert.deepEqual([...copies],['new','draft']);assert.equal(ctx.store.event.name,'New');assert.equal(ctx.store.eventWorkspace.length,1);assert.equal(ctx.store.activeEventId,null);assert.deepEqual(Object.keys(ctx.store.closedEventRecoveries),[]);assert.equal(JSON.parse(localStorage.awayGolfBeforeLeavingPlayerEvent).event,null);assert.equal(localStorage.unrelated,'keep');assert.equal(localStorage.remembered,undefined);assert.equal(saves,1);
+ctx.store.cloud.role='organiser';vm.runInContext('cleanPreviousPhoneEvents("new");',ctx);assert.equal(saves,1);
+const join=app.slice(app.indexOf('$("#confirmCloudJoin").onclick = async'),app.indexOf('  async function recoverOrganiserEvent()'));
+assert(join.indexOf('await cloudTimeout(AwayCloud.loadEvent(eventId))')<join.indexOf('preparePhoneForJoinedEvent(eventId)'));assert(join.indexOf('applyRemoteCloud(bundle)')<join.indexOf('cleanPreviousPhoneEvents(eventId'));
+const leave=app.slice(app.indexOf('  function leavePlayerEvent()'),app.indexOf('  const verifiedCloudAuthority'));
+for(const text of ['clearFinishedEventCopies(eventId)','forgetOrganiserEvent()','store.activeEventId = null'])assert(leave.includes(text));
+console.log('Player cleanup passed: old pending/review/clean copies and reconnect links removed; new event, organiser drafts and unrelated settings preserved.');

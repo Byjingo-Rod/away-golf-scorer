@@ -2443,6 +2443,35 @@
     return true;
   }
 
+  function cleanPreviousPhoneEvents(eventId, previousEventId = "") {
+    const currentId = String(eventId || "");
+    if (!currentId || !["player", "spectator"].includes(store.cloud?.role) ||
+        String(store.cloud.eventId) !== currentId || !store.event) return;
+    // Successfully opening a different event is the player's decision to
+    // replace this phone's old event data, including obsolete recovery copies.
+    // Unpublished organiser drafts and online results are not deleted.
+    const drafts = new Set((store.eventWorkspace || [])
+      .filter(record => record.cloud?.role === "organiser" &&
+        eventWorkspaceStatus(record.event) === "Draft")
+      .map(record => String(record.cloud.eventId || "")));
+    const ids = new Set([
+      previousEventId,
+      ...GolfSafeCloud.storageRecords().map(record => record.eventId),
+      ...Object.keys(store.closedEventRecoveries || {}),
+      ...(store.eventWorkspace || []).map(record => record.cloud?.eventId),
+    ].filter(Boolean).map(String));
+    for (const id of ids) {
+      if (id === currentId || drafts.has(id)) continue;
+      clearFinishedEventCopies(id);
+    }
+    // A former organiser connection must never resurrect a player event.
+    forgetOrganiserEvent();
+    store.activeEventId = null;
+    workspaceShrinkAuthorised = true;
+    if (writeLocalStore() === false)
+      throw new Error("Old event cleanup could not be saved. Reopen this app before joining another event.");
+  }
+
   function resetDuplicatedEventRuntime(event) {
     delete event.courseSnapshot;
     delete event.courseLayouts;delete event.layoutHistory;delete event.playerLayoutAck;
@@ -2954,18 +2983,14 @@
     const eventName = store.event?.name || "this event";
     if (
       !confirm(
-        `Delete ${eventName} from this phone and join another event?\n\nScores already transmitted remain safely stored online. This removes this phone's event, scorecard and local saved copies. It does not delete the organiser's event or leaderboard results.`,
+        `Delete ${eventName} from this phone and join another event?\n\nScores already transmitted remain safely stored online. This removes this phone's event, scorecard and local saved copies, including any unsent copies. It does not delete the organiser's event or leaderboard results.`,
       )
     )
       return;
     const eventId = String(store.cloud?.eventId || "");
-    const saveHealth = eventId ? GolfSafeCloud.saveHealth(eventId) : null;
-    if (saveHealth && (saveHealth.pending || saveHealth.conflicts || saveHealth.blocked)) {
-      alert("This event still has scores saved only on this phone. Use Retry Sync and wait for the scores to upload before deleting the event.");
-      return;
-    }
     try {
-      if (eventId) GolfSafeCloud.discardEventCopies(eventId);
+      if (eventId) clearFinishedEventCopies(eventId);
+      if (String(rememberedOrganiserEvent()?.eventId || "") === eventId) forgetOrganiserEvent();
       const retained = JSON.parse(localStorage.getItem("awayGolfBeforeLeavingPlayerEvent") || "null");
       if (String(retained?.cloud?.eventId || "") === eventId)
         localStorage.removeItem("awayGolfBeforeLeavingPlayerEvent");
@@ -2975,6 +3000,8 @@
     }
     closeCloudConnection();
     store.event = null;
+    store.activeEventId = null;
+    workspaceShrinkAuthorised = true;
     delete store.cloud;
     store.cloudPlayers = [];
     persistStore();
@@ -3325,6 +3352,7 @@
         try {
           const bundle = await cloudTimeout(AwayCloud.spectateEvent(code));
           if (!bundle?.event?.id) throw new Error("The event could not be opened.");
+          const previousEventId = String(store.cloud?.eventId || "");
           preparePhoneForJoinedEvent(bundle.event.id);
           store.cloud = {
             role: "spectator",
@@ -3332,6 +3360,7 @@
             joinCode: code,
           };
           applyRemoteCloud(bundle);
+          cleanPreviousPhoneEvents(bundle.event.id, previousEventId);
           applyDeviceRole();
           $("#modalShade").classList.remove("open");
           setCloudMessage("Watching live · read only");
@@ -3347,6 +3376,10 @@
           $("#confirmCloudJoin").disabled = true;
           try {
             const eventId = await AwayCloud.joinEvent(code, playerId);
+            const bundle = await cloudTimeout(AwayCloud.loadEvent(eventId));
+            if (String(bundle?.event?.id || "") !== String(eventId) || !bundle.event.event_data?.event)
+              throw new Error("The event could not be opened.");
+            const previousEventId = String(store.cloud?.eventId || "");
             preparePhoneForJoinedEvent(eventId);
             store.cloud = {
               role: "player",
@@ -3354,9 +3387,8 @@
               joinCode: code,
               playerId: String(playerId),
             };
-            writeLocalStore();
-            const bundle = await cloudTimeout(AwayCloud.loadEvent(eventId));
             applyRemoteCloud(bundle);
+            cleanPreviousPhoneEvents(eventId, previousEventId);
             applyDeviceRole();
             $("#modalShade").classList.remove("open");
             watchCloudEvent();
