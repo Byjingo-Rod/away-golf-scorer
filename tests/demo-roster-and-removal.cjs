@@ -10,6 +10,7 @@ const before=JSON.stringify(old),demo=ctx.buildDemoPlayerList(old);
 assert.equal(JSON.stringify(old),before);assert.equal(demo.players.length,50);assert.equal(new Set(demo.players.map(p=>p.id)).size,50);
 assert.equal(demo.players.filter(p=>p.gaCategory==='men').length,40);assert.equal(demo.players.filter(p=>p.gaCategory==='women').length,10);assert.equal(demo.players.filter(p=>p.gaUpdatedAt).length,48);assert.equal(demo.players.filter(p=>p.ga==='').length,2);
 assert(demo.players.some(p=>p.ga<0));assert(demo.players.some(p=>p.ga>40));assert(demo.players.every(p=>!p.email&&!p.cellPhone&&!p.golfLink));
+ctx.store.players=[...old,...demo.players];
 const ross=demo.players.filter(p=>p.name==='Ross Smith');assert.equal(ross.length,2);assert.notEqual(ctx.demoPlayerLabel(ross[0]),ctx.demoPlayerLabel(ross[1]));
 for(const person of old.filter(p=>p.rosterActive!==false&&p.id!=='system-no-partner'&&!p.system))assert(demo.players.some(p=>p.name===person.name));
 ctx.store={players:[{id:'alice',name:'Alice Park',email:'private@example.test',ga:12},{id:'original',name:'Real player',email:'keep@example.test'}],event:{status:'complete',confirmed:['alice'],scoring:{day1:{alice:{total:36}}}},eventWorkspace:[],playerLists:[{id:'regular',playerIds:['alice','original']}]};
@@ -20,5 +21,5 @@ assert.throws(()=>ctx.removePlayerProfile(demo.players[0].id),/unfinished publis
 ctx.store.event=null;assert.equal(ctx.deleteDemoPlayerList(demo.list),50);assert.equal(JSON.stringify(ctx.store.players),JSON.stringify(real));assert.equal(ctx.store.playerLists.length,1);
 const grouping=app.slice(app.indexOf('  function makeGroups('),app.indexOf('  function defaultStarts('));
 ctx.ambroseIsOn=()=>false;vm.runInContext(grouping,ctx);const groups=ctx.makeGroups(demo.players.map(p=>p.id),1);const ids=groups.flat().filter(id=>id!=='system-no-partner');assert.equal(groups.length,13);assert.equal(ids.length,50);assert.equal(new Set(ids).size,50);
-assert(app.includes('demoPlayerLabel(p))}${awaiting'));assert(app.includes('name: demoPlayerLabel(p),'));
+assert(app.includes('playerIdentityHtml(p)}${awaiting'));assert(app.includes('name: demoPlayerLabel(p),'));
 console.log('Demo/removal passed: 50 distinct profiles; all active source names; 40 men/10 women; 48 varied GAs/two blanks; distinct Ross labels; 13 groups; profile isolation; history retention; live-event guard; batch deletion.');

@@ -4,8 +4,8 @@ const rules=source.slice(source.indexOf('  function ambroseRulesText('),source.i
 const rc={store:{event:{}}};vm.createContext(rc);vm.runInContext(rules,rc);
 for(const canPlay of [true,false])for(const secondPutt of [true,false]){
  const text=rc.ambroseRulesText({ambroseMinimumDrives:4,ambroseSelectedPlayerCanPlay:canPlay,ambroseSecondPuttBeforeAll:secondPutt,ambroseScoringMode:'scorerOnly'});
- assert(text.includes('At least 4 drives'));assert(text.includes('one club length'));assert(text.includes('all players may putt regardless'));
- assert(text.includes(canPlay?'including the owner':'cannot play the next shot'));
+ assert(text.includes('At least 4 drives'));assert(text.includes('one club length'));assert(text.includes('All players may putt regardless'));
+ assert(text.includes(canPlay?'including the owner':'CANNOT PLAY A SHOT'));
  assert(text.includes(secondPutt?'may take a second putt before':'No player may take a second putt until'));
  assert(text.includes('One nominated team scorer'));
 }
@@ -22,7 +22,7 @@ for(let i=43;i<50;i++){
  assert.equal(ctx.eventEstimateIsUsable(id),true);
  const pending=ctx.openNonGolfLinkEstimates(1,ids);
  assert.equal(pending,i<49);
- if(pending){html=get('#modalContent').innerHTML;assert.equal((html.match(/estimateQueuePlayer/g)||[]).length,49-i);assert(!html.split('<details>')[0].includes('data-eventga="'+id+'"'));assert(html.split('<details>')[1].includes('D'+i));}
+ if(pending){html=get('#modalContent').innerHTML;assert.equal((html.match(/estimateQueuePlayer/g)||[]).length,49-i);assert(!html.split('<details>')[0].includes('data-eventga="'+id+'"'));assert(html.split('<details>')[1].includes('Member '+String(i).padStart(2,'0')));}
 }
 ctx.W.event.course1='changed';assert.equal(ctx.eventEstimateIsUsable('p49'),false);ctx.W.event.course1='c';ctx.W.event.proposedHandicaps.p49.category='men';assert.equal(ctx.eventEstimateIsUsable('p49'),false);
 // The actual setup route gates before rendering its alphabetical handicap list.

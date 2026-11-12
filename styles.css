@@ -7179,3 +7179,6 @@ body.playerDevice .cloudHeader {
 .ntpPrintCard { height:auto; min-height:78mm; }
 .ntpPrintLines { height:calc(var(--ntp-name-lines,4) * 10mm); grid-template-rows:repeat(var(--ntp-name-lines,4),1fr); }
 .ntpOverflowNote { display:block; padding:2mm 3mm; font:8pt Arial,sans-serif; }
+
+.playerIdentitySuffix { font-size: .8em; font-weight: 400; }
+.checkList .warn p { margin: .4em 0; font-weight: 400; }

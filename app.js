@@ -1482,11 +1482,12 @@
     if(!person)return "Player";
     if(person.identityLabel && (["player","spectator"].includes(store.cloud?.role)||store.event?.pastEventReadOnly))return person.identityLabel;
     const name=String(person.name||"Player"), key=name.trim().replace(/\s+/g," ").toLowerCase();
-    const profiles=[...(store.players||[]),...(store.event?.playerSnapshot||[])];
+    const field=new Set([...(store.event?.confirmed||[]),...Object.values(store.event?.dayFields||{}).flat()].map(String));
+    const profiles=[...(store.players||[]),...(store.event?.playerSnapshot||[])].filter(p=>field.has(String(person.id)) ? field.has(String(p.id)) : String(p.demoBatch||"")===String(person.demoBatch||""));
     const matching=new Map(profiles.filter(p=>String(p.name||"").trim().replace(/\s+/g," ").toLowerCase()===key).map(p=>[String(p.id),p]));
     matching.set(String(person.id),person);
     const suffix=person.demoCode?` [${person.demoCode}]`:"";
-    if(matching.size<2)return name+suffix;
+    if(matching.size<2)return name;
     const golfNumber=p=>{const value=String(p.golfLink||"").trim();return !p.noOfficialHandicap&&/^\d+$/.test(value)?value:"";};
     const golfLink=golfNumber(person),valid=Boolean(golfLink);
     let identifier="No G/L Number";
@@ -1501,6 +1502,10 @@
     if([...matching.keys()].some(id=>id!==String(person.id)&&id.slice(-6)===token))token=String(person.id);
     const extra=!suffix&&(sameNumber||(!valid&&noNumberMatches.length>1)) ? ` · ID ${token}` : "";
     return `${name} (${identifier}${extra})${suffix}`;
+  }
+  function playerIdentityHtml(person) {
+    const label=playerIdentityLabel(person),name=String(person?.name||"Player");
+    return label.startsWith(name) ? esc(name)+(label.length>name.length?`<span class="playerIdentitySuffix">${esc(label.slice(name.length))}</span>`:"") : esc(label);
   }
   function ntpNameLineCount(ids, groups = []) {
     const selected=new Set(ids.filter(id=>String(id)!==NO_PARTNER_ID).map(String));
@@ -5000,13 +5005,17 @@ Count-back if tied
         ? "One nominated team scorer records the card."
         : "The nominated scorer and marker each record the team score and selected drive; both cards must agree.";
     const nextShot = event?.ambroseSelectedPlayerCanPlay !== false
-      ? "In the fairway, once the next position is selected, all players may play from that position, including the owner of the selected ball."
-      : "In the fairway, once the next position is selected, the player whose ball was selected cannot play the next shot from that position; the other players may play.";
+      ? "All players may play from the selected position, including the owner of the selected ball, by placing their ball within one club length of that position."
+      : "The player whose shot was selected CANNOT PLAY A SHOT from that position; the other players may play by placing their ball within one club length of the selected ball's position.";
     const putting = event?.ambroseSecondPuttBeforeAll === true
       ? "A player who putts and misses may take a second putt before everyone has putted once. If a later player holes their first putt, count only one putt from that selected position."
       : "After a missed putt, mark the ball position. No player may take a second putt until every player has had their first putt.";
-    return `All players tee off. ${minimum ? `At least ${minimum} drive${minimum === 1 ? "" : "s"} from every player must be selected during the round.` : "No minimum number of drives per player is required."}\n\nThe team selects one ball. Players may place their ball within one club length of the selected ball's position.\n\n${nextShot}\n\nOn the green, all players may putt regardless of whose ball was selected for the first putt. ${putting}\n\nRecord one team stroke score and the selected drive on every hole. ${checking}`;
+    return `OFF THE TEE: All players tee off. ${minimum ? `At least ${minimum} drive${minimum === 1 ? "" : "s"} from every player must be selected during the round.` : "No minimum number of drives per player is required."}\n\nIN THE FAIRWAY: The team selects one ball from the team's drives. ${nextShot}\n\nON THE GREEN: All players may putt regardless of whose ball was selected to define the position for the first putt. ${putting}\n\nRecord one team stroke score and the selected drive on every hole. ${checking}`;
   }
+  function ambroseRulesHtml(event = store.event) {
+    return esc(ambroseRulesText(event)).replace(/OFF THE TEE:|IN THE FAIRWAY:|ON THE GREEN:/g,heading=>`<strong>${heading}</strong>`).replace(/\n/g,"<br>");
+  }
+
   function specialRulesEditorHtml(text) {
     const lines = specialRuleLines(text);
     return (lines.length ? lines : [""])
@@ -5018,6 +5027,7 @@ Count-back if tied
     return `<ul class="specialRulesList">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`;
   }
   function eventRuleBodyHtml(section) {
+    if(section.title==="Ambrose Rules")return `<p>${esc(section.text).replace(/OFF THE TEE:|IN THE FAIRWAY:|ON THE GREEN:/g,h=>`<strong>${h}</strong>`).replace(/\n/g,"<br>")}</p>`;
     return section.bullets
       ? specialRulesListHtml(section.text)
       : `<p>${esc(section.text).replace(/\n/g, "<br>")}</p>`;
@@ -5366,7 +5376,7 @@ Count-back if tied
       act
         .map(
           (p) =>
-            `<div class="playerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
+            `<div class="playerRow"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
         )
         .join("") +
       (ina.length
@@ -5374,7 +5384,7 @@ Count-back if tied
           ina
             .map(
               (p) =>
-                `<div class="playerRow inactive"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button><button class="danger" data-pinactive="${p.id}">Delete</button></div></div>`,
+                `<div class="playerRow inactive"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button><button class="danger" data-pinactive="${p.id}">Delete</button></div></div>`,
             )
             .join("")
         : "");
@@ -7046,8 +7056,8 @@ Count-back if tied
         available
           .map((p) =>
             p.system
-              ? `<div class="playerRow noPartnerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>Use only when one playing position cannot be filled</small></div><button class="invite" data-winvite="${p.id}">Invite</button></div>`
-              : `<div class="playerRow"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="invite" data-winvite="${p.id}">Invite</button><button class="danger miniMinus" title="Delete or make inactive" data-wpinactive="${p.id}">−</button></div></div>`,
+              ? `<div class="playerRow noPartnerRow"><div><b>${playerIdentityHtml(p)}</b><small>Use only when one playing position cannot be filled</small></div><button class="invite" data-winvite="${p.id}">Invite</button></div>`
+              : `<div class="playerRow"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="invite" data-winvite="${p.id}">Invite</button><button class="danger miniMinus" title="Delete or make inactive" data-wpinactive="${p.id}">−</button></div></div>`,
           )
           .join("") +
         (inactive.length
@@ -7055,7 +7065,7 @@ Count-back if tied
             inactive
               .map(
                 (p) =>
-                  `<div class="playerRow inactive"><div><b>${esc(demoPlayerLabel(p))}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="soft" data-wpreactivate="${p.id}">Reactivate</button></div></div>`,
+                  `<div class="playerRow inactive"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-wpinfo="${p.id}">i</button><button class="soft" data-wpreactivate="${p.id}">Reactivate</button></div></div>`,
               )
               .join("")
           : "");
@@ -8075,7 +8085,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  <div class="preferredDayGrid ${W.event.days > 1 ? "twoDays" : ""}">${eventDays(W.event).map(preferredCard).join("")}</div>
  ${putting ? `<div class="ruleCard puttingRules"><div class="autoRuleHead"><div><h4>Putting Competition Rules</h4><p class="hint">Included automatically because Putting Competition is selected.</p></div><div class="ruleHeadBtns"><span class="autoTag">AUTOMATIC</span><button type="button" class="soft miniRuleBtn" id="editPutting">${editing ? "Done" : "Edit"}</button></div></div>${editing ? `<textarea id="puttingRulesEdit" rows="13">${esc(txt)}</textarea>` : `<div class="puttingRuleText">${esc(txt)}</div>`}</div>` : ""}
  ${W.competitions.has("scratch") ? `<div class="ruleCard scratchRules"><div class="autoRuleHead"><div><h4>Scratch Competition Rules</h4><p class="hint">Included automatically because Scratch is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(scratchRulesText(W.event))}</div></div>` : ""}
- ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${esc(ambroseRulesText(W.event))}</div></div>` : ""}
+ ${W.competitions.has("ambrose") ? `<div class="ruleCard ambroseRules"><div class="autoRuleHead"><div><h4>Ambrose Rules</h4><p class="hint">Included automatically because Ambrose is selected.</p></div><span class="autoTag">AUTOMATIC</span></div><div class="puttingRuleText">${ambroseRulesHtml(W.event)}</div></div>` : ""}
  <div class="ruleCard"><div class="ruleSectionHead"><div><h4>Special Rules</h4><p class="hint">Add each separate instruction as a bullet point. Press Enter for the next bullet.</p></div><button type="button" class="soft miniRuleBtn" id="clearSpecial">Clear</button></div><ul id="specialRules" class="specialRulesEditor" contenteditable="true" role="textbox" aria-label="Special Rules">${specialRulesEditorHtml(W.event.specialRules)}</ul></div>
  <div class="rulesPreview ${W.rulesPreviewAck ? "acknowledged" : ""}"><div><b>Player acknowledgement</b><span>${W.rulesPreviewAck ? "Acknowledgement recorded for this preview." : "Players see the event rules before scoring begins."}</span></div><button type="button" class="gotItPreview" id="gotItPreview">${W.rulesPreviewAck ? "✓ Got It" : "Got It"}</button></div>`;
     $$('[data-change-preferred]').forEach((button) => {
@@ -8238,6 +8248,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
         }),
     );
   }
+  function startingTeeLabel(event, day) {
+    const method=startMethodFor(event,day), holes=startHolesFor(event,day);
+    const ordinal=n=>`${n}${n%100>=11&&n%100<=13?"th":({1:"st",2:"nd",3:"rd"}[n%10]||"th")} Tee`;
+    return method==="shotgun" ? "Shotgun" : method==="two" ? `Two tees: ${holes.map(ordinal).join(" and ")}` : ordinal(holes[0]||1);
+  }
+  function wizardHandicapCheck(day) {
+    const missing=eventPlayerCategories(day,W.event).flatMap(category=>enabledEventTeesForCategory(W.event,day,category).filter(tee=>!teeHandicapsComplete(day,tee,W.event,category)).map(tee=>({category,tee,ids:wizardPlanningPlayers(day).filter(id=>String(id)!==NO_PARTNER_ID&&eventGaCategory(id,W.event)===category&&(teeHandicapsFor(day,tee,W.event)[String(id)]==null||teeHandicapsFor(day,tee,W.event)[String(id)]===""))})));
+    const categories=[...new Set(missing.map(row=>row.category))];
+    return {ok:!missing.length,label:`Day ${day} Tee Handicaps: ${missing.length?"Incomplete":"Complete"}`,day,category:categories[0],detail:missing.length?`Data required for ${categories.map(c=>c==="women"?"Female":"Male").join(" & ")}. Players → Set GA & Tee Hcps → Day ${day}. `+missing.map(row=>`${row.category==="women"?"Women":"Men"} — ${eventTeeDisplayName(day,row.tee,W.event,row.category)}: ${row.ids.map(id=>handicapPlayerName(id)).join(", ")}`).join("; "):""};
+  }
   function renderStep6() {
     ensureEventTeePlanning(W.event);
     const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
@@ -8247,11 +8267,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       cardsValid = cardResults.every(result=>result?.ok),
       checks = [
         {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
-        {ok:Boolean(W.event.date),label:`Start Date: ${W.event.date?australianDate(W.event.date):"Not entered"}`},
+        ...days.map(day=>({ok:Boolean(W.event.date),label:`${days.length>1?"Day "+day+" · ":""}Starting Tee: ${startingTeeLabel(W.event,day)}`})),
         ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} · ${australianDate(eventDate(day,W.event))} · First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
         {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
         ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
-        ...days.map(day=>{const categories=eventPlayerCategories(day,W.event),complete=categories.every(category=>enabledEventTeesForCategory(W.event,day,category).every(tee=>teeHandicapsComplete(day,tee,W.event,category)));return {ok:complete,label:`Day ${day} Tee Handicaps: ${complete?"Complete":"Incomplete"}`};}),
+        ...days.map(day=>wizardHandicapCheck(day)),
         ...dailyCompetitionChecks(summaryEvent),
         ...(multiDayCompetitions.length?[{ok:true,label:`Multi-day Competitions: ${multiDayCompetitions.length}`}]:[]),
         ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
@@ -8260,10 +8280,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p><p>Start: ${esc(australianDate(eventDate(days[0],W.event)))} · Finish: ${esc(australianDate(eventDate(days[days.length-1],W.event)))}</p></div>
       ${days.map(day=>{const daily=dailyCompetitionSummary(day,summaryEvent).filter(comp=>!comp.aggregate);return `<div class="startCard"><h4>Day ${day}</h4><p>${esc(course(W.event["course"+day])?.name||"No course")} · ${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)}</p><p><b>Daily Competitions</b><br>${daily.length?daily.map(comp=>esc(comp.name)).join(" · "):"None"}</p></div>`;}).join("")}
       ${days.length>1?`<div class="startCard"><h4>Multi-day Competitions</h4>${multiDayCompetitions.length?multiDayCompetitions.map(comp=>`<p><b>${esc(comp.name)}</b>${comp.detail?`<br>${esc(comp.detail)}`:""}</p>`).join(""):"<p>None</p>"}</div>`:""}</div>
-      <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${esc(check.label)}</div>`).join("")}</div></div>
+      <div class="finalCheck"><h4>Final Check</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span>${check.detail?`<div><strong>${esc(check.label)}</strong><p>${esc(check.detail)}</p><button class="soft" data-fixhandicaps="${check.day}|${check.category}">Set missing handicaps</button></div>`:esc(check.label)}</div>`).join("")}</div></div>
       <label class="cardCheckedConfirm"><input type="checkbox" id="scorecardsChecked" ${W.event.scorecardsChecked?"checked":""} ${cardsValid?"":"disabled"}><span><b>Card checked</b> — I have checked every course scorecard against the official card.</span></label>
       <div class="planTeeSelection"><b>Provisional Playing Tees</b>${days.map(day=>eventPlayerCategories(day,W.event).map(category=>`<div class="planTeeDay"><strong>Day ${day} · ${category==="women"?"Women":"Men"}</strong>${enabledEventTeesForCategory(W.event,day,category).map(tee=>`<button type="button" data-wizardplayingtee="${day}|${category}|${tee}" class="${selectedEventTee(day,W.event,category)===tee?"active":""}">${esc(eventTeeDisplayName(day,tee,W.event,category))}</button>`).join("")}</div>`).join("")).join("")}</div>
       <button class="soft" id="changeStartingTee">Change Course / Starting Arrangement</button><button class="startEventBig" id="startEventBig" ${allReady?"":"disabled"}>SAVE EVENT PLAN – PROCEED TO SET UP SCORING</button>`;
+    $$("[data-fixhandicaps]").forEach(button=>button.onclick=()=>{const [day,category]=button.dataset.fixhandicaps.split("|");W.handicapCategory=category;W.step=2;renderWizard();openWizardHandicapEntry(+day);});
     $("#scorecardsChecked").onchange=e=>{W.event.scorecardsChecked=e.target.checked;renderStep6();};
     $("#changeStartingTee").onclick=()=>{W.step=1;renderWizard();};
     $$("[data-wizardplayingtee]").forEach(button=>button.onclick=()=>{const [day,category,tee]=button.dataset.wizardplayingtee.split("|");selectEventTee(+day,tee,W.event,category);renderStep6();});
@@ -9048,13 +9069,21 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function defaultStarts(groups, method, day = 1) {
     method = method || startMethodFor(store.event, day);
     if (method === "shotgun") {
-      const common = [1, 3, 5, 7, 9, 10, 12, 14, 16, 18];
-      return groups.map((_, i) => common[i] || ((i * 2) % 18) + 1);
+      // Spread a full cycle evenly across all 18 holes before double-starting.
+      const count=Math.min(18,groups.length);
+      return groups.map((_,i)=>Math.floor((i%count)*18/count)+1);
     }
     const holes = startHolesFor(store.event, day);
     if (method === "two") return groups.map((_, i) => +(holes[i % 2] || 1));
     if (method === "single") return groups.map(() => +(holes[0] || 1));
     return groups.map((_, i) => i + 1);
+  }
+  function repairLegacyShotgunStarts(setup, day) {
+    const event=store.event;
+    if(startMethodFor(event,day)!=="shotgun" || event.locked || setup.saved || firstDayScoreEntry(day) || Object.keys(event.manualScorecards?.["day"+day]?.groups||{}).length)return;
+    const legacy=[1,3,5,7,9,10,12,14,16,18];
+    const old=setup.groups.map((_,i)=>legacy[i]||((i*2)%18)+1);
+    if(setup.groups.length>10 && setup.starts?.length===old.length && old.every((hole,i)=>+setup.starts[i]===hole))setup.starts=defaultStarts(setup.groups,"shotgun",day);
   }
   function dayFieldIds(day) {
     if (!store.event) return [];
@@ -9264,6 +9293,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           ntpExtraPlayer: null,
         };
       }
+      repairLegacyShotgunStarts(store.event.groupSetup[key], day);
       ensureShortTeamSelections(store.event.groupSetup[key], day);
     }
     synchroniseSingleTeeGroupStarts(store.event);
@@ -11493,7 +11523,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         awaiting = store.event.invitationStatus?.[String(pid)] === "awaiting";
       return `<div class="groupPlayer ${selected ? "swapSelected" : ""} ${np ? "noPartnerGroupPlayer" : ""} ${awaiting ? "awaitingPlayer" : ""}">
      <div class="slotNo">${pi + 1}</div>
-     <div class="groupPlayerName"><b>${esc(demoPlayerLabel(p))}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p?.golfLink || "")}</small></div>
+     <div class="groupPlayerName"><b>${playerIdentityHtml(p)}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "No Official Handicap" : p?.golfLink || "")}</small></div>
      ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
    </div>`;
     };
