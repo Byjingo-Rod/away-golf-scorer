@@ -21,5 +21,5 @@ assert.throws(()=>ctx.removePlayerProfile(demo.players[0].id),/unfinished publis
 ctx.store.event=null;assert.equal(ctx.deleteDemoPlayerList(demo.list),50);assert.equal(JSON.stringify(ctx.store.players),JSON.stringify(real));assert.equal(ctx.store.playerLists.length,1);
 const grouping=app.slice(app.indexOf('  function makeGroups('),app.indexOf('  function defaultStarts('));
 ctx.ambroseIsOn=()=>false;vm.runInContext(grouping,ctx);const groups=ctx.makeGroups(demo.players.map(p=>p.id),1);const ids=groups.flat().filter(id=>id!=='system-no-partner');assert.equal(groups.length,13);assert.equal(ids.length,50);assert.equal(new Set(ids).size,50);
-assert(app.includes('playerIdentityHtml(p)}${awaiting'));assert(app.includes('name: demoPlayerLabel(p),'));
+assert(app.includes('teamPlayerIdentityHtml(p)}${awaiting'));assert(app.includes('name: demoPlayerLabel(p),'));
 console.log('Demo/removal passed: 50 distinct profiles; all active source names; 40 men/10 women; 48 varied GAs/two blanks; distinct Ross labels; 13 groups; profile isolation; history retention; live-event guard; batch deletion.');

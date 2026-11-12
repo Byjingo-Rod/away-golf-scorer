@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(process.argv[2]||'app.js','utf8');
+let team=true,ids=['a','b','c','d'];const values={a:4,b:12,c:20,d:30};
+const ctx={store:{event:{}},ambroseIsOn:()=>team,ambroseTeam:()=>ids,playerDailyHandicap:id=>values[id],formatPlayingHandicap:n=>n<0?'+'+Math.abs(n):String(n)};vm.createContext(ctx);
+vm.runInContext(source.slice(source.indexOf('  function ambroseTeamHandicap('),source.indexOf('  function ambroseHoleAgreement(')),ctx);
+let result=ctx.phoneHandicapDisplay('a',1,0);assert.equal(result.label,'Team Handicap');assert.equal(result.value,8.25);assert.equal(result.text,'8.3');assert.equal(ctx.phoneHandicapDisplay('b',1,0).text,'8.3');
+ids=['a','b','c'];assert.equal(ctx.phoneHandicapDisplay('c',1,0).text,'6.0');values.c=null;assert.equal(ctx.phoneHandicapDisplay('a',1,0).text,'—');values.c=20;
+team=false;result=ctx.phoneHandicapDisplay('b',1,0);assert.equal(result.label,'Daily Handicap');assert.equal(result.value,12);assert.equal(result.text,'12');
+assert(source.includes('<small>${handicapDisplay.label}</small><b>${esc(handicapDisplay.text)}</b>'));
+console.log('Phone handicap passed: same team value for scorer/marker, decimal display, three/four players, missing handicap and unchanged individual competitions.');

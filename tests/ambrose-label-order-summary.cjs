@@ -1,0 +1,12 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(process.argv[2]||'app.js','utf8');
+const ctx={store:{players:[]},esc:s=>String(s),leaderCountback:()=>0};vm.createContext(ctx);
+vm.runInContext(source.slice(source.indexOf('  function playerIdentityLabel('),source.indexOf('  function ntpNameLineCount(')),ctx);
+const paul={id:'p',name:'Paul Day',noOfficialHandicap:true};ctx.store.players=[paul];let html=ctx.teamPlayerIdentityHtml(paul);assert.equal((html.match(/No G\/L Number/g)||[]).length,1);assert(!html.includes('No Official Handicap'));assert(html.includes('playerIdentitySuffix'));
+const ross1={id:'r1',name:'Ross Smith',noOfficialHandicap:true},ross2={id:'r2',name:'Ross Smith',golfLink:'12345678'};ctx.store.players=[ross1,ross2];html=ctx.teamPlayerIdentityHtml(ross1);assert.equal((html.match(/No G\/L Number/g)||[]).length,1);
+vm.runInContext(source.slice(source.indexOf('  function rankLeaderRows('),source.indexOf('  function leaderboardDefinitions(')),ctx);
+const rows=Array.from({length:13},(_,i)=>({name:'Group '+(i+1),total:0,thru:0})).reverse();ctx.rankLeaderRows(rows,false,true);assert.deepEqual(rows.map(r=>r.name),Array.from({length:13},(_,i)=>'Group '+(i+1)));assert(rows.every(r=>r.rank===1));
+rows[12].thru=18;rows[12].total=60;ctx.rankLeaderRows(rows,false,true);assert.equal(rows[0].name,'Group 13','scores still control ranking');
+vm.runInContext(source.slice(source.indexOf('  function summaryRunnerUp('),source.indexOf('  function renderArchivedLeaderboard(')),ctx);
+html=ctx.summaryRunnerUp({type:'ambrose'},[{name:'Group 1',rank:1,total:58},{name:'Group 12',rank:2,total:60.5}]);assert(html.includes('Runner-up: Group 12 · 60.5 net'));assert(ctx.summaryRunnerUp({type:'ambrose'},[{name:'Group 1',rank:1,total:58}])==='');
+console.log('Ambrose labels, numeric tied-group order, score priority and runner-up net-score summary passed.');
