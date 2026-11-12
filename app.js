@@ -7206,7 +7206,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
  return Object.is(candidates[0],-0)?0:candidates[0];
 }
   function handicapPlayerName(id) {
-    return playerIdentityLabel(player(id));
+    const person=player(id),label=playerIdentityLabel(person);
+    return label+(person?.noOfficialHandicap&&!label.includes("No G/L Number")?" (No G/L Number)":"");
   }
   function eventEstimateIsUsable(id) {
     if(!player(id)?.noOfficialHandicap)return true;
@@ -7222,9 +7223,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const ready=ordered.filter(id=>!pending.includes(id));
     const rows=pending.map(id=>{
       const category=eventGaCategory(id,W.event),ga=eventGaHandicap(id,W.event),ownDay=eventDays(W.event).find(d=>wizardPlanningPlayers(d).map(String).includes(String(id)))||day;
-      return `<article class="estimateQueuePlayer"><div class="eventGaRow"><span><b>${esc(handicapPlayerName(id))}</b></span><div class="signedHcpInput" data-gasigned="${id}"><input readonly data-eventga="${id}" value="${ga===""?"":esc(Math.abs(ga).toFixed(1))}" placeholder="GA"></div><label><input type="checkbox" disabled data-eventgaplus="${id}" ${ga<0?"checked":""}>Plus</label><select data-eventgacategory="${id}"><option value="men" ${category==="men"?"selected":""}>Men</option><option value="women" ${category==="women"?"selected":""}>Women</option></select></div>${gesProposedHandicapRow(id,ownDay)}</article>`;
+      return `<article class="estimateQueuePlayer"><div class="eventGaRow"><span><b>${teamPlayerIdentityHtml(player(id))}</b></span><div class="signedHcpInput" data-gasigned="${id}"><input readonly data-eventga="${id}" value="${ga===""?"":esc(Math.abs(ga).toFixed(1))}" placeholder="GA"></div><label><input type="checkbox" disabled data-eventgaplus="${id}" ${ga<0?"checked":""}>Plus</label><select data-eventgacategory="${id}"><option value="men" ${category==="men"?"selected":""}>Men</option><option value="women" ${category==="women"?"selected":""}>Women</option></select></div>${gesProposedHandicapRow(id,ownDay)}</article>`;
     }).join("");
-    $("#modalContent").innerHTML=`<h2>Set non-GolfLink player handicaps</h2><p>${pending.length} player${pending.length===1?" needs":"s need"} an estimated GA. Set each proposed tee handicap below. Each completed player returns to the alphabetical list. Calculate handicaps becomes available when everyone has a usable estimate.</p><div class="estimateQueueList">${rows}</div><details><summary>Alphabetical player list — ${ready.length}</summary><ul>${ready.map(id=>`<li>${esc(handicapPlayerName(id))}</li>`).join("")}</ul></details><div class="rowBtns"><button class="primary" disabled>Calculate handicaps</button><button class="soft" id="closeEstimateQueue">Close</button></div>`;
+    $("#modalContent").innerHTML=`<h2>Set non-GolfLink player handicaps</h2><p>${pending.length} player${pending.length===1?" needs":"s need"} an estimated GA. Set each proposed tee handicap below. Each completed player returns to the alphabetical list. Calculate handicaps becomes available when everyone has a usable estimate.</p><div class="estimateQueueList">${rows}</div><details><summary>Alphabetical player list — ${ready.length}</summary><ul>${ready.map(id=>`<li>${teamPlayerIdentityHtml(player(id))}</li>`).join("")}</ul></details><div class="rowBtns"><button class="primary" disabled>Calculate handicaps</button><button class="soft" id="closeEstimateQueue">Close</button></div>`;
     $("#modalShade").classList.add("open");$("#modalContent").scrollTop=0;$("#modalShade").scrollTop=0;
     $("#closeEstimateQueue").onclick=()=>$("#modalShade").classList.remove("open");
     gesBindProposedHandicaps(day,()=>{W.handicapPlayerOrder="surname";openWizardHandicapEntry(day);});
@@ -7361,7 +7362,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const value = eventGaHandicap(id, W.event),
         plus = Number(value) < 0,
         category = eventGaCategory(id, W.event);
-      return `<div class="eventGaRow"><span><b>${esc(handicapPlayerName(id))}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
+      return `<div class="eventGaRow"><span><b>${teamPlayerIdentityHtml(player(id))}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
       }).join("");
     const rows = categoryIds
       .map((id) => {
@@ -7373,7 +7374,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             W.event.teeHandicapSources[key][tee][id] = source;
           return `<div class="teeHcpValue"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teesigned="${tee}|${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-teequickhcp="${tee}|${id}" value="${esc(handicapMagnitude(value))}" placeholder="Hcp"></div><small data-hcpsource="${tee}|${id}" class="hcpSource ${source}">${source === "calculated" ? "Calculated" : source === "manual" ? "Manual" : "Not set"}</small></div><label class="quickPlusCheck"><input type="checkbox" data-teequickplus="${tee}|${id}" ${plus ? "checked" : ""}><span>+</span></label>`;
         }).join("");
-        return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(handicapPlayerName(id))}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
+        return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${teamPlayerIdentityHtml(player(id))}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
     const availableTees=courseEventTees(day,W.event,activeCategory,c);
@@ -8257,10 +8258,24 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const ordinal=n=>`${n}${n%100>=11&&n%100<=13?"th":({1:"st",2:"nd",3:"rd"}[n%10]||"th")} Tee`;
     return method==="shotgun" ? "Shotgun" : method==="two" ? `Two tees: ${holes.map(ordinal).join(" and ")}` : ordinal(holes[0]||1);
   }
-  function wizardHandicapCheck(day) {
-    const missing=eventPlayerCategories(day,W.event).flatMap(category=>enabledEventTeesForCategory(W.event,day,category).filter(tee=>!teeHandicapsComplete(day,tee,W.event,category)).map(tee=>({category,tee,ids:wizardPlanningPlayers(day).filter(id=>String(id)!==NO_PARTNER_ID&&eventGaCategory(id,W.event)===category&&(teeHandicapsFor(day,tee,W.event)[String(id)]==null||teeHandicapsFor(day,tee,W.event)[String(id)]===""))})));
+  function wizardHandicapCheck(day, event = W.event, ids = wizardPlanningPlayers(day)) {
+    const missing=eventPlayerCategories(day,event).flatMap(category=>enabledEventTeesForCategory(event,day,category).filter(tee=>!teeHandicapsComplete(day,tee,event,category)).map(tee=>({category,tee,ids:ids.filter(id=>String(id)!==NO_PARTNER_ID&&eventGaCategory(id,event)===category&&(teeHandicapsFor(day,tee,event)[String(id)]==null||teeHandicapsFor(day,tee,event)[String(id)]===""))})));
     const categories=[...new Set(missing.map(row=>row.category))];
-    return {ok:!missing.length,label:`Day ${day} Tee Handicaps: ${missing.length?"Incomplete":"Complete"}`,day,category:categories[0],detail:missing.length?`Data required for ${categories.map(c=>c==="women"?"Female":"Male").join(" & ")}. Players → Set GA & Tee Hcps → Day ${day}. `+missing.map(row=>`${row.category==="women"?"Women":"Men"} — ${eventTeeDisplayName(day,row.tee,W.event,row.category)}: ${row.ids.map(id=>handicapPlayerName(id)).join(", ")}`).join("; "):""};
+    return {ok:!missing.length,label:`Day ${day} Tee Handicaps: ${missing.length?"Incomplete":"Complete"}`,day,category:categories[0],detail:missing.length?`Data required for ${categories.map(c=>c==="women"?"Female":"Male").join(" & ")}. Players → Set GA & Tee Hcps → Day ${day}. `+missing.map(row=>`${row.category==="women"?"Women":"Men"} — ${eventTeeDisplayName(day,row.tee,event,row.category)}: ${row.ids.map(id=>handicapPlayerName(id)).join(", ")}`).join("; "):""};
+  }
+  function eventFinalChecks(event, fieldForDay) {
+    const days=eventDays(event), cardsValid=days.every(day=>eventCardChecks(day,event).every(check=>check?.ok)), multi=multiDayCompetitionSummary(event);
+    return [
+      {ok:Boolean(event.name?.trim()),label:`Event Name: ${event.name||"Not entered"}`},
+      ...days.map(day=>({ok:Boolean(event.date),label:`${days.length>1?"Day "+day+" · ":""}Starting Tee: ${startingTeeLabel(event,day)}`})),
+      ...days.map(day=>({ok:Boolean(course(event["course"+day])),label:`Day ${day}: ${course(event["course"+day])?.name||"Not selected"} · ${australianDate(eventDate(day,event))} · ${startMethodFor(event,day)==="shotgun"?"Shotgun Time":"First Tee Time"}: ${firstEventTeeTime(day,event)}`})),
+      {ok:cardsValid&&Boolean(event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
+      ...days.map(day=>({ok:fieldForDay(day).length>=4&&fieldForDay(day).length!==5,label:`Day ${day} Field: ${fieldForDay(day).length} playing positions`})),
+      ...days.map(day=>wizardHandicapCheck(day,event,fieldForDay(day))),
+      ...dailyCompetitionChecks(event),
+      ...(multi.length?[{ok:true,label:`Multi-day Competitions: ${multi.length}`}]:[]),
+      ...((event.competitions||[]).includes("ntp")?competitionDays("ntp",event).map(day=>({ok:(event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,event),label:`Day ${day} NTP: ${(event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
+    ];
   }
   function renderStep6() {
     ensureEventTeePlanning(W.event);
@@ -8269,17 +8284,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       multiDayCompetitions = multiDayCompetitionSummary(summaryEvent),
       cardResults = days.flatMap(day=>eventCardChecks(day,W.event)),
       cardsValid = cardResults.every(result=>result?.ok),
-      checks = [
-        {ok:Boolean(W.event.name?.trim()),label:`Event Name: ${W.event.name||"Not entered"}`},
-        ...days.map(day=>({ok:Boolean(W.event.date),label:`${days.length>1?"Day "+day+" · ":""}Starting Tee: ${startingTeeLabel(W.event,day)}`})),
-        ...days.map(day=>({ok:Boolean(course(W.event["course"+day])),label:`Day ${day}: ${course(W.event["course"+day])?.name||"Not selected"} · ${australianDate(eventDate(day,W.event))} · First Tee Time: ${firstEventTeeTime(day,W.event)}`})),
-        {ok:cardsValid&&Boolean(W.event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(W.event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
-        ...days.map(day=>({ok:wizardPlanningPlayers(day).length>=4&&wizardPlanningPlayers(day).length!==5,label:`Day ${day} Field: ${wizardPlanningPlayers(day).length} playing positions`})),
-        ...days.map(day=>wizardHandicapCheck(day)),
-        ...dailyCompetitionChecks(summaryEvent),
-        ...(multiDayCompetitions.length?[{ok:true,label:`Multi-day Competitions: ${multiDayCompetitions.length}`}]:[]),
-        ...(W.competitions.has("ntp")?competitionDays("ntp",W.event).map(day=>({ok:(W.event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,W.event),label:`Day ${day} NTP: ${(W.event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
-      ], allReady=checks.every(check=>check.ok);
+      checks = eventFinalChecks(summaryEvent,wizardPlanningPlayers), allReady=checks.every(check=>check.ok);
     $("#wizardBody").innerHTML = `<div class="startHead"><div><h3>Event Plan Ready</h3><p>Review all ${days.length} playing day${days.length>1?"s":""} before proceeding to scoring setup.</p></div><span class="startBadge ${allReady?"ready":"check"}">${allReady?"READY":"CHECK"}</span></div>
       <div class="startSummaryGrid"><div class="startCard"><h4>Event</h4><b>${esc(W.event.name)}</b><p>${days.length} playing day${days.length>1?"s":""} · Trip field: ${W.event.fieldSize}</p><p>Start: ${esc(australianDate(eventDate(days[0],W.event)))} · Finish: ${esc(australianDate(eventDate(days[days.length-1],W.event)))}</p></div>
       ${days.map(day=>{const daily=dailyCompetitionSummary(day,summaryEvent).filter(comp=>!comp.aggregate);return `<div class="startCard"><h4>Day ${day}</h4><p>${esc(course(W.event["course"+day])?.name||"No course")} · ${wizardPlanningPlayers(day).length} players · ${firstEventTeeTime(day,W.event)}</p><p><b>Daily Competitions</b><br>${daily.length?daily.map(comp=>esc(comp.name)).join(" · "):"None"}</p></div>`;}).join("")}
@@ -9259,6 +9264,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const first=next[String(shortIndexes[0])] || {};
     // Legacy fields remain readable by old backups. Current scoring uses the team map.
     setup.virtualPlayer=first.virtualPlayer||null;setup.ntpExtraPlayer=first.ntpExtraPlayer||null;setup.ntpExtraPlayers=first.ntpExtraPlayers||{};
+  }
+  function shortTeamExtraNotes(event, day) {
+    const arrangements=Object.values(event.groupSetup?.["day"+day]?.shortTeams||{}),lines=[];
+    if(arrangements.some(row=>row.virtualPlayer))lines.push("Virtual scores do not create extra individual results.");
+    if(arrangements.some(row=>row.virtualPlayer) && ["best3of4","yellowBall"].some(id=>competitionIsOn(id,day,event)&&event.benefits?.[id]?.mode==="lottery"))lines.push("Virtual players do not make extra lottery contributions.");
+    if(competitionIsOn("yellowBall",day,event))lines.push("Yellow Ball rotates through the real golfers only.");
+    return lines.map(line=>`<p>${esc(line)}</p>`).join("");
   }
   function shortTeamRuleLines(event, day) {
     const setup=event.groupSetup?.['day'+day];if(!setup)return [];
@@ -11378,104 +11390,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return `Hole ${hole}: No Winner${prize ? ` — ${prize}` : "Prize"} not awarded`;
   }
   function teamsFinalCheckHtml() {
-    const event = store.event;
-    if (!event) return "";
-    const displayDate = (iso) => {
-        const match = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        return match ? `${match[3]}/${match[2]}/${match[1]}` : iso || "Not entered";
-      },
-      teamText = (ids) =>
-        ids.length && ids.length % 4 === 0
-          ? `${ids.length / 4} team${ids.length === 4 ? "" : "s"} of 4`
-          : `${ids.length} playing positions`,
-      joinHoles = (holes) => {
-        const labels = (holes || []).map((hole) => `Hole ${hole}`);
-        return labels.length < 2
-          ? labels[0] || "Not selected"
-          : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
-      },
-      confirmed = (event.confirmed || []).filter(
-        (id) => String(id) !== NO_PARTNER_ID,
-      ),
-      invited = Object.entries(event.invitationStatus || {}).filter(
-        ([id, status]) =>
-          String(id) !== NO_PARTNER_ID &&
-          ["accepted", "awaiting"].includes(status),
-      ).length,
-      cards = Array.from({ length: event.days || 1 }, (_, index) => {
-        const day = index + 1,
-          item = course(event["course" + day]);
-        return item ? { item, tee: selectedEventTee(day, event) } : null;
-      }).filter(Boolean),
-      cardsChecked =
-        Boolean(event.scorecardsChecked) &&
-        cards.length > 0 &&
-        eventDays(event).every(day=>eventCardChecks(day,event).every(check=>check.ok)),
-      firstTeeText = Array.from({ length: event.days || 1 }, (_, index) => {
-        const day = index + 1,
-          hole = +(startHolesFor(event, day)[0] || 1),
-          suffix = [11, 12, 13].includes(hole % 100)
-            ? "th"
-            : hole % 10 === 1
-              ? "st"
-              : hole % 10 === 2
-                ? "nd"
-                : hole % 10 === 3
-                  ? "rd"
-                  : "th";
-        return `${event.days === 1 ? "" : `Day ${day}: `}${hole}${suffix}`;
-      }).join(" · "),
-      checks = [
-        { ok: Boolean(event.name), label: `Event Name: ${event.name}` },
-        { ok: Boolean(event.date), label: `Start Date: ${displayDate(event.date)}` },
-        ...Array.from({ length: event.days || 1 }, (_, index) => {
-          const day = index + 1,
-            eventCourse = course(event["course" + day]),
-            timeLabel = startMethodFor(event, day) === "shotgun" ? "Shotgun Time" : "First Tee Time";
-          return {
-            ok: Boolean(eventCourse),
-            label: `${event.days === 1 ? "Course" : `Day ${day}`}: ${eventCourse?.name || "Not selected"} · ${timeLabel}: ${startTimesFor(event, day)[0]}`,
-          };
-        }),
-        { ok: Boolean(firstTeeText), label: `First Tee: ${firstTeeText}` },
-        {
-          ok: cardsChecked,
-          label: "Course Scorecard Checked Against Official Card: Confirmed",
-        },
-        {
-          ok: confirmed.length > 0,
-          label: `Players Invited: ${invited || confirmed.length} · Confirmed: ${confirmed.length}`,
-        },
-        ...Array.from({ length: event.days || 1 }, (_, index) => {
-          const day = index + 1,
-            tees = enabledEventTees(event, day),
-            complete = tees.every((tee) => teeHandicapsComplete(day, tee, event));
-          return {
-            ok: complete,
-            label: `${event.days === 1 ? "" : `Day ${day} `}${tees.map((tee) => EVENT_TEE_LABELS[tee]).join(", ")} Tee Handicaps: Complete`,
-          };
-        }),
-        {
-          ok: Array.from({ length: event.days || 1 }, (_, index) =>
-            dayFieldIds(index + 1).length > 0,
-          ).every(Boolean),
-          label:
-            event.days === 1
-              ? `Daily Field Selected: ${teamText(dayFieldIds(1))}`
-              : `Daily Fields Selected: ${eventDays(event).map(day=>`Day ${day} — ${teamText(dayFieldIds(day))}`).join("; ")}`,
-        },
-        ...dailyCompetitionChecks(event),
-        ...((event.competitions || []).includes("ntp")
-          ? [{
-              ok: competitionDays("ntp",event).every(day=>(event.ntpSelections?.["day"+day]||[]).length>0),
-              label:
-                event.days === 1
-                  ? `NTP Holes Selected: ${joinHoles(event.ntpSelections?.day1)}`
-                  : `NTP Holes Selected: ${competitionDays("ntp",event).map(day=>`Day ${day} — ${joinHoles(event.ntpSelections?.["day"+day])}`).join("; ")}`,
-            }]
-          : []),
-      ].filter((check) => check.ok);
-    return `<div class="finalCheck teamsFinalCheck"><h4>Final Check — Event Setup Record</h4><div class="checkList">${checks.map((check) => `<div class="ok"><span>✓</span>${esc(check.label)}</div>`).join("")}</div></div>`;
+    const event=store.event;if(!event)return "";
+    const checks=eventFinalChecks(event,dayFieldIds);
+    return `<div class="finalCheck teamsFinalCheck"><h4>Final Check — Event Setup Record</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span><div><strong>${esc(check.label)}</strong>${check.detail?`<p>${esc(check.detail)}</p>`:""}</div></div>`).join("")}</div></div>`;
   }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
@@ -11647,7 +11564,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
          .join("")}</div></div>`
      : ""
  }
- ${shortTeamRuleLines(store.event,day).length?`<div class="virtualNotice"><h4>Short Team Arrangements</h4>${shortTeamRuleLines(store.event,day).map(line=>`<p>${esc(line)}</p>`).join('')}<p>Virtual scores do not create extra individual results or extra lottery contributions. Yellow Ball rotates through the real golfers only.</p></div>`:shortNotice}
+ ${shortTeamRuleLines(store.event,day).length?`<div class="virtualNotice"><h4>Short Team Arrangements</h4>${shortTeamRuleLines(store.event,day).map(line=>`<p>${esc(line)}</p>`).join('')}${shortTeamExtraNotes(store.event,day)}</div>`:shortNotice}
  ${
    !locked && !teamsSaved && store.event.swapPlayer
      ? `<div class="swapAdvice"><b>Manual placement history — ${esc(eventPlayer(store.event.swapPlayer, day)?.name || "Player")}</b><div class="swapAdviceGrid">${groups
@@ -15097,7 +15014,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       ),
       rulesOpen = Boolean(store.event.playerRulesOpen);
     host.innerHTML = `<div class="playerPreviewTop"><div><h2>Player View</h2><p>Phone preview — select a golfer to see exactly what that player will see.</p></div><div class="playerPreviewControls"><select id="previewPlayer">${field.map((id) => `<option value="${id}" ${id === selected ? "selected" : ""}>${esc(eventPlayer(id, day)?.name || "")}</option>`).join("")}</select>${dayTabs("previewday", day)}</div></div>
- <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
+ <div class="phoneShell"><div class="phoneScreen"><div class="playerEventHero"><img class="playerEventMascot" src="away-golf-mascot-mini.png" alt=""><span>AWAY GOLF</span><h1>${esc(store.event.name)}</h1>${days > 1 ? `<h3>DAY ${day}</h3>` : ""}<p>${esc(c?.name || "Course")}</p><small>${esc(formatEventDate(store.event.date, day))}</small></div>
  <div class="eventUpdateBanner ${previewStage ? "preview" : "final"}"><b>${previewStage ? "Event Preview — details may change." : finalised ? "All Set ✓ — your scores are recorded. Time to play the 19th." : "All Set ✓ — Final event details received"}</b><span>${previewStage ? "Please check for and download the final event update the day before play." : `Updated ${esc(australianDateTime(store.event.finalUpdateAt || store.event.lockedAt || Date.now()))}`}</span></div>
  <div class="playerCard"><div class="playerCardTitle">YOUR GOLF</div><div class="playerFacts scheduleFacts"><div><small>Playing Tee</small><b>${previewStage ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : teeSelectionIsFinal(day) ? esc(eventTeeMarkerColour(day,store.event,eventCourseCategory(day,store.event,selected))) : "Awaiting"}</b></div><div><small>${handicapDisplay.label}</small><b>${esc(handicapDisplay.text)}</b></div><div><small>Starting Hole</small><b>${esc(startText)}</b></div><div><small>Tee Time</small><b>${esc(teeTime)}</b></div></div></div>
  <div class="playerCard"><div class="playerCardTitle"><strong>${esc(p.name)}</strong> — GROUP ${ctx.groupIndex + 1}</div><div class="phoneGroup">${groupNames.map((n) => `<div class="${n.name === "No Partner" ? "np" : ""} ${String(n.id) === selected ? "you" : ""} ${yellowBallOn && String(n.id) === String(openingYellowBallPlayer) ? "yellowBallTurn" : ""}">${esc(n.name)}</div>`).join("")}</div>${partner ? `<div class="phonePartner"><small>YOUR 4BBB PARTNER</small><b class="${isAffected ? "vpName" : ""}">${esc(partner.name)}${isAffected ? " (VP)" : ""}</b></div>` : ""}</div>

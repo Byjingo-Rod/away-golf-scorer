@@ -7182,3 +7182,21 @@ body.playerDevice .cloudHeader {
 
 .playerIdentitySuffix { font-size: .8em; font-weight: 400; }
 .checkList .warn p { margin: .4em 0; font-weight: 400; }
+
+/* Keep the golfer visible in the phone preview as well as on player devices. */
+.playerEventHero {
+  position: relative;
+  min-height: 120px;
+  padding: 22px 76px 18px 14px;
+}
+.playerEventHero .playerEventMascot {
+  display: block;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 56px;
+  height: 88px;
+  object-fit: contain;
+  pointer-events: none;
+}

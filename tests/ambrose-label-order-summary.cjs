@@ -10,3 +10,11 @@ rows[12].thru=18;rows[12].total=60;ctx.rankLeaderRows(rows,false,true);assert.eq
 vm.runInContext(source.slice(source.indexOf('  function summaryRunnerUp('),source.indexOf('  function renderArchivedLeaderboard(')),ctx);
 html=ctx.summaryRunnerUp({type:'ambrose'},[{name:'Group 1',rank:1,total:58},{name:'Group 12',rank:2,total:60.5}]);assert(html.includes('Runner-up: Group 12 · 60.5 net'));assert(ctx.summaryRunnerUp({type:'ambrose'},[{name:'Group 1',rank:1,total:58}])==='');
 console.log('Ambrose labels, numeric tied-group order, score priority and runner-up net-score summary passed.');
+
+ctx.player=id=>ctx.store.players.find(p=>p.id===id);
+vm.runInContext(source.slice(source.indexOf('  function handicapPlayerName('),source.indexOf('  function eventEstimateIsUsable(')),ctx);
+ctx.store.players=[paul,ross1,ross2];
+assert.equal(ctx.handicapPlayerName('p'),'Paul Day (No G/L Number)');
+assert.equal((ctx.handicapPlayerName('r1').match(/No G\/L Number/g)||[]).length,1);
+assert(source.includes('${teamPlayerIdentityHtml(player(id))}'));
+console.log('Handicap names agree with team names for unique and duplicate no-GolfLink players.');
