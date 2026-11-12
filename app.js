@@ -1478,6 +1478,38 @@
   }
   function sharedPositionId(id, event = store.event) { return GolfSharedPositions.position(event,id); }
   function sharedActualId(id, day, event = store.event) { return GolfSharedPositions.actual(event,id,day); }
+  function playerIdentityLabel(person) {
+    if(!person)return "Player";
+    if(person.identityLabel && (["player","spectator"].includes(store.cloud?.role)||store.event?.pastEventReadOnly))return person.identityLabel;
+    const name=String(person.name||"Player"), key=name.trim().replace(/\s+/g," ").toLowerCase();
+    const profiles=[...(store.players||[]),...(store.event?.playerSnapshot||[])];
+    const matching=new Map(profiles.filter(p=>String(p.name||"").trim().replace(/\s+/g," ").toLowerCase()===key).map(p=>[String(p.id),p]));
+    matching.set(String(person.id),person);
+    const suffix=person.demoCode?` [${person.demoCode}]`:"";
+    if(matching.size<2)return name+suffix;
+    const golfNumber=p=>{const value=String(p.golfLink||"").trim();return !p.noOfficialHandicap&&/^\d+$/.test(value)?value:"";};
+    const golfLink=golfNumber(person),valid=Boolean(golfLink);
+    let identifier="No G/L Number";
+    if(valid){
+      const tail=golfLink.slice(-4);
+      const collision=[...matching.values()].some(p=>String(p.id)!==String(person.id)&&golfNumber(p)&&golfNumber(p).slice(-4)===tail);
+      identifier="G/L "+(collision?golfLink:tail);
+    }
+    const noNumberMatches=[...matching.values()].filter(p=>!golfNumber(p));
+    const sameNumber=valid&&[...matching.values()].some(p=>String(p.id)!==String(person.id)&&golfNumber(p)===golfLink);
+    let token=String(person.id).slice(-6);
+    if([...matching.keys()].some(id=>id!==String(person.id)&&id.slice(-6)===token))token=String(person.id);
+    const extra=!suffix&&(sameNumber||(!valid&&noNumberMatches.length>1)) ? ` · ID ${token}` : "";
+    return `${name} (${identifier}${extra})${suffix}`;
+  }
+  function ntpNameLineCount(ids, groups = []) {
+    const selected=new Set(ids.filter(id=>String(id)!==NO_PARTNER_ID).map(String));
+    const actual=groups.filter(group=>group.some(id=>String(id)!==NO_PARTNER_ID));
+    const members=actual.flat().filter(id=>String(id)!==NO_PARTNER_ID).map(String);
+    const matches=members.length===selected.size&&new Set(members).size===selected.size&&members.every(id=>selected.has(id));
+    const teams=matches?actual.length:Math.ceil(selected.size/4);
+    return Math.max(4,Math.ceil(teams/2));
+  }
   function eventPlayerName(id, day = null) {
     if(day!=null)return demoPlayerLabel(eventPlayer(sharedActualId(id,day),day));
     return GolfSharedPositions.label(store.event,id,person=>GolfPlayerSubstitution.aggregateName(store.event,person,demoPlayerLabel(player(person))));
@@ -2378,6 +2410,7 @@
       return {
         id: String(p.id),
         name: p.name,
+        identityLabel: playerIdentityLabel(p),
         ...(p.demoBatch ? {demoBatch:p.demoBatch,demoCode:p.demoCode} : {}),
         gaCategory: p.gaCategory === "women" ? "women" : "men",
         ga: sourceEvent?.gaHandicaps?.[String(id)] ?? p.ga ?? "",
@@ -5220,7 +5253,7 @@ Count-back if tied
     };
   }
   function demoPlayerLabel(person) {
-    return person ? person.name + (person.demoCode ? ` [${person.demoCode}]` : "") : "Player";
+    return playerIdentityLabel(person);
   }
   function buildDemoPlayerList(sourcePlayers) {
     const original = sourcePlayers.filter(p => !p.system && !p.demoBatch && !p.deleted && p.rosterActive !== false && String(p.id)!==NO_PARTNER_ID);
@@ -7159,7 +7192,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
  return Object.is(candidates[0],-0)?0:candidates[0];
 }
   function handicapPlayerName(id) {
-    const p=player(id);return p ? p.name+(p.demoCode?` [${p.demoCode}]`:"") : "Player";
+    return playerIdentityLabel(player(id));
   }
   function eventEstimateIsUsable(id) {
     if(!player(id)?.noOfficialHandicap)return true;
@@ -8160,10 +8193,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return (W.event.ntpSelections?.["day" + day] || []).map((hole) => ({
         courseName: course(cid)?.name || "Course",
         hole: +hole,
+        lines: ntpNameLineCount(wizardPlanningPlayers(day),W.event.groupSetup?.["day"+day]?.groups||[]),
       }));
     });
     const ntpPrintHtml = printableNtpCards.length
-      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "—"}</h6><div class="ntpPrintLines"><span></span><span></span><span></span><span></span></div></article>`).join("")}</div></section>`
+      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard" style="--ntp-name-lines:${card.lines}"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "—"}</h6><div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div><small class="ntpOverflowNote">Continue on the reverse if needed.</small></article>`).join("")}</div></section>`
       : "";
     $("#wizardBody").innerHTML =
       `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
@@ -8353,7 +8387,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   // Exact minimax search for fields up to 16. Larger fields use repeated
   // local improvement; the UI explicitly identifies those results as best found.
-  function solveGaBalancedGroups(ids, sizes, ga, forbidden = new Set(), placeholder = null) {
+  function solveGaBalancedGroups(ids, sizes, ga, forbidden = new Set(), placeholder = null, proportionalAmbrose = false) {
     ids = ids.map(String);
     if (new Set(ids).size !== ids.length || sizes.reduce((a,b)=>a+b,0)!==ids.length ||
         ids.some(id=>ga[id]==null || ga[id]==="" || !Number.isFinite(+ga[id]))) return null;
@@ -8370,7 +8404,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
       cache.set(key,result);return result;
     };
     const metric=cards=>{
-      const totals=cards.map(c=>c.sum),lo=Math.min(...totals),hi=Math.max(...totals);
+      // Ambrose compares totals in proportion to real team size: three players target 75% of four.
+      const totals=cards.map(c=>proportionalAmbrose ? c.sum*12/c.group.filter(id=>id!==placeholder).length : c.sum),lo=Math.min(...totals),hi=Math.max(...totals);
       return [hi-lo,totals.reduce((n,v)=>n+v*v,0)];
     };
     const better=(a,b)=>!b || a[0]<b[0] || (a[0]===b[0] && a[1]<b[1]);
@@ -8381,7 +8416,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     for(let attempt=0;attempt<(ids.length<=16?6:24);attempt++){
       const ranked=attempt===0 ? [...ids].sort((a,b)=>values[b]-values[a]) : random(ids);
       let groups=sizes.map(()=>[]),totals=sizes.map(()=>0);
-      for(const id of ranked){let gi=-1;for(let i=0;i<sizes.length;i++)if(groups[i].length<sizes[i] && (gi<0 || totals[i]<totals[gi]))gi=i;groups[gi].push(id);totals[gi]+=values[id];}
+      for(const id of ranked){let gi=-1;for(let i=0;i<sizes.length;i++)if(groups[i].length<sizes[i] && (gi<0 || (proportionalAmbrose ? totals[i]/sizes[i]<totals[gi]/sizes[gi] : totals[i]<totals[gi])))gi=i;groups[gi].push(id);totals[gi]+=values[id];}
       let cards=groups.map(card);if(cards.some(c=>!c))continue;
       for(let round=0;round<24;round++){
         let chosen=null,current=metric(cards);
@@ -8417,7 +8452,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       };
       search(ids,sizes,[]);
     }
-    return best ? {groups:best,spread:bestMetric[0]/1000,exact:ids.length<=16 || bestMetric[0]===0} : null;
+    return best ? {groups:best,spread:bestMetric[0]/(proportionalAmbrose?3000:1000),exact:ids.length<=16 || bestMetric[0]===0} : null;
   }
   function groupGaTotal(group, day) {
     const values=group.filter(id=>String(id)!==NO_PARTNER_ID).map(id=>{
@@ -8442,7 +8477,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       for(const g of event.groupSetup?.['day'+other]?.groups || [])for(let i=0;i<g.length;i+=2)
         if(g[i+1] && !g.slice(i,i+2).some(id=>String(id)===NO_PARTNER_ID))forbidden.add([String(g[i]),String(g[i+1])].sort().join('|'));
     const sizes=makeGroups(ids,day).map(g=>g.filter(id=>String(id)!==NO_PARTNER_ID).length);
-    const result=solveGaBalancedGroups(ids,sizes,ga,forbidden,ambroseIsOn(event,day)?null:NO_PARTNER_ID);
+    const result=solveGaBalancedGroups(ids,sizes,ga,forbidden,ambroseIsOn(event,day)?null:NO_PARTNER_ID,ambroseIsOn(event,day));
     if(!result){alert('No GA Balanced draw was found without repeating a 4BBB partnership. The existing teams have been kept. Review the other days or use Manual.');return;}
     setup.groups=result.groups;setup.starts=defaultStarts(setup.groups,startMethodFor(event,day),day);setup.saved=false;
     // New memberships need fresh short-team assignments.

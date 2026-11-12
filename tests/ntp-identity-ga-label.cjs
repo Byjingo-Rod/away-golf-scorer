@@ -1,0 +1,15 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync(process.argv[2]||'app.js','utf8');
+const ctx={store:{players:[]},NO_PARTNER_ID:'NP'};vm.createContext(ctx);vm.runInContext(source.slice(source.indexOf('  function playerIdentityLabel('),source.indexOf('  function eventPlayerName(')),ctx);
+const a={id:'one',name:'Ross Smith',golfLink:'02011802424'},b={id:'two',name:'Ross Smith',golfLink:''};ctx.store.players=[a,b];
+assert.equal(ctx.playerIdentityLabel(a),'Ross Smith (G/L 2424)');assert.equal(ctx.playerIdentityLabel(b),'Ross Smith (No G/L Number)');
+b.golfLink='99999992424';assert(ctx.playerIdentityLabel(a).includes('02011802424'));assert(ctx.playerIdentityLabel(b).includes('99999992424'));
+a.golfLink='';b.golfLink='';assert.notEqual(ctx.playerIdentityLabel(a),ctx.playerIdentityLabel(b));a.demoCode='D07';b.demoCode='D40';assert(ctx.playerIdentityLabel(a).includes('No G/L Number'));assert(ctx.playerIdentityLabel(b).includes('[D40]'));
+ctx.store.cloud={role:'player'};assert.equal(ctx.playerIdentityLabel({...a,identityLabel:'Ross Smith (G/L 2424)'}),'Ross Smith (G/L 2424)');delete ctx.store.cloud;
+for(const [n,want] of [[8,4],[32,4],[50,7],[52,7],[100,13]])assert.equal(ctx.ntpNameLineCount(Array.from({length:n},(_,i)=>'p'+i)),want);
+const field=Array.from({length:50},(_,i)=>'p'+i),groups=Array.from({length:11},(_,i)=>field.slice(i*4,i*4+4));groups.push(field.slice(44,47),field.slice(47));assert.equal(ctx.ntpNameLineCount(field,groups),7);assert.equal(ctx.ntpNameLineCount(field,[['old']]),7);
+const start=source.indexOf('  function groupGaTotal('),end=source.indexOf('  function applyGaBalancedDraw(',start);
+const ga={a:24.7,b:24.7,c:24.7,d:18.6,e:18.6,f:18.6,g:18.5};Object.assign(ctx,{sharedActualId:id=>id,eventPlayer:()=>({}),eventGaHandicap:id=>ga[id]});vm.runInContext(source.slice(start,end),ctx);
+assert.equal(ctx.groupGaLabel(['a','b','c'],1),'GA total: 74.1');assert.equal(ctx.groupGaLabel(['d','e','f','g'],1),'GA total: 74.3');
+assert(source.includes('Array.from({length:card.lines}'));assert(source.includes('identityLabel: playerIdentityLabel(p)'));
+console.log('NTP lines scale by team count; duplicate names use GolfLink suffixes/full numbers or unique no-number labels; GA totals display without averages.');

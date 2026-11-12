@@ -5,7 +5,7 @@ const old=[...Array.from({length:38},(_,i)=>({id:'real-'+i,name:'Member '+i,gaCa
 const localStorage={awayGolfPreImportBackupV1:JSON.stringify({players:[{id:'alice',name:'Alice Park',email:'private@example.test'}],event:{scoring:{total:36}}})};
 Object.defineProperties(localStorage,{getItem:{value:k=>localStorage[k]||null},setItem:{value:(k,v)=>localStorage[k]=v}});
 const ctx={console,localStorage,Date,AWAY_GOLF_WORKSPACE_JOURNAL_KEY:'journal',NO_PARTNER_ID:'system-no-partner',uid:()=> 'batch',store:{players:[],eventWorkspace:[]},eventWorkspaceStatus:e=>e?.status==='complete'?'Completed':'Draft'};
-vm.createContext(ctx);vm.runInContext(code,ctx);
+vm.createContext(ctx);vm.runInContext(app.slice(app.indexOf("  function playerIdentityLabel("),app.indexOf("  function ntpNameLineCount("))+code,ctx);
 const before=JSON.stringify(old),demo=ctx.buildDemoPlayerList(old);
 assert.equal(JSON.stringify(old),before);assert.equal(demo.players.length,50);assert.equal(new Set(demo.players.map(p=>p.id)).size,50);
 assert.equal(demo.players.filter(p=>p.gaCategory==='men').length,40);assert.equal(demo.players.filter(p=>p.gaCategory==='women').length,10);assert.equal(demo.players.filter(p=>p.gaUpdatedAt).length,48);assert.equal(demo.players.filter(p=>p.ga==='').length,2);

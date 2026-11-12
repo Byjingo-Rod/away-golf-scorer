@@ -7174,3 +7174,8 @@ body.playerDevice .cloudHeader {
 .estimateQueuePlayer .gesProposedHandicap { margin-bottom:0; }
 
 .ambroseRules .puttingRuleText { white-space:pre-line; line-height:1.5; }
+
+/* NTP sheets grow with the field while retaining writable name rows. */
+.ntpPrintCard { height:auto; min-height:78mm; }
+.ntpPrintLines { height:calc(var(--ntp-name-lines,4) * 10mm); grid-template-rows:repeat(var(--ntp-name-lines,4),1fr); }
+.ntpOverflowNote { display:block; padding:2mm 3mm; font:8pt Arial,sans-serif; }

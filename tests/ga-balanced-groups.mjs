@@ -49,3 +49,24 @@ const totalsCtx={NO_PARTNER_ID:'np',sharedActualId:(id,day)=>id==='slot'?(day===
 vm.createContext(totalsCtx);const totalsStart=source.indexOf('  function groupGaTotal('),totalsEnd=source.indexOf('  function applyGaBalancedDraw(',totalsStart);vm.runInContext(source.slice(totalsStart,totalsEnd),totalsCtx);
 assert.equal(totalsCtx.groupGaTotal(['slot','zero','np'],1),5);assert.equal(totalsCtx.groupGaTotal(['slot','zero','np'],2),25);assert.equal(totalsCtx.groupGaTotal(['sub'],1),-4);assert.equal(totalsCtx.groupGaTotal(['unknown'],1),null);assert.equal(totalsCtx.groupGaLabel(['slot'],2),'GA total: 25.0');
 console.log('GA totals passed: shared-position occupant by day, zero, plus-handicap substitution, missing GA and virtual-player exclusion.');
+
+// Proportional Ambrose: independently enumerate every three/four split.
+ids=Array.from({length:7},(_,i)=>String(i));
+ga=Object.fromEntries(ids.map((id,i)=>[id,[2,7,12,18,23,29,35][i]]));
+r=solve(ids,[3,4],ga,new Set(),null,true);
+let proportionalOptimum=Infinity;
+for(let mask=0;mask<128;mask++){
+ const three=ids.filter((_,i)=>mask&(1<<i));if(three.length!==3)continue;
+ const shortSum=three.reduce((n,id)=>n+ga[id],0),total=ids.reduce((n,id)=>n+ga[id],0);
+ proportionalOptimum=Math.min(proportionalOptimum,Math.abs(shortSum*4/3-(total-shortSum)));
+}
+assert(Math.abs(r.spread-proportionalOptimum)<1e-7,'Ambrose matches independent proportional optimum');
+assert.deepEqual([...r.groups.flat()].sort(),ids);
+ids=Array.from({length:50},(_,i)=>String(i));ga=Object.fromEntries(ids.map((id,i)=>[id,2+(i*7)%35]));
+r=solve(ids,[...Array(11).fill(4),3,3],ga,new Set(),null,true);
+assert.deepEqual([...r.groups.flat()].sort(),[...ids].sort());
+assert(r.spread<5,'50-player proportional draw remains close to the 75% target');
+const normalized=Array.from(r.groups,g=>g.reduce((n,id)=>n+ga[id],0)*4/g.length);
+assert(Math.abs(r.spread-(Math.max(...normalized)-Math.min(...normalized)))<1e-7);
+assert(source.includes('NO_PARTNER_ID,ambroseIsOn(event,day))'),'only Ambrose opts into proportional balancing');
+console.log('Ambrose proportional balance passed: exhaustive seven-player optimum, 50 players, and competition-specific opt-in.');
