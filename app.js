@@ -4966,7 +4966,13 @@ Count-back if tied
       checking = event?.ambroseScoringMode === "scorerOnly"
         ? "One nominated team scorer records the card."
         : "The nominated scorer and marker each record the team score and selected drive; both cards must agree.";
-    return `All players tee off. The team selects one ball and all players play the next shot from that position. Continue until the hole is completed. Record one team stroke score and the player whose drive was selected on every hole. ${minimum ? `At least ${minimum} drive${minimum === 1 ? "" : "s"} from every player must be selected during the round. ` : ""}${checking}`;
+    const nextShot = event?.ambroseSelectedPlayerCanPlay !== false
+      ? "In the fairway, once the next position is selected, all players may play from that position, including the owner of the selected ball."
+      : "In the fairway, once the next position is selected, the player whose ball was selected cannot play the next shot from that position; the other players may play.";
+    const putting = event?.ambroseSecondPuttBeforeAll === true
+      ? "A player who putts and misses may take a second putt before everyone has putted once. If a later player holes their first putt, count only one putt from that selected position."
+      : "After a missed putt, mark the ball position. No player may take a second putt until every player has had their first putt.";
+    return `All players tee off. ${minimum ? `At least ${minimum} drive${minimum === 1 ? "" : "s"} from every player must be selected during the round.` : "No minimum number of drives per player is required."}\n\nThe team selects one ball. Players may place their ball within one club length of the selected ball's position.\n\n${nextShot}\n\nOn the green, all players may putt regardless of whose ball was selected for the first putt. ${putting}\n\nRecord one team stroke score and the selected drive on every hole. ${checking}`;
   }
   function specialRulesEditorHtml(text) {
     const lines = specialRuleLines(text);
@@ -6325,7 +6331,9 @@ Count-back if tied
         : "stroke";
     W.event.ambroseScoringMode =
       t.ambroseScoringMode === "scorerMarker" ? "scorerMarker" : "scorerOnly";
-    W.event.ambroseMinimumDrives = [2, 3, 4].includes(+t.ambroseMinimumDrives)
+    W.event.ambroseSelectedPlayerCanPlay = t.ambroseSelectedPlayerCanPlay !== false;
+    W.event.ambroseSecondPuttBeforeAll = t.ambroseSecondPuttBeforeAll === true;
+    W.event.ambroseMinimumDrives = [0, 1, 2, 3, 4].includes(+t.ambroseMinimumDrives)
       ? +t.ambroseMinimumDrives
       : 3;
     W.event.par3Format =
@@ -7150,38 +7158,60 @@ function estimateEventGa(handicap, rating, category, calculate) {
  if(!candidates.length)throw new Error('This proposed handicap cannot be represented by a GA estimate from −10 to 54 for this tee. Check the proposed handicap and tee ratings.');
  return Object.is(candidates[0],-0)?0:candidates[0];
 }
+  function handicapPlayerName(id) {
+    const p=player(id);return p ? p.name+(p.demoCode?` [${p.demoCode}]`:"") : "Player";
+  }
+  function eventEstimateIsUsable(id) {
+    if(!player(id)?.noOfficialHandicap)return true;
+    const a=W.event.proposedHandicaps?.[id];
+    if(!a || !Number.isFinite(a.ga) || !Number.isFinite(a.handicap) || String(a.courseId)!==String(W.event['course'+a.day]) || !enabledEventTeesForCategory(W.event,a.day,a.category).includes(a.tee) || a.category!==eventGaCategory(id,W.event))return false;
+    const rating=teeRatingForDailyHandicap(a.day,a.tee,W.event,a.category);
+    return rating.valid && eventGaHandicap(id,W.event)!=="" && calculateDailyHandicap(eventGaHandicap(id,W.event),rating,a.category)===a.handicap;
+  }
+  function openNonGolfLinkEstimates(day, allIds) {
+    const ordered=[...allIds].sort((a,b)=>surnameKey(player(a)?.name).localeCompare(surnameKey(player(b)?.name)) || String(a).localeCompare(String(b)));
+    const pending=ordered.filter(id=>!eventEstimateIsUsable(id));
+    if(!pending.length)return false;
+    const ready=ordered.filter(id=>!pending.includes(id));
+    const rows=pending.map(id=>{
+      const category=eventGaCategory(id,W.event),ga=eventGaHandicap(id,W.event),ownDay=eventDays(W.event).find(d=>wizardPlanningPlayers(d).map(String).includes(String(id)))||day;
+      return `<article class="estimateQueuePlayer"><div class="eventGaRow"><span><b>${esc(handicapPlayerName(id))}</b></span><div class="signedHcpInput" data-gasigned="${id}"><input readonly data-eventga="${id}" value="${ga===""?"":esc(Math.abs(ga).toFixed(1))}" placeholder="GA"></div><label><input type="checkbox" disabled data-eventgaplus="${id}" ${ga<0?"checked":""}>Plus</label><select data-eventgacategory="${id}"><option value="men" ${category==="men"?"selected":""}>Men</option><option value="women" ${category==="women"?"selected":""}>Women</option></select></div>${gesProposedHandicapRow(id,ownDay)}</article>`;
+    }).join("");
+    $("#modalContent").innerHTML=`<h2>Set non-GolfLink player handicaps</h2><p>${pending.length} player${pending.length===1?" needs":"s need"} an estimated GA. Set each proposed tee handicap below. Each completed player returns to the alphabetical list. Calculate handicaps becomes available when everyone has a usable estimate.</p><div class="estimateQueueList">${rows}</div><details><summary>Alphabetical player list — ${ready.length}</summary><ul>${ready.map(id=>`<li>${esc(handicapPlayerName(id))}</li>`).join("")}</ul></details><div class="rowBtns"><button class="primary" disabled>Calculate handicaps</button><button class="soft" id="closeEstimateQueue">Close</button></div>`;
+    $("#modalShade").classList.add("open");$("#modalContent").scrollTop=0;$("#modalShade").scrollTop=0;
+    $("#closeEstimateQueue").onclick=()=>$("#modalShade").classList.remove("open");
+    gesBindProposedHandicaps(day,()=>{W.handicapPlayerOrder="surname";openWizardHandicapEntry(day);});
+    return true;
+  }
   function gesProposedHandicapRow(id,day) {
     if(!player(id)?.noOfficialHandicap)return '';
     const anchor=W.event.proposedHandicaps?.[id],same=anchor?.day===day&&String(anchor.courseId)===String(W.event['course'+day]);
-    return `<div class="gesProposedHandicap"><small>No Official Handicap · event estimate only</small><div><label>Set Handicap for this tee<select data-proposedtee="${esc(id)}">${enabledEventTees(W.event,day).map(tee=>`<option value="${tee}" ${same&&anchor.tee===tee?'selected':''}>${EVENT_TEE_LABELS[tee]} — ${esc(teeMarkerColour(tee,course(W.event['course'+day])))}</option>`).join('')}</select></label><label>Proposed handicap<input type="number" min="-10" max="54" step="1" data-proposedhcp="${esc(id)}" value="${same?esc(anchor.handicap):''}" placeholder="e.g. 19"></label><button type="button" class="soft" data-estimatega="${esc(id)}">Set estimated GA</button></div><small data-estimatestatus="${esc(id)}" role="status">${same?`Day ${day}: ${esc(teeMarkerColour(anchor.tee,course(anchor.courseId)))} tee · ${esc(anchor.handicap)} hcp · estimated GA ${esc(anchor.ga)}`:'Choose a tee and proposed handicap, then set the estimated GA.'}</small></div>`;
+    return `<div class="gesProposedHandicap"><small>No Official Handicap · event estimate only</small><div><label>Set Handicap for this tee<select data-proposedtee="${esc(id)}">${enabledEventTeesForCategory(W.event,day,eventGaCategory(id,W.event)).map(tee=>`<option value="${tee}" ${same&&anchor.tee===tee?'selected':''}>${EVENT_TEE_LABELS[tee]} — ${esc(teeMarkerColour(tee,course(W.event['course'+day])))}</option>`).join('')}</select></label><label>Proposed handicap<input type="number" min="-10" max="54" step="1" data-proposedhcp="${esc(id)}" value="${same?esc(anchor.handicap):''}" placeholder="e.g. 19"></label><button type="button" class="soft" data-estimatega="${esc(id)}" data-estimateday="${day}">Set estimated GA</button></div><small data-estimatestatus="${esc(id)}" role="status">${same?`Day ${day}: ${esc(teeMarkerColour(anchor.tee,course(anchor.courseId)))} tee · ${esc(anchor.handicap)} hcp · estimated GA ${esc(anchor.ga)}`:'Choose a tee and proposed handicap, then set the estimated GA.'}</small></div>`;
   }
-  function gesBindProposedHandicaps(day) {
+  function gesBindProposedHandicaps(day, onEstimated = null) {
     $$('[data-eventgaplus]').forEach(control=>{if(player(control.dataset.eventgaplus)?.noOfficialHandicap)control.disabled=true;});
     $$('[data-eventgacategory]').forEach(control=>{if(!player(control.dataset.eventgacategory)?.noOfficialHandicap)return;const existing=control.onchange;control.onchange=()=>{existing?.();const id=control.dataset.eventgacategory;delete W.event.gaHandicaps[id];if(W.event.proposedHandicaps)delete W.event.proposedHandicaps[id];$(`[data-eventga="${id}"]`).value='';$(`[data-estimatestatus="${id}"]`).textContent='Category changed. Press Set estimated GA again.';};});
     $$('[data-estimatega]').forEach(button=>button.onclick=()=>{
+      const estimateDay=+button.dataset.estimateday||day;
       const id=button.dataset.estimatega,status=$(`[data-estimatestatus="${id}"]`);
       try {
         const tee=$(`[data-proposedtee="${id}"]`).value,raw=$(`[data-proposedhcp="${id}"]`).value;
         if(raw.trim()==='')throw Error('Enter the proposed handicap.');
-        const category=$(`[data-eventgacategory="${id}"]`).value,handicap=Number(raw),rating=teeRatingForDailyHandicap(day,tee,W.event,category);
+        const category=$(`[data-eventgacategory="${id}"]`).value,handicap=Number(raw),rating=teeRatingForDailyHandicap(estimateDay,tee,W.event,category);
         const ga=estimateEventGa(handicap,rating,category,calculateDailyHandicap);
         W.event.gaHandicaps[id]=ga;W.event.gaCategories[id]=category;
-        W.event.proposedHandicaps=W.event.proposedHandicaps||{};W.event.proposedHandicaps[id]={day,courseId:W.event['course'+day],tee,handicap,category,ga};
+        W.event.proposedHandicaps=W.event.proposedHandicaps||{};W.event.proposedHandicaps[id]={day:estimateDay,courseId:W.event['course'+estimateDay],tee,handicap,category,ga};
         const input=$(`[data-eventga="${id}"]`);input.value=Math.abs(ga).toFixed(1);$(`[data-eventgaplus="${id}"]`).checked=ga<0;$(`[data-gasigned="${id}"]`).classList.toggle('plus',ga<0);
-        status.textContent=`Day ${day}: ${rating.teeColour} tee · ${handicap} hcp · estimated GA ${ga.toFixed(1)}. Calculate Event Handicaps applies this across the event.`;
+        status.textContent=`Day ${estimateDay}: ${rating.teeColour} tee · ${handicap} hcp · estimated GA ${ga.toFixed(1)}. Calculate Event Handicaps applies this across the event.`;
+        if(onEstimated)onEstimated();
       }catch(error){status.textContent=error.message;}
     });
     $$('[data-proposedtee],[data-proposedhcp]').forEach(input=>input.onchange=()=>{const id=input.dataset.proposedtee||input.dataset.proposedhcp;delete W.event.gaHandicaps[id];if(W.event.proposedHandicaps)delete W.event.proposedHandicaps[id];$(`[data-eventga="${id}"]`).value='';$(`[data-estimatestatus="${id}"]`).textContent='Proposed handicap changed. Press Set estimated GA again.';});
   }
 
   function gesCheckEstimates(ids) {
-    for(const id of ids){
-      if(!player(id)?.noOfficialHandicap)continue;
-      const a=W.event.proposedHandicaps?.[id];
-      if(!a||String(a.courseId)!==String(W.event['course'+a.day])||!enabledEventTees(W.event,a.day).includes(a.tee)||a.category!==eventGaCategory(id,W.event)||calculateDailyHandicap(eventGaHandicap(id,W.event),teeRatingForDailyHandicap(a.day,a.tee,W.event,a.category),a.category)!==a.handicap){
-        alert(`Set the proposed tee handicap for ${player(id)?.name || 'this player'} first. Recheck it if the course, tee ratings or category has changed.`);return false;
-      }
-    }
+    const pending=ids.filter(id=>!eventEstimateIsUsable(id));
+    if(pending.length){alert("Set non-GolfLink player handicaps first: "+pending.map(handicapPlayerName).join(", "));return false;}
     return true;
   }
 
@@ -7273,6 +7303,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         wizardPlanningPlayers(index + 1),
       ).flat().filter((id) => id !== NO_PARTNER_ID),
     )]);
+    if(openNonGolfLinkEstimates(day,allIds))return;
     const categoryIds = ids.filter(id => eventGaCategory(id,W.event) === activeCategory);
     const teeHead = tees.map(
       (tee) => `<span>${esc(eventTeeDisplayName(day,tee,W.event,activeCategory,c))}</span><span>Plus</span>`,
@@ -7283,7 +7314,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const value = eventGaHandicap(id, W.event),
         plus = Number(value) < 0,
         category = eventGaCategory(id, W.event);
-      return `<div class="eventGaRow"><span><b>${esc(player(id)?.name || "")}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
+      return `<div class="eventGaRow"><span><b>${esc(handicapPlayerName(id))}</b></span><div class="signedHcpInput ${plus ? "plus" : ""}" data-gasigned="${id}"><input type="number" inputmode="decimal" min="0" max="54" step="0.1" ${player(id)?.noOfficialHandicap ? "readonly" : ""} data-eventga="${id}" data-gaindex="${index}" value="${value === "" || value == null ? "" : esc(Math.abs(+value).toFixed(1))}" placeholder="GA"></div><label class="quickPlusCheck"><input type="checkbox" data-eventgaplus="${id}" ${plus ? "checked" : ""}><span>Plus</span></label><select data-eventgacategory="${id}" aria-label="Handicap category for ${esc(player(id)?.name || "player")}"><option value="men" ${category !== "women" ? "selected" : ""}>Men</option><option value="women" ${category === "women" ? "selected" : ""}>Women</option></select></div>${gesProposedHandicapRow(id,day)}`;
       }).join("");
     const rows = categoryIds
       .map((id) => {
@@ -7295,7 +7326,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
             W.event.teeHandicapSources[key][tee][id] = source;
           return `<div class="teeHcpValue"><div class="signedHcpInput ${plus ? "plus" : ""}" data-teesigned="${tee}|${id}"><input type="number" inputmode="numeric" min="0" max="54" step="1" data-teequickhcp="${tee}|${id}" value="${esc(handicapMagnitude(value))}" placeholder="Hcp"></div><small data-hcpsource="${tee}|${id}" class="hcpSource ${source}">${source === "calculated" ? "Calculated" : source === "manual" ? "Manual" : "Not set"}</small></div><label class="quickPlusCheck"><input type="checkbox" data-teequickplus="${tee}|${id}" ${plus ? "checked" : ""}><span>+</span></label>`;
         }).join("");
-        return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(player(id)?.name || "")}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
+        return `<div class="multiTeeHcpRow ${W.invites.get(String(id)) === "awaiting" ? "awaitingPlayer" : ""}"><span><b>${esc(handicapPlayerName(id))}</b>${W.invites.get(String(id)) === "awaiting" ? "<small>Awaiting reply</small>" : ""}</span>${cells}</div>`;
       })
       .join("");
     const availableTees=courseEventTees(day,W.event,activeCategory,c);
@@ -7388,7 +7419,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       openWizardHandicapEntry(day);
     });
     $("#calculateEventHandicaps").onclick = () => {
-      if(!gesCheckEstimates(categoryIds))return;
+      if(openNonGolfLinkEstimates(day,allIds))return;
       gaInputs.forEach(storeGaValue);
       const missingGa = categoryIds.filter((id) => eventGaHandicap(id, W.event) === "");
       if (missingGa.length)
@@ -7696,7 +7727,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const prizeModeLabel = id === "yellowBall" ? "Balls / Prize" : "Prize";
     const ambroseDrives =
       id === "ambrose"
-        ? `<label class="ambroseMinimumInline"><span>Required drives per player</span><select id="ambroseMinimumDrives">${[2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n}</option>`).join("")}</select></label>`
+        ? `<label class="ambroseMinimumInline"><span>Required drives per player</span><select id="ambroseMinimumDrives">${[0, 1, 2, 3, 4].map((n) => `<option value="${n}" ${+W.event.ambroseMinimumDrives === n ? "selected" : ""}>${n===0?"No minimum":n}</option>`).join("")}</select></label><label class="ambroseMinimumInline"><span>Owner of the selected ball — next fairway shot</span><select id="ambroseSelectedPlayerCanPlay"><option value="yes" ${W.event.ambroseSelectedPlayerCanPlay!==false?"selected":""}>Can play</option><option value="no" ${W.event.ambroseSelectedPlayerCanPlay===false?"selected":""}>Cannot play</option></select></label><label class="ambroseMinimumInline"><span>Second putt before everyone has putted once</span><select id="ambroseSecondPuttBeforeAll"><option value="no" ${W.event.ambroseSecondPuttBeforeAll!==true?"selected":""}>Cannot take a second putt</option><option value="yes" ${W.event.ambroseSecondPuttBeforeAll===true?"selected":""}>Can take a second putt</option></select></label>`
         : "";
     let body =
       supportsLottery
@@ -7811,7 +7842,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           if (x.checked && x.dataset.comp === "ambrose") {
             if (W.event.days === 1) W.competitions = new Set(["ambrose"]);
             W.event.ambroseScoringMode = W.event.ambroseScoringMode || "scorerOnly";
-            W.event.ambroseMinimumDrives = +W.event.ambroseMinimumDrives || 3;
+            W.event.ambroseMinimumDrives = Number.isInteger(W.event.ambroseMinimumDrives) ? W.event.ambroseMinimumDrives : 3;
             W.event.ntpDay1Count = 0;
             W.event.ntpDay2Count = 0;
           }
@@ -7933,6 +7964,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
         return;
       }
       if (t.name === "ambroseScoringMode") W.event.ambroseScoringMode = t.value;
+      if(t.id==="ambroseSelectedPlayerCanPlay")W.event.ambroseSelectedPlayerCanPlay=t.value==="yes";
+      if(t.id==="ambroseSecondPuttBeforeAll")W.event.ambroseSecondPuttBeforeAll=t.value==="yes";
       if (t.id === "ambroseMinimumDrives")
         W.event.ambroseMinimumDrives = +t.value;
       if (t.name === "ambroseNtpCount") {
@@ -8257,7 +8290,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         W.event.ambroseScoringMode === "scorerOnly"
           ? "scorerOnly"
           : "scorerMarker",
-      ambroseMinimumDrives: [2, 3, 4].includes(+W.event.ambroseMinimumDrives)
+      ambroseSelectedPlayerCanPlay: W.event.ambroseSelectedPlayerCanPlay !== false,
+      ambroseSecondPuttBeforeAll: W.event.ambroseSecondPuttBeforeAll === true,
+      ambroseMinimumDrives: [0, 1, 2, 3, 4].includes(+W.event.ambroseMinimumDrives)
         ? +W.event.ambroseMinimumDrives
         : 3,
       par3Format: W.event.par3Format || "daily",
