@@ -7200,3 +7200,19 @@ body.playerDevice .cloudHeader {
   object-fit: contain;
   pointer-events: none;
 }
+
+.ntpPrintControls {display:flex;align-items:end;gap:10px;flex-wrap:wrap}
+.ntpPrintControls label {display:grid;gap:4px}
+.ntpPrintCard header {padding-left:3mm;justify-content:space-between}
+.ntpPrintCard header div {min-width:0;flex:1;justify-content:space-between}
+.ntpPrintCard header small {white-space:normal;overflow-wrap:anywhere;line-height:1.15}
+.ntpPrintCard header strong {flex-shrink:0}
+.ntpScorecardLayout .ntpScorecard {width:148mm;height:105mm;min-height:105mm;flex:0 0 148mm;display:flex;flex-direction:column}
+.ntpScorecard header {flex:0 0 15mm}
+.ntpScorecard h5,.ntpScorecard h6 {flex-shrink:0;margin:0;padding:1.5mm 3mm}
+.ntpDistanceTable {width:100%;border-collapse:collapse;table-layout:fixed;flex:1;height:100%;font:10pt Arial,sans-serif}
+.ntpDistanceTable th,.ntpDistanceTable td {border-bottom:1px solid #718b7e;padding:1mm 3mm;text-align:left}
+.ntpDistanceTable th:first-child {width:68%}
+.ntpDistanceTable th+th,.ntpDistanceTable td+td {border-left:1px solid #718b7e}
+.ntpScorecard .ntpOverflowNote {flex-shrink:0;padding:1.5mm 3mm;font-size:8pt}
+@media print {.ntpPrintCards.ntpScorecardLayout {grid-template-columns:148mm}.ntpScorecardLayout .ntpScorecard {width:148mm;height:105mm;min-height:105mm}}

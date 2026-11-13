@@ -8133,6 +8133,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
       renderStep4();
     };
   }
+  function ntpPrintCardHtml(card, event, format = "small") {
+    const large=format==="scorecard";
+    card={...card,lines:large?Math.max(7,Math.min(9,card.lines)):card.lines};
+    return `<article class="ntpPrintCard ${large?"ntpScorecard":""}" style="--ntp-name-lines:${card.lines}"><header><div><small>${esc(event.name||"Golf Event")}</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole||"—"}</h6>${large?`<table class="ntpDistanceTable"><thead><tr><th>Player name</th><th>Distance to pin (m)</th></tr></thead><tbody>${Array.from({length:card.lines},()=>"<tr><td>&nbsp;</td><td></td></tr>").join("")}</tbody></table>`:`<div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div>`}<small class="ntpOverflowNote">${large?"Record a new entry only when nearer to the pin. ":""}Continue on the reverse if needed.</small></article>`;
+  }
   function renderStep5() {
     const ntpOn = W.competitions.has("ntp");
     if (!ntpOn) {
@@ -8211,8 +8216,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         lines: ntpNameLineCount(wizardPlanningPlayers(day),W.event.groupSetup?.["day"+day]?.groups||[]),
       }));
     });
+    const ntpPrintFormat=W.event.ntpPrintFormat==="scorecard"?"scorecard":"small";
     const ntpPrintHtml = printableNtpCards.length
-      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>Print, cut out and place the matching card with the on-green NTP marker.</p></div><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div><div class="ntpPrintCards">${printableNtpCards.map((card) => `<article class="ntpPrintCard" style="--ntp-name-lines:${card.lines}"><header><div><small>AWAY GOLF SCORER</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole || "—"}</h6><div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div><small class="ntpOverflowNote">Continue on the reverse if needed.</small></article>`).join("")}</div></section>`
+      ? `<section class="ntpPrintSection"><div class="ntpPrintHeading"><div><h4>Printable NTP Cards</h4><p>${ntpPrintFormat==="scorecard"?"Scorecard-sized sheets (148 × 105 mm) for a fixed signing board and tape measure. Record names and distances in metres.":"Small tags for a marker moved to the nearest ball position."}</p></div><div class="ntpPrintControls"><label>Print format<select id="ntpPrintFormat"><option value="small" ${ntpPrintFormat==="small"?"selected":""}>Small tags</option><option value="scorecard" ${ntpPrintFormat==="scorecard"?"selected":""}>Scorecard-sized NTP sheets</option></select></label><button type="button" class="soft" id="printNtpCards">Print NTP Cards</button></div></div><div class="ntpPrintCards ${ntpPrintFormat==="scorecard"?"ntpScorecardLayout":""}">${printableNtpCards.map(card=>ntpPrintCardHtml(card,W.event,ntpPrintFormat)).join("")}</div></section>`
       : "";
     $("#wizardBody").innerHTML =
       `<div class="ntpHead"><div><h3>Nearest the Pin</h3><p class="hint">The easiest-rated Par 3 holes have been selected automatically. Use Change only if you want a different hole.</p></div><span class="rulesBadge">NTP</span></div>${competitionDays("ntp", W.event).map(day=>{
@@ -8220,6 +8226,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         return `<div class="ntpDayGroup">${dayHead(day,key)}<label>Number of NTP holes<select data-ntpcount="${day}"><option value="1" ${count===1?"selected":""}>One</option><option value="2" ${count===2?"selected":""}>Two</option></select></label>${Array.from({length:count},(_,i)=>row(`Day ${day}`,key,i,choices,cid)).join("")}</div>`;
       }).join("")}${ntpPrintHtml}<div class="ntpInfo"><b>During play</b><span>On each NTP hole, players can confirm that they put their name on the NTP marker. The latest confirmed entry on each hole becomes the current NTP holder.</span></div>`;
     if ($("#printNtpCards")) $("#printNtpCards").onclick = () => window.print();
+    if($("#ntpPrintFormat"))$("#ntpPrintFormat").onchange=e=>{W.event.ntpPrintFormat=e.target.value;renderStep5();};
     $$("[data-ntpcount]").forEach(input=>input.onchange=()=>{
       W.event.ntpCounts ||= {}; W.event.ntpCounts["day"+input.dataset.ntpcount]=+input.value; renderStep5();
     });
@@ -8417,12 +8424,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   // Exact minimax search for fields up to 16. Larger fields use repeated
   // local improvement; the UI explicitly identifies those results as best found.
-  function solveGaBalancedGroups(ids, sizes, ga, forbidden = new Set(), placeholder = null, proportionalAmbrose = false) {
+  function solveGaBalancedGroups(ids, sizes, ga, forbidden = new Set(), placeholder = null, proportionalAmbrose = false, balanceVirtual = false) {
     ids = ids.map(String);
     if (new Set(ids).size !== ids.length || sizes.reduce((a,b)=>a+b,0)!==ids.length ||
         ids.some(id=>ga[id]==null || ga[id]==="" || !Number.isFinite(+ga[id]))) return null;
     const values=Object.fromEntries(ids.map(id=>[id,Math.round(+ga[id]*1000)]));
     const pair=(a,b)=>[String(a),String(b)].sort().join('|');
+    const virtualTarget=ids.reduce((n,id)=>n+values[id],0)*4/ids.length;
+    balanceVirtual=Boolean(balanceVirtual && placeholder);
     const cache=new Map();
     const card=(members)=>{
       const key=JSON.stringify([...members].sort());
@@ -8431,22 +8440,32 @@ function estimateEventGa(handicap, rating, category, calculate) {
       const variants=full.length>=3 ? [[...full],[full[0],full[2],full[1],...full.slice(3)],...(full.length===4 ? [[full[0],full[3],full[1],full[2]]] : [[full[1],full[2],full[0]]])] : [full];
       const order=variants.find(g=>g.every((id,i)=>i%2!==0 || !g[i+1] || id===placeholder || g[i+1]===placeholder || !forbidden.has(pair(id,g[i+1]))));
       const result=order ? {group:order.filter(id=>id!=null),sum:members.reduce((n,id)=>n+values[id],0)} : null;
+      if(result && balanceVirtual && members.length===3){
+        const partner=result.group[result.group.indexOf(placeholder)^1];
+        result.virtualOptions=ids.filter(id=>!members.includes(id)&&!forbidden.has(pair(partner,id))).sort((a,b)=>Math.abs(result.sum+values[a]-virtualTarget)-Math.abs(result.sum+values[b]-virtualTarget));
+        if(!result.virtualOptions.length){cache.set(key,null);return null;}
+      }
       cache.set(key,result);return result;
+    };
+    const virtualAssignments=cards=>{
+      const used=new Set();return cards.map(c=>{const id=c.virtualOptions?.find(id=>!used.has(id));if(id)used.add(id);return id||null;});
     };
     const metric=cards=>{
       // Ambrose compares totals in proportion to real team size: three players target 75% of four.
-      const totals=cards.map(c=>proportionalAmbrose ? c.sum*12/c.group.filter(id=>id!==placeholder).length : c.sum),lo=Math.min(...totals),hi=Math.max(...totals);
+      const virtuals=balanceVirtual?virtualAssignments(cards):[];
+      if(balanceVirtual&&cards.some((c,i)=>c.virtualOptions&&!virtuals[i]))return [Infinity,Infinity];
+      const totals=cards.map((c,i)=>proportionalAmbrose ? c.sum*12/c.group.filter(id=>id!==placeholder).length : c.sum+(virtuals[i]?values[virtuals[i]]:0)),lo=Math.min(...totals),hi=Math.max(...totals);
       return [hi-lo,totals.reduce((n,v)=>n+v*v,0)];
     };
     const better=(a,b)=>!b || a[0]<b[0] || (a[0]===b[0] && a[1]<b[1]);
-    let best=null,bestMetric=null;
-    const accept=cards=>{if(cards.some(c=>!c))return;const m=metric(cards);if(better(m,bestMetric)){best=cards.map(c=>c.group);bestMetric=m;}};
+    let best=null,bestMetric=null,bestVirtuals=[];
+    const accept=cards=>{if(cards.some(c=>!c))return;const m=metric(cards);if(!Number.isFinite(m[0]))return;if(better(m,bestMetric)){best=cards.map(c=>c.group);bestMetric=m;bestVirtuals=balanceVirtual?virtualAssignments(cards):[];}};
     const random=xs=>{xs=[...xs];for(let i=xs.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[xs[i],xs[j]]=[xs[j],xs[i]];}return xs;};
     // Seed a good upper bound and improve by every possible cross-group swap.
     for(let attempt=0;attempt<(ids.length<=16?6:24);attempt++){
       const ranked=attempt===0 ? [...ids].sort((a,b)=>values[b]-values[a]) : random(ids);
       let groups=sizes.map(()=>[]),totals=sizes.map(()=>0);
-      for(const id of ranked){let gi=-1;for(let i=0;i<sizes.length;i++)if(groups[i].length<sizes[i] && (gi<0 || (proportionalAmbrose ? totals[i]/sizes[i]<totals[gi]/sizes[gi] : totals[i]<totals[gi])))gi=i;groups[gi].push(id);totals[gi]+=values[id];}
+      for(const id of ranked){let gi=-1;for(let i=0;i<sizes.length;i++)if(groups[i].length<sizes[i] && (gi<0 || ((proportionalAmbrose || balanceVirtual) ? totals[i]/sizes[i]<totals[gi]/sizes[gi] : totals[i]<totals[gi])))gi=i;groups[gi].push(id);totals[gi]+=values[id];}
       let cards=groups.map(card);if(cards.some(c=>!c))continue;
       for(let round=0;round<24;round++){
         let chosen=null,current=metric(cards);
@@ -8459,13 +8478,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
         if(!chosen)break;
         groups[chosen.a]=chosen.x;groups[chosen.b]=chosen.y;cards=chosen.trial;
       }
-      accept(cards);if(bestMetric?.[0]===0)break;
+      accept(cards);if(bestMetric?.[0]===0 || (balanceVirtual && ids.length>16 && bestMetric?.[0]<=1000))break;
     }
     if(ids.length<=16 && bestMetric?.[0]!==0){
       const search=(remaining,slots,cards)=>{
         if(!remaining.length){accept(cards);return;}
         if(bestMetric?.[0]===0)return;
-        if(cards.length>1 && metric(cards)[0]>bestMetric?.[0])return;
+        if(!balanceVirtual && cards.length>1 && metric(cards)[0]>bestMetric?.[0])return;
         const anchor=remaining[0];
         for(const size of new Set(slots)){
           const choices=[];
@@ -8482,10 +8501,13 @@ function estimateEventGa(handicap, rating, category, calculate) {
       };
       search(ids,sizes,[]);
     }
-    return best ? {groups:best,spread:bestMetric[0]/(proportionalAmbrose?3000:1000),exact:ids.length<=16 || bestMetric[0]===0} : null;
+    return best ? {groups:best,virtualPlayers:bestVirtuals,spread:bestMetric[0]/(proportionalAmbrose?3000:1000),exact:(!balanceVirtual && ids.length<=16) || bestMetric[0]===0} : null;
   }
   function groupGaTotal(group, day) {
-    const values=group.filter(id=>String(id)!==NO_PARTNER_ID).map(id=>{
+    const ids=group.filter(id=>String(id)!==NO_PARTNER_ID),setup=store.event?.groupSetup?.["day"+day],gi=setup?.groups?.indexOf(group)??-1;
+    const virtual=ids.length===3 && group.some(id=>String(id)===NO_PARTNER_ID) && gi>=0 ? setup.shortTeams?.[String(gi)]?.virtualPlayer : null;
+    if(virtual)ids.push(virtual);
+    const values=ids.map(id=>{
       const actual=sharedActualId(id,day),p=eventPlayer(actual,day);
       const value=eventGaHandicap(actual);
       return p?.profileId ? p.ga : value;
@@ -8494,7 +8516,22 @@ function estimateEventGa(handicap, rating, category, calculate) {
   }
   function groupGaLabel(group, day) {
     const total=groupGaTotal(group,day);
-    return total==null ? 'GA total: incomplete' : `GA total: ${total.toFixed(1)}`;
+    const includesVirtual=group.some(id=>String(id)===NO_PARTNER_ID) && store.event?.groupSetup?.["day"+day]?.groups?.includes(group);
+    return total==null ? 'GA total: incomplete' : `GA total: ${total.toFixed(1)}${includesVirtual?" (incl. VP)":""}`;
+  }
+  function gaBalancedDrawResult(ids, day, ga) {
+    const event=store.event;
+    if(ids.some(id=>ga[id]==null || ga[id]==="" || !Number.isFinite(+ga[id])))return null;
+    const forbidden=new Set();
+    if(competitionIsOn('fourball',day))for(const other of eventDays(event).filter(d=>d!==day)){
+      const setup=event.groupSetup?.['day'+other];
+      for(const [gi,g] of (setup?.groups||[]).entries())for(let i=0;i<g.length;i+=2){
+        const pair=g.slice(i,i+2).map(id=>String(id)===NO_PARTNER_ID ? setup.shortTeams?.[String(gi)]?.virtualPlayer || setup.virtualPlayer : id);
+        if(pair.length===2&&pair.every(Boolean))forbidden.add(pair.map(String).sort().join('|'));
+      }
+    }
+    const sizes=makeGroups(ids,day).map(g=>g.filter(id=>String(id)!==NO_PARTNER_ID).length);
+    return solveGaBalancedGroups(ids,sizes,ga,forbidden,ambroseIsOn(event,day)?null:NO_PARTNER_ID,ambroseIsOn(event,day),!ambroseIsOn(event,day));
   }
   function applyGaBalancedDraw(day) {
     const event=store.event,setup=event.groupSetup?.['day'+day];
@@ -8502,16 +8539,11 @@ function estimateEventGa(handicap, rating, category, calculate) {
         Object.keys(event.manualScorecards?.['day'+day]?.groups || {}).length)return;
     const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID).map(String),ga={};
     for(const id of ids){const value=groupGaTotal([id],day);if(value==null){alert(`Enter the GA handicap for ${eventPlayerName(id,day)} before using GA Balanced.`);return;}ga[id]=value;}
-    const forbidden=new Set();
-    if(competitionIsOn('fourball',day))for(const other of eventDays(event).filter(d=>d!==day))
-      for(const g of event.groupSetup?.['day'+other]?.groups || [])for(let i=0;i<g.length;i+=2)
-        if(g[i+1] && !g.slice(i,i+2).some(id=>String(id)===NO_PARTNER_ID))forbidden.add([String(g[i]),String(g[i+1])].sort().join('|'));
-    const sizes=makeGroups(ids,day).map(g=>g.filter(id=>String(id)!==NO_PARTNER_ID).length);
-    const result=solveGaBalancedGroups(ids,sizes,ga,forbidden,ambroseIsOn(event,day)?null:NO_PARTNER_ID,ambroseIsOn(event,day));
+    const result=gaBalancedDrawResult(ids,day,ga);
     if(!result){alert('No GA Balanced draw was found without repeating a 4BBB partnership. The existing teams have been kept. Review the other days or use Manual.');return;}
     setup.groups=result.groups;setup.starts=defaultStarts(setup.groups,startMethodFor(event,day),day);setup.saved=false;
     // New memberships need fresh short-team assignments.
-    delete setup.shortTeams;setup.virtualPlayer=null;setup.ntpExtraPlayer=null;setup.ntpExtraPlayers={};
+    setup.shortTeams=Object.fromEntries((result.virtualPlayers||[]).flatMap((id,i)=>id?[[String(i),{virtualPlayer:id}]]:[]));setup.virtualPlayer=null;setup.ntpExtraPlayer=null;setup.ntpExtraPlayers={};
     ensureShortTeamSelections(setup,day);
     event.drawMode='ga';event.manualMode=false;event.swapPlayer=null;delete event.teamOrderSwap;
     event.gaBalanceSearch=result.exact?'exact':'bestFound';
@@ -9282,6 +9314,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
       return lines;
     });
   }
+  function rebuiltGroupsForMethod(ids, day, current, mode) {
+    if(mode==="random")return makeGroups(shuffleCopy(ids),day);
+    if(mode==="manual"){
+      const remaining=new Set(ids.filter(id=>String(id)!==NO_PARTNER_ID).map(String)),ordered=[];
+      for(const id of current?.groups?.flat()||[]){if(remaining.delete(String(id)))ordered.push(String(id));}
+      for(const id of remaining)ordered.push(id);
+      return makeGroups(ordered,day);
+    }
+    return historyBalancedGroups(ids,day);
+  }
   function initialiseGroups() {
     if (!store.event) return;
     store.event.groupSetup = store.event.groupSetup || {};
@@ -9298,11 +9340,17 @@ function estimateEventGa(handicap, rating, category, calculate) {
           expectedIds.map(String).filter(id=>id!==NO_PARTNER_ID).sort().join("|") &&
         current.groups.every(group=>ambroseIsOn(store.event,day) ? !group.includes(NO_PARTNER_ID) : group.filter(id=>id!==NO_PARTNER_ID).length!==3 || group.includes(NO_PARTNER_ID));
       if (!same) {
+        if(current && (store.event.locked || current.saved || firstDayScoreEntry(day) || Object.keys(store.event.manualScorecards?.[key]?.groups||{}).length))continue;
         // Build the first view with the same History Balanced logic the organiser gets by pressing the button.
         // Day 2 therefore sees the newly-created Day 1 and avoids unnecessary repeats immediately.
-        const groups = historyBalancedGroups(ids, day);
+        const realIds=ids.filter(id=>String(id)!==NO_PARTNER_ID).map(String),ga=Object.fromEntries(realIds.map(id=>[id,groupGaTotal([id],day)]));
+        const balanced=store.event.drawMode==="ga" ? gaBalancedDrawResult(realIds,day,ga) : null;
+        const groups = balanced?.groups || rebuiltGroupsForMethod(ids, day, current, store.event.drawMode);
+        if(store.event.drawMode==="ga"&&!balanced){store.event.drawMode="history";delete store.event.gaBalanceSearch;}
+        if(balanced)store.event.gaBalanceSearch=balanced.exact?"exact":"bestFound";
         store.event.groupSetup[key] = {
           groups,
+          ...(balanced?{shortTeams:Object.fromEntries((balanced.virtualPlayers||[]).flatMap((id,i)=>id?[[String(i),{virtualPlayer:id}]]:[]))}:{}),
           starts: defaultStarts(groups, startMethodFor(store.event, day), day),
           saved: false,
           virtualPlayer: null,

@@ -35,7 +35,7 @@ console.log('GA balance passed: independent optimum, signed GA, odd fields, 60 p
 // Exercise the real draw action with isolated planning state.
 const actionStart=source.indexOf('  function applyGaBalancedDraw('),actionEnd=source.indexOf('\n  function ',actionStart+10);
 const action={store:{event:{days:2,groupSetup:{day1:{groups:[['a','b'],['c','d']],saved:false},day2:{groups:[['a','c'],['b','d']],saved:true}}}},firstDayScoreEntry:()=>false,dayFieldIds:()=>['a','b','c','d'],NO_PARTNER_ID:'np',groupGaTotal:([id])=>({a:1,b:5,c:20,d:24}[id]),eventPlayerName:id=>id,competitionIsOn:()=>true,eventDays:()=>[1,2],makeGroups:()=>[['a','b'],['c','d']],ambroseIsOn:()=>false,startMethodFor:()=> 'single',defaultStarts:()=>[1,1],ensureShortTeamSelections:()=>{},writeLocalStore:()=>action.saved++,renderTeamsPage:()=>action.rendered++,alert:()=>action.alerts++,solveGaBalancedGroups:solve,saved:0,rendered:0,alerts:0};
-vm.createContext(action);vm.runInContext(source.slice(actionStart,actionEnd),action);
+vm.createContext(action);vm.runInContext(source.slice(source.indexOf('  function gaBalancedDrawResult('),actionStart)+source.slice(actionStart,actionEnd),action);
 const otherDay=JSON.stringify(action.store.event.groupSetup.day2);
 action.applyGaBalancedDraw(1);assert.equal(action.saved,1);assert.equal(action.store.event.drawMode,'ga');assert.equal(JSON.stringify(action.store.event.groupSetup.day2),otherDay);
 for(const guard of ['locked','saved','score','manual']){
@@ -45,7 +45,7 @@ for(const guard of ['locked','saved','score','manual']){
 action.store.event.locked=false;action.store.event.groupSetup.day1.saved=false;action.store.event.manualScorecards={};action.firstDayScoreEntry=()=>false;action.groupGaTotal=()=>null;
 action.applyGaBalancedDraw(1);assert.equal(action.saved,1);assert.equal(action.alerts,1);
 console.log('GA draw action passed: other days unchanged; locked, saved, scored, manual cards and missing GA protected.');
-const totalsCtx={NO_PARTNER_ID:'np',sharedActualId:(id,day)=>id==='slot'?(day===1?'first':'second'):id,eventPlayer:(id)=>id==='sub'?{profileId:'replacement',ga:-4}:{name:id},eventGaHandicap:id=>({first:5,second:25,zero:0,sub:30}[id]??'')};
+const totalsCtx={store:{event:{}},NO_PARTNER_ID:'np',sharedActualId:(id,day)=>id==='slot'?(day===1?'first':'second'):id,eventPlayer:(id)=>id==='sub'?{profileId:'replacement',ga:-4}:{name:id},eventGaHandicap:id=>({first:5,second:25,zero:0,sub:30}[id]??'')};
 vm.createContext(totalsCtx);const totalsStart=source.indexOf('  function groupGaTotal('),totalsEnd=source.indexOf('  function applyGaBalancedDraw(',totalsStart);vm.runInContext(source.slice(totalsStart,totalsEnd),totalsCtx);
 assert.equal(totalsCtx.groupGaTotal(['slot','zero','np'],1),5);assert.equal(totalsCtx.groupGaTotal(['slot','zero','np'],2),25);assert.equal(totalsCtx.groupGaTotal(['sub'],1),-4);assert.equal(totalsCtx.groupGaTotal(['unknown'],1),null);assert.equal(totalsCtx.groupGaLabel(['slot'],2),'GA total: 25.0');
 console.log('GA totals passed: shared-position occupant by day, zero, plus-handicap substitution, missing GA and virtual-player exclusion.');
@@ -68,5 +68,5 @@ assert.deepEqual([...r.groups.flat()].sort(),[...ids].sort());
 assert(r.spread<5,'50-player proportional draw remains close to the 75% target');
 const normalized=Array.from(r.groups,g=>g.reduce((n,id)=>n+ga[id],0)*4/g.length);
 assert(Math.abs(r.spread-(Math.max(...normalized)-Math.min(...normalized)))<1e-7);
-assert(source.includes('NO_PARTNER_ID,ambroseIsOn(event,day))'),'only Ambrose opts into proportional balancing');
+assert(source.includes('NO_PARTNER_ID,ambroseIsOn(event,day),!ambroseIsOn(event,day))'),'only Ambrose opts into proportional balancing');
 console.log('Ambrose proportional balance passed: exhaustive seven-player optimum, 50 players, and competition-specific opt-in.');

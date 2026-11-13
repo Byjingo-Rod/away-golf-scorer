@@ -1,0 +1,11 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');const s=fs.readFileSync(process.argv[2]||'app.js','utf8');
+const ctx={esc:s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'),store:{event:{}},NO_PARTNER_ID:'np',ambroseIsOn:()=>false,shuffleCopy:ids=>[...ids].reverse(),historyBalancedGroups:ids=>[['history',...ids]]};vm.createContext(ctx);
+for(const[a,b]of[['ntpPrintCardHtml','renderStep5'],['makeGroups','defaultStarts'],['rebuiltGroupsForMethod','initialiseGroups']])vm.runInContext(s.slice(s.indexOf('  function '+a+'('),s.indexOf('  function '+b+'(')),ctx);
+const card={courseName:'Oatlands GC',hole:7,lines:7},event={name:'DEMO <50> Players'};
+let html=ctx.ntpPrintCardHtml(card,event,'small');assert(html.includes('DEMO &lt;50&gt; Players'));assert(!html.includes('AWAY GOLF SCORER'));assert(html.includes('Hole 7'));assert(!html.includes('Distance to pin'));assert.equal((html.match(/<span><\/span>/g)||[]).length,7);
+html=ctx.ntpPrintCardHtml(card,event,'scorecard');assert(html.includes('ntpScorecard'));assert(html.includes('Player name'));assert(html.includes('Distance to pin (m)'));assert.equal((html.match(/<tr><td>/g)||[]).length,7);assert(html.includes('DEMO &lt;50&gt; Players'));assert(html.includes('Continue on the reverse'));
+assert.equal((ctx.ntpPrintCardHtml({...card,lines:20},event,'scorecard').match(/<tr><td>/g)||[]).length,9);assert.equal((ctx.ntpPrintCardHtml({...card,lines:4},event,'scorecard').match(/<tr><td>/g)||[]).length,7);
+const ids=['a','b','c','d','e','f','g'];let result=ctx.rebuiltGroupsForMethod(ids,1,null,'random');assert.deepEqual(Array.from(result.flat().filter(id=>id!=='np')),[...ids].reverse());
+result=ctx.rebuiltGroupsForMethod(ids,1,{groups:[['d','gone','c','np'],['b','a','f']]},'manual');assert.deepEqual(Array.from(result.flat().filter(id=>id!=='np')),['d','c','b','a','f','e','g']);assert.equal(ctx.rebuiltGroupsForMethod(ids,1,null,'history')[0][0],'history');
+assert(s.includes('rebuiltGroupsForMethod(ids, day, current, store.event.drawMode)'));assert(s.includes('W.event.ntpPrintFormat=e.target.value'));
+console.log('NTP formats passed: escaped event names, small tags, distance sheets, row limits and selected rebuild methods with retained manual order.');
