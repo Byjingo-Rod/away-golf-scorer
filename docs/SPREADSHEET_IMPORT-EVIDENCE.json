@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-13",
+  "status": "implemented, unpublished",
+  "AwayChecks": {
+    "passed": 162,
+    "failed": 0
+  },
+  "ScorerChecks": {
+    "passed": 306,
+    "failed": 0
+  },
+  "sourceSha256": {
+    "app.js": "cb33aec24e5de0740f325fac20c05768cf59039b3c293e9476083b0e09c64ee3",
+    "spreadsheet-import.js": "9bec193104c0358480cf28a2e5bb8b4bb042cad219e4726be924d75ecc8dd728",
+    "organiser-guide.js": "0055f01ca82957dc240ebfffac56018abed9e5bc356352bd351f81c67b3f3f74"
+  },
+  "productionWrites": 0,
+  "newDatabaseMigrationRequiredForSpreadsheetFeature": false,
+  "verificationLimit": "Automated source/generated-app handlers and isolated database suites; no physical-phone/browser clipboard pass"
+}

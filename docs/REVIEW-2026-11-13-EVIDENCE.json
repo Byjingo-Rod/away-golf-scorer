@@ -1,0 +1,2261 @@
+{
+  "reviewDate": "2026-11-13",
+  "publication": "unpublished; no production mutations",
+  "sourceAppSha256": "f00a3f0083e769613b60476eb4f91feca2a2aefc930da70d9281e3cc6976ee00",
+  "preparedMigration": "20261113045917_demo_data_isolation.sql",
+  "migrationSha256": "78e500f57d1ebc221a47f1fefa918e06a7a1f0121b861cceab6c42e588124225",
+  "migrationDeployed": false,
+  "automatedSuites": {
+    "Away": {
+      "passed": 160,
+      "failed": 0
+    },
+    "Scorer": {
+      "passed": 301,
+      "failed": 0
+    }
+  },
+  "productionReadOnlyAggregates": {
+    "scorerOrphanEvents": 0,
+    "scorerOrphanPlayers": 0,
+    "scorerCrossGroupConfirmedPlayerReferences": 0,
+    "scorerFinishedNamedTestsMissingTestFlag": 0,
+    "awayPublishedTaggedDemoRosters": 0,
+    "awayPublishedMixedTaggedDemoRosters": 0
+  },
+  "scorerCommands": [
+    {
+      "command": [
+        "python3",
+        "tests/build-protection.py"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ambrose-acceptance-behaviour.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ambrose-label-order-summary.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ambrose-options-estimate-queue.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/annual-demo-isolation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/annual-season-db.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/annual-season-ui.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/app-storage.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/archive-retirement-behaviour.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/awarded-results.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/away-owned-course-master.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/backup-release-metadata.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/bounded-edge-body.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/catalogue-review-tee-labels.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/clean-event-join-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/cloud-request-deadline.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/cloud-session-refresh.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/code-audit-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/completed-event-archive.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/completed-workspace-status-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-card-comparison.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-card-lifecycle.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-categories.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-custom-tee-colour.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-hidden-tee-validation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-index-validation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-layout-client.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-layout-live.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-layout.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-library-api.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-library.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-master-newer-than-draft-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/course-position-labels.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/customer-backfill.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/customer-engagement-layout.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/customer-enhancements.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/customer-security.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/daily-competition-summary.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/database-baseline.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/demo-isolation-audit.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/demo-isolation-db.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/device-only-organiser-cleanup-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/duplicate-clean-runtime-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/event-delete-clears-cloud-pointer.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/event-ntp-front-tees.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/final-check-consistency.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/finished-storage.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/finished-view-retention.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ga-balanced-groups.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ga-rebuild-virtual.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-access-controls.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-archive-retention.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-draft-save-recovery.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-event-management.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-planner-workspace.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-player-profile-online.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-score-acceptance.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-signoff.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-storage-retention.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ges-tablet-saving.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-away-master-api.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-course-drafts.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-course-layout.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-course-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-course-search.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-customer-invitation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-handicap-estimate.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-live-client.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-planner.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-player-list.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-roster-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/guest-organiser.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/guest-routing.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/handicap-scratch-rules.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/history-balanced-draw.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/invitation-routing.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/live-poll-efficiency.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/live-poll-timeout.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/lock-all-event-teams.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/master-course-gateway.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/master-course-store.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/maximum-player-mixing.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/multi-tab-writer-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/multiple-short-teams.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/nonblocking-next-hole.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ntp-identity-ga-label.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ntp-jackpot-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ntp-print-formats-rebuild.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/organiser-guide.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/owner-account-layout.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/owner-notifications.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/partial-course-approval.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/past-event-source-isolation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/phone-failure-recovery.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/phone-team-handicap.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/planning-guidance-starts.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-new-event-cleanup.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-phone-startup-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-profile-handicap.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-setup-display.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-storage-button.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/player-substitution.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/product-alignment.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/progressive-counting-rounds.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/public-data-privacy.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/publication-isolation-audit.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/published-organiser-reconnect-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/published-player-profile-merge.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/recovered-phone-transition.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/release-cache-isolation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/repeat-event.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/retained-results-view.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/rules-scroll-refresh-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/safe-cloud.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/safe-draft-review.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/score-acceptance-behaviour.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/scorecard-header-exit.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/scorer-launch-redirect.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/scratch-best-rounds.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/scratch-scoring-mode-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/setup-draft-recovery.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/seven-day-model.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/shared-change-parity.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/shared-positions.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/signoff-behaviour.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/single-tee-publish-start-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/spectator-presence.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/spectator-view-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/stage1-course-contract.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/stage1a-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/stage1b-live-warning-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/starting-hole-update-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/storage-cleanup-metadata.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/storage-health.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/storage-screen-behaviour.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/substitute-form.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/tablet-ga-entry.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/targeted-score-receipts.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/tee-position-count.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/test-invitation-choice.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/test-storage-cleanup.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/trip-competition-formats.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-14-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-15-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-16-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-17-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-19-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-5-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-6-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-7-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-86-8-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-87-yellow-ball-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-88-ambrose-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-89-owner-signin-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-90-1-save-draft-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-90-2-player-lists-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-90-guest-organiser-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-91-record-all-scores-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-2-preferred-lies-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-3-test-event-history-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-4-past-events-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-5-history-baseline-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-6-yellow-ball-lottery-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-92-tee-scorecards-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-93-0-ga-handicap-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-93-1-three-tee-green-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-93-2-late-ga-update-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-1-eclectic-stroke-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-13-compact-score-entry-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-14-golflink-stroke-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-15-ntp-print-cards-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-16-ntp-card-layout-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-2-score-entry-stroke-prizes-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-23-mixed-category-tees-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-4-stale-auth-recovery-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-6-away-event-history-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-7-score-entry-method-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/version-15-96-final-score-stroke-regression.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/workspace-persistence.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/yellow-ball-loss-control.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/yellow-ball-paper-entry.cjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/archive-retirement-behaviour.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/signoff-behaviour.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/score-acceptance-behaviour.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/ambrose-acceptance-behaviour.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/code-audit-regression.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/nonblocking-next-hole.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/scratch-best-rounds.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/handicap-scratch-rules.cjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/trip-competition-formats.cjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/phone-failure-recovery.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/recovered-phone-transition.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/seven-day-model.cjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/finished-view-retention.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/retained-results-view.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/past-event-source-isolation.mjs",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "tests/golf-event-course-layout.cjs",
+        "dist/golf-event-scorer/courses.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "awarded-results.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "catalogue-review.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "cloud-request.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "course-categories.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "course-layout.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "course-library.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "course-locations.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "data.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/account-config.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/app-update.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/awarded-results.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/catalogue-review.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/cloud-request.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-approval.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-categories.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-layout.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-library.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-locations.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/course-search.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/courses.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/customer-invitation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/customers.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/data.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/date-format.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/event-navigation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/group-api.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/groups.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/guest-entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/handicap-estimate.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/help.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/install-app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/invitation-routing.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/live-cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/organiser-guide.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/owner-notifications-sw.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/owner-notifications.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/planner-workspace.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/planner.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/player-entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/player-guidance.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/player-list.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/player-substitution.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/repeat-event.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/retention.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/roster-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/roster.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/safe-cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/setup-draft.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/shared-positions.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/storage-maintenance.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/supabase.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "dist/golf-event-scorer/sw.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "organiser-guide.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "player-substitution.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-accepted-card.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/account-config.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/app-update.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/course-approval.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/course-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/course-search.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/courses.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/customer-invitation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/customers.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/date-format.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/event-navigation.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/group-api.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/groups.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/guest-entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/handicap-estimate.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/help.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/install-app.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/invitation-routing.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/live-cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/owner-notifications-sw.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/owner-notifications.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/planner-workspace.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/planner.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/player-entry.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/player-guidance.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/player-list.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/repeat-event.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/retention.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/roster-model.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/roster.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/setup-draft.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-assets/storage-maintenance.mjs"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-course-import.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-estimated-handicaps.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-linked-lists.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-planner-hooks.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-player-details.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-preview-selector.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "products/golf-event-scorer-workspace.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "safe-cloud.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "shared-positions.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "supabase.js"
+      ],
+      "returncode": 0
+    },
+    {
+      "command": [
+        "node",
+        "--check",
+        "sw.js"
+      ],
+      "returncode": 0
+    }
+  ],
+  "limits": [
+    "No physical-phone or browser visual QA",
+    "Unsynchronised user-device storage not inspected",
+    "Invented GolfLink digits alone are not a reliable DEMO classifier",
+    "Legacy counters without contribution receipts preserved"
+  ]
+}

@@ -18,9 +18,9 @@ assert.match(app, /function specialRulesEditorHtml\(text\)/);
 assert.match(css, /\.specialRulesEditor li \+ li/);
 
 // Final Check shows the first tee holes and retains official-card confirmation.
-assert.match(app, /label: `First Tee:/);
+assert.match(app, /Starting Tee:/);
 assert.doesNotMatch(app, /Scorecard: Valid · OUT/);
-assert.match(app, /Course Scorecard Checked Against Official Card/);
+assert.match(app, /Official Course Scorecards:/);
 
 // Phone leaderboard removes redundant Single tables and adds useful context.
 assert.doesNotMatch(app, /showOnDay2: true/);

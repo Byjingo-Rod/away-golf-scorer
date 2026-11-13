@@ -6,7 +6,7 @@ const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const sw = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
 
 assert.match(app, /function isTestEvent/);
-assert.match(app, /\^TEST\\b\/i/);
+assert.match(app, /TEST\|DEMO\|DEMONSTRATION/);
 assert.match(app, /isTestEvent\(event\)/);
 assert.match(app, /isTestEvent\(store\.event\)/);
 assert.match(app, /function removeRecordedTestEventHistory/);

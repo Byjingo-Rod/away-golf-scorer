@@ -22,10 +22,7 @@ assert.match(
 assert.match(app, /function teamsFinalCheckHtml\(\)/);
 assert.match(app, /Final Check — Event Setup Record/);
 assert.match(app, /\$\{teamsFinalCheckHtml\(\)\}/);
-assert.match(
-  app,
-  /\]\.filter\(\(check\) => check\.ok\)/,
-  "the persistent setup record must contain green-tick checks only",
-);
+assert.match(app, /eventFinalChecks\(event/,
+  "the persistent setup record must share checks including incomplete warnings");
 
 console.log("Version 15.86.16 regression checks passed.");

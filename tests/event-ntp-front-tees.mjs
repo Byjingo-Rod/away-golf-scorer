@@ -12,14 +12,15 @@ assert.equal(ntpCount(2,{...event,ntpCounts:{day2:2,day5:2}}),2);
 // Exercise the actual planning page: opening a saved draft trims an implicit
 // second Day 2 hole, retains the requested final-day pair, and emits six cards.
 const body={innerHTML:''};
-const context={W:{event,competitions:new Set(['ntp'])},ntpCount,
+const extract=name=>{const a=app.indexOf('  function '+name+'('), b=app.indexOf('\n  function ',a+10);return app.slice(a,b);};
+const context={NO_PARTNER_ID:'system-no-partner',wizardPlanningPlayers:()=>['a','b','c','d'],W:{event,competitions:new Set(['ntp'])},ntpCount,
  $:()=>body,$$:()=>[],esc:v=>String(v??''),course:()=>({name:'Vietnam course'}),
  eventCourseScorecard:()=>({par:Array.from({length:18},(_,i)=>[1,7,11,13].includes(i)?3:4),index:Array.from({length:18},(_,i)=>i+1)}),
  courseHoleDistance:()=>150,courseDistanceAbbrev:()=> 'm',selectedEventTee:()=> 'middle',
  competitionDays:()=>[1,2,3,4,5],startMethodFor:()=> 'single',startHolesFor:()=>[1]};
 for(let d=1;d<=5;d++)event['course'+d]='course'+d;
 event.ntpSelections={day2:[12,2]};event.ntpSelectionSources={day2:'course2|middle'};
-vm.createContext(context);vm.runInContext(block('  function renderStep5()','  function renderStep6()'),context);context.renderStep5();
+vm.createContext(context);for(const name of ['ntpNameLineCount','ntpPrintCardHtml'])vm.runInContext(extract(name),context);vm.runInContext(block('  function renderStep5()','  function renderStep6()'),context);context.renderStep5();
 assert.deepEqual(Array.from(event.ntpSelections.day2),[12]);
 assert.deepEqual([1,2,3,4,5].map(d=>event.ntpSelections['day'+d].length),[1,1,1,1,2]);
 assert.equal((body.innerHTML.match(/class="ntpSelectCard"/g)||[]).length,6);

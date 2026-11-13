@@ -18,7 +18,7 @@ assert.match(styles, /\.scoringPhone\s*\{\s*touch-action: pan-y/);
 
 assert.match(app, /Delete This Event from This Phone and Join Another/);
 assert.match(app, /GolfSafeCloud\.discardEventCopies\(eventId\)/);
-assert.match(app, /still has scores saved only on this phone/);
+assert.match(app, /including any unsent copies/);
 assert.match(safe, /function discardEventCopies/);
 
 assert.match(cloud, /async function eventAccess/);

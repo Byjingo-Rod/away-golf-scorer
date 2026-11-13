@@ -3,7 +3,7 @@
  const intro='To provide the greatest protection against data loss during play, it is recommended that each player carries a paper score card. Scores from a paper card can be entered manually using Emergency Score Recovery on the Home page. The instructions included in this list show what steps to take if a paper card is not available.';
  const discretion='If neither recorded copy settles a missing score, agree it with the player and marker. The organiser may use discretion under the group’s agreed rules and save the accepted score through organiser correction.';
  const phases=[
-  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','shared','guest','copies','help']},
+  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','spreadsheet','shared','guest','copies','help']},
   {id:'published',title:'After Publishing but before Play',topics:['missing','join','start','hole']},
   {id:'playing',title:'During Play',topics:['phone','offline','wrong','ntp','ambrose']},
   {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next','finish']}
@@ -20,6 +20,14 @@
    'Set each golfer’s GA or event estimate. Review Daily Handicaps for every enabled tee and day.',
    'Check each day’s competitions, putting days, NTP holes and jackpot. Set and save groups for every day.',
    'Save your draft as you go. Complete the final check, lock the event and send its final update before play.'
+  ]],
+  ['spreadsheet','Import players and GA handicaps from Excel',[
+   'Open Create / Manage Player Lists → Create Player List → Import. From Database remains available for selecting saved players.',
+   'Copy First Name, Last Name, GolfLink and optional GA columns from Excel. Full Name, GolfLink and GA also work. Add a Category column containing Men or Women when needed. Keep GolfLink cells as Text to preserve leading zeroes.',
+   'For a player without an official handicap, enter No Official Handicap in the GolfLink column and leave GA blank. Set that player’s event estimate in Set GA & Tee Hcps.',
+   'Name the list → Preview Import → check names, categories and matching saved players → Save Player List. Matching profiles retain their IDs and contact details. Load the saved list into Invited when ready.',
+   'For an existing event, open Set GA & Tee Hcps → Paste GA Handicaps. Paste GolfLink + GA or Name + GA in any order. Alternatively paste one GA column in exactly the player order displayed; retain blank cells for players without a GA.',
+   'Preview GAs → Use these GAs → Calculate and Save the Men’s and Women’s tee handicaps as usual. Blank cells leave values unchanged. A plus GA may be entered as -1.1 or +1.1. GA imports stop once scoring has started.'
   ]],
   ['shared','Two golfers share one position across different days',[
    'In Choose players, select the primary golfer’s position → Share this position across days.',

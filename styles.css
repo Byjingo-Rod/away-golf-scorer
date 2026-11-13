@@ -7216,3 +7216,6 @@ body.playerDevice .cloudHeader {
 .ntpDistanceTable th+th,.ntpDistanceTable td+td {border-left:1px solid #718b7e}
 .ntpScorecard .ntpOverflowNote {flex-shrink:0;padding:1.5mm 3mm;font-size:8pt}
 @media print {.ntpPrintCards.ntpScorecardLayout {grid-template-columns:148mm}.ntpScorecardLayout .ntpScorecard {width:148mm;height:105mm;min-height:105mm}}
+
+/* Spreadsheet imports keep long fields scrollable on organiser screens. */
+.spreadsheetPreview{max-height:42vh;overflow:auto;margin:12px 0}.spreadsheetPreview table{width:100%;border-collapse:collapse}.spreadsheetPreview th,.spreadsheetPreview td{padding:8px;text-align:left;border-bottom:1px solid #d7e3df}.spreadsheetPreview th{position:sticky;top:0;background:#f0f6f3}.spreadsheetPreview td{font-size:14px}#spreadsheetPlayerPaste,#gaSpreadsheetPaste{width:100%;box-sizing:border-box;font-family:monospace;white-space:pre;overflow:auto}

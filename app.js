@@ -767,7 +767,7 @@
         p = store.players.find(p=>String(p.id)===String(current?.profileId || id)),
         ga = eventGaHandicap(id, event);
       if (!p || ga === "" || ga == null || !Number.isFinite(+ga)) return;
-      if(p.noOfficialHandicap)return;
+      if((isTestEvent(event)&&!p.demoBatch)||p.noOfficialHandicap)return;
       p.ga = +ga;
       p.gaCategory = eventGaCategory(id, event);
       p.gaUpdatedAt = updatedAt;
@@ -1605,7 +1605,7 @@
     if (store.cloud?.role!=="organiser" || !store.cloud.eventId || !navigator.onLine) return alert("Connect to the published event online before replacing a player.");
     if (!await syncCloudNow()) return alert("Refresh did not complete. Retry when connected before making a substitution.");
     if(Object.keys(store.event.sharedPositions || {}).length)return alert("This event has planned shared positions. Contact the event owner before changing those assignments after publication.");
-    const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID), eligible=activePlayers().filter(p=>!substitutionOptions(day,ids[0]).usedProfile(String(p.id)));
+    const ids=dayFieldIds(day).filter(id=>String(id)!==NO_PARTNER_ID), eligible=activePlayers().filter(p=>playerMatchesEventRoster(p,store.event)).filter(p=>!substitutionOptions(day,ids[0]).usedProfile(String(p.id)));
     $("#modalContent").innerHTML=`<div class="substituteForm"><h2>Replace Player — Day ${day} onward</h2><p>The substitute takes the same groups, partnerships, tees and starting positions. Earlier cards stay unchanged. Both golfers’ scores count together for aggregate competitions.</p><label class="substituteField"><strong>Player being replaced</strong><select id="subSlot">${ids.map(id=>`<option value="${esc(id)}">${esc(eventPlayerName(id,day))}</option>`).join("")}</select></label><label class="substituteField"><strong>Substitute from the existing Player List</strong><small>Open this list to choose a saved player. Leave it blank to add a new player below.</small><select id="subProfile"><option value="">Choose a player from this list - or insert the name of new player in the cell below</option>${eligible.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}</select></label><label class="substituteField"><strong>Name of a New Player</strong><input id="subName" autocomplete="name" placeholder="Enter a new player’s name"></label><fieldset class="substituteSection"><legend><strong>Golf ID / GolfLink Number</strong></legend><div class="substituteColumns"><label class="substituteField"><strong>Insert GolfLink / ID No</strong><input id="subGolfId" inputmode="numeric" aria-label="Golf ID or GolfLink number"></label><label class="substituteChoice"><input type="checkbox" id="subNoOfficial"><span><strong>Or click here if the replacement player doesn’t have a GolfLink / ID No</strong><small>No Golf ID / GolfLink Number — recorded as No Official Handicap.</small></span></label></div></fieldset><label class="substituteField"><strong>Handicap category</strong><select id="subCategory"><option value="men">Men</option><option value="women">Women</option></select></label><div class="substituteColumns substituteHandicaps"><section class="substituteSection"><div class="substituteField"><label for="subGa"><strong>GA Handicap</strong></label><div class="substituteSigned"><input id="subGa" type="number" inputmode="decimal" min="0" max="54" step="0.1" placeholder="GA"><label class="substitutePlus"><input type="checkbox" id="subGaPlus"> Plus</label></div></div><small>Enter the number normally. Tick Plus for a plus handicap.</small></section><section class="substituteSection"><div class="substituteField"><label for="subEstimate"><strong>Insert Substitute Player’s Estimated Handicap</strong></label><div class="substituteSigned"><input id="subEstimate" type="number" inputmode="numeric" min="0" max="54" step="1" placeholder="Playing handicap"><label class="substitutePlus"><input type="checkbox" id="subEstimatePlus"> Plus</label></div></div><label class="substituteField"><strong>Estimate for this course</strong><select id="subEstimateDay">${eventDays().filter(d=>d>=day).map(d=>`<option value="${d}">Day ${d} — ${esc(course(store.event['course'+d])?.name || "Course")}</option>`).join("")}</select></label><label class="substituteField"><strong>Tee used for the estimate</strong><select id="subEstimateTee"></select></label></section></div><p id="subEstimateStatus" class="substituteEstimateStatus" role="status"></p><p id="subPreview" role="status"></p><div class="substituteActions"><button class="primary" id="applyRealSubstitute">Review and Send Substitution</button><button class="soft" id="cancelRealSubstitute">Close</button></div></div>`;
     $("#modalShade").classList.add("open");
     const form=bindSubstituteForm(day);
@@ -3230,30 +3230,32 @@
       alert("Create an event plan before publishing.");
       return false;
     }
+    const rosterIssue=eventRosterIssue(store.event,cloudPlayerIds());
+    if(rosterIssue){alert(rosterIssue);return false;}
     const publicationEvent = store.event;
     publicationFlight = true;
     setCloudMessage("Publishing event…", true);
     try {
       store.event.setupStage = store.event.locked ? "final" : "preview";
       if (store.event.locked) store.event.finalUpdateAt = new Date().toISOString();
-      else store.event.previewPublishedAt = store.event.previewPublishedAt || new Date().toISOString();
+      else store.event.previewPublishedAt = publicationEvent.previewPublishedAt || new Date().toISOString();
       // Save the publication marker before contacting the cloud. If a network or
       // later update fails, the organiser can recover the exact row already made.
       store.event.publicationId ||= uid();
       if (persistStore() === false) throw new Error("The publication identity could not be saved on this device. Please retry.");
-      const payload = cloudPayload();
+      const payload = cloudPayload(publicationEvent), playerRows = cloudPlayerRows();
       let result = null;
       if (!store.event.locked && store.event.previewPublishedAt) {
         const recent = await AwayCloud.loadRecentOwnedEvents(20);
         for (const item of recent) {
-          if (item.status !== "setup" || item.name !== store.event.name) continue;
+          if (item.status !== "setup" || item.name !== publicationEvent.name) continue;
           const existing = await AwayCloud.loadEvent(item.id);
           if (
             existing?.event?.event_data?.event?.previewPublishedAt ===
-              store.event.previewPublishedAt ||
-            (store.event.workspaceId &&
+              publicationEvent.previewPublishedAt ||
+            (publicationEvent.workspaceId &&
               existing?.event?.event_data?.event?.workspaceId ===
-                store.event.workspaceId)
+                publicationEvent.workspaceId)
           ) {
             result = { event_id: item.id, join_code: item.join_code };
             break;
@@ -3262,9 +3264,9 @@
       }
       if (!result) {
         result = await AwayCloud.createEvent(
-          store.event.name,
+          publicationEvent.name,
           payload,
-          cloudPlayerRows(),
+          playerRows,
         );
       }
       if (store.event !== publicationEvent) throw new Error("The published plan changed on this device. Reopen the saved event from Published Events.");
@@ -3279,6 +3281,7 @@
       // A final event still advances to the permitted `locked` status.
       if (writeLocalStore() === false) throw new Error("The event was created online. Keep this app open and retry publishing to recover the same event.");
       await AwayCloud.updateEvent(result.event_id, payload, store.event.locked ? "locked" : "setup");
+      if (store.event !== publicationEvent) throw new Error("The active event changed while publishing. Reopen the published event to continue.");
       await rememberOrganiserWorkspace(result.event_id, result.join_code);
       rememberPublishedEvent({
         eventId: result.event_id,
@@ -3300,9 +3303,13 @@
   }
   async function updateCloudEvent() {
     if (!store.cloud?.eventId || store.cloud.role !== "organiser") return;
+    const rosterIssue=eventRosterIssue(store.event,cloudPlayerIds());
+    if(rosterIssue){alert(rosterIssue);return false;}
+    const updatingEvent=store.event, connection=store.cloud;
     setCloudMessage("Updating event…", true);
     try {
-      const latest = await cloudTimeout(AwayCloud.loadEvent(store.cloud.eventId));
+      const latest = await cloudTimeout(AwayCloud.loadEvent(connection.eventId));
+      if(store.event!==updatingEvent || store.cloud!==connection)return false;
       const latestEvent = latest?.event?.event_data?.event,
         latestFinalTime = Date.parse(
           latestEvent?.finalUpdateAt || latestEvent?.lockedAt || "",
@@ -3334,6 +3341,7 @@
         sentPlan,
         store.event?.finalResults?.confirmedAt ? "complete" : store.event?.locked ? "locked" : "setup",
       );
+      if(store.event!==updatingEvent || store.cloud!==connection)return false;
       if(savedPlan?.saved_data?.event)store.event=GolfSafeCloud.merge(sentPlan.event,store.event,savedPlan.saved_data.event).data;
       store.cloud.courseCards = JSON.parse(JSON.stringify(cloudPayload().courses));
       if (store.event.locked)
@@ -5361,7 +5369,8 @@ Count-back if tied
     scrubRemovedPlayerCopies(ids,true);
     store.players=store.players.filter(p=>!ids.has(String(p.id)));
     store.playerLists=(store.playerLists||[]).filter(item=>item.demoBatch!==list.demoBatch);
-    for(const id of ids){delete store.deletedPlayerHistory?.[id];delete store.pairHistory?.[id];delete store.partnerHistory?.[id];}
+    for(const id of ids)delete store.deletedPlayerHistory?.[id];
+    for(const history of [store.pairHistory,store.partnerHistory])for(const key of Object.keys(history||{}))if(key.split("|").some(id=>ids.has(id)))delete history[key];
     return ids.size;
   }
   function renderPlayersAdmin() {
@@ -5380,7 +5389,7 @@ Count-back if tied
       act
         .map(
           (p) =>
-            `<div class="playerRow"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
+            `<div class="playerRow"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p.demoBatch ? "DEMO player · synthetic handicap" : p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="danger" data-pinactive="${p.id}">−</button></div></div>`,
         )
         .join("") +
       (ina.length
@@ -5388,7 +5397,7 @@ Count-back if tied
           ina
             .map(
               (p) =>
-                `<div class="playerRow inactive"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button><button class="danger" data-pinactive="${p.id}">Delete</button></div></div>`,
+                `<div class="playerRow inactive"><div><b>${playerIdentityHtml(p)}</b><small>${esc(p.demoBatch ? "DEMO player · synthetic handicap" : p?.noOfficialHandicap ? "No Official Handicap" : p.golfLink)}</small></div><div class="rowBtns"><button class="info" data-pinfo="${p.id}">i</button><button class="soft" data-preactivate="${p.id}">Reactivate</button><button class="danger" data-pinactive="${p.id}">Delete</button></div></div>`,
             )
             .join("")
         : "");
@@ -6808,6 +6817,95 @@ Count-back if tied
     W.event.startMethod = W.event.startMethods.day1;
     W.event.twoTeeStarts = Object.fromEntries(eventDays(W.event).map(day=>["day"+day,startHolesFor(W.event,day)]));
   }
+  function playerListSourceChoice(fromDatabase, back) {
+    $("#modalContent").innerHTML=`<h2>Create Player List</h2><p>Choose where the players will come from.</p><div class="rowBtns"><button class="primary" id="importPlayerListChoice">Import</button><button class="soft" id="databasePlayerListChoice">From Database</button></div><p class="hint">Import: paste names, GolfLink numbers and optional GA handicaps from Excel.<br>From Database: select players already saved in this app.</p><button class="soft" id="backPlayerListChoice">Back</button>`;
+    $("#importPlayerListChoice").onclick=()=>openSpreadsheetPlayerList(back);
+    $("#databasePlayerListChoice").onclick=fromDatabase;
+    $("#backPlayerListChoice").onclick=back;
+  }
+  function spreadsheetProfileSignature() {
+    return JSON.stringify(store.players.map(p=>[p.id,p.name,p.golfLink,p.ga,p.gaUpdatedAt,p.gaCategory,p.rosterActive,p.demoBatch]));
+  }
+  function openSpreadsheetPlayerList(back) {
+    const context=window.GES_PLANNER_CONTEXT;
+    $("#modalContent").innerHTML=`<h2>Import Player List</h2><label>Player List name<input id="spreadsheetListName" maxlength="60" placeholder="e.g. Oatlands field"></label><p>Copy spreadsheet cells, then paste below. Use <b>First Name · Last Name · GolfLink · GA</b>, or <b>Full Name · GolfLink · GA</b>. GA is optional. An optional final Category column accepts Men or Women. Headings are optional.</p><p class="hint">Use No Official Handicap in place of a GolfLink number and leave GA blank for that player. Keep GolfLink cells as Text to retain leading zeroes. A plus GA can be written -1.1 or +1.1.</p><label>New players without a category<select id="spreadsheetDefaultCategory"><option value="men">Men</option><option value="women">Women</option></select></label><label>Paste from Excel<textarea id="spreadsheetPlayerPaste" rows="9" placeholder="First Name&#9;Last Name&#9;GolfLink&#9;GA"></textarea></label><div class="rowBtns"><button class="soft" id="previewSpreadsheetPlayers">Preview Import</button><button class="primary" id="saveSpreadsheetPlayers" disabled>Save Player List</button><button class="soft" id="backSpreadsheetPlayers">Back</button></div><p id="spreadsheetImportFeedback" role="status"></p><div id="spreadsheetPlayerPreview" class="spreadsheetPreview"></div>`;
+    let plan=null,signature='',paste='',category='';
+    const reset=()=>{plan=null;$("#saveSpreadsheetPlayers").disabled=true;$("#spreadsheetPlayerPreview").innerHTML='';};
+    $("#spreadsheetPlayerPaste").oninput=reset;$("#spreadsheetDefaultCategory").onchange=reset;
+    $("#backSpreadsheetPlayers").onclick=back;
+    $("#previewSpreadsheetPlayers").onclick=()=>{
+      reset();try{
+        paste=$("#spreadsheetPlayerPaste").value;category=$("#spreadsheetDefaultCategory").value;
+        plan=GolfSpreadsheetImport.planRoster(GolfSpreadsheetImport.parseRoster(paste),store.players,category);
+        const additions=plan.filter(r=>!r.existingId||store.players.find(p=>String(p.id)===String(r.existingId))?.rosterActive===false).length;
+        const limit=Number(context?.group?.golfer_count);if(limit>0&&store.players.filter(p=>!p.system&&p.rosterActive!==false).length+additions>limit)throw Error(`This import would exceed the approved ${limit} active players. Request a larger allowance or make unused players inactive first.`);
+        signature=spreadsheetProfileSignature();
+        $("#spreadsheetPlayerPreview").innerHTML=`<table><thead><tr><th>Player</th><th>GolfLink</th><th>GA</th><th>Category</th><th>Action</th></tr></thead><tbody>${plan.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.golfLink||'No G/L Number')}</td><td>${r.ga===null?'Keep saved / blank':esc(formatGaHandicap(r.ga))}</td><td>${r.gaCategory==='women'?'Women':'Men'}</td><td>${esc(r.action)}</td></tr>`).join('')}</tbody></table>`;
+        $("#spreadsheetImportFeedback").textContent=`${plan.length} players ready: ${plan.filter(r=>!r.existingId).length} new. Matching saved profiles keep their IDs and contact details. Imported GA values update their saved GA; blank GA cells leave saved values unchanged. Check the categories before saving.`;
+        $("#saveSpreadsheetPlayers").disabled=false;
+      }catch(e){plan=null;$("#spreadsheetImportFeedback").textContent=e.message;}
+    };
+    $("#saveSpreadsheetPlayers").onclick=async()=>{
+      const button=$("#saveSpreadsheetPlayers"),feedback=$("#spreadsheetImportFeedback"),name=$("#spreadsheetListName").value.trim();if(!plan)return;
+      if(!name)return alert('Enter a name for the Player List.');if(store.playerLists.some(l=>String(l.name).trim().toLowerCase()===name.toLowerCase()))return alert('A Player List with that name already exists.');
+      if(context!==window.GES_PLANNER_CONTEXT || signature!==spreadsheetProfileSignature() || paste!==$("#spreadsheetPlayerPaste").value || category!==$("#spreadsheetDefaultCategory").value){reset();return alert('The player data changed. Preview the import again before saving.');}
+      button.disabled=true;$("#previewSpreadsheetPlayers").disabled=true;$("#backSpreadsheetPlayers").disabled=true;
+      const ids=[],previousPlayers=store.players,previousLists=store.playerLists;let completed=0;
+      try{
+        if(!AwayCloud.saveImportedPlayer)store.players=JSON.parse(JSON.stringify(store.players));
+        for(const row of plan){
+          feedback.textContent=`Saving player ${completed+1} of ${plan.length}…`;
+          if(context!==window.GES_PLANNER_CONTEXT)throw Error('The active organiser group changed. Reopen the player list in the correct group.');
+          const old=store.players.find(p=>String(p.id)===String(row.existingId)),pendingKey=row.golfLink?'gl:'+row.golfLink:'name:'+row.name.trim().toLowerCase();
+          let pending=null;
+          if(!old&&AwayCloud.saveImportedPlayer){
+            store.spreadsheetImportPending ||= {};pending=store.spreadsheetImportPending[pendingKey] ||= {id:window.crypto.randomUUID(),gaUpdatedAt:new Date().toISOString()};
+            if(writeLocalStore()===false)throw Error('The import identity could not be saved. Retry before continuing.');
+          }
+          const p={...(old||{}),id:old?.id||pending?.id||(window.crypto?.randomUUID?.()||uid()),name:row.name,firstName:row.firstName,lastName:row.lastName,golfLink:row.golfLink,noOfficialHandicap:row.noOfficialHandicap,gaCategory:row.gaCategory,rosterActive:true};
+          if(row.ga!==null){p.ga=row.ga;p.gaUpdatedAt=pending?.gaUpdatedAt||new Date().toISOString();}else if(!old){p.ga=null;delete p.gaUpdatedAt;}
+          if(AwayCloud.saveImportedPlayer){await AwayCloud.saveImportedPlayer(p);delete store.spreadsheetImportPending?.[pendingKey];}
+          if(old)Object.assign(old,p);else store.players.push(p);ids.push(String(p.id));completed++;
+          if(AwayCloud.saveImportedPlayer&&writeLocalStore()===false)throw Error('Players were saved online but this device could not save its copy. Reopen the group before continuing.');
+        }
+        store.playerLists=[...store.playerLists,{id:uid(),name,playerIds:ids,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}];
+        if(writeLocalStore()===false)throw Error('The named list could not be saved on this device.');
+        renderPlayersAdmin();if(feedback.isConnected!==false){back();alert(`${ids.length} players saved in ${name}. Load this list into Invited when ready.`);}
+      }catch(e){
+        if(!AwayCloud.saveImportedPlayer){store.players=previousPlayers;store.playerLists=previousLists;}
+        else store.playerLists=previousLists;
+        feedback.textContent=(AwayCloud.saveImportedPlayer&&completed?`${completed} player profiles saved online. `:'')+e.message+' Preview again to resume; matching profiles will be reused.';plan=null;
+      }finally{if($("#previewSpreadsheetPlayers"))$("#previewSpreadsheetPlayers").disabled=false;if($("#backSpreadsheetPlayers"))$("#backSpreadsheetPlayers").disabled=false;}
+    };
+  }
+  function spreadsheetGaCanChange(event) {
+    if(event.pastEventReadOnly||event.awardedResults?.finishedAt)return false;
+    const current=event===store.event || (event.workspaceId && String(event.workspaceId)===String(store.event?.workspaceId));
+    return !current || !eventDays(event).some(day=>firstDayScoreEntry(day));
+  }
+  function applySpreadsheetGa(event, changes) {
+    event.gaHandicaps ||= {};
+    for(const row of changes){
+      if(event.gaHandicaps[row.id]===row.ga)continue;event.gaHandicaps[row.id]=row.ga;
+      for(const values of Object.values(event.dailyHandicaps||{}))delete values[row.id];
+      for(const tees of Object.values(event.teeHandicaps||{}))for(const values of Object.values(tees||{}))delete values[row.id];
+      for(const tees of Object.values(event.teeHandicapSources||{}))for(const values of Object.values(tees||{}))delete values[row.id];
+    }
+    delete event.gaHandicapSetAt;
+  }
+  function openGaSpreadsheetImport(day, ids, back) {
+    const event=W.event;if(!spreadsheetGaCanChange(event))return alert('GA handicaps cannot be imported after scoring has started.');
+    const people=ids.map(id=>({...player(id),id:String(id),ga:eventGaHandicap(id,event)}));
+    $("#modalContent").innerHTML=`<h2>Paste GA Handicaps</h2><p>Paste <b>GolfLink + GA</b>, <b>Full Name + GA</b>, or <b>First Name + Last Name + GolfLink + GA</b>. These rows can be in any order.</p><p>Alternatively paste one GA column containing exactly ${people.length} rows, in the player order shown below. Keep blank cells for players without a GA. Blank values are left unchanged. Use -1.1 or +1.1 for a plus GA.</p><label>Paste from Excel<textarea id="gaSpreadsheetPaste" rows="8"></textarea></label><div class="rowBtns"><button class="soft" id="previewGaSpreadsheet">Preview GAs</button><button class="primary" id="applyGaSpreadsheet" disabled>Use these GAs</button><button class="soft" id="backGaSpreadsheet">Back to Handicaps</button></div><p id="gaSpreadsheetFeedback" role="status"></p><div id="gaSpreadsheetPreview" class="spreadsheetPreview"></div><details><summary>Player order for a GA-only column (${people.length})</summary><ol>${people.map(p=>`<li>${esc(playerIdentityLabel(p))}</li>`).join('')}</ol></details>`;
+    let plan=null,paste='';$("#backGaSpreadsheet").onclick=back;
+    $("#gaSpreadsheetPaste").oninput=()=>{plan=null;$("#applyGaSpreadsheet").disabled=true;};
+    $("#previewGaSpreadsheet").onclick=()=>{
+      plan=null;$("#applyGaSpreadsheet").disabled=true;
+      try{paste=$("#gaSpreadsheetPaste").value;plan=GolfSpreadsheetImport.planGa(paste,people);$("#gaSpreadsheetPreview").innerHTML=`<table><thead><tr><th>Player</th><th>Current GA</th><th>Imported GA</th></tr></thead><tbody>${plan.changes.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.oldGa===null||r.oldGa===''?'—':esc(formatGaHandicap(r.oldGa))}</td><td>${esc(formatGaHandicap(r.ga))}</td></tr>`).join('')}</tbody></table>`;$("#gaSpreadsheetFeedback").textContent=`${plan.changes.length} GAs ready.${plan.byOrder?' Matched by the displayed player order — check each name.':''} After applying, calculate and save the Men’s and Women’s tee handicaps as usual.`;$("#applyGaSpreadsheet").disabled=false;}catch(e){$("#gaSpreadsheetFeedback").textContent=e.message;}
+    };
+    $("#applyGaSpreadsheet").onclick=()=>{if(!plan||paste!==$("#gaSpreadsheetPaste").value)return;if(W.event!==event||!spreadsheetGaCanChange(event))return alert('The event changed or scoring has started. Reopen Handicaps before importing.');applySpreadsheetGa(event,plan.changes);back();};
+  }
+
   function openPlayerListManager(onClose = renderStep2) {
     store.playerLists = Array.isArray(store.playerLists) ? store.playerLists : [];
     const showManager = () => {
@@ -6816,7 +6914,7 @@ Count-back if tied
       );
       $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>REUSABLE INVITATION GROUPS</small><h2>Named Player Lists</h2><p>Create lists from the Master Player List and reuse them in future events.</p></div><div class="rowBtns"><button class="primary" id="newNamedPlayerList">+ Create Player List</button><button class="soft" id="createDemoPlayerList">Create DEMO - 50 players</button></div></div><div class="namedPlayerListCards">${lists.map((list) => `<article><div><b>${esc(list.name)}</b><small>${(list.playerIds || []).filter((id) => player(id)).length} players</small></div><div class="rowBtns"><button class="soft" data-editplayerlist="${esc(list.id)}">Edit</button><button class="danger" data-deleteplayerlist="${esc(list.id)}">${list.demoBatch ? "Delete DEMO list and players" : "Delete"}</button></div></article>`).join("") || '<p class="hint">No named lists have been created yet.</p>'}</div><div class="ownerAccountActions"><button class="soft" id="closePlayerLists">Done</button></div>`;
       $("#modalShade").classList.add("open");
-      $("#newNamedPlayerList").onclick = () => showEditor();
+      $("#newNamedPlayerList").onclick = () => playerListSourceChoice(()=>showEditor(),showManager);
       $("#createDemoPlayerList").onclick = () => {if(createDemoPlayerList())showManager();};
       $("#closePlayerLists").onclick = () => {
         $("#modalShade").classList.remove("open");
@@ -6842,7 +6940,7 @@ Count-back if tied
     const showEditor = (listId = "") => {
       const existing = store.playerLists.find((x) => String(x.id) === String(listId));
       const selected = new Set((existing?.playerIds || []).map(String));
-      const players = activePlayers();
+      const players = activePlayers().filter(p=>playerMatchesEventRoster(p,existing||{}));
       $("#modalContent").innerHTML = `<div class="playerListHead"><div><small>MASTER PLAYER LIST</small><h2>${existing ? "Edit Player List" : "Create Player List"}</h2><p>Name the list and tick every player to include.</p></div></div><label>Player List name<input id="namedPlayerListName" maxlength="60" value="${esc(existing?.name || "")}" placeholder="e.g. Volunteers' Ambrose"></label><div class="namedPlayerChecklist">${players.map((person) => `<label><input type="checkbox" data-listplayer="${esc(person.id)}" ${selected.has(String(person.id)) ? "checked" : ""}><span><b>${esc(demoPlayerLabel(person))}</b><small>${esc(person?.noOfficialHandicap ? "No Official Handicap" : person.golfLink || "")}</small></span></label>`).join("") || "<p>No active players are available.</p>"}</div><div class="ownerAccountActions"><button class="primary" id="saveNamedPlayerList">Save Player List</button><button class="soft" id="backToPlayerLists">Back</button></div>`;
       $("#namedPlayerListName").focus();
       $("#backToPlayerLists").onclick = showManager;
@@ -6879,7 +6977,7 @@ Count-back if tied
     if(W.event.locked || W.event.previewPublishedAt || W.event.finalUpdateCloudSentAt)return alert("Arrange shared positions before publishing the event.");
     const selected=[...W.invites].filter(([,status])=>["accepted","awaiting"].includes(status)).map(([id])=>String(id)).filter(id=>id!==NO_PARTNER_ID);
     if(!selected.length)return alert("Select the primary golfer for the shared position first.");
-    const profiles=store.players.filter(p=>!p.system), name=id=>profiles.find(p=>String(p.id)===String(id))?.name || "Player";
+    const profiles=store.players.filter(p=>!p.system&&playerMatchesEventRoster(p,W.event)), name=id=>profiles.find(p=>String(p.id)===String(id))?.name || "Player";
     $("#modalContent").innerHTML=`<h2>Shared Player Position</h2><p>Choose one position and assign its golfer for each day. Each golfer has a separate scorecard and handicap. Their aggregate scores and aggregate prize are shared.</p><label>Selected position<select id="sharedPrimary">${selected.map(id=>`<option value="${esc(id)}">${esc(name(id))}</option>`).join("")}</select></label><label>Primary golfer’s GA<input id="sharedPrimaryGa" type="number" min="-10" max="54" step="0.1"></label><label>Other golfer<select id="sharedOther"><option value="">Add a new golfer for this shared position</option>${profiles.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${p.rosterActive===false ? " (saved reserve player)" : ""}</option>`).join("")}</select></label><div id="sharedNewDetails"><label>First name<input id="sharedFirst" maxlength="80"></label><label>Last name<input id="sharedLast" maxlength="80"></label><label>Golf ID / GolfLink Number<select id="sharedIdChoice"><option value="insert">Insert</option><option value="none">No Official Handicap</option></select><input id="sharedRegistration" inputmode="numeric" maxlength="80"></label></div><label>Other golfer’s GA<input id="sharedOtherGa" type="number" min="-10" max="54" step="0.1"></label><label>Other golfer’s handicap category<select id="sharedCategory"><option value="men">Men</option><option value="women">Women</option></select></label><p>Use a negative GA for a plus handicap. Review GA & Tee Hcps after assigning the days.</p><div id="sharedDays"></div><button class="primary" id="saveSharedPosition">Save Shared Position</button> <button class="soft" id="removeSharedPosition">Remove Shared Arrangement</button> <button class="soft" id="closeSharedPosition">Close</button>`;
     $("#modalShade").classList.add("open");
     function drawDays(){
@@ -6901,7 +6999,7 @@ Count-back if tied
           primaryGa=Number($("#sharedPrimaryGa").value), otherGa=Number($("#sharedOtherGa").value),
           newPlayer=existing || {id:crypto.randomUUID(),firstName:$("#sharedFirst").value.trim(),lastName:$("#sharedLast").value.trim(),golfLink:$("#sharedRegistration").value.trim(),noOfficialHandicap:$("#sharedIdChoice").value==="none",rosterActive:!window.GES_PLANNER_CONTEXT};
         if($("#sharedPrimaryGa").value==="" || $("#sharedOtherGa").value==="" || ![primaryGa,otherGa].every(ga=>Number.isFinite(ga)&&ga>=-10&&ga<=54))throw Error("Enter both golfers’ GA Handicaps from plus 10 to 54.");
-        if(!existing){if(!newPlayer.firstName || !newPlayer.lastName)throw Error("Enter the other golfer’s first and last names.");if(!newPlayer.noOfficialHandicap && !/^[0-9]+$/.test(newPlayer.golfLink))throw Error("Enter a Golf ID / GolfLink Number or choose No Official Handicap.");newPlayer.name=newPlayer.firstName+" "+newPlayer.lastName;newPlayer.ga=otherGa;newPlayer.gaCategory=$("#sharedCategory").value;newPlayer.gaUpdatedAt=new Date().toISOString();}
+        if(!existing){if(!newPlayer.firstName || !newPlayer.lastName)throw Error("Enter the other golfer’s first and last names.");if(!newPlayer.noOfficialHandicap && !/^[0-9]+$/.test(newPlayer.golfLink))throw Error("Enter a Golf ID / GolfLink Number or choose No Official Handicap.");newPlayer.name=newPlayer.firstName+" "+newPlayer.lastName;if(W.event.demoBatch)newPlayer.demoBatch=W.event.demoBatch;newPlayer.ga=otherGa;newPlayer.gaCategory=$("#sharedCategory").value;newPlayer.gaUpdatedAt=new Date().toISOString();}
         const map=Object.fromEntries($$("[data-shareday]").map(el=>['day'+el.dataset.shareday,el.value==="primary" ? slot : String(newPlayer.id)]));
         const next=GolfSharedPositions.assign(W.event,slot,map,selected.filter(id=>id!==String(newPlayer.id)));
         if(!confirm(`Share this position between ${name(slot)} and ${newPlayer.name}?\n${eventDays(W.event).map(day=>`Day ${day}: ${map['day'+day]===slot ? name(slot) : newPlayer.name}`).join("\n")}\n\nTheir scores and aggregate prizes are shared. Groups and handicaps will need review.`))return;
@@ -6951,7 +7049,7 @@ Count-back if tied
     }
     function draw() {
       rememberScroll();
-      let normal = activePlayers().filter((p) =>
+      let normal = activePlayers().filter(p=>playerMatchesEventRoster(p,W.event)).filter((p) =>
         (p.name + " " + p.golfLink + " " + (p.nickname || "") + " " + (p.noOfficialHandicap ? "No Official Handicap" : "")).toLowerCase().includes(q),
       );
       let systemMatches =
@@ -7012,7 +7110,19 @@ Count-back if tied
         if (!list) return alert("Choose a named Player List first.");
         W.event.loadedPlayerLists ||= [];
         const loaded = {id:String(list.id),name:String(list.name)};
-        if(list.demoBatch){W.event.demoBatch=list.demoBatch;W.event.testMode=true;}
+        if(list.demoBatch){
+          if(!W.event.demoBatch && !W.newEvent && (W.event.previewPublishedAt || W.event.publishedAt || store.cloud?.eventId))return alert("Start a separate event for the DEMO list. A published genuine event cannot be converted into a DEMO event.");
+          const incompatible=[...W.invites.keys()].some(id=>!playerMatchesEventRoster(player(id)||{}, {demoBatch:list.demoBatch}));
+          if(incompatible && !confirm("Switch this draft to the DEMO list? Selected genuine players are removed from this draft only. Their master profiles and saved events are unchanged."))return;
+          if(incompatible){
+            W.invites.clear();W.event.loadedPlayerLists=[];W.event.dayAvailability={};
+            for(const key of ["confirmed","invited","invitationStatus","dayFields","sharedPositions","playerSubstitutions","gaHandicaps","gaCategories","teeHandicaps","teeHandicapSources","dailyHandicaps","proposedHandicaps","groupSetup","capTeams","scoring"])delete W.event[key];
+            W.event.scorecardsChecked=false;
+          }
+          W.event.demoBatch=list.demoBatch;W.event.demonstration=true;
+        } else if(W.event.demoBatch)return alert("Open a separate event to use a genuine player list. This draft is reserved for DEMO players.");
+        const rosterIssue=eventRosterIssue(W.event,[...W.invites.keys(),...(list.playerIds||[])]);
+        if(rosterIssue)return alert(rosterIssue);
         const existingIndex = W.event.loadedPlayerLists.findIndex(item=>String(item.id)===loaded.id);
         if(existingIndex<0)W.event.loadedPlayerLists.push(loaded);else W.event.loadedPlayerLists[existingIndex]=loaded;
         let added = 0;
@@ -7379,7 +7489,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       .join("");
     const availableTees=courseEventTees(day,W.event,activeCategory,c);
     const teeChoices=availableTees.map(tee=>`<label class="eventTeeChoice"><input type="checkbox" data-categorytee="${tee}" ${tees.includes(tee)?"checked":""}><span>${esc(eventTeeDisplayName(day,tee,W.event,activeCategory,c))}</span></label>`).join("");
-    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap and category. Calculate and save the selected Men's and Women's tee handicaps separately.</p></div><div class="handicapCategorySwitch"><b>Calculate Hcps</b><button type="button" class="${activeCategory==="men"?"primary":"soft"}" data-hcpcategory="men">Men</button><button type="button" class="${activeCategory==="women"?"primary":"soft"}" data-hcpcategory="women">Women</button></div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(australianDate(W.event.gaHandicapSetAt))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button><label class="handicapSort">Player order<select id="handicapPlayerOrder"><option value="surname">Surname A–Z</option><option value="first">First name A–Z</option><option value="selected">Selection order</option></select></label></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><section class="categoryTeePlanner"><div><h3>${activeCategory==="women"?"Women's":"Men's"} tee positions</h3><p>Choose ${activeCategory==="women"?"Women's":"Men's"} tee positions (Max 3)</p></div><div class="categoryTeeChoices">${teeChoices||"<span>No completed tee cards are available for this category.</span>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Handicaps — ${esc(c?.name || "Course")} · ${activeCategory==="women"?"Women":"Men"}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || `<p>No ${activeCategory==="women"?"women":"men"} are currently selected for this event.</p>`}</div></div><div class="rowBtns handicapEntryActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="primary" id="saveQuickHandicaps">Save ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
+    $("#modalContent").innerHTML = `<div class="handicapEntryHead"><div><h2>${day > 1 ? `Review Day ${day}` : "Set"} Event Handicaps — ${esc(c?.name || "Course")}</h2><p>Enter each player's GA Handicap and category. Calculate and save the selected Men's and Women's tee handicaps separately.</p></div><div class="handicapCategorySwitch"><b>Calculate Hcps</b><button type="button" class="${activeCategory==="men"?"primary":"soft"}" data-hcpcategory="men">Men</button><button type="button" class="${activeCategory==="women"?"primary":"soft"}" data-hcpcategory="women">Women</button></div></div><section class="eventGaEntry"><div class="eventGaHeading"><div><h3>GA Handicaps — fixed for this event</h3><small>${W.event.gaHandicapSetAt ? `Last calculated ${esc(australianDate(W.event.gaHandicapSetAt))}` : "Enter GA figures, including one decimal place."}</small></div></div><div class="eventGaActions"><button type="button" class="soft" id="changeAllGaCategories">Change All Men to Women</button><button type="button" class="soft" id="pasteGaSpreadsheet">Paste GA Handicaps</button><label class="handicapSort">Player order<select id="handicapPlayerOrder"><option value="surname">Surname A–Z</option><option value="first">First name A–Z</option><option value="selected">Selection order</option></select></label></div><div class="eventGaColumns"><span>Player</span><span>GA Handicap</span><span>Plus</span><span>Category</span></div><div class="eventGaList">${gaRows || "<p>No selected players yet.</p>"}</div></section><section class="categoryTeePlanner"><div><h3>${activeCategory==="women"?"Women's":"Men's"} tee positions</h3><p>Choose ${activeCategory==="women"?"Women's":"Men's"} tee positions (Max 3)</p></div><div class="categoryTeeChoices">${teeChoices||"<span>No completed tee cards are available for this category.</span>"}</div></section><h3 class="dailyHcpHeading">Day ${day} Handicaps — ${esc(c?.name || "Course")} · ${activeCategory==="women"?"Women":"Men"}</h3><div class="multiTeeHcpWrap"><div class="multiTeeHcpColumns"><span>Player</span>${teeHead}</div><div class="quickHandicapList">${rows || `<p>No ${activeCategory==="women"?"women":"men"} are currently selected for this event.</p>`}</div></div><div class="rowBtns handicapEntryActions"><button type="button" class="primary" id="calculateEventHandicaps">Calculate ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="primary" id="saveQuickHandicaps">Save ${activeCategory==="women"?"Women's":"Men's"} Hcps</button><button class="soft" id="closeQuickHandicaps">Cancel</button></div>`;
     const bulkCategoryButton = $("#changeAllGaCategories");
     if (bulkCategoryButton)
       bulkCategoryButton.textContent = activeCategory === "women"
@@ -7445,6 +7555,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           if (inp) storeGaValue(inp);
         }),
     );
+    if($("#pasteGaSpreadsheet"))$("#pasteGaSpreadsheet").onclick=()=>{gaInputs.forEach(storeGaValue);inputs.forEach(inp=>storeValue(inp,false));openGaSpreadsheetImport(day,handicapDisplayOrder(allIds),()=>openWizardHandicapEntry(day));};
     $("#handicapPlayerOrder").value = W.handicapPlayerOrder || "surname";
     $("#handicapPlayerOrder").onchange = (event) => {
       gaInputs.forEach(storeGaValue);
@@ -8279,6 +8390,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       {ok:cardsValid&&Boolean(event.scorecardsChecked),label:`Official Course Scorecards: ${cardsValid?(event.scorecardsChecked?"Confirmed":"Confirmation required"):"Course data needs correction"}`},
       ...days.map(day=>({ok:fieldForDay(day).length>=4&&fieldForDay(day).length!==5,label:`Day ${day} Field: ${fieldForDay(day).length} playing positions`})),
       ...days.map(day=>wizardHandicapCheck(day,event,fieldForDay(day))),
+      ...(()=>{const issue=eventRosterIssue(event,[...new Set(days.flatMap(fieldForDay))]);return issue?[{ok:false,label:issue}]:[];})(),
       ...dailyCompetitionChecks(event),
       ...(multi.length?[{ok:true,label:`Multi-day Competitions: ${multi.length}`}]:[]),
       ...((event.competitions||[]).includes("ntp")?competitionDays("ntp",event).map(day=>({ok:(event.ntpSelections?.["day"+day]||[]).length===ntpCount(day,event),label:`Day ${day} NTP: ${(event.ntpSelections?.["day"+day]||[]).map(h=>"Hole "+h).join(", ")||"Not selected"}`})):[]),
@@ -8307,6 +8419,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $("#startEventBig").onclick=()=>{if(allReady)finishEvent();};
   }
   function finishEvent() {
+    const rosterIssue=eventRosterIssue(W.event,[...new Set(eventDays(W.event).flatMap(wizardPlanningPlayers))]);
+    if(rosterIssue)return alert(rosterIssue);
     if (W.newEvent) captureCurrentEvent();
     let confirmed = [...W.invites]
       .filter((x) => x[1] === "accepted")
@@ -8391,7 +8505,23 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return [String(a), String(b)].sort().join("|");
   }
   function isTestEvent(event) {
-    return /^TEST\b/i.test(String(event?.name || "").trim());
+    if(!event)return false;
+    if(event.testMode || event.ridgeTestMode || event.demoBatch || event.demonstration)return true;
+    if(/\b(?:TEST|DEMO|DEMONSTRATION)\b/i.test(String(event.name||"")))return true;
+    const context=globalThis.window?.GES_PLANNER_CONTEXT;
+    if(context?.group?.is_test_customer && (event===store.event || (event.workspaceId && String(event.workspaceId)===String(context.selectedWorkspaceId||""))))return true;
+    const ids=[...(event.confirmed||[]),...Object.values(event.dayFields||{}).flat()];
+    return ids.some(id=>store.players?.some(p=>String(p.id)===String(id)&&p.demoBatch));
+  }
+  function eventRosterIssue(event, ids) {
+    const people=ids.map(id=>store.players.find(p=>String(p.id)===String(id))).filter(p=>p&&!p.system&&String(p.id)!==NO_PARTNER_ID);
+    const demos=people.filter(p=>p.demoBatch),batches=new Set(demos.map(p=>String(p.demoBatch)));
+    if(demos.length && (!event.demoBatch || demos.length!==people.length || batches.size>1))return "DEMO players and genuine players, or different DEMO batches, cannot share one event. Use a separate DEMO event.";
+    if(event.demoBatch && people.some(p=>String(p.demoBatch||"")!==String(event.demoBatch)))return "This DEMO event can use only its own DEMO player list. Start a separate event for genuine players.";
+    return "";
+  }
+  function playerMatchesEventRoster(person,event) {
+    return person.system || String(person.id)===NO_PARTNER_ID || (event.demoBatch ? String(person.demoBatch||"")===String(event.demoBatch) : !person.demoBatch);
   }
   function playedTogetherCount(a, b) {
     if (String(a) === NO_PARTNER_ID || String(b) === NO_PARTNER_ID) return 0;
@@ -8908,6 +9038,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
         !isTestEvent(event)
       )
         continue;
+      // A sign-off timestamp is not proof this event contributed to the counters.
+      const historyKey=String(event.publicationId || record.cloud?.eventId || event.cloudEventId || event.pastCloudEventId || event.workspaceId || event.id || "");
+      if(!historyKey || !store.completedHistoryReceipts?.[historyKey])continue;
       for (let day = 1; day <= (event.days || 1); day++) {
         const groups = event.groupSetup?.[`day${day}`]?.groups || [];
         for (const group of groups) {
@@ -8920,6 +9053,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
                 store.pairHistory,
                 pairKey(realPlayers[i], realPlayers[j]),
               );
+          if(!competitionIsOn("fourball",day,event))continue;
           for (const pair of [group.slice(0, 2), group.slice(2, 4)]) {
             if (
               pair.length === 2 &&
@@ -8931,6 +9065,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
           }
         }
       }
+      delete store.completedHistoryReceipts[historyKey];
       event.testHistoryExcludedAt = new Date().toISOString();
       changed = true;
     }
@@ -11526,7 +11661,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       { length: store.event.days },
       (_, i) => eventPlayerCategories(i+1,store.event).every(category=>enabledEventTeesForCategory(store.event,i+1,category).every(tee=>teeHandicapsComplete(i+1,tee,store.event,category))),
     ).every(Boolean);
-    const lockReady = allSaved && handicapsComplete;
+    const lockReady = allSaved && handicapsComplete && eventFinalChecks(store.event,dayFieldIds).every(check=>check.ok);
     const awaitingIds = ids.filter(
       (id) => store.event.invitationStatus?.[String(id)] === "awaiting",
     );

@@ -54,7 +54,7 @@ for (const role of ["player","organiser"]) {
 }
 // Repeated clicks cannot overlap creation; a durable operation ID survives retries.
 {
- let creates=0,durable=false,release;const c={store:{event:{name:'Synthetic',locked:true}},uid:()=> 'durable-publication',setCloudMessage(){},persistStore:()=>durable,writeLocalStore:()=>true,cloudPayload:()=>({event:c.store.event,courses:[]}),cloudPlayerRows:()=>[],
+ let creates=0,durable=false,release;const c={eventRosterIssue:()=>'',cloudPlayerIds:()=>[],store:{event:{name:'Synthetic',locked:true}},uid:()=> 'durable-publication',setCloudMessage(){},persistStore:()=>durable,writeLocalStore:()=>true,cloudPayload:()=>({event:c.store.event,courses:[]}),cloudPlayerRows:()=>[],
  AwayCloud:{createEvent:async()=>{creates++;await new Promise(r=>{release=r;});return {event_id:'same',join_code:'SAME01'};},updateEvent:async()=>({})},rememberOrganiserWorkspace:async()=>{},rememberPublishedEvent(){},watchCloudEvent(){},renderCloudPanel(){},alert(){}};
  vm.createContext(c);vm.runInContext('let publicationFlight=false;'+extract('publishCloudEvent'),c);
  assert.equal(await c.publishCloudEvent(),false);assert.equal(creates,0);assert.equal(c.store.event.publicationId,'durable-publication');durable=true;
