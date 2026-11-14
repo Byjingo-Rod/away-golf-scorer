@@ -20,9 +20,12 @@
   function parseRoster(text){
     const input=rows(text).filter(r=>r.cells.some(v=>v!==''));if(!input.length)throw Error('Paste the player rows first.');if(input.length>2001)throw Error('Paste no more than 2,000 players.');
     const columns=header(input[0].cells),hasHeader=columns.includes('golfLink')&&(columns.includes('name')||columns.includes('firstName'));
+    const starts=hasHeader?columns.map((v,i)=>v==='category'?i:-1).filter(i=>i>=0):[];
+    if(starts.length>1){return starts.flatMap((start,k)=>{const end=starts[k+1]??columns.length;const block=input.map(r=>r.cells.slice(start,end));return parseRoster(block.map(r=>r.map(v=>'\"'+v.replace(/\"/g,'\"\"')+'\"').join(',')).join('\n'));});}
     const list=input.slice(hasHeader?1:0).map(({cells:f,line})=>{
       try{
         let p={};if(hasHeader){if(f.length>columns.length)throw Error('More columns than the heading row.');columns.forEach((name,i)=>{if(name)p[name]=f[i]||'';});}
+        else if(/^(?:m|f|male|female|men|women)$/i.test(f[0])&&f.length===4){p={category:f[0],firstName:f[1],lastName:f[2],golfLink:f[3]};}
         else if(f.length>=3 && (/^\d+$/.test(f[1])||noOfficial(f[1]))){if(f.length>4)throw Error('Use Full Name, GolfLink, GA and optional Category.');p={name:f[0],golfLink:f[1],ga:f[2],category:f[3]};}
         else if(f.length>=3){if(f.length>5)throw Error('Use First Name, Last Name, GolfLink, optional GA and Category.');p={firstName:f[0],lastName:f[1],golfLink:f[2],ga:f[3],category:f[4]};}
         else if(f.length===2)p={name:f[0],golfLink:f[1]};else throw Error('Copy the name and GolfLink columns together.');

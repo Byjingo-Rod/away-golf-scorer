@@ -8,7 +8,7 @@
   "sourceParentCommit": "751e990f56ffb997374c9ec4362e5ad0f6973c2f",
   "sourceTreeHash": "fb08459d481c1730b015cd5d5c13a1782cc8d70fe010b8d2a242c01910141d20",
   "sharedSourceVersion": "15.95.48",
-  "productVersion": "15.97.32",
+  "productVersion": "15.97.33",
   "inputHashes": {
     "app.js": "cb33aec24e5de0740f325fac20c05768cf59039b3c293e9476083b0e09c64ee3",
     "assets/away-golf-mascot-finish.png": "a687ee88f01347c264f57ba6179b6d3dfe203fa8b3868e3035ba880bb6f74903",
@@ -87,5 +87,5 @@
     "atomicInvitationOperations": true,
     "organiserInstructions": true
   },
-  "releaseNotes": "Spreadsheet player-list and GA import; DEMO isolation and publication safeguards."
+  "releaseNotes": "M/F player identifiers and spreadsheet sex import; GA entry remains in event setup."
 }

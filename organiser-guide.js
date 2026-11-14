@@ -23,7 +23,7 @@
   ]],
   ['spreadsheet','Import players and GA handicaps from Excel',[
    'Open Create / Manage Player Lists → Create Player List → Import. From Database remains available for selecting saved players.',
-   'Copy First Name, Last Name, GolfLink and optional GA columns from Excel. Full Name, GolfLink and GA also work. Add a Category column containing Men or Women when needed. Keep GolfLink cells as Text to preserve leading zeroes.',
+   'Copy First Name, Last Name, GolfLink and optional GA columns from Excel. Full Name, GolfLink and GA also work. For M/F entry, copy Sex, First Name, Last Name and GolfLink with headings; M/F and Male/Female are recognised. Sex is shown in the player list and can be changed in Player Details. Enter GA separately using Paste GA Handicaps in event setup. Keep GolfLink cells as Text to preserve leading zeroes.',
    'For a player without an official handicap, enter No Official Handicap in the GolfLink column and leave GA blank. Set that player’s event estimate in Set GA & Tee Hcps.',
    'Name the list → Preview Import → check names, categories and matching saved players → Save Player List. Matching profiles retain their IDs and contact details. Load the saved list into Invited when ready.',
    'For an existing event, open Set GA & Tee Hcps → Paste GA Handicaps. Paste GolfLink + GA or Name + GA in any order. Alternatively paste one GA column in exactly the player order displayed; retain blank cells for players without a GA.',
