@@ -16,13 +16,13 @@
    'For an older event, open Past Events and use its named Finish Event action. If needed, confirm its final results online before finishing.'
   ]],
   ['prepare','Plan and check the event',[
-   'Check dates, players, courses, tee colours and scorecards.',
+   'Check dates, players, courses, tee colours and scorecards. Invite All adds available real players as awaiting reply; use All Green to record acceptance.',
    'Set each golfer’s GA or event estimate. Review Daily Handicaps for every enabled tee and day.',
    'Check each day’s competitions, putting days, NTP holes and jackpot. Set and save groups for every day.',
    'Save your draft as you go. Complete the final check, lock the event and send its final update before play.'
   ]],
   ['spreadsheet','Import players and GA handicaps from Excel',[
-   'Open Create / Manage Player Lists → Create Player List → Import. From Database remains available for selecting saved players.',
+   'Open Create / Manage Player Lists → Create Player List → Import. From Database remains available for selecting saved players. New Event offers Use existing players or Start with a new player list. Saving a fresh list moves earlier players to Inactive and keeps previous events and results.',
    'Copy First Name, Last Name, GolfLink and optional GA columns from Excel. Full Name, GolfLink and GA also work. For M/F entry, copy Sex, First Name, Last Name and GolfLink with headings; M/F and Male/Female are recognised. Sex is shown in the player list and can be changed in Player Details. Enter GA separately using Paste GA Handicaps in event setup. Keep GolfLink cells as Text to preserve leading zeroes.',
    'For a player without an official handicap, enter No Official Handicap in the GolfLink column and leave GA blank. Set that player’s event estimate in Set GA & Tee Hcps.',
    'Name the list → Preview Import → check names, categories and matching saved players → Save Player List. Matching profiles retain their IDs and contact details. Load the saved list into Invited when ready.',

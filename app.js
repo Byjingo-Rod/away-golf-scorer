@@ -4073,7 +4073,7 @@
     $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>These organiser events are saved on this device only. Changes made on another phone, tablet or PC do not remove this device's saved copies.</p></div><div class="myEventsHeadActions"><button class="primary" id="newEventFromWorkspace">+ New Event</button><button class="soft" id="closeMyEvents">Close</button></div></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div>`;
     $("#modalShade").classList.add("open");
     $("#closeMyEvents").onclick = () => $("#modalShade").classList.remove("open");
-    $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); openWizard(); };
+    $("#newEventFromWorkspace").onclick = () => { $("#modalShade").classList.remove("open"); chooseAwayNewEventPlayers(); };
     $$('[data-continueevent]').forEach((button) => button.onclick = () => continueWorkspaceEvent(button.dataset.continueevent));
     $$('[data-duplicateevent]').forEach((button) => button.onclick = () => duplicateWorkspaceEvent(button.dataset.duplicateevent));
     $$('[data-archiveevent]').forEach((button) => button.onclick = () => toggleWorkspaceArchive(button.dataset.archiveevent));
@@ -6213,6 +6213,14 @@ Count-back if tied
     "NTP setup",
     "Review and Move to Scoring",
   ];
+  function chooseAwayNewEventPlayers() {
+    if(isGuestOrganiser())return alert("Guest Organiser access cannot create another event.");
+    $("#modalContent").innerHTML=`<h2>Players for this new event</h2><p>Use your saved group for regular events, or start a fresh list for a different group of players.</p><div class="rowBtns"><button type="button" class="primary" id="awayKeepPlayerList">Use existing players</button><button type="button" class="soft" id="awayNewPlayerList">Start with a new player list</button></div><p class="hint">A new list keeps earlier players inactive and preserves previous events and results. The current list changes only when you save the replacement.</p><button type="button" class="soft" id="awayCancelNewPlayers">Cancel</button>`;
+    $("#modalShade").classList.add("open");
+    $("#awayKeepPlayerList").onclick=()=>{$("#modalShade").classList.remove("open");openWizard();};
+    $("#awayNewPlayerList").onclick=()=>openSpreadsheetPlayerList(chooseAwayNewEventPlayers,{replaceActive:true,onSaved:()=>{$("#modalShade").classList.remove("open");openWizard();}});
+    $("#awayCancelNewPlayers").onclick=()=>{$("#modalShade").classList.remove("open");};
+  }
   function openWizard() {
     if (isGuestOrganiser()) return alert("Guest Organiser access cannot create another event.");
     W = {
@@ -6287,7 +6295,7 @@ Count-back if tied
     nav("homePage");
     renderWizard();
   }
-  $("#newEvent").onclick = openWizard;
+  $("#newEvent").onclick = chooseAwayNewEventPlayers;
   $("#cancelWizard").onclick = () => $("#wizardShade").classList.remove("open");
   $("#backWizard").onclick = () => {
     if (W.step > 1) {
@@ -6826,9 +6834,9 @@ Count-back if tied
   function spreadsheetProfileSignature() {
     return JSON.stringify(store.players.map(p=>[p.id,p.name,p.golfLink,p.ga,p.gaUpdatedAt,p.gaCategory,p.rosterActive,p.demoBatch]));
   }
-  function openSpreadsheetPlayerList(back) {
+  function openSpreadsheetPlayerList(back, options = {}) {
     const context=window.GES_PLANNER_CONTEXT;
-    $("#modalContent").innerHTML=`<h2>Import Player List</h2><label>Player List name<input id="spreadsheetListName" maxlength="60" placeholder="e.g. Oatlands field"></label><p>Copy spreadsheet cells, then paste below. Use <b>First Name · Last Name · GolfLink · GA</b>, or <b>Full Name · GolfLink · GA</b>. GA is optional. An optional final Category column accepts Men or Women. Headings are optional.</p><p class="hint">Use No Official Handicap in place of a GolfLink number and leave GA blank for that player. Keep GolfLink cells as Text to retain leading zeroes. A plus GA can be written -1.1 or +1.1.</p><label>New players without a category<select id="spreadsheetDefaultCategory"><option value="men">Men</option><option value="women">Women</option></select></label><label>Paste from Excel<textarea id="spreadsheetPlayerPaste" rows="9" placeholder="First Name&#9;Last Name&#9;GolfLink&#9;GA"></textarea></label><div class="rowBtns"><button class="soft" id="previewSpreadsheetPlayers">Preview Import</button><button class="primary" id="saveSpreadsheetPlayers" disabled>Save Player List</button><button class="soft" id="backSpreadsheetPlayers">Back</button></div><p id="spreadsheetImportFeedback" role="status"></p><div id="spreadsheetPlayerPreview" class="spreadsheetPreview"></div>`;
+    $("#modalContent").innerHTML=`<h2>${options.replaceActive?"New Player List":"Import Player List"}</h2>${options.replaceActive?'<p>Paste the new event’s players below. Saving makes them active and moves earlier players to Inactive. Previous events, results and player profiles are retained. Nothing changes until you save.</p>':""}<label>Player List name<input id="spreadsheetListName" maxlength="60" placeholder="e.g. Oatlands field"></label><p>Copy spreadsheet cells, then paste below. ${options.replaceActive?"Use Sex, First Name, Last Name and GolfLink with headings. M/F and Male/Female are recognised. Enter GA separately in event setup.":"Use <b>First Name · Last Name · GolfLink · GA</b>, or <b>Full Name · GolfLink · GA</b>. GA is optional. An optional final Category column accepts Men or Women. Headings are optional."}</p><p class="hint">Use No Official Handicap in place of a GolfLink number and leave GA blank for that player. Keep GolfLink cells as Text to retain leading zeroes. A plus GA can be written -1.1 or +1.1.</p><label>New players without a category<select id="spreadsheetDefaultCategory"><option value="men">Men</option><option value="women">Women</option></select></label><label>Paste from Excel<textarea id="spreadsheetPlayerPaste" rows="9" placeholder="First Name&#9;Last Name&#9;GolfLink&#9;GA"></textarea></label><div class="rowBtns"><button class="soft" id="previewSpreadsheetPlayers">Preview Import</button><button class="primary" id="saveSpreadsheetPlayers" disabled>Save Player List</button><button class="soft" id="backSpreadsheetPlayers">Back</button></div><p id="spreadsheetImportFeedback" role="status"></p><div id="spreadsheetPlayerPreview" class="spreadsheetPreview"></div>`;
     let plan=null,signature='',paste='',category='';
     const reset=()=>{plan=null;$("#saveSpreadsheetPlayers").disabled=true;$("#spreadsheetPlayerPreview").innerHTML='';};
     $("#spreadsheetPlayerPaste").oninput=reset;$("#spreadsheetDefaultCategory").onchange=reset;
@@ -6836,12 +6844,13 @@ Count-back if tied
     $("#previewSpreadsheetPlayers").onclick=()=>{
       reset();try{
         paste=$("#spreadsheetPlayerPaste").value;category=$("#spreadsheetDefaultCategory").value;
-        plan=GolfSpreadsheetImport.planRoster(GolfSpreadsheetImport.parseRoster(paste),store.players,category);
+        const imported=GolfSpreadsheetImport.parseRoster(paste,{identityOnly:options.replaceActive===true});
+        plan=GolfSpreadsheetImport.planRoster(imported,store.players,category);
         const additions=plan.filter(r=>!r.existingId||store.players.find(p=>String(p.id)===String(r.existingId))?.rosterActive===false).length;
-        const limit=Number(context?.group?.golfer_count);if(limit>0&&store.players.filter(p=>!p.system&&p.rosterActive!==false).length+additions>limit)throw Error(`This import would exceed the approved ${limit} active players. Request a larger allowance or make unused players inactive first.`);
+        const limit=Number(context?.group?.golfer_count);if(!options.replaceActive&&limit>0&&store.players.filter(p=>!p.system&&p.rosterActive!==false).length+additions>limit)throw Error(`This import would exceed the approved ${limit} active players. Request a larger allowance or make unused players inactive first.`);
         signature=spreadsheetProfileSignature();
         $("#spreadsheetPlayerPreview").innerHTML=`<table><thead><tr><th>Player</th><th>GolfLink</th><th>GA</th><th>Category</th><th>Action</th></tr></thead><tbody>${plan.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(r.golfLink||'No G/L Number')}</td><td>${r.ga===null?'Keep saved / blank':esc(formatGaHandicap(r.ga))}</td><td>${r.gaCategory==='women'?'Women':'Men'}</td><td>${esc(r.action)}</td></tr>`).join('')}</tbody></table>`;
-        $("#spreadsheetImportFeedback").textContent=`${plan.length} players ready: ${plan.filter(r=>!r.existingId).length} new. Matching saved profiles keep their IDs and contact details. Imported GA values update their saved GA; blank GA cells leave saved values unchanged. Check the categories before saving.`;
+        $("#spreadsheetImportFeedback").textContent=`${plan.length} players ready: ${plan.filter(r=>!r.existingId).length} new. Matching saved profiles keep their IDs and contact details. ${options.replaceActive?"GA entry stays in event setup; saved GA values are retained.":"Imported GA values update their saved GA; blank GA cells leave saved values unchanged."} Check the categories before saving.`;
         $("#saveSpreadsheetPlayers").disabled=false;
       }catch(e){plan=null;$("#spreadsheetImportFeedback").textContent=e.message;}
     };
@@ -6852,7 +6861,9 @@ Count-back if tied
       button.disabled=true;$("#previewSpreadsheetPlayers").disabled=true;$("#backSpreadsheetPlayers").disabled=true;
       const ids=[],previousPlayers=store.players,previousLists=store.playerLists;let completed=0;
       try{
+        if(options.replaceActive&&AwayCloud.saveImportedPlayer)throw Error("Use the online group’s new player-list page for this operation.");
         if(!AwayCloud.saveImportedPlayer)store.players=JSON.parse(JSON.stringify(store.players));
+        if(options.replaceActive)store.players.forEach(p=>{if(!p.system&&String(p.id)!==NO_PARTNER_ID)p.rosterActive=false;});
         for(const row of plan){
           feedback.textContent=`Saving player ${completed+1} of ${plan.length}…`;
           if(context!==window.GES_PLANNER_CONTEXT)throw Error('The active organiser group changed. Reopen the player list in the correct group.');
@@ -6870,7 +6881,7 @@ Count-back if tied
         }
         store.playerLists=[...store.playerLists,{id:uid(),name,playerIds:ids,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}];
         if(writeLocalStore()===false)throw Error('The named list could not be saved on this device.');
-        renderPlayersAdmin();if(feedback.isConnected!==false){back();alert(`${ids.length} players saved in ${name}. Load this list into Invited when ready.`);}
+        renderPlayersAdmin();if(feedback.isConnected!==false){(options.onSaved||back)();alert(options.replaceActive?`${ids.length} active players saved in ${name}. Earlier profiles and events are retained. Use Invite All when the event field is ready.`:`${ids.length} players saved in ${name}. Load this list into Invited when ready.`);}
       }catch(e){
         if(!AwayCloud.saveImportedPlayer){store.players=previousPlayers;store.playerLists=previousLists;}
         else store.playerLists=previousLists;
@@ -7017,6 +7028,14 @@ Count-back if tied
     if(!W.newEvent && store.event?.workspaceId===W.event.workspaceId){store.event.groupSetup={};delete store.event.capTeams;}
     saveWizardDraft();
   }
+  function inviteAllWizardPlayers() {
+    const candidates=activePlayers().filter(p=>!p.system&&String(p.id)!==NO_PARTNER_ID&&playerMatchesEventRoster(p,W.event)&&sharedPositionId(p.id,W.event)===String(p.id)&&!W.invites.has(String(p.id)));
+    const selected=[...W.invites].filter(([,status])=>status!=="declined").length;
+    if(selected+candidates.length>Number(W.event.fieldSize))return alert(`Inviting everyone would select ${selected+candidates.length} players for a field of ${W.event.fieldSize}. Increase the field size or invite the required players individually.`);
+    const issue=eventRosterIssue(W.event,[...W.invites.keys(),...candidates.map(p=>p.id)]);if(issue)return alert(issue);
+    candidates.forEach(p=>W.invites.set(String(p.id),"awaiting"));
+    return candidates.length;
+  }
   function renderStep2() {
     let q = "";
     let keepSearchFocus = $("#wpSearch") === document.activeElement;
@@ -7083,8 +7102,9 @@ Count-back if tied
         `<div class="pageHead"><div><h3>Choose players</h3><p class="hint">Invite golfers, record their response and build the confirmed field.</p></div><div class="card targetCard"><b>${W.event.fieldSize}</b><small>TARGET FIELD</small></div></div>
   <div class="playerTools"><input id="wpSearch" placeholder="Search by name or GolfLink number"><div class="rowBtns"><button class="soft" id="wizardManagePlayers">Manage Player List</button><button class="soft" data-setcoursehcp="1">Set GA & Tee Hcps</button>${eventDays(W.event).filter(day => day>1).map(day => `<button class="soft" data-setcoursehcp="${day}">Review Day ${day} Calculations</button>`).join("")}<button class="primary" id="wizardAddPlayer">+ Add Player</button>${W.event.days>1 ? `<button class="soft" id="planSharedPosition">Share this position across days</button>` : ""}</div></div>
   <div class="savedPlayerListTools"><label>Available Player Lists<select id="availablePlayerList"><option value="">Choose a named list</option>${[...store.playerLists].sort((a, b) => String(a.name).localeCompare(String(b.name))).map((list) => `<option value="${esc(list.id)}">${esc(list.name)} (${(list.playerIds || []).filter((id) => player(id)).length})</option>`).join("")}</select></label><button class="primary" id="loadPlayerList" ${store.playerLists.length ? "" : "disabled"}>Load List into Invited</button><button class="soft" id="manageNamedPlayerLists">Create / Manage Player Lists</button></div>
-  <div class="playerSelectionHeader"><div class="trafficLegend"><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div><div class="loadedPlayerListBadge"><small>${esc(loadedList.label)}</small><b>${loadedList.names.length ? loadedList.names.map(esc).join(" + ") : "No named list loaded"}</b></div></div>
+  <div class="playerSelectionHeader"><div class="inviteAllControl"><button type="button" class="primary" id="wizardInviteAll" ${activePlayers().some(p=>!p.system&&String(p.id)!==NO_PARTNER_ID&&playerMatchesEventRoster(p,W.event)&&sharedPositionId(p.id,W.event)===String(p.id)&&!W.invites.has(String(p.id)))?"":"disabled"}>Invite All</button></div><div class="trafficLegend"><span><i class="legendDot wait"></i>Awaiting reply</span><span><i class="legendDot accept"></i>Accepted</span><span><i class="legendDot decline"></i>Declined</span>${W.event.days > 1 ? `<span class="availabilityLegend">For accepted players, tick the day(s) they are playing.</span>` : ""}</div><div class="loadedPlayerListBadge"><small>${esc(loadedList.label)}</small><b>${loadedList.names.length ? loadedList.names.map(esc).join(" + ") : "No named list loaded"}</b></div></div>
   <div class="threeCols"><div class="col"><h3>Available Players <span>${available.length}</span></h3><div id="av"></div></div><div class="col"><h3 class="inviteHeading">Invited <span>${invited.length}</span>${invited.some((p) => W.invites.get(String(p.id)) === "awaiting") ? '<button type="button" class="allGreenBtn" id="wizardAllGreen">✓ All Green</button>' : ""}</h3><div id="inv"></div></div><div class="col"><h3>Confirmed Field <span>${confirmed.length}</span></h3><div id="conf"></div></div></div><div class="status">${status}</div>`;
+      $("#wizardInviteAll").onclick=()=>{if(inviteAllWizardPlayers()!==undefined){q="";draw();}};
       $("#availablePlayerList").value = loadedList.id;
       $("#wpSearch").value = q;
       if (keepSearchFocus) {
@@ -7127,7 +7147,7 @@ Count-back if tied
         if(existingIndex<0)W.event.loadedPlayerLists.push(loaded);else W.event.loadedPlayerLists[existingIndex]=loaded;
         let added = 0;
         for (const id of list.playerIds || []) {
-          if (!player(id) || W.invites.has(String(id))) continue;
+          if (!player(id) || player(id).rosterActive===false || W.invites.has(String(id))) continue;
           W.invites.set(String(id), "awaiting");
           added++;
         }
@@ -11583,7 +11603,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (!store.event) {
       if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = "Groups and Teams";
       host.innerHTML = `<div class="card"><h3>No event plan is ready yet.</h3><p>Create and save an event plan first.</p><button class="primary" id="teamsNewEvent">Create New Event</button></div>`;
-      if ($("#teamsNewEvent")) $("#teamsNewEvent").onclick = openWizard;
+      if ($("#teamsNewEvent")) $("#teamsNewEvent").onclick = chooseAwayNewEventPlayers;
       return;
     }
     initialiseGroups();

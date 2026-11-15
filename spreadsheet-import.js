@@ -17,11 +17,11 @@
   const header=values=>values.map(v=>aliases[key(v).replace(/[^a-z]/g,'')]||'');
   const noOfficial=v=>/^(?:no official handicap|no g\/?l(?: number| no)?|no golflink(?: number)?|none)$/i.test(String(v).trim());
   function category(value){if(!String(value??'').trim())return '';if(/^(?:m|male|men|man)$/i.test(value))return 'men';if(/^(?:f|female|women|woman)$/i.test(value))return 'women';throw Error('Category must be Men or Women.');}
-  function parseRoster(text){
+  function parseRoster(text,options={}){
     const input=rows(text).filter(r=>r.cells.some(v=>v!==''));if(!input.length)throw Error('Paste the player rows first.');if(input.length>2001)throw Error('Paste no more than 2,000 players.');
     const columns=header(input[0].cells),hasHeader=columns.includes('golfLink')&&(columns.includes('name')||columns.includes('firstName'));
     const starts=hasHeader?columns.map((v,i)=>v==='category'?i:-1).filter(i=>i>=0):[];
-    if(starts.length>1){return starts.flatMap((start,k)=>{const end=starts[k+1]??columns.length;const block=input.map(r=>r.cells.slice(start,end));return parseRoster(block.map(r=>r.map(v=>'\"'+v.replace(/\"/g,'\"\"')+'\"').join(',')).join('\n'));});}
+    if(starts.length>1){return starts.flatMap((start,k)=>{const end=starts[k+1]??columns.length;const block=input.map(r=>r.cells.slice(start,end));return parseRoster(block.map(r=>r.map(v=>'\"'+v.replace(/\"/g,'\"\"')+'\"').join(',')).join('\n'),options);});}
     const list=input.slice(hasHeader?1:0).map(({cells:f,line})=>{
       try{
         let p={};if(hasHeader){if(f.length>columns.length)throw Error('More columns than the heading row.');columns.forEach((name,i)=>{if(name)p[name]=f[i]||'';});}
@@ -32,7 +32,7 @@
         if(p.name){const parts=p.name.trim().split(/\s+/);p.firstName=parts.slice(0,-1).join(' ');p.lastName=parts.at(-1);}
         p.firstName=String(p.firstName||'').trim();p.lastName=String(p.lastName||'').trim();if(!p.firstName||!p.lastName||p.firstName.length+p.lastName.length>119)throw Error('Enter a first name and last name (up to 120 characters together).');
         p.name=p.firstName+' '+p.lastName;p.noOfficialHandicap=noOfficial(p.golfLink);p.golfLink=p.noOfficialHandicap?'':String(p.golfLink||'').trim();if(!p.noOfficialHandicap&&!/^\d{1,80}$/.test(p.golfLink))throw Error('GolfLink must contain digits, or No Official Handicap. Keep the spreadsheet column as Text to preserve leading zeroes.');
-        p.ga=parseGa(p.ga);if(p.noOfficialHandicap&&p.ga!==null)throw Error('Leave GA blank for No Official Handicap; set the event estimate in Set GA & Tee Hcps.');p.gaCategory=category(p.category);return {...p,line};
+        p.ga=options.identityOnly?null:parseGa(p.ga);if(p.noOfficialHandicap&&p.ga!==null)throw Error('Leave GA blank for No Official Handicap; set the event estimate in Set GA & Tee Hcps.');p.gaCategory=category(p.category);return {...p,line};
       }catch(e){throw Error('Line '+line+': '+e.message);}
     });if(!list.length)throw Error('No player rows were found below the headings.');return list;
   }

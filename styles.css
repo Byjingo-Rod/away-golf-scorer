@@ -7219,3 +7219,8 @@ body.playerDevice .cloudHeader {
 
 /* Spreadsheet imports keep long fields scrollable on organiser screens. */
 .spreadsheetPreview{max-height:42vh;overflow:auto;margin:12px 0}.spreadsheetPreview table{width:100%;border-collapse:collapse}.spreadsheetPreview th,.spreadsheetPreview td{padding:8px;text-align:left;border-bottom:1px solid #d7e3df}.spreadsheetPreview th{position:sticky;top:0;background:#f0f6f3}.spreadsheetPreview td{font-size:14px}#spreadsheetPlayerPaste,#gaSpreadsheetPaste{width:100%;box-sizing:border-box;font-family:monospace;white-space:pre;overflow:auto}
+
+/* Align invitation actions and the legend with their player columns. */
+.playerSelectionHeader{grid-template-columns:1.05fr 1fr 1fr;align-items:stretch}.inviteAllControl{display:flex;align-items:center}.inviteAllControl button{min-height:40px}.playerSelectionHeader .trafficLegend{font-size:11px;gap:6px;padding:6px;align-content:center}.playerSelectionHeader .loadedPlayerListBadge{padding:6px 9px}.playerSelectionHeader .loadedPlayerListBadge b{font-size:13px}@media(max-width:600px){.playerSelectionHeader{grid-template-columns:1fr}.inviteAllControl button{width:100%}}
+
+.corporateRosterLink{display:inline-flex;align-items:center;padding:10px 14px;border-radius:8px;text-decoration:none;border:1px solid #a9bed6}
