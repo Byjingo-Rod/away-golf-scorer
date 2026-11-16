@@ -57,23 +57,38 @@
   function planGa(text,orderedPlayers){
     const input=rows(text);if(!input.some(r=>r.cells.some(Boolean)))throw Error('Paste the GA rows first.');const columns=header(input[0].cells),hasHeader=columns.includes('ga');
     const values=input.slice(hasHeader?1:0),oneColumn=values.every(r=>r.cells.length===1),seen=new Set();
+    const golfKey=v=>String(v??'').trim().replace(/^(\d+)\.0+$/,'$1'),isGolf=v=>/^\d+(?:\.0+)?$/.test(String(v??'').trim());
     if(oneColumn&&values.length!==orderedPlayers.length)throw Error('A GA-only column needs exactly '+orderedPlayers.length+' rows in the displayed player order. Include blank cells for players without a GA, or paste names/GolfLink numbers with the GAs.');
-    const changes=[];
+    const changes=[],skipped=[];
     values.forEach(({cells:f,line},i)=>{
       try{
-        if(!oneColumn&&!f.some(Boolean))return;let ga,match;
-        if(oneColumn){match=orderedPlayers[i];ga=parseGa(f[0]);}
+        if(!oneColumn&&!f.some(Boolean))return;let gaValue,match;
+        if(oneColumn){match=orderedPlayers[i];gaValue=f[0];}
         else{
-          let identity='',golfLink='',name='';if(hasHeader){const obj={};columns.forEach((k,j)=>obj[k]=f[j]||'');ga=parseGa(obj.ga);golfLink=obj.golfLink;name=obj.name||[obj.firstName,obj.lastName].filter(Boolean).join(' ');}
-          else{if(f.length===2){identity=f[0];ga=parseGa(f[1]);}else if(f.length===3){if(/^\d+$/.test(f[1])){name=f[0];golfLink=f[1];}else name=f[0]+' '+f[1];ga=parseGa(f[2]);}else if(f.length===4){name=f[0]+' '+f[1];golfLink=f[2];ga=parseGa(f[3]);}else throw Error('Use GolfLink + GA, Full Name + GA, or First Name + Last Name + GolfLink + GA.');}
-          if(ga===null)return;if(identity){if(/^\d+$/.test(identity))golfLink=identity;else name=identity;}
+          let identity='',golfLink='',name='';
+          if(hasHeader){const obj={};columns.forEach((k,j)=>{if(k)obj[k]=f[j]||'';});gaValue=obj.ga;golfLink=obj.golfLink;name=obj.name||[obj.firstName,obj.lastName].filter(Boolean).join(' ');}
+          else{
+            if(f.length===2){identity=f[0];gaValue=f[1];}
+            else if(f.length===3){if(isGolf(f[1])||noOfficial(f[1])){name=f[0];golfLink=f[1];}else name=f[0]+' '+f[1];gaValue=f[2];}
+            else if(f.length===4){name=f[0]+' '+f[1];golfLink=f[2];gaValue=f[3];}
+            else throw Error('Use GolfLink + GA, Full Name + GA, or First Name + Last Name + GolfLink + GA.');
+          }
+          if(noOfficial(identity)||noOfficial(golfLink)){skipped.push({line,name:name||'No Official Handicap'});return;}
+          if(!String(gaValue??'').trim())return;
+          if(identity){if(isGolf(identity))golfLink=identity;else name=identity;}
+          golfLink=golfKey(golfLink);
           if(!golfLink&&!name)throw Error('A name or GolfLink number is required.');
-          const matches=orderedPlayers.filter(p=>golfLink?String(p.golfLink||'').trim()===String(golfLink).trim():key(p.name)===key(name));
-          if(matches.length!==1)throw Error(matches.length?'Name is ambiguous. Include GolfLink numbers or middle initials.':'No selected player matches '+(golfLink||name)+'.');match=matches[0];if(golfLink&&name&&key(name)!==key(match.name))throw Error('GolfLink and name identify different players.');
+          const matches=orderedPlayers.filter(p=>golfLink?golfKey(p.golfLink)===golfLink:key(p.name)===key(name));
+          if(matches.length!==1)throw Error(matches.length?'Name is ambiguous. Include GolfLink numbers or middle initials.':'No selected player matches '+(golfLink||name)+'.');
+          match=matches[0];if(golfLink&&name&&key(name)!==key(match.name))throw Error('GolfLink and name identify different players.');
         }
-        if(ga===null)return;if(match.noOfficialHandicap)throw Error(match.name+' needs an event handicap estimate; leave this GA blank.');if(seen.has(String(match.id)))throw Error('This player appears twice.');seen.add(String(match.id));changes.push({id:String(match.id),name:match.name,ga,oldGa:match.ga??null});
+        if(match.noOfficialHandicap){skipped.push({line,name:match.name});return;}
+        const ga=parseGa(gaValue);if(ga===null)return;
+        if(seen.has(String(match.id)))throw Error('This player appears twice.');seen.add(String(match.id));changes.push({id:String(match.id),name:match.name,ga,oldGa:match.ga??null});
       }catch(e){throw Error('Line '+line+': '+e.message);}
-    });if(!changes.length)throw Error('No GA values were found to update.');return {changes,byOrder:oneColumn};
+    });
+    if(!changes.length)throw Error(skipped.length?'No official GAs to update. No Official Handicap players need an event handicap estimate; use the estimate controls in Handicaps.':'No GA values were found to update.');
+    return {changes,byOrder:oneColumn,skipped};
   }
   const api={cells,parseGa,parseRoster,planRoster,planGa};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.GolfSpreadsheetImport=api;
 })(typeof window!=='undefined'?window:globalThis);

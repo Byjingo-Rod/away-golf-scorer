@@ -22,3 +22,20 @@ console.log('Spreadsheet imports: Excel/CSV, optional GAs/category, plus signs, 
 
 assert.equal(require('../spreadsheet-import.js').parseRoster('F\tTest\tWoman\t0002')[0].gaCategory,'women');
 assert.deepEqual(require('../spreadsheet-import.js').parseRoster('Sex\tFirst Name\tLast Name\tGolfLink No\t\tSex\tFirst Name\tLast Name\tGolfLink No\nM\tTest\tMan\t001\t\tF\tTest\tWoman\t002').map(p=>p.gaCategory),['men','women']);
+
+// Mixed official/nonofficial Excel GA import must preserve estimates and row identity.
+const mixed=Array.from({length:50},(_,i)=>({id:'mixed'+i,name:'Test Member'+i,golfLink:'001180'+String(i).padStart(4,'0'),noOfficialHandicap:i===23||i===43,ga:10}));
+const mixedBefore=JSON.stringify(mixed);
+function gaRows(players){return players.map(p=>(p.noOfficialHandicap?'No Official Handicap':p.golfLink+(p.id==='mixed42'?'.0':''))+'\t'+(p.noOfficialHandicap?'30.5':'19.7')).join('\n');}
+const menPlan=api.planGa(gaRows(mixed.slice(0,41)),mixed);assert.equal(menPlan.changes.length,40);assert.equal(menPlan.skipped.length,1);assert.equal(menPlan.skipped[0].line,24);
+const womenPlan=api.planGa(gaRows(mixed.slice(41)),mixed);assert.equal(womenPlan.changes.length,8);assert.equal(womenPlan.skipped.length,1);
+const mixedPlan=api.planGa('GolfLink No\tG/A\n'+gaRows(mixed),mixed);assert.equal(mixedPlan.changes.length,48);assert.equal(mixedPlan.skipped.length,2);assert.equal(mixedPlan.changes.find(r=>r.id==='mixed42').ga,19.7);
+const orderedPlan=api.planGa(mixed.map(()=> '18.5').join('\n'),mixed);assert.equal(orderedPlan.changes.length,48);assert.equal(orderedPlan.changes[23].id,'mixed24');assert.equal(orderedPlan.skipped.length,2);
+assert.equal(api.planGa('Test Member23\t30.5\nTest Member24\t18.5',mixed).changes[0].id,'mixed24');
+assert.equal(api.planGa('Test Member23\tNo Official Handicap\t30.5\nTest Member24\t'+mixed[24].golfLink+'\t18.5',mixed).skipped.length,1);
+assert.equal(api.planGa('0012345678.0\t18.5',people).changes[0].id,'real');
+assert.throws(()=>api.planGa('No Official Handicap\t30.5\n9999999999\t18.5',mixed),/No selected/);
+assert.throws(()=>api.planGa('No Official Handicap\t30.5\n'+mixed[0].golfLink+'\tbad',mixed),/GA must/);
+assert.throws(()=>api.planGa('Different Name\t'+mixed[0].golfLink+'\t18.5',mixed),/different players/);
+assert.equal(JSON.stringify(mixed),mixedBefore,'Planning does not alter player profiles or estimates');
+console.log('Mixed 50-player GA import: 48 official updates, 2 estimate rows skipped, decimal-suffix IDs, ordered rows and blocking safeguards passed.');
