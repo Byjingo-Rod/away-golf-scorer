@@ -3,12 +3,18 @@
  const intro='To provide the greatest protection against data loss during play, it is recommended that each player carries a paper score card. Scores from a paper card can be entered manually using Emergency Score Recovery on the Home page. The instructions included in this list show what steps to take if a paper card is not available.';
  const discretion='If neither recorded copy settles a missing score, agree it with the player and marker. The organiser may use discretion under the group’s agreed rules and save the accepted score through organiser correction.';
  const phases=[
-  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','spreadsheet','shared','guest','copies','help']},
+  {id:'planning',title:'A Guide to the Planning Phase',topics:['prepare','spreadsheet','drawprint','shared','guest','copies','help']},
   {id:'published',title:'After Publishing but before Play',topics:['missing','join','start','hole']},
   {id:'playing',title:'During Play',topics:['phone','offline','wrong','ntp','ambrose']},
   {id:'finishing',title:'On Completion of Play before Cards are Final',topics:['check','paper','prizes','next','finish']}
  ];
  const topics=[
+  ['drawprint','Print or email the draw',[
+   'Open Teams / Groups and Teams and press Print Copy. For a multi-day event choose the displayed day or all days.',
+   'The print copy includes at most six teams per A4 page, with tee times, starting holes, player GolfLink numbers and partnerships. Short-team and NTP extra-shot notes are retained. A provisional draw is labelled clearly.',
+   'Choose Print to printer or Save as PDF in the preview. In the browser print window choose your printer or Save as PDF / Microsoft Print to PDF. Use A4 portrait, 100% scale and turn browser headers and footers off.',
+   'Save the PDF and attach it to your email. The PDF contains sharp text, so there is no need to take screenshots or paste the draw into Word. Printing does not send an email or change the saved event.'
+  ]],
   ['finish','After prize-giving — finish the event',[
    'Review the accepted final scores and confirm the final results online first.',
    'Choose Finish Event and Keep Final Results. Check the event name and date. This makes the awarded results permanent.',

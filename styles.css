@@ -7224,3 +7224,6 @@ body.playerDevice .cloudHeader {
 .playerSelectionHeader{grid-template-columns:1.05fr 1fr 1fr;align-items:stretch}.inviteAllControl{display:flex;align-items:center}.inviteAllControl button{min-height:40px}.playerSelectionHeader .trafficLegend{font-size:11px;gap:6px;padding:6px;align-content:center}.playerSelectionHeader .loadedPlayerListBadge{padding:6px 9px}.playerSelectionHeader .loadedPlayerListBadge b{font-size:13px}@media(max-width:600px){.playerSelectionHeader{grid-template-columns:1fr}.inviteAllControl button{width:100%}}
 
 .corporateRosterLink{display:inline-flex;align-items:center;padding:10px 14px;border-radius:8px;text-decoration:none;border:1px solid #a9bed6}
+
+/* Reserve the bottom-right NTP footer for a tee punch guide. */
+.ntpOverflowNote{padding-right:10mm!important;min-height:10mm}

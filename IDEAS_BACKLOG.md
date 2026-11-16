@@ -179,3 +179,22 @@ One or two sentences describing the idea.
 
 **Reason:**  
 Why it would be useful.
+
+## Next version update — NTP card tee punch guide (16 November 2026)
+
+- Requested for both Away Golf Scorer and Golf Event Scorer. Do not publish a standalone update for this change.
+- Add a small outlined circle in the bottom-right corner of each printable NTP card, including small tags, to show where to punch a hole for a golf tee.
+- Inset the circle from the card edges so the tee can hold the card on the green at the current NTP claimant’s ball position. Keep the guide clear of writing lines and footer text.
+- Verify the circle appears in print/PDF output at a useful physical size. Include this in the next planned version update of each app.
+
+## Next version update — Remove repeated GolfLink suffix in draw (16 November 2026)
+
+- Apply to both apps in the next planned release; no standalone publication now.
+- In the prepared draw/team cards, remove the last-four-digit GolfLink suffix after duplicate player names (for example, Ross Smith (G/L 2424)), since the full GolfLink number is already displayed underneath.
+- Keep the full GolfLink number under each player and preserve distinct player IDs and assignments.
+- Review related partner labels for the same redundant suffix. Retain disambiguation in selection controls where no separate GolfLink number is shown.
+
+## Completed — 16 November 2026 print release
+
+- NTP tee punch guide and redundant draw GolfLink suffix requests above implemented with Print Copy.
+- Scorer 0.5.37 / Away 15.97.36: printer/PDF draw preview, maximum six teams per page; current or all days.

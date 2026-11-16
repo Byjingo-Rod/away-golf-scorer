@@ -1507,7 +1507,12 @@
     const label=playerIdentityLabel(person),name=String(person?.name||"Player");
     return label.startsWith(name) ? esc(name)+(label.length>name.length?`<span class="playerIdentitySuffix">${esc(label.slice(name.length))}</span>`:"") : esc(label);
   }
-  function teamPlayerIdentityHtml(person) {
+  function preparedDrawPlayerName(person) {
+    const name=String(person?.name||'Player'),label=playerIdentityLabel(person);
+    return person?.golfLink&&!person.noOfficialHandicap&&label.startsWith(name)?name+label.slice(name.length).replace(/^ \(G\/L \d+(?: · ID [^)]+)?\)/,''):label;
+  }
+  function teamPlayerIdentityHtml(person, preparedDraw = false) {
+    if(preparedDraw&&person?.golfLink&&!person.noOfficialHandicap)return esc(preparedDrawPlayerName(person));
     const label=playerIdentityLabel(person);
     return playerIdentityHtml(person)+(person?.noOfficialHandicap&&!label.includes("No G/L Number") ? '<span class="playerIdentitySuffix"> (No G/L Number)</span>' : "");
   }
@@ -8267,7 +8272,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
   function ntpPrintCardHtml(card, event, format = "small") {
     const large=format==="scorecard";
     card={...card,lines:large?Math.max(7,Math.min(9,card.lines)):card.lines};
-    return `<article class="ntpPrintCard ${large?"ntpScorecard":""}" style="--ntp-name-lines:${card.lines}"><header><div><small>${esc(event.name||"Golf Event")}</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole||"—"}</h6>${large?`<table class="ntpDistanceTable"><thead><tr><th>Player name</th><th>Distance to pin (m)</th></tr></thead><tbody>${Array.from({length:card.lines},()=>"<tr><td>&nbsp;</td><td></td></tr>").join("")}</tbody></table>`:`<div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div>`}<small class="ntpOverflowNote">${large?"Record a new entry only when nearer to the pin. ":""}Continue on the reverse if needed.</small></article>`;
+    return `<article class="ntpPrintCard ${large?"ntpScorecard":""}" style="--ntp-name-lines:${card.lines};position:relative"><header><div><small>${esc(event.name||"Golf Event")}</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole||"—"}</h6>${large?`<table class="ntpDistanceTable"><thead><tr><th>Player name</th><th>Distance to pin (m)</th></tr></thead><tbody>${Array.from({length:card.lines},()=>"<tr><td>&nbsp;</td><td></td></tr>").join("")}</tbody></table>`:`<div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div>`}<small class="ntpOverflowNote">${large?"Record a new entry only when nearer to the pin. ":""}Continue on the reverse if needed.</small><span class="ntpPunchGuide" aria-label="Tee hole punch guide" style="position:absolute;right:3mm;bottom:3mm;width:4mm;height:4mm;border:1px solid currentColor;border-radius:50%;background:white;box-sizing:border-box"></span></article>`;
   }
   function renderStep5() {
     const ntpOn = W.competitions.has("ntp");
@@ -11597,6 +11602,32 @@ function estimateEventGa(handicap, rating, category, calculate) {
     const checks=eventFinalChecks(event,dayFieldIds);
     return `<div class="finalCheck teamsFinalCheck"><h4>Final Check — Event Setup Record</h4><div class="checkList">${checks.map(check=>`<div class="${check.ok?"ok":"warn"}"><span>${check.ok?"✓":"!"}</span><div><strong>${esc(check.label)}</strong>${check.detail?`<p>${esc(check.detail)}</p>`:""}</div></div>`).join("")}</div></div>`;
   }
+  function drawPrintModel(days) {
+    const event=store.event;
+    return {product:document.title.includes('Golf Event Scorer')?'Golf Event Scorer':'Away Golf Scorer',eventName:event.name||'Golf Event',days:days.map(day=>{
+      const setup=event.groupSetup?.['day'+day],method=startMethodFor(event,day);
+      if(!setup?.groups?.length)throw Error('Prepare the teams for '+(event.days>1?'Day '+day:'this event')+' before printing.');
+      const groups=setup.groups.map((g,gi)=>{
+        const short=setupForTeam(setup,gi),notes=[];
+        if(g.some(id=>String(id)===NO_PARTNER_ID)||(ambroseIsOn(event,day)&&g.length===3)){
+          notes.push(ambroseIsOn(event,day)?'Three-player Ambrose team':'Virtual Player: '+(player(short.virtualPlayer)?.name||'Not selected')+' (VP)');
+          for(const [hole,id] of Object.entries(short.ntpExtraPlayers||{}))notes.push('Hole '+hole+' NTP Extra Shot: '+(player(id)?.name||'Player')+' — two shots');
+          if(short.ntpExtraPlayer)notes.push('NTP Extra Shot: '+(player(short.ntpExtraPlayer)?.name||'Player')+' — two shots on each NTP hole');
+        }
+        const pairName=id=>String(id)===NO_PARTNER_ID?(player(short.virtualPlayer)?.name||'Virtual Player')+' (VP)':preparedDrawPlayerName(eventPlayer(id,day));
+        return {number:gi+1,time:groupTeeTime(day,gi),hole:method==='single'?(startHolesFor(event,day)[0]||1):(setup.starts?.[gi]||startHolesFor(event,day)[gi%startHolesFor(event,day).length]||1),actualCount:g.filter(id=>String(id)!==NO_PARTNER_ID).length,gaLabel:groupGaLabel(g,day),players:g.map((id,i)=>{const p=eventPlayer(id,day)||player(id),missing=String(id)===NO_PARTNER_ID;return {slot:i+1,name:missing?'No Partner':preparedDrawPlayerName(p),golfLink:p?.golfLink||'',noOfficialHandicap:p?.noOfficialHandicap===true,missing,awaiting:event.invitationStatus?.[String(id)]==='awaiting'};}),pairs:competitionIsOn('fourball',day)?[g.slice(0,2).map(pairName).join(' & '),g.slice(2,4).map(pairName).join(' & ')]:[],notes};
+      });
+      const awaiting=groups.some(g=>g.players.some(p=>p.awaiting));
+      return {label:event.days>1?'Day '+day:'',date:australianDate(eventDate(day,event)),courseName:course(event['course'+day])?.name||'Course not selected',tees:eventPlayerCategories(day,event).map(c=>(c==='women'?'Women':'Men')+': '+eventTeeMarkerColour(day,event,c)).join(' · '),startLabel:startingTeeLabel(event,day),status:!setup.saved&&!event.locked?'PROVISIONAL DRAW — teams are not locked':awaiting?'PROVISIONAL DRAW — awaiting player replies':teeSelectionIsFinal(day)?'Teams locked':'Teams locked · tee selection provisional',groups};
+    })};
+  }
+  function printDrawCopy(day) {
+    const launch=days=>{try{GolfDrawPrint.open(drawPrintModel(days));}catch(error){alert(error.message);}};
+    if(eventDays().length===1)return launch([day]);
+    $('#modalContent').innerHTML=`<h2>Print Copy — The Draw</h2><p>Print to a printer or save a sharp PDF for emailing. Each page has a maximum of six teams.</p><div class="rowBtns"><button class="primary" id="printDrawDay">Day ${day} only</button><button class="primary" id="printDrawAll">All days</button><button class="soft" id="closeDrawPrint">Cancel</button></div>`;
+    $('#modalShade').classList.add('open');
+    $('#printDrawDay').onclick=()=>launch([day]);$('#printDrawAll').onclick=()=>launch(eventDays());$('#closeDrawPrint').onclick=()=>$('#modalShade').classList.remove('open');
+  }
   function renderTeamsPage() {
     const host = $("#teamsAdmin");
     if (!host) return;
@@ -11647,14 +11678,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
         awaiting = store.event.invitationStatus?.[String(pid)] === "awaiting";
       return `<div class="groupPlayer ${selected ? "swapSelected" : ""} ${np ? "noPartnerGroupPlayer" : ""} ${awaiting ? "awaitingPlayer" : ""}">
      <div class="slotNo">${pi + 1}</div>
-     <div class="groupPlayerName"><b>${teamPlayerIdentityHtml(p)}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "" : p?.golfLink || "")}</small></div>
+     <div class="groupPlayerName"><b>${teamPlayerIdentityHtml(p,true)}${awaiting ? " <em>● Awaiting reply</em>" : ""}</b><small>${np ? "Missing player position" : esc(p?.noOfficialHandicap ? "" : p?.golfLink || "")}</small></div>
      ${locked || teamsSaved || np ? "" : `<button type="button" class="${selected ? "primary" : "soft"} swapBtn ${store.event.manualMode ? "" : "manualOff"}" data-swapplayer="${pid}">${selected ? "Selected" : "Swap"}</button>`}
    </div>`;
     };
     const pairName = (id, gi) => {
       if (String(id) === NO_PARTNER_ID)
         return `<span class="vpName">${esc(demoPlayerLabel(player(setupForTeam(setup,gi).virtualPlayer)))} (VP)</span>`;
-      return esc(eventPlayerName(id,day));
+      return esc(preparedDrawPlayerName(eventPlayer(id,day)));
     };
     const pairBlock = (g, gi) => {
       if (!competitionIsOn("fourball", day)) return "";
@@ -11719,7 +11750,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = `Groups and Teams Day ${day} ${cname} · ${ids.length} positions · ${method === "shotgun" ? "Shotgun" : method === "two" ? "Two Tees" : "Single Tee"}${locked ? " · EVENT LOCKED" : ""}`;
     host.innerHTML = `<div class="teamsTop">
    <div><h3>${esc(store.event.name)}</h3></div>
-   <div class="teamsTopActions">${dayTabs("groupday", day)}${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
+   <div class="teamsTopActions">${dayTabs("groupday", day)}<button type="button" class="primary" id="printDrawCopy">Print Copy</button>${locked ? "" : `<button class="soft backToPlan" id="backToEventSetup">← Back to Event Setup</button>`}</div>
  </div>
    ${(store.event.competitions || []).includes("capTeams") ? capTeamsHtml(store.event, capRoster(), capTeamsLocked()) : ""}
  ${locked ? `<div class="lockedBanner">🔒 Event Locked — players, competitions and teams are fixed. The playing tee and single-tee starting hole remain changeable until scoring begins.</div>` : teamsSaved ? `<div class="lockedBanner teamsSavedBanner">🔒 ${store.event.days === 1 ? "Teams are" : `Day ${day} teams are`} locked. They will remain unchanged while you move through Event Setup.</div>` : `<div class="teamsToolbar"><div class="drawMethods"><button class="${store.event.drawMode === "history" ? "primary" : "soft"}" id="historyBalanced">History Balanced</button><button class="${store.event.drawMode === "ga" ? "primary" : "soft"}" id="gaBalanced">GA Balanced</button><button class="${store.event.drawMode === "random" ? "primary" : "soft"}" id="randomiseGroups">Random</button><button class="${store.event.drawMode === "manual" ? "primary" : "soft"}" id="manualMode">Manual</button></div><div class="teamsStatus">${store.event.swapPlayer ? "First player selected — now click Swap beside the player to exchange with." : store.event.drawMode === "manual" ? "Manual mode active — click Swap beside any player to begin." : store.event.drawMode === "ga" ? (store.event.gaBalanceSearch === "exact" ? "GA Balanced minimises the difference between group GA totals while preserving 4BBB partner restrictions." : "GA Balanced — closest totals found for this larger field; review the group totals below.") : store.event.drawMode === "random" ? "Random draw selected." : store.event.drawMode === "mixing" ? "Maximum Player Mixing plans the whole event together." : store.event.days === 1 ? "History Balanced uses previous playing history to vary the groups and partnerships." : "History Balanced looks for new partners first and spaces unavoidable group repeats across playing days."}</div></div>`}
@@ -11914,6 +11945,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
         renderTeamsPage();
         renderPlayerExperience();
       };
+    $("#printDrawCopy").onclick = () => printDrawCopy(day);
     if (locked) return;
     $("#backToEventSetup").onclick = reopenEventPlan;
     if ($("#unlockGroups"))
