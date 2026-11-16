@@ -2861,6 +2861,31 @@ body.playerDevice .awakeIndicator.active {
   font-weight: 900;
   white-space: nowrap;
 }
+.leaderRow.waitingMarker.capPendingRow {
+  grid-template-columns: 42px minmax(0, 1fr) 76px minmax(168px, auto);
+}
+.leaderRow.capPendingRow .leaderScore {
+  text-align: left;
+  padding-left: 4px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.leaderRow.capPendingRow .leaderThru {
+  white-space: normal;
+}
+.safeChoiceLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+#modalContent td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+#modalContent td select {
+  max-width: 100%;
+}
 .leaderRow.waitingMarker {
   grid-template-columns: 42px minmax(0, 1fr) 42px minmax(128px, auto);
 }
@@ -7227,3 +7252,18 @@ body.playerDevice .cloudHeader {
 
 /* Reserve the bottom-right NTP footer for a tee punch guide. */
 .ntpOverflowNote{padding-right:10mm!important;min-height:10mm}
+
+@media (max-width: 650px) {
+  .leaderRow.capPendingRow {
+    grid-template-columns: 32px minmax(0, 1fr) 64px;
+  }
+  .leaderRow.capPendingRow .leaderScore {
+    text-align: left;
+    padding-left: 2px;
+  }
+  .leaderRow.capPendingRow .leaderThru {
+    grid-column: 2 / 4;
+    text-align: left;
+    padding-top: 2px;
+  }
+}
