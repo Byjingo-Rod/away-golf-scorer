@@ -412,11 +412,13 @@
           const scores = leaderboardPlayerPoints(day,id);
           return scores.length === 18 && scores.every(x => x != null) ? leaderSum(scores) : null;
         });
-        const complete = count === 0 || rounds.every(x => x != null), total = complete ? rounds.filter(x => x != null).sort((a,b) => b - a).slice(0,count).reduce((n,v) => n + v,0) : null;
-        return {day, count, playing:playing.length, size:members.length, total};
+        const complete = count === 0 || rounds.every(x => x != null), pendingScores = rounds.filter(x => x == null).length, total = complete ? rounds.filter(x => x != null).sort((a,b) => b - a).slice(0,count).reduce((n,v) => n + v,0) : null;
+        return {day, count, playing:playing.length, size:members.length, pendingScores, total};
       });
       const detail = daily.map(d => `Day ${d.day}: ${d.total == null ? "pending" : d.total + " pts"} (best ${d.count} of ${d.size}${d.playing < d.size ? ` · ${d.size - d.playing} resting` : ""})`).join(" · ") + (virtual?.side === side ? ` · Fixed VP: ${player(virtual.id)?.name || "Player"}` : "");
       const row = leaderRow(side, side === "black" ? "Black Cap" : "White Cap", detail, daily.map(d => d.total), daily.length);
+      row.total = daily.every(day => day.total != null) ? leaderSum(daily.map(day => day.total)) : null;
+      row.pendingScores = daily.reduce((n,day) => n + day.pendingScores, 0);
       row.daily = daily;
       return row;
     });
@@ -2664,10 +2666,11 @@
       if(store.cloud!==connection)return;
       if(!rows.length)return alert("There are no conflicting saved copies to review.");
       const row=rows[0],comparison=GolfSafeCloud.merge(row.base_data,row.local_data,row.remote_data);
-      const label=path=>path.map((key,i)=>i===0&&/^([1-9]|1[0-8])$/.test(key)?"Hole "+key:key).join(" · ");
-      const value=v=>v===undefined?"Removed":JSON.stringify(v);
-      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Independent changes are combined. Choose the correct value for each difference. Both original copies are retained.</p><div class="rowBtns"><button class="primary" id="keepIncomingSafeReviews">Keep Incoming Device Copy for All ${rows.length===1?"Differences":"Reviews"}</button><button class="soft" id="keepOnlineSafeReviews">Keep Online Copy for All ${rows.length===1?"Differences":"Reviews"}</button></div><p class="hint"><b>Incoming device</b> is the copy retained on the phone or tablet that made the unsent changes. <b>Online copy</b> is the version already visible to the organiser.</p><div style="overflow:auto;max-height:45vh"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Online copy</th><th>Keep</th></tr></thead><tbody>${comparison.conflicts.map((field,i)=>`<tr><td>${esc(label(field.path))}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><select data-safechoice="${i}"><option value="">Choose…</option><option value="local">Incoming device</option><option value="remote">Online copy</option></select></td></tr>`).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
-      $("#modalShade").classList.add("open");
+      const fieldName=key=>{const text=String(key);if(/^(?:[1-9]|1[0-8])$/.test(text))return "Hole "+text;const words=text.replace(/([a-z0-9])([A-Z])/g,"$1 $2").replace(/[_-]+/g," ").trim();return words?words[0].toUpperCase()+words.slice(1):"Field";};
+      const label=path=>path.map((key,i)=>i===0&&/^(?:[1-9]|1[0-8])$/.test(String(key))?"Hole "+key:fieldName(key)).join(" · ");
+      const value=v=>{if(v===undefined)return "This value was removed";if(v===null)return "No value recorded";if(typeof v==="boolean")return v?"Yes":"No";if(typeof v==="string")return v||"Blank";if(typeof v==="number")return String(v);if(Array.isArray(v))return v.length?v.map((item,index)=>`Hole ${index+1}: ${value(item)}`).join(" · "):"No entries";if(typeof v==="object"){const entries=Object.entries(v);return entries.length?entries.slice(0,12).map(([key,item])=>`${fieldName(key)}: ${value(item)}`).join(" · "):"No details";}return String(v);};
+      $("#modalContent").innerHTML=`<h2>Review Saved Copies</h2><p>${row.kind==="score"?esc(player(row.player_id)?.name||row.player_id)+" · Day "+row.day:"Event plan"} · ${rows.length} review${rows.length===1?"":"s"} outstanding</p><p>Changes that do not conflict are combined automatically. For each difference, choose which saved value is correct. Both original copies remain in the audit record.</p><div class="rowBtns"><button class="primary" id="keepIncomingSafeReviews">Keep Incoming Device Copy for All ${rows.length===1?"Differences":"Reviews"}</button><button class="soft" id="keepOnlineSafeReviews">Keep Online Copy for All ${rows.length===1?"Differences":"Reviews"}</button></div><p class="hint"><b>Incoming device</b> means the copy on the phone or tablet with the unsent changes. <b>Already saved online</b> means the version the organiser can currently see. Use the buttons above to keep one source for every review, or choose separately below.</p><div style="overflow:auto;max-height:45vh"><table><thead><tr><th>Field</th><th>Incoming device</th><th>Already saved online</th><th>Value to keep</th></tr></thead><tbody>${comparison.conflicts.map((field,index)=>{const name=label(field.path);return `<tr><td>${esc(name)}</td><td>${esc(value(field.local))}</td><td>${esc(value(field.remote))}</td><td><label class="safeChoiceLabel" for="safeChoice${index}">For ${esc(name)}, keep:</label><select id="safeChoice${index}" data-safechoice="${index}" aria-label="For ${esc(name)}, choose which saved value to keep"><option value="">Choose a value</option><option value="local">Incoming device value</option><option value="remote">Value already saved online</option></select></td></tr>`;}).join("")}</tbody></table></div><p id="safeReviewStatus" role="status"></p><button class="primary" id="saveSafeReview">Save Reviewed Copy</button><button class="soft" id="closeSafeReview">Close</button>`;
+            $("#modalShade").classList.add("open");
       $("#closeSafeReview").onclick=()=>$("#modalShade").classList.remove("open");
       const resolveAllSafeReviews=async(choice)=>{
         const incoming=choice==="local";
@@ -14895,7 +14898,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
           : rows
           .map((r, i) => {
             const waiting =
-                (def.type === "putts" || def.type === "best3") && !r.thru,
+                ((def.type === "putts" || def.type === "best3") && !r.thru) ||
+                (def.type === "capTeams" && r.total == null),
               rowComplete = r.thru === r.target,
               isFinal =
                 competitionComplete &&
@@ -14905,6 +14909,8 @@ function estimateEventGa(handicap, rating, category, calculate) {
                   ? isFinal
                     ? `${r.grossTotal} <small>strokes (${toPar(r.scratchToPar)})</small>`
                     : toPar(r.scratchToPar)
+                  : def.type === "capTeams" && r.total == null
+                    ? "Pending"
                   : def.type === "ambrose"
                     ? rowComplete && r.handicap != null
                       ? `${r.total.toFixed(1)} <small>net</small>`
@@ -14919,12 +14925,14 @@ function estimateEventGa(handicap, rating, category, calculate) {
                   : isFinal
                     ? "Final · Ball completed 18 holes"
                     : `Ball alive · Thru ${r.thru}`
+                : def.type === "capTeams" && r.total == null
+                  ? `Waiting for ${r.pendingScores} complete scorecard${r.pendingScores === 1 ? "" : "s"}`
                 : def.type === "ambrose" && rowComplete && !competitionComplete
                   ? `${r.grossTotal} gross · ${r.handicap == null ? "no handicap" : `${r.handicap.toFixed(1)} hcp`} · Provisional`
                 : isFinal
                   ? "Final"
                   : `Thru ${r.thru}`;
-            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${i === 0 && competitionComplete && (r.thru || def.type === "yellowBall") ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${r.tied ? "T" : ""}${r.rank}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${waiting ? "Waiting for Marker to Score" : progress}</span></div>`;
+            return `<div class="leaderRow ${def.type === "eclectic" ? "eclecticGainRow" : ""} ${def.type === "capTeams" && waiting ? "capPendingRow" : ""} ${i === 0 && competitionComplete && (r.thru || def.type === "yellowBall") ? "winner" : ""} ${waiting ? "waitingMarker" : ""}"><span class="leaderRank">${def.type === "capTeams" && waiting ? "—" : `${r.tied ? "T" : ""}${r.rank}`}</span><span class="leaderName">${esc(r.name)}${def.type === "eclectic" ? `<small><b>Points Gained</b> ${r.pointsGained} pts</small>` : r.detail ? `<small>${esc(r.detail)}</small>` : ""}</span><span class="leaderScore">${waiting ? def.type === "capTeams" ? "Pending" : "—" : `${score}${r.cb ? " <small>CB</small>" : ""}`}</span><span class="leaderThru">${def.type === "capTeams" && waiting ? progress : waiting ? "Waiting for Marker to Score" : progress}</span></div>`;
           })
           .join("") ||
         '<div class="leaderEmpty">No eligible Scratch players are available.</div>';
