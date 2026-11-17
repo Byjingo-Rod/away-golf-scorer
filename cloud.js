@@ -541,6 +541,17 @@
     return Boolean(data);
   }
 
+  async function isEventDeleted(eventId) {
+    await ensureSignedIn();
+    const {data,error}=await client.rpc("golf_storage_event_metadata",{p_event_ids:[eventId]});
+    if(error)throw error;return data?.some(row=>row.id===eventId&&row.status==='deleted')||false;
+  }
+  async function deleteTestEvent(eventId,confirmation) {
+    const bundle=await loadEvent(eventId);
+    const {data,error}=await client.rpc("away_delete_test_event",{p_event_id:eventId,p_confirmation:confirmation,p_expected_revision:bundle.event.revision});
+    if(error)throw error;return data;
+  }
+
   async function archiveAllOwnedEvents() {
     const session=await ensureSignedIn();
     const {data,error}=await client.from("away_events").select("id,name,status").eq("organiser_id",session.user.id).neq("status","archived");
@@ -617,6 +628,7 @@
     eventAccess,
     saveRound,
     releasePlayer,
+    isEventDeleted,deleteTestEvent,
     saveWorkspace,
     loadWorkspace,
     loadCourseLibrary,
@@ -640,4 +652,5 @@
     subscribe,
   };
 })();
+
 

@@ -1,25 +1,26 @@
-const CACHE = "away-golf-v15-97-40";
+const CACHE = "away-golf-v15-97-41";
 const FILES = [
   "./",
   "./index.html",
   "./awarded-results.js",
   "./draw-print.js",
-  "./cloud-request.js?v=15.97.40",
-  "./styles.css?v=15.97.40",
-  "./supabase.js?v=15.97.40",
-  "./cloud.js?v=15.97.40",
-  "./data.js?v=15.97.40",
-  "./course-library.js?v=15.97.40",
-  "./course-categories.js?v=15.97.40",
-  "./course-locations.js?v=15.97.40",
-  "./catalogue-review.js?v=15.97.40",
-  "./safe-cloud.js?v=15.97.40",
-  "./course-layout.js?v=15.97.40",
-  "./app.js?v=15.97.40",
-  "./shared-positions.js?v=15.97.40",
-  "./player-substitution.js?v=15.97.40",
-  "./spreadsheet-import.js?v=15.97.40",
-  "./organiser-guide.js?v=15.97.40",
+  "./cloud-request.js?v=15.97.41",
+  "./styles.css?v=15.97.41",
+  "./supabase.js?v=15.97.41",
+  "./cloud.js?v=15.97.41",
+  "./data.js?v=15.97.41",
+  "./course-library.js?v=15.97.41",
+  "./course-categories.js?v=15.97.41",
+  "./course-locations.js?v=15.97.41",
+  "./catalogue-review.js?v=15.97.41",
+  "./safe-cloud.js?v=15.97.41",
+  "./course-layout.js?v=15.97.41",
+  "./test-event-purge.js?v=15.97.41",
+  "./app.js?v=15.97.41",
+  "./shared-positions.js?v=15.97.41",
+  "./player-substitution.js?v=15.97.41",
+  "./spreadsheet-import.js?v=15.97.41",
+  "./organiser-guide.js?v=15.97.41",
   "./organiser-guide.html",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
@@ -60,3 +61,4 @@ self.addEventListener("fetch", (event) => {
     return fetch(event.request);
   })());
 });
+

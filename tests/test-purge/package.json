@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"test":"node away-test-purge.mjs && node away-test-purge-local.mjs"},"devDependencies":{"@electric-sql/pglite":"0.5.14"}}

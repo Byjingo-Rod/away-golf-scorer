@@ -3128,6 +3128,7 @@
       return bundle;
     } catch (error) {
       if (store.cloud !== connection) return false;
+      if(await retireDeletedTestConnection())return true;
       if (isGuestOrganiser() && !(await verifyGuestOrganiserAccess())) return false;
       setCloudMessage(
         navigator.onLine
@@ -3136,6 +3137,15 @@
       );
       return false;
     }
+  }
+  async function retireDeletedTestConnection() {
+    if(!window.AwayTestPurge?.isTest(store.event?.name)||!store.cloud?.eventId||!navigator.onLine)return false;
+    const connection=store.cloud;
+    try{if(!await AwayCloud.isEventDeleted(connection.eventId)||store.cloud!==connection)return false;}catch(_){return false;}
+    closeCloudConnection();
+    const result=window.AwayTestPurge.purge({name:store.event.name,liveId:connection.eventId,workspaceId:store.event.workspaceId||store.event.id,publicationId:store.event.publicationId});
+    if(result.protected)return false;
+    location.reload();return true;
   }
   function watchCloudEvent() {
     if (!store.cloud?.eventId || cloudChannel || isSpectatorDevice() && !AwayCloud.pollsEvents) return;
@@ -3166,6 +3176,7 @@
       if (retirePhoneFromArchivedEvent(bundle)) return;
       applyRemoteCloud(bundle);
     } catch (_) {
+      if(store.cloud===connection&&await retireDeletedTestConnection())return;
       if (store.cloud === connection && isGuestOrganiser()) await verifyGuestOrganiserAccess();
       // A delayed background refresh must never interrupt the organiser or scorer.
     } finally { cloudPollInFlight = false; }
@@ -4018,6 +4029,7 @@
   function deleteWorkspaceEvent(id) {
     const record = store.eventWorkspace.find((item) => String(item.id) === String(id));
     if (!record) return;
+    if(window.AwayTestPurge?.isTest(record.event?.name))return deleteTestEventPermanently({...record.event,workspaceId:String(record.id)},record.cloud);
     const name = record.event?.name || "this event";
     if (!confirm(`Permanently delete ${name}?\n\nOnly this selected event will be removed. Players, courses and every other event will remain.`)) return;
     if (!confirm(`Final check: delete ${name} now?`)) return;
@@ -4076,7 +4088,7 @@
     const cards = records.map((record) => {
       const event = record.event || {}, current = String(record.id) === activeId;
       const players = event.dayFields?.day1?.length || event.confirmed?.length || event.fieldSize || 0;
-      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions"><button class="primary" data-continueevent="${esc(record.id)}">${eventWorkspaceStatus(event) === "Draft" ? "Continue Setup" : "Open Event"}</button><button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">Delete</button></div></article>`;
+      return `<article class="myEventCard ${current ? "current" : ""} ${record.archived ? "archived" : ""}"><div class="myEventSummary"><small>${current ? "CURRENT EVENT" : record.archived ? "ARCHIVED" : eventWorkspaceStatus(event)}</small><h3>${esc(event.name || "Untitled Away Golf Event")}</h3><p>${event.date ? esc(formatEventDate(event.date)) : "Date not set"} · ${players} player${players === 1 ? "" : "s"} · ${esc(eventWorkspaceStatus(event))}</p></div><div class="myEventActions"><button class="primary" data-continueevent="${esc(record.id)}">${eventWorkspaceStatus(event) === "Draft" ? "Continue Setup" : "Open Event"}</button><button class="soft" data-duplicateevent="${esc(record.id)}">Duplicate</button><button class="soft" data-archiveevent="${esc(record.id)}">${record.archived ? "Restore" : "Archive"}</button><button class="danger" data-deleteevent="${esc(record.id)}">${window.AwayTestPurge?.isTest(event.name)?"Delete TEST Permanently":"Delete"}</button></div></article>`;
     }).join("");
     $("#modalContent").innerHTML = `<div class="myEventsHead"><div><small>ORGANISER WORKSPACE</small><h2>My Events</h2><p>These organiser events are saved on this device only. Changes made on another phone, tablet or PC do not remove this device's saved copies.</p></div><div class="myEventsHeadActions"><button class="primary" id="newEventFromWorkspace">+ New Event</button><button class="soft" id="closeMyEvents">Close</button></div></div><div class="myEventList">${cards || '<div class="card"><p>No events have been saved yet.</p></div>'}</div>`;
     $("#modalShade").classList.add("open");
@@ -4908,7 +4920,10 @@
           for(const info of batch){
             if(JSON.stringify(metadata[info.id])!==JSON.stringify(info)){metadata[info.id]=info;changed=true;}
             if(info.finished){const retained=await AwayCloud.loadAcceptedEvent(info.id);clearFinishedEventCopies(info.id,retained?.event?.event_data?.event?.awardedResults?.retentionReceipt);changed=true;}
-            else if(info.status==='deleted'&&GolfSafeCloud.discardDeletedEventCopies(info.id,String(store.cloud?.eventId||'')))changed=true;
+            else if(info.status==='deleted'){
+              if(window.AwayTestPurge&&!window.AwayTestPurge.purgeMissing(info.id).protected){closeCloudConnection();location.reload();return;}
+              if(GolfSafeCloud.discardDeletedEventCopies(info.id,String(store.cloud?.eventId||'')))changed=true;
+            }
           }
         }
       }else{
@@ -11197,7 +11212,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     }
     const cancelled = store.event.status === "cancelled";
     $("#modalContent").innerHTML =
-      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Continue planning, cancel an event that will not proceed, or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : '<button class="primary" id="continueEventSetup">Continue Event Setup</button>'}${!cancelled&&store.event.locked&&+store.event.days>1?'<button class="primary" id="modifyFutureRounds">Modify Future Rounds</button>':""}${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">Delete Event from This Device</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
+      `<h2>Event Options</h2><p><b>${esc(store.event.name)}</b></p><p>${cancelled ? "This event is already cancelled. You may retain it for reference or delete it from this device." : "Continue planning, cancel an event that will not proceed, or permanently delete an unwanted design/draft event."}</p><div class="eventOptionActions">${cancelled ? "" : '<button class="primary" id="continueEventSetup">Continue Event Setup</button>'}${!cancelled&&store.event.locked&&+store.event.days>1?'<button class="primary" id="modifyFutureRounds">Modify Future Rounds</button>':""}${cancelled ? "" : `<button class="danger" id="cancelCurrentEvent">Cancel Event</button>`}<button class="danger" id="deleteCurrentEvent">${window.AwayTestPurge?.isTest(store.event.name)?"Delete TEST Event Permanently":"Delete Event from This Device"}</button><button class="danger clearTestsBtn" id="clearPreviousTests">Clear All Previous Test Events</button><button class="soft" id="preparePlayerDevice">Prepare This Device for Player Use</button><button class="soft" id="closeEventOptions">Keep Event and Close</button></div><p class="backupSafetyNote"><b>Device-only cleanup:</b> Preparing this device for player use removes its local organiser-event list only. It cannot alter Supabase, another phone or tablet, or the organiser PC.</p>`;
     $("#modalShade").classList.add("open");
     if ($("#cancelCurrentEvent"))
       $("#cancelCurrentEvent").onclick = cancelCurrentEvent;
@@ -11366,7 +11381,24 @@ function estimateEventGa(handicap, rating, category, calculate) {
       "Event cancelled. It remains available as a record until you choose to delete it.",
     );
   }
+  async function deleteTestEventPermanently(event=store.event,connection=store.cloud) {
+    if(isPlayerDevice()||isSpectatorDevice()||isGuestOrganiser())return alert("Open this TEST event on the original organiser's device to delete it permanently.");
+    const liveId=connection?.eventId||event.cloudEventId||event.pastCloudEventId||event.awardedResults?.eventId;
+    const confirmation=prompt(`Permanently erase ${event.name}? All of this event's plans, scores, results and saved copies will be deleted. Shared players and courses stay. Offline devices clear their copies when they reconnect with this update. Type the exact event name to confirm:`);
+    if(confirmation===null)return;if(confirmation!==event.name)return alert("The name did not match. Nothing was deleted.");
+    const button=$("#deleteCurrentEvent");if(button)button.disabled=true;
+    try{
+      let result={};
+      if(!liveId&&(event.joinCode||event.publishedAt||event.previewPublishedAt||event.finalUpdateAt))throw Error("Open this published TEST event online first so its cloud identity can be verified.");
+      if(liveId){if(!navigator.onLine)throw Error("Reconnect to delete every online copy of this TEST event.");result=await AwayCloud.deleteTestEvent(liveId,confirmation);}
+      closeCloudConnection();
+      const cleared=window.AwayTestPurge.purge({name:event.name,liveId,workspaceId:event.workspaceId||event.id,publicationId:event.publicationId,ids:result.ids});
+      if(cleared.protected)throw Error("The local event identity could not be verified.");
+      location.reload();
+    }catch(error){if(button)button.disabled=false;alert("TEST event deletion did not complete. "+(error.message||error));}
+  }
   async function deleteCurrentEvent() {
+    if(window.AwayTestPurge?.isTest(store.event?.name))return deleteTestEventPermanently();
     if (
       !confirm(
         `Permanently delete ${store.event?.name || "this event"} from this device?\n\nPlayers and courses will remain. This event setup and its locally stored scores will be removed.`,
