@@ -124,7 +124,7 @@
             if(same(this.state().pending[id],payload)){delete this.state().pending[id];this.accept(row);}else this.rerun=true;
             this.durable();this.notify();
           } catch(error) {
-            if(error.code==='40001' || error.code==='23505') {
+            if(['40001','PT409','23505'].includes(error.code)) {
               const latest=await this.api.loadMasterCourse(id);if(latest)this.state().conflicts[id]=copy(latest);
               this.durable();continue;
             }
