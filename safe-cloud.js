@@ -247,7 +247,7 @@
         return {...response,revision:ackRevision,saved_data:copy(acknowledged)};
       }catch(e){
         if(/GOLF_FINISHED/.test(e.message||"")){finishedIds.add(id);discardEventCopies(id);throw e;}
-        if(e.code!=="40001"){
+        if(!["40001","PT409"].includes(e.code)){
           if(/GOLF_CLOSED/.test(e.message||"")){s.blocked=true;persist();}
           throw e;
         }
