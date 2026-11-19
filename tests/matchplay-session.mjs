@@ -67,3 +67,12 @@ assert.equal(S.progressLabel({text:'All square',played:0}),'All square · 0 hole
 assert.equal(S.progressLabel({text:'All square',played:4}),'All square after 4');
 assert.equal(S.progressLabel({text:'6&4',played:14,winnerId:'winner'}),'6&4');
 console.log('Gender wording and match progress labels passed');
+// Course details follow the selected round and mapped course hole.
+s=setup();s.config.format='scratch';s.config.roundSettings=[{par:Array(18).fill(4),metres:[323,...Array(16).fill(300),390]},{par:Array(18).fill(5),metres:Array(18).fill(450)}];
+assert.equal(S.holeInfo(M,s,'r0m0',1).metres,323);
+assert.equal(S.holeInfo(M,s,'r1m0',1).metres,450);
+s.config.scheduled=36;assert.equal(S.holeInfo(M,s,'r0m0',19).metres,323);
+s.config.playoff=[18,1];assert.equal(S.holeInfo(M,s,'r0m0',37).metres,390);
+s.config.roundSettings[0].metres=[];assert.equal(S.holeInfo(M,s,'r0m0',1).metres,null);
+assert.ok(S.standingRules(M,{gender:'male'})[0].includes('Enter total strokes for each hole.'));
+console.log('Round course distances and missing-distance handling passed');

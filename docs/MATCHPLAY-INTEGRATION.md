@@ -28,3 +28,5 @@ The reviewed standalone design remains the reference for the remaining integrati
 Either player can record which opponent conceded the current unfinished hole. The record includes the conceding side and the device role that entered it. Only the other player can confirm the record. Until that happens the displayed hole stays pending with no score entry or advance. Once confirmed the hole is awarded without invented gross scores. Existing direct concession records remain readable. The confirmation acknowledges the app entry rather than changing when a concession is valid under the Rules.
 
 Opening rules are acknowledged with Got it. They distinguish a given putt from conceding the whole hole and explain that a given putt adds one stroke to the total. The same text is available in Scoring reminders. Existing review players acknowledge the updated rules before further scoring.
+
+Development Review 6 uses each round's selected tee card for par and metres. The isolated review includes a read-only Oatlands master card snapshot. Missing distances display a dash. Scoring reminders reopens the acknowledged opening rules. The allowance summary uses “plays off”.
