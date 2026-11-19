@@ -107,3 +107,14 @@ assert.equal(S.resultConfirmation(M,resultSample,'r0m0'),'Awaiting confirmation:
 M.confirmResult(resultSample,'r0m0','b');
 assert.equal(S.resultConfirmation(M,resultSample,'r0m0'),'Confirmed');
 console.log('Milestone colours and named result confirmation checks passed');
+assert.deepEqual(S.latestSquareMarker({rows:[{hole:13,lead:-1},{hole:14,lead:0}]}),{hole:14});
+assert.deepEqual(S.latestSquareMarker({rows:[{hole:14,lead:0},{hole:15,lead:0}]}),{hole:15});
+assert.equal(S.latestSquareMarker({rows:[{hole:14,lead:0},{hole:15,lead:1}]}),null);
+assert.equal(S.latestSquareMarker({rows:[]}),null);
+const finalChecks=setup();for(let h=1;h<=10;h++){M.recordScores(finalChecks,'r0m0','a',h,null,8);M.recordScores(finalChecks,'r0m0','b',h,null,3);}
+assert.ok(M.matchState(finalChecks,'r0m0').waiting);
+assert.equal(M.confirmResult(finalChecks,'r0m0','a'),false);
+assert.equal(finalChecks.matches.r0m0.checks.a,true);
+assert.equal(M.confirmResult(finalChecks,'r0m0','b'),true);
+assert.ok(M.matchState(finalChecks,'r0m0').accepted);
+console.log('Current square marker and explicit final acceptance of missing own checks passed');

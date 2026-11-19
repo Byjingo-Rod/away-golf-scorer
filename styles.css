@@ -7353,3 +7353,5 @@ body.playerDevice .cloudHeader {
 .mpGraphHoleLabels .mpMilestone-green{background:#dff1e5}
 .mpGraphHoleLabels .mpMilestone-blue{background:#dcecf7}
 .mpGraphHoleLabels .mpMilestone-square{background:transparent}
+
+.mpGraphCanvas{position:relative}.mpGraphSquare{position:absolute;transform:translate(-50%,-100%);font-size:14px;font-weight:700;line-height:18px;color:#344c53;white-space:nowrap;pointer-events:none}

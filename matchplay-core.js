@@ -99,10 +99,13 @@ function confirmHoleConcession(s,key,role,hole){
 }
 function markConcededStroke(s,key,role,hole){editable(s,key);if(!['a','b'].includes(role))error('A player records their concession.');const state=matchState(s,key);if(state.winnerId||hole<1||hole>state.nextHole)error('Use the current unfinished hole.');const row=s.matches[key].holes[hole]||{};row.strokeConcededTo=role==='a'?'b':'a';s.matches[key].holes[hole]=row;s.audit.push({action:'conceded stroke',match:key,hole,by:role});}
 function confirmResult(s,key,role,reason=''){
- editable(s,key);const state=matchState(s,key),ref=refereeMode(s,key),match=s.matches[key];if(!state.winnerId)error('The match has not been decided.');
+ editable(s,key);let state=matchState(s,key);const ref=refereeMode(s,key),match=s.matches[key];if(!state.winnerId)error('The match has not been decided.');
  if(role==='organiser'){if(reason.trim().length<5)error('Enter a reason for organiser acceptance.');}
  else if(ref){if(role!=='referee'||!s.finalOpen||!s.refereeJoined)error('The assigned referee confirms this final.');}
- else {if(!['a','b'].includes(role))error('Player confirmation required.');if(!state.ready)error('Resolve missing checks or disagreements before confirming.');match.checks[role]=true;if(!match.checks.a||!match.checks.b)return false;}
+ else {if(!['a','b'].includes(role))error('Player confirmation required.');if(state.issues)error('Resolve score disagreements before confirming.');
+ // Explicit final confirmation accepts this player's displayed recognised marker scores.
+ for(const row of state.rows){if(row.concededTo)continue;const entry=match.holes[row.hole],field=role==='a'?'selfA':'selfB',marked=role==='a'?entry.markerA:entry.markerB;if(entry[field]==null&&marked!=null)entry[field]=marked;}
+ state=matchState(s,key);match.checks[role]=true;if(!match.checks.a||!match.checks.b)return false;if(!state.ready)error('Complete the remaining score checks before confirming.');}
  match.result={winnerId:state.winnerId,text:state.text,played:state.played,rows:state.rows,by:role,reason:role==='organiser'?reason:'',type:match.concession?'concession':'played'};
  s.audit.push({action:'confirmed result',match:key,winner:state.winnerId,role,reason,at:new Date().toISOString()});closeUnusedReserves(s);return true;
 }
