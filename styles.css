@@ -7301,3 +7301,8 @@ body.playerDevice .cloudHeader {
 .mpGraphDisplay:fullscreen{overflow:auto;box-sizing:border-box;width:100vw;height:100vh;padding:22px 40px;background:#f8faf9;border-radius:0}
 .mpGraphDisplay:fullscreen .mpGraphMatch{padding:8px 0}.mpGraphDisplay:fullscreen .mpGraphFooter button{display:none}
 @media(max-width:600px){.mpGraphDisplay{padding:12px}.mpGraphCaption,.mpGraphFooter{flex-wrap:wrap}.mpGraphCaption>b:last-child{font-size:13px}.mpDrawMatches{grid-template-rows:repeat(16,100px)}}
+
+.mpGraphDisplay.mpTVMode{position:fixed;inset:0;z-index:10000;overflow:auto;box-sizing:border-box;width:100vw;height:100vh;padding:16px 32px;background:#f8faf9;border-radius:0}
+.mpTVMode .mpGraphMatch{padding:6px 0}.mpTVMode .mpGraphMatch svg{height:calc(var(--graph-height)*.7)!important}
+.mpTVMode .mpGraphFooter button{display:none}.mpTVMode .mpBoardHeading h2{margin:0 0 6px}.mpTVMode .mpBoardHeading p{margin:0 0 8px}
+.mpTVMode .mpGraphKey,.mpTVMode .mpColourKey{margin:6px 0}.mpTVMode .mpGraphFooter{font-size:13px}
