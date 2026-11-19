@@ -213,6 +213,7 @@
     passive: true,
   });
   const competitionNames = {
+    matchplay: "Match Play",
     single: "Single Stableford",
     combined: "Single Stableford",
     stroke: "Stroke",
@@ -616,6 +617,7 @@
     });
   }
   function enabledEventTeesForCategory(event = store.event, day = 1, category = "men") {
+    if(isMatchplay(event))return [...EVENT_TEES];
     if (!event) return [];
     const available = courseEventTees(day, event, category), key = "day" + day;
     const saved = event.enabledTeesByDayCategory?.[key]?.[category];
@@ -1475,7 +1477,7 @@
         ? NO_PARTNER
         : eventPlayer(id);
   function eventPlayer(id, day = null) {
-    const base=(store.event?.pastEventReadOnly?store.event.playerSnapshot?.find(p=>String(p.id)===String(id)):null)||store.players.find(p=>String(p.id)===String(id))||store.deletedPlayerHistory?.[String(id)];
+    const base=(store.event?.pastEventReadOnly?store.event.playerSnapshot?.find(p=>String(p.id)===String(id)):null)||store.event?.matchplay&&mpRecords(store.event).find(p=>String(p.id)===String(id))||store.players.find(p=>String(p.id)===String(id))||store.deletedPlayerHistory?.[String(id)];
     return GolfPlayerSubstitution.occupant(store.event,id,base,day);
   }
   function sharedPositionId(id, event = store.event) { return GolfSharedPositions.position(event,id); }
@@ -3244,6 +3246,7 @@
   }
   let publicationFlight = false;
   async function publishCloudEvent() {
+    if(isMatchplay())return alert("Match Play is in development: live publication and phone scoring are not connected yet.");
     if (publicationFlight) return false;
     if (!store.event) {
       alert("Create an event plan before publishing.");
@@ -3321,6 +3324,7 @@
     } finally { publicationFlight = false; }
   }
   async function updateCloudEvent() {
+    if(isMatchplay())return alert("Match Play live updates are not connected in this development stage.");
     if (!store.cloud?.eventId || store.cloud.role !== "organiser") return;
     const rosterIssue=eventRosterIssue(store.event,cloudPlayerIds());
     if(rosterIssue){alert(rosterIssue);return false;}
@@ -6590,6 +6594,9 @@ Count-back if tied
   window.addEventListener("focus", refreshScoringOpeningOnWake);
   window.addEventListener("pageshow", refreshScoringOpeningOnWake);
   function validateStep() {
+    if(isMatchplay(W.event)&&W.step===2){try{GolfMatchplayPlanning.validate(W.event);return true;}catch(error){alert(error.message);return false;}}
+    if(isMatchplay(W.event)&&W.step===3)return true;
+
     if (W.step === 1) {
       syncEventFields();
       if (!W.event.name) return alert("Please enter an event name.");
@@ -6773,24 +6780,29 @@ Count-back if tied
       W.event["course" + day] ??= W.event.course1 || activeCourses()[0]?.id || "";
     }
     $("#wizardBody").innerHTML = `<h3>Event details</h3>
+      <label>Event type<select id="weEventType"><option value="golf" ${!isMatchplay(W.event)?"selected":""}>Golf Event</option><option value="matchplay" ${isMatchplay(W.event)?"selected":""}>Match Play</option></select></label>${isMatchplay(W.event)?mpSetupFields():""}
       <label>Event name<input id="weName" value="${esc(W.event.name)}" placeholder="Give Your Trip a Name to Remember"></label>
       <div class="grid3"><label>Start date<input id="weDate" type="date" value="${esc(W.event.date)}"></label>
       <label>Event length<select id="weDays">${Array.from({length:7}, (_, i) => `<option value="${i+1}" ${W.event.days===i+1?"selected":""}>${i+1} playing day${i?"s":""}</option>`).join("")}</select></label>
-      <label>Size of Field<div class="fieldSizeStepper"><button type="button" id="weFieldMinus">−</button><input id="weField" type="number" min="3" max="60" value="${W.event.fieldSize}"><button type="button" id="weFieldPlus">+</button></div></label></div>
+      <label>Size of Field<div class="fieldSizeStepper"><button type="button" id="weFieldMinus" ${isMatchplay(W.event)?"disabled":""}>−</button><input id="weField" type="number" min="3" max="${isMatchplay(W.event)?160:60}" value="${W.event.fieldSize}" ${isMatchplay(W.event)?"readonly":""}><button type="button" id="weFieldPlus" ${isMatchplay(W.event)?"disabled":""}>+</button></div></label></div>
       <label>Course time zone<select id="weTimezone"><option value="" ${!W.event.timeZone?"selected":""}>This device's local time</option><option value="Australia/Sydney" ${W.event.timeZone==="Australia/Sydney"?"selected":""}>Sydney / NSW</option><option value="Asia/Ho_Chi_Minh" ${W.event.timeZone==="Asia/Ho_Chi_Minh"?"selected":""}>Vietnam</option></select></label>
       <p class="hint">Set each playing day independently. Dates default to consecutive days; change a date to allow a rest day. Tee times are local course times.</p>
       ${eventDays(W.event).map(day => `<div class="daySetupCard"><div class="daySetupHead"><b>${W.event.days===1?"Course & Start":`Day ${day}`}</b><span>Course and starting arrangement</span></div>
       ${day>1?`<label>Playing date<input type="date" id="weDayDate${day}" value="${eventDate(day,W.event)}"></label>`:""}
       <div class="courseSelectRow">${courseChoiceControl(day)}<button class="soft" id="weC${day}Details">Course Details</button></div>
       <div class="dayStartFormat"><label>Start Format</label><select id="weStart${day}">${startFormatOptions(startMethodFor(W.event,day))}</select></div>
-      ${dayStartControls(day)}</div>`).join("")}
+      ${dayStartControls(day)}${isMatchplay(W.event)?`<label>Playing tee<select id="mpTee${day}">${EVENT_TEES.map(t=>`<option value="${t}" ${(W.event.teeSelection?.["day"+day]||"back")===t?"selected":""}>${EVENT_TEE_LABELS[t]}</option>`).join("")}</select></label>`:""}</div>`).join("")}
       <div class="rowBtns"><button class="soft" id="wizardAddCourse">+ Add Club / Course</button><button class="soft" id="wizardManageCourses">Manage Club / Course List</button></div>`;
+    $('#weEventType').onchange=()=>{try{syncEventFields();W.event.benefits=JSON.parse(JSON.stringify(W.benefits||{}));W.competitions=new Set(GolfMatchplayPlanning.selectType(W.event,$('#weEventType').value,W.competitions));if(isMatchplay(W.event)){W.benefits={};W.invites.clear();}renderStep1();}catch(error){alert(error.message);renderStep1();}};
+    bindMpSetup();
     $("#weFieldMinus").onclick = () => { $("#weField").value=Math.max(3,+$("#weField").value-1); syncEventFields(); };
     $("#weFieldPlus").onclick = () => { $("#weField").value=Math.min(60,+$("#weField").value+1); syncEventFields(); };
     $$("#wizardBody input, #wizardBody select").forEach(input => input.onchange = () => {
+      if(input.id==='weEventType'){try{syncEventFields();W.event.benefits=JSON.parse(JSON.stringify(W.benefits||{}));W.competitions=new Set(GolfMatchplayPlanning.selectType(W.event,input.value,W.competitions));W.invites.clear();W.benefits=W.event.benefits||{};if(isMatchplay(W.event)){W.benefits={};syncMpInvites();}renderStep1();}catch(error){alert(error.message);renderStep1();}return;}
       syncEventFields();
       if(input.id === "weDays" || input.id === "weDate" || input.id.startsWith("weStart")) renderStep1();
     });
+    bindMpSetup();
     for(const day of eventDays(W.event)) {
       $("#weC"+day+"Details").onclick = () => { syncEventFields(); courseDetail(W.event["course"+day]); };
       $("#chooseCourse"+day).onclick = () => openCoursePicker(day);
@@ -6845,6 +6857,7 @@ Count-back if tied
       W.event.startTimes["day" + day] = [time1?.value || startTimesFor(W.event, day)[0], time2?.value || startTimesFor(W.event, day)[1] || time1?.value || "07:30"];
       W.event.teeIntervals["day" + day] = [+(interval1?.value || teeIntervalsFor(W.event, day)[0] || 8), +(interval2?.value || teeIntervalsFor(W.event, day)[1] || interval1?.value || 8)];
     }
+    if(isMatchplay(W.event)){GolfMatchplayPlanning.enforce(W.event);W.competitions=new Set(['matchplay']);for(const day of eventDays(W.event)){const t=$('#mpTee'+day);if(t){W.event.teeSelection||={};W.event.teeSelection['day'+day]=t.value;W.event.teeSelectionByCategory||={};W.event.teeSelectionByCategory['day'+day]={men:t.value,women:t.value};}}}
     W.event.startMethod = W.event.startMethods.day1;
     W.event.twoTeeStarts = Object.fromEntries(eventDays(W.event).map(day=>["day"+day,startHolesFor(W.event,day)]));
   }
@@ -7060,6 +7073,7 @@ Count-back if tied
     return candidates.length;
   }
   function renderStep2() {
+    if(isMatchplay(W.event))return renderMpPlayers();
     let q = "";
     let keepSearchFocus = $("#wpSearch") === document.activeElement;
     let playerScroll = {
@@ -7479,6 +7493,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return matches.length===1 ? {label:"Matching player list",names:[matches[0].name],id:matches[0].id} : {label:"Player list",names:[],id:""};
   }
   function openWizardHandicapEntry(day) {
+    if(isMatchplay(W.event))return renderMpPlayers();
     const ids = handicapDisplayOrder(wizardPlanningPlayers(day).filter((id) => id !== NO_PARTNER_ID)),
       c = course(W.event["course" + day], Boolean(W.event.locked)),
       key = "day" + day;
@@ -7689,6 +7704,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     if (inputs[0]) inputs[0].focus();
   }
   function openPublishedGaHandicapUpdate() {
+    if(isMatchplay())return alert("Match Play uses its saved qualifying playing handicaps. Open the event plan to review them; GA changes do not alter playoff handicaps.");
     if (!store.event) return;
     const scoreEntry = Array.from(
       { length: store.event.days || 1 },
@@ -7959,6 +7975,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return `<div class="ntpBox lastDayNtpBox"><fieldset class="lastDayNtpChoices ${enabled ? "" : "inactive"}" ${enabled ? "" : "disabled"}><legend>NTPs on the last day (Day ${day})</legend>${[1,2].map(n => `<label><input style="width:auto" type="radio" name="lastDayNtpCount" value="${n}" ${enabled && ntpCount(day,event) === n ? "checked" : ""}> ${n === 1 ? "One" : "Two"}</label>`).join(" ")}</fieldset><small class="lastDayNtpHelp">${enabled ? "Choose one or two NTP holes for the final day. The app will suggest suitable holes on the NTP setup page." : `<strong>Tick Day ${day} in Playing days above to choose one or two NTP holes for the final day.</strong>`}</small></div>`;
   }
   function renderStep3() {
+    if(isMatchplay(W.event))return renderMpCompetitions();
     normaliseStablefordBenefits(W.benefits);
     const setupMethods={holeByHole:"On course by players and confirmed by Markers hole-by-hole",fullCardPlayer:"After round — strokes entered hole-by-hole by a Player",finalGross:"After round — final Gross Strokes only",finalStableford:"After round — final Stableford points only"},setupMethodFor=day=>W.event.scoringMethods?.["day"+day]||"holeByHole",setupConflicts=day=>[...W.competitions].filter(id=>competitionDays(id,W.event).includes(+day)&&!finalScoreCompetitionAllowed(id,setupMethodFor(day)));
     const stablefordId = W.event.days === 1 ? "single" : "combined",
@@ -8293,6 +8310,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return `<article class="ntpPrintCard ${large?"ntpScorecard":""}" style="--ntp-name-lines:${card.lines};position:relative"><header><div><small>${esc(event.name||"Golf Event")}</small><strong>NTP</strong></div><img src="away-golf-mascot-mini.png" alt=""></header><h5>${esc(card.courseName)}</h5><h6>Hole ${card.hole||"—"}</h6>${large?`<table class="ntpDistanceTable"><thead><tr><th>Player name</th><th>Distance to pin (m)</th></tr></thead><tbody>${Array.from({length:card.lines},()=>"<tr><td>&nbsp;</td><td></td></tr>").join("")}</tbody></table>`:`<div class="ntpPrintLines">${Array.from({length:card.lines},()=>"<span></span>").join("")}</div>`}<small class="ntpOverflowNote">${large?"Record a new entry only when nearer to the pin. ":""}Continue on the reverse if needed.</small><span class="ntpPunchGuide" aria-label="Tee hole punch guide" style="position:absolute;right:3mm;bottom:3mm;width:4mm;height:4mm;border:1px solid currentColor;border-radius:50%;background:white;box-sizing:border-box"></span></article>`;
   }
   function renderStep5() {
+    if(isMatchplay(W.event)){ $("#wizardBody").innerHTML=`<h3>NTP setup</h3><fieldset disabled><label><input type="checkbox">Nearest the Pin</label></fieldset><p>NTP and other side competitions are unavailable for Match Play.</p>`;return;}
     const ntpOn = W.competitions.has("ntp");
     if (!ntpOn) {
       $("#wizardBody").innerHTML =
@@ -8440,6 +8458,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     ];
   }
   function renderStep6() {
+    if(isMatchplay(W.event))return renderMpReview();
     ensureEventTeePlanning(W.event);
     const days = eventDays(W.event), selected = compDefinitions().filter(comp=>W.competitions.has(comp.id)&&!comp.unavailable),
       summaryEvent = {...W.event, competitions:selected.map(comp=>comp.id)},
@@ -8502,6 +8521,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     delete store.event.draftStep;
     if (W.newEvent) resetDuplicatedEventRuntime(store.event);
     normaliseTwoDaySingleStableford(store.event);
+    if(!isMatchplay()){
     store.template = {
       competitions: [...W.competitions].filter((x) => x !== "eclectic"),
       benefits: W.benefits,
@@ -8536,6 +8556,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
       "awayGolfOrganiserTemplateV1",
       JSON.stringify(store.template),
     );
+    }
     // Preserve saved group arrangements. initialiseGroups only rebuilds a day
     // when that day's actual player membership has changed.
     initialiseGroups();
@@ -9503,6 +9524,7 @@ function estimateEventGa(handicap, rating, category, calculate) {
     return historyBalancedGroups(ids,day);
   }
   function initialiseGroups() {
+    if(isMatchplay())return;
     if (!store.event) return;
     store.event.groupSetup = store.event.groupSetup || {};
     for (let day = 1; day <= store.event.days; day++) {
@@ -11664,7 +11686,9 @@ function estimateEventGa(handicap, rating, category, calculate) {
     $('#printDrawDay').onclick=()=>launch([day]);$('#printDrawAll').onclick=()=>launch(eventDays());$('#closeDrawPrint').onclick=()=>$('#modalShade').classList.remove('open');
   }
   function renderTeamsPage() {
+    if(isMatchplay())return renderMpTeams();
     const host = $("#teamsAdmin");
+    if($(".teamsInstructions"))$(".teamsInstructions").textContent="Set the playing groups, 4BBB partners and starting positions.";
     if (!host) return;
     if (!store.event) {
       if ($("#teamsPageHeading")) $("#teamsPageHeading").textContent = "Groups and Teams";
@@ -15427,4 +15451,16 @@ function estimateEventGa(handicap, rating, category, calculate) {
       })
       .catch(() => {});
   }
+  function isMatchplay(event=store.event){return GolfMatchplayPlanning.isMatchplay(event);}
+  function mpSetupFields(){const p=GolfMatchplayPlanning.ensure(W.event);return `<section class="card mpSetup"><h3>Match Play setup</h3><div class="grid3"><label>Match Play format<select id="mpFormat"><option value="scratch" ${p.format==='scratch'?'selected':''}>Scratch</option><option value="handicapped" ${p.format==='handicapped'?'selected':''}>Handicapped</option></select></label><label>Categories<select id="mpCategories">${[['men','Men'],['women','Ladies'],['both','Men and ladies']].map(([v,t])=>`<option value="${v}" ${p.categories===v?'selected':''}>${t}</option>`).join('')}</select></label><label>Match length<select id="mpLength"><option value="18" ${p.scheduled===18?'selected':''}>18 holes</option><option value="36" ${p.scheduled===36?'selected':''}>36 holes — Championship Event</option></select></label>${['men','women'].map(category=>`<label>${category==='men'?'Men’s':'Ladies’'} grades<select id="mpCount-${category}" ${p.categories!==category&&p.categories!=='both'?'disabled':''}>${[1,2,3,4,5].map(n=>`<option ${p[category]===n?'selected':''}>${n}</option>`).join('')}</select></label>`).join('')}<label>Hole Index<select id="mpIndex"><option value="universal" ${p.indexSource==='universal'?'selected':''}>Use universal matchplay index</option><option value="club" ${p.indexSource==='club'?'selected':''}>Use club’s hole index</option></select></label></div><p class="hint">16 qualifiers per grade, plus up to five reserves. Use the normal dates, courses and starting controls below for each round. The first four playing days supply the four knockout rounds.</p><div class="mpExcluded">${Object.entries(competitionNames).filter(([id])=>id!=='matchplay').map(([id,label])=>`<label><input type="checkbox" disabled> ${esc(label)}</label>`).join('')}</div><p class="hint">These competitions are unavailable during Match Play.</p></section>`;}
+  function bindMpSetup(){if(!isMatchplay(W.event))return;const p=W.event.matchplay;for(const [id,key,numeric] of [['mpFormat','format'],['mpCategories','categories'],['mpLength','scheduled',true],['mpIndex','indexSource'],['mpCount-men','men',true],['mpCount-women','women',true]])$('#'+id).onchange=()=>{syncEventFields();p[key]=numeric?Number($('#'+id).value):$('#'+id).value;W.event.fieldSize=GolfMatchplayPlanning.gradeList(W.event).length*16;W.competitions=new Set(GolfMatchplayPlanning.enforce(W.event));renderStep1();};}
+  function mpRecords(event){return GolfMatchplayPlanning.gradeList(event).flatMap(g=>event.matchplay.grades[g.id]?.players||[]);}
+  function syncMpInvites(){W.invites=new Map(mpRecords(W.event).filter(p=>!/^R/.test(String(p.seed))).map(p=>[p.id,'accepted']));W.event.fieldSize=GolfMatchplayPlanning.gradeList(W.event).length*16;}
+  function renderMpPlayers(){const p=GolfMatchplayPlanning.ensure(W.event),grades=GolfMatchplayPlanning.gradeList(W.event);if(!grades.some(g=>g.id===W.mpGrade))W.mpGrade=grades[0].id;const g=grades.find(g=>g.id===W.mpGrade),grade=p.grades[g.id]||{},records=grade.players||[],hcp=p.format==='handicapped';const range=grade.range||GolfMatchplay.DEFAULT_GRADE_RANGES[g.number-1];$('#wizardBody').innerHTML=`<h3>Club qualifiers and reserves</h3><p>Paste the club’s approved list into each grade. Qualifiers are accepted directly; no invitations are required.</p><label>Grade<select id="mpPlayerGrade">${grades.map(g=>`<option value="${g.id}" ${g.id===W.mpGrade?'selected':''}>${esc(g.name)} (${(p.grades[g.id]?.players||[]).filter(p=>!/^R/.test(p.seed)).length}/16)</option>`).join('')}</select></label><div class="grid3"><label>GA handicap<input disabled value="Not used for Match Play"></label><label>Playing handicap<input disabled value="${hcp?'Use qualifying playing handicap below':'Scratch Event Hcp not applicable'}"></label><label>Handicap Range<select id="mpRange" ${hcp?'':'disabled'}>${hcp?GolfMatchplay.DEFAULT_GRADE_RANGES.map((r,i)=>`<option value="${i}" ${range.min===r.min&&range.max===r.max?'selected':''}>${r.min==null?'Up to '+r.max+' (including scratch / plus)':r.min+'–'+r.max}</option>`).join(''):'<option>Scratch Event Hcp not applicable</option>'}</select></label></div><p class="hint">Paste tab-separated Excel cells: <b>Seed · Player · ${hcp?'Playing Hcp · Stableford Score':'Qualifying Total'}</b>. Column headings are accepted; a GolfLink / Registration No column is optional. Use R1–R5 for reserves. Handicaps entered here stay fixed through the playoffs.</p><label>Club qualifier list<textarea id="mpPaste" rows="7" placeholder="1&#9;Player name&#9;${hcp?'10&#9;42':'140'}"></textarea></label><button class="primary" id="mpImport">Import this grade’s qualifiers</button><p id="mpImportError" role="alert"></p><div class="mpTableWrap"><table class="mpTable"><thead><tr><th>Seed</th><th>Player</th>${hcp?'<th>Playing Hcp</th>':''}<th>${hcp?'Stableford<br>Score':'Qualifying<br>Total'}</th><th>Status</th></tr></thead><tbody>${records.map(person=>`<tr><td>${esc(person.seed)}</td><td>${esc(person.name)}</td>${hcp?`<td><input data-mphcp="${person.id}" aria-label="Playing handicap for ${esc(person.name)}" value="${GolfMatchplay.formatHcp(person.handicap)}"></td>`:''}<td>${esc(person.score)}</td><td>${/^R/.test(person.seed)?'Reserve':'Accepted'}</td></tr>`).join('')}</tbody></table></div><p id="mpRangeWarning" class="mpWarning"></p>`;$('#mpPlayerGrade').onchange=()=>{W.mpGrade=$('#mpPlayerGrade').value;renderMpPlayers();};$('#mpRange').onchange=()=>{p.grades[g.id]||={players:[]};p.grades[g.id].range={...GolfMatchplay.DEFAULT_GRADE_RANGES[Number($('#mpRange').value)]};mpShowRangeWarning();};$('#mpImport').onclick=()=>{try{const rows=GolfMatchplayPlanning.parseQualifiers($('#mpPaste').value,hcp);const prefix=W.event.matchplay.importKey||=uid();p.grades[g.id]={...grade,players:rows.map(row=>({...row,id:'mp-'+prefix+'-'+g.id+'-'+row.seed,gender:g.category==='women'?'female':'male',gaCategory:g.category}))};syncMpInvites();renderMpPlayers();}catch(error){$('#mpImportError').textContent=error.message;}};$$('[data-mphcp]').forEach(input=>input.onchange=()=>{const person=records.find(p=>p.id===input.dataset.mphcp);try{person.handicap=GolfMatchplay.parseHcp(input.value);input.value=GolfMatchplay.formatHcp(person.handicap);mpShowRangeWarning();}catch(error){input.value=GolfMatchplay.formatHcp(person.handicap);alert(error.message);}});mpShowRangeWarning();}
+  function mpShowRangeWarning(){const p=W.event.matchplay,g=GolfMatchplayPlanning.gradeList(W.event).find(g=>g.id===W.mpGrade),grade=p.grades[g.id]||{},range=grade.range||GolfMatchplay.DEFAULT_GRADE_RANGES[g.number-1],issues=p.format==='handicapped'?(grade.players||[]).filter(p=>range.min!=null&&p.handicap<range.min||range.max!=null&&p.handicap>range.max):[];if($('#mpRangeWarning'))$('#mpRangeWarning').textContent=issues.length?'Outside this grade’s handicap range: '+issues.map(p=>p.name+' ('+GolfMatchplay.formatHcp(p.handicap)+')').join(', '):'';}
+  function renderMpCompetitions(){GolfMatchplayPlanning.enforce(W.event);W.competitions=new Set(['matchplay']);W.benefits={};$('#wizardBody').innerHTML=`<h3>Match Play</h3><p>${W.event.matchplay.format==='scratch'?'Scratch':'Handicapped'} knockout event. The other competitions are unavailable.</p><div class="mpExcluded">${Object.entries(competitionNames).filter(([id])=>id!=='matchplay').map(([id,label])=>`<label><input type="checkbox" disabled> ${esc(label)}</label>`).join('')}</div>`;}
+  function mpBuildDraws(event){GolfMatchplayPlanning.validate(event);const p=event.matchplay;p.draws||={};for(const g of GolfMatchplayPlanning.gradeList(event)){const records=p.grades[g.id].players,old=p.draws[g.id];if(old&&Object.values(old.matches).some(GolfMatchplay.hasStarted))continue;const state=GolfMatchplay.sampleDivision(p.scheduled);state.config={...state.config,title:event.name,division:g.name,format:p.format,scheduled:p.scheduled,indexSource:p.indexSource,universalIndex:[...GolfMatchplay.UNIVERSAL_INDEX],dates:Array.from({length:4},(_,r)=>eventDate(Math.min(r+1,event.days),event)),times:Array.from({length:4},(_,r)=>startTimesFor(event,Math.min(r+1,event.days))[0]),intervals:Array.from({length:4},(_,r)=>teeIntervalsFor(event,Math.min(r+1,event.days))[0]),tee:EVENT_TEE_LABELS[event.teeSelection?.day1||'back'],course:course(event.course1)?.name||'Course'};if(p.indexSource==='club')state.config.clubIndex=GolfMatchplay.primaryClubIndex(courseScorecard(course(event.course1),event.teeSelection?.day1||'back',false,g.category)?.index);state.config.roundSettings=Array.from({length:4},(_,r)=>{const day=Math.min(r+1,event.days),tee=event.teeSelection?.['day'+day]||'back',c=course(event['course'+day]||event.course1),card=courseScorecard(c,tee,false,g.category);return {day,courseId:c?.id,courseName:c?.name,tee,date:eventDate(day,event),startMethod:startMethodFor(event,day),startHoles:startHolesFor(event,day),par:[...(card?.par||[])],clubIndex:p.indexSource==='club'?GolfMatchplay.primaryClubIndex(card?.index):null};});state.players=records.map(row=>({id:row.id,name:row.name,registrationNo:row.registration,playingHcp:row.handicap,gender:row.gender,total:row.score,seed:/^R/.test(row.seed)?null:Number(row.seed),status:/^R/.test(row.seed)?'standby':'accepted'}));state.seats=Array.from({length:16},(_,i)=>records.find(p=>p.seed===String(i+1)).id);state.reserveOrder=records.filter(p=>/^R/.test(p.seed)).sort((a,b)=>Number(a.seed.slice(1))-Number(b.seed.slice(1))).map(p=>p.id);state.published=false;GolfMatchplay.freezeQualifyingHandicaps(state);p.draws[g.id]=state;}return p.draws;}
+  function renderMpReview(){try{GolfMatchplayPlanning.validate(W.event);}catch(error){$('#wizardBody').innerHTML=`<h3>Review Match Play</h3><p class="mpWarning">${esc(error.message)}</p><p>Return to Select players to complete every grade.</p>`;return;}$('#wizardBody').innerHTML=`<h3>Match Play plan ready</h3><p><b>${esc(W.event.name)}</b> · ${W.event.matchplay.format==='scratch'?'Scratch':'Handicapped'} · ${W.event.matchplay.scheduled} holes per match</p>${eventDays(W.event).map(day=>`<p>Day ${day} · ${esc(australianDate(eventDate(day,W.event)))} · ${esc(course(W.event['course'+day])?.name||'Course')} · ${startTimesFor(W.event,day)[0]}</p>`).join('')}<p>${GolfMatchplayPlanning.gradeList(W.event).map(g=>esc(g.name)).join(' · ')}</p><p>This development stage saves the event plan and fixed draw. Phone scoring and live publication will be connected in the next stage.</p><button class="primary" id="mpSavePlan">Save Match Play plan and create draw</button>`;$('#mpSavePlan').onclick=()=>{try{mpBuildDraws(W.event);syncMpInvites();finishEvent();}catch(error){alert(error.message);}};}
+  function renderMpTeams(){const host=$('#teamsAdmin'),event=store.event,p=event.matchplay;$('#teamsPageHeading').textContent='Match Play — Fixed Draw';if($('.teamsInstructions'))$('.teamsInstructions').textContent='Fixed knockout pairings, tee times and grade draws.';let draws;try{draws=mpBuildDraws(event);}catch(error){host.innerHTML=`<div class="card"><h3>Complete the qualifying list</h3><p>${esc(error.message)}</p><button id="mpEditPlan" class="primary">Edit event plan</button></div>`;$('#mpEditPlan').onclick=reopenEventPlan;return;}const grades=GolfMatchplayPlanning.gradeList(event);const id=grades.some(g=>g.id===p.activeGrade)?p.activeGrade:grades[0].id;p.activeGrade=id;const state=draws[id];host.innerHTML=`<div class="card"><h3>${esc(event.name)}</h3><p>Two matches per tee group. Position in the draw is fixed when tee times are assigned.</p><p class="mpWarning">Development: planning and draw are ready. Live publication and phone scoring are not connected yet.</p><label>Grade<select id="mpDrawGrade">${grades.map(g=>`<option value="${g.id}" ${g.id===id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></label><button class="soft" id="mpEditPlan">Edit event plan</button></div><div class="mpDraw">${GolfMatchplay.ROUNDS.map((round,r)=>`<section><h3>${round}</h3><p>${esc(state.config.dates[r])} · ${state.config.times[r]}</p>${Array.from({length:8/2**r},(_,m)=>`<article class="card"><small>Match ${m+1} · ${GolfMatchplay.teeTime(state,r,m)}</small>${GolfMatchplay.opponents(state,GolfMatchplay.keyFor(r,m)).map((pid,side)=>{const person=GolfMatchplay.getPlayer(state,pid);return `<p>${person?`<b>${person.seed}. ${esc(person.name)}</b>${p.format==='handicapped'?`<br>Hcp ${GolfMatchplay.formatHcp(person.playingHcp)}`:''}`:`Winner of ${r===1?'R16':r===2?'QF':'SF'} ${m*2+side+1}`}</p>`;}).join('')}</article>`).join('')}</section>`).join('')}</div><section class="card"><h3>Round of 16 tee groups</h3>${GolfMatchplayPlanning.seededGroups(p.grades[id].players).map((ids,i)=>`<p><b>Group ${i+1} · ${GolfMatchplay.teeTime(state,0,i)}</b><br>${ids.map(pid=>esc(GolfMatchplay.getPlayer(state,pid).name)).join(' · ')}</p>`).join('')}</section>`;$('#mpDrawGrade').onchange=()=>{p.activeGrade=$('#mpDrawGrade').value;renderMpTeams();};$('#mpEditPlan').onclick=reopenEventPlan;}
+
 })();
