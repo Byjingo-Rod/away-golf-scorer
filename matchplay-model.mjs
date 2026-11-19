@@ -32,6 +32,7 @@ export function matchState(s,key){
  let winnerId=null,text='All square';
  for(let hole=1;hole<=Object.keys(match.holes).length+1;hole++){
   const h=match.holes[hole];if(!h)break;
+  if(h.pendingConcession)break;
   const a=ref?h.refA:h.markerA,b=ref?h.refB:h.markerB;
   if(!h.concededTo&&(a==null||b==null))break;
   const allocation=holeStrokes(s,key,hole),[strokesA,strokesB]=allocation.strokes,netA=a==null?null:a-strokesA,netB=b==null?null:b-strokesB;
@@ -58,7 +59,7 @@ export function recordScores(s,key,role,hole,own,marked){
  if(!refereeMode(s,key)&&ref)error('Player scoring is selected for this match.');
  if(!Number.isInteger(h)||h<1||h>state.nextHole||state.winnerId&&h>state.played)error('Complete earlier holes first; do not add holes after the match is decided.');
  const one=score(own),two=score(marked);if(one==null&&two==null)error('Enter at least one score.');
- const row=s.matches[key].holes[h]||{};if(row.concededTo)error('This hole was recorded as conceded. Ask the organiser to review a mistaken record.');
+ const row=s.matches[key].holes[h]||{};if(row.pendingConcession)error('Confirm the concession record before entering more scores on this hole.');if(row.concededTo)error('This hole was recorded as conceded. Ask the organiser to review a mistaken record.');
  if(ref){row.refA=one;row.refB=two;}else if(role==='a'){row.selfA=one;row.markerB=two;}else{row.selfB=one;row.markerA=two;}
  lockHandicaps(s,key);s.matches[key].holes[h]=row;s.matches[key].checks={};s.audit.push({action:'scores',match:key,hole:h,role,at:new Date().toISOString()});
 }
@@ -70,6 +71,29 @@ export function concede(s,key,role,whole=false,hole=1,concedingPlayer=null){
  const to=by==='a'?'b':'a';const current=matchState(s,key);if(current.winnerId)error('The match has already been decided.');
  lockHandicaps(s,key);if(whole)s.matches[key].concession={to,by};else{if(current.winnerId)error('The match has already been decided.');if(Number(hole)!==current.nextHole)error('Concede the current unfinished hole.');s.matches[key].holes[hole]={concededTo:to,by};}
  s.matches[key].checks={};s.audit.push({action:whole?'concede match':'concede hole',match:key,by:role,at:new Date().toISOString()});
+}
+// Both devices acknowledge the recorded hole concession. This does not change when a concession is valid under the Rules.
+export function requestHoleConcession(s,key,role,hole,by){
+ editable(s,key);
+ if(!['a','b'].includes(role)||!['a','b'].includes(by))error('Choose the player who conceded the hole.');
+ if(refereeMode(s,key))error('The assigned referee records concessions in this final.');
+ const state=matchState(s,key),h=Number(hole);
+ if(state.winnerId||h!==state.nextHole)error('Record a concession on the current unfinished hole.');
+ if(s.matches[key].holes[h]?.pendingConcession)error('This concession is already waiting for the other player to confirm.');
+ lockHandicaps(s,key);
+ const row=s.matches[key].holes[h]||{};
+ row.pendingConcession={by,to:by==='a'?'b':'a',recordedBy:role,recordedAt:new Date().toISOString()};
+ s.matches[key].holes[h]=row;s.matches[key].checks={};
+ s.audit.push({action:'hole concession recorded',match:key,hole:h,by,role,at:row.pendingConcession.recordedAt});
+}
+export function confirmHoleConcession(s,key,role,hole){
+ editable(s,key);const h=Number(hole),record=s.matches[key].holes[h]?.pendingConcession;
+ if(!record)error('There is no concession waiting for confirmation on this hole.');
+ if(!['a','b'].includes(role)||role===record.recordedBy)error('The other player must confirm this concession record.');
+ // Retain the standard model operation so hole awards and match endings stay identical.
+ concede(s,key,record.by,false,h);
+ s.matches[key].holes[h].concessionRecord={...record,confirmedBy:role,confirmedAt:new Date().toISOString()};
+ s.audit.push({action:'hole concession confirmed',match:key,hole:h,role,at:new Date().toISOString()});
 }
 export function markConcededStroke(s,key,role,hole){editable(s,key);if(!['a','b'].includes(role))error('A player records their concession.');const state=matchState(s,key);if(state.winnerId||hole<1||hole>state.nextHole)error('Use the current unfinished hole.');const row=s.matches[key].holes[hole]||{};row.strokeConcededTo=role==='a'?'b':'a';s.matches[key].holes[hole]=row;s.audit.push({action:'conceded stroke',match:key,hole,by:role});}
 export function confirmResult(s,key,role,reason=''){

@@ -33,3 +33,28 @@ const reopened=JSON.parse(JSON.stringify(s));
 assert.equal(S.nextHole(M,reopened,'r0m0',1,null,null),2);
 assert.throws(()=>S.nextHole(M,reopened,'r0m0',2,null,null),/Enter both/);
 console.log('Concession navigation and score-free recovery checks passed');
+// Either device can record a hole concession. Only the other device can confirm its record.
+for(const recordedBy of ['a','b'])for(const by of ['a','b']){
+ s=setup();for(const id of [a,b])S.acknowledge(M,s,id,'r0m0',save);
+ const actor=recordedBy==='a'?a:b,other=recordedBy==='a'?b:a;
+ S.requestConcession(M,s,actor,'r0m0',1,by,save);
+ assert.equal(M.matchState(s,'r0m0').played,0);
+ assert.equal(M.matchState(s,'r0m0').lead,0);
+ assert.equal(s.matches.r0m0.holes[1].pendingConcession.by,by);
+ assert.throws(()=>S.confirmConcession(M,s,actor,'r0m0',1,save),/other player/);
+ assert.throws(()=>S.nextHole(M,s,'r0m0',1,null,null),/confirm the concession/);
+ assert.throws(()=>S.enter(M,s,actor,'r0m0',1,4,4,save),/Confirm the concession/);
+ assert.throws(()=>S.requestConcession(M,s,other,'r0m0',1,by,save),/already waiting/);
+ const saved=JSON.parse(JSON.stringify(s));
+ assert.throws(()=>S.confirmConcession(M,s,other,'r0m0',1,()=>false),/Not saved/);
+ assert.deepEqual(s,saved);
+ S.confirmConcession(M,s,other,'r0m0',1,save);
+ assert.equal(M.matchState(s,'r0m0').played,1);
+ assert.equal(M.matchState(s,'r0m0').lead,by==='a'?-1:1);
+ assert.equal(S.nextHole(M,s,'r0m0',1,null,null),2);
+ assert.equal(s.matches.r0m0.holes[1].concessionRecord.confirmedBy,recordedBy==='a'?'b':'a');
+ assert.throws(()=>S.confirmConcession(M,s,other,'r0m0',1,save),/no concession/);
+}
+assert.ok(S.STANDING_RULES.some(rule=>rule.includes('3 strokes')&&rule.includes('enter 4')));
+assert.ok(S.STANDING_RULES.every(rule=>!/,\s*(and|but|or|nor)\b|\b(and|but|or|nor)\s*,/i.test(rule)));
+console.log('Two-player concession recording and standing rule checks passed');
