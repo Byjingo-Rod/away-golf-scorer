@@ -7312,3 +7312,6 @@ body.playerDevice .cloudHeader {
 .mpGraphHoleLabels{display:grid;font-size:12px;text-align:center;line-height:1.2;margin:2px 0 6px;color:#465c64}
 .mpGraphHoleLabels span{min-width:0}.mpTVMode .mpGraphMatchNo{margin-bottom:4px;padding:2px 6px;font-size:14px}
 .mpTVMode .mpGraphHoleLabels{font-size:11px;margin-bottom:2px}
+
+.mpGraphHoleLabels .mpMilestoneLabel{background:#dcecf7;color:#263746;padding:4px 2px;border-radius:0 0 4px 4px;font-size:12px;font-weight:600}
+.mpMilestoneLabel b{display:block;font-size:16px;line-height:1.25;margin-bottom:3px}
