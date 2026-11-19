@@ -89,3 +89,8 @@ assert.equal(S.graphWindow({...graphState(9),winnerId:'a'},18).start,1);
 assert.equal(S.graphWindow({...graphState(18),winnerId:'a'},18).start,10);
 assert.equal(S.graphWindow({...graphState(19),winnerId:'a'},18).start,19);
 console.log('Nine-hole graph windows and playoff transitions passed');
+assert.equal(S.holeScoreLabel({b:5,strokesB:1,netB:4},'b'),'5/4');
+assert.equal(S.holeScoreLabel({a:5,strokesA:2,netA:3},'a'),'5/3');
+assert.equal(S.holeScoreLabel({a:4,strokesA:0,netA:4},'a'),'4');
+assert.equal(S.holeScoreLabel({},'a'),'—');
+console.log('Compact strokes taken/net score labels passed');

@@ -41,6 +41,7 @@ function graphWindow(st,scheduled=18){
  const end=start+8,turn=start>1?st.rows.find(row=>row.hole===start-1)||null:null;
  return {start,end,turn,rows:st.rows.filter(row=>row.hole>=start&&row.hole<=end),playoff:start>Number(scheduled)};
 }
+function holeScoreLabel(row,side){const value=row[side];if(value==null)return '—';const key=side.toUpperCase();return row['strokes'+key]?value+'/'+row['net'+key]:String(value);}
 function holeInfo(M,s,key,hole){const card=prepareRound(M,s,key),allocation=M.holeStrokes(s,key,hole);const distance=Number(card?.metres?.[allocation.course-1]);return {...allocation,hole,dual:M.showCourseHole(s.config.scheduled,hole),par:Number(card?.par?.[allocation.course-1])||4,metres:Number.isFinite(distance)&&distance>0?Math.round(distance):null};}
-return{STANDING_RULES,standingRules,progressLabel,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo,graphWindow};
+return{STANDING_RULES,standingRules,progressLabel,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo,graphWindow,holeScoreLabel};
 });
