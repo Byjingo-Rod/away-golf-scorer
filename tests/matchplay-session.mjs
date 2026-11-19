@@ -76,3 +76,16 @@ s.config.playoff=[18,1];assert.equal(S.holeInfo(M,s,'r0m0',37).metres,390);
 s.config.roundSettings[0].metres=[];assert.equal(S.holeInfo(M,s,'r0m0',1).metres,null);
 assert.ok(S.standingRules(M,{gender:'male'})[0].includes('Enter total strokes for each hole.'));
 console.log('Round course distances and missing-distance handling passed');
+// Graph switches at each completed nine and preserves the last block of a decided match.
+const graphState=n=>({played:n,rows:Array.from({length:n},(_,i)=>({hole:i+1,lead:i%3-1,text:'Test'}))});
+assert.equal(S.graphWindow(graphState(0),18).start,1);
+assert.equal(S.graphWindow(graphState(8),18).end,9);
+let graph=S.graphWindow(graphState(9),18);assert.equal(graph.start,10);assert.equal(graph.turn.hole,9);assert.equal(graph.rows.length,0);
+graph=S.graphWindow(graphState(18),18);assert.equal(graph.start,19);assert.equal(graph.playoff,true);assert.equal(graph.turn.hole,18);
+assert.equal(S.graphWindow(graphState(18),36).playoff,false);
+assert.equal(S.graphWindow(graphState(27),36).start,28);
+assert.equal(S.graphWindow(graphState(36),36).playoff,true);
+assert.equal(S.graphWindow({...graphState(9),winnerId:'a'},18).start,1);
+assert.equal(S.graphWindow({...graphState(18),winnerId:'a'},18).start,10);
+assert.equal(S.graphWindow({...graphState(19),winnerId:'a'},18).start,19);
+console.log('Nine-hole graph windows and playoff transitions passed');

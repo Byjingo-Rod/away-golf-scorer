@@ -35,6 +35,12 @@ function nextHole(M,s,key,hole,own,marked){
 }
 function findMatch(M,s,id){return M.playerJourney(s,id);}
 function welcome(M,s,id,key){prepareRound(M,s,key);const ids=M.opponents(s,key),side=ids.indexOf(id);if(side<0)throw Error('Player is not in this match.');const [round,match]=M.location(key),opponent=M.getPlayer(s,ids[1-side]),player=M.getPlayer(s,id),hcp=M.matchHandicaps(s,key);return {player,opponent,round,roundName:M.ROUNDS[round],time:M.teeTime(s,round,match),date:s.config.dates[round],course:s.config.course,tee:s.config.tee,playing:hcp.playing[side],opponentPlaying:hcp.playing[1-side],allowance:hcp.allowances[side],opponentAllowance:hcp.allowances[1-side],possessive:M.handicapPossessive(opponent)};}
+function graphWindow(st,scheduled=18){
+ const played=Number(st.played)||0,finished=!!st.winnerId;
+ const start=finished?Math.floor(Math.max(0,played-1)/9)*9+1:Math.floor(played/9)*9+1;
+ const end=start+8,turn=start>1?st.rows.find(row=>row.hole===start-1)||null:null;
+ return {start,end,turn,rows:st.rows.filter(row=>row.hole>=start&&row.hole<=end),playoff:start>Number(scheduled)};
+}
 function holeInfo(M,s,key,hole){const card=prepareRound(M,s,key),allocation=M.holeStrokes(s,key,hole);const distance=Number(card?.metres?.[allocation.course-1]);return {...allocation,hole,dual:M.showCourseHole(s.config.scheduled,hole),par:Number(card?.par?.[allocation.course-1])||4,metres:Number.isFinite(distance)&&distance>0?Math.round(distance):null};}
-return{STANDING_RULES,standingRules,progressLabel,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo};
+return{STANDING_RULES,standingRules,progressLabel,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo,graphWindow};
 });
