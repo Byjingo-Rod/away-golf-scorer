@@ -7315,3 +7315,29 @@ body.playerDevice .cloudHeader {
 
 .mpGraphHoleLabels .mpMilestoneLabel{background:#dcecf7;color:#263746;padding:4px 2px;border-radius:0 0 4px 4px;font-size:12px;font-weight:600}
 .mpMilestoneLabel b{display:block;font-size:16px;line-height:1.25;margin-bottom:3px}
+
+/* Scoring layout adapts to its available panel as well as the device viewport. */
+.mpJourney{container-type:inline-size;min-width:0}
+.mpPhone{width:100%;box-sizing:border-box}
+.mpBoard{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.mpScoreControl button{touch-action:manipulation;min-height:52px}
+.mpScoreControl .mpScoreValue{font-size:36px}
+.mpHoleConcede{font-size:14px;min-height:56px;min-width:78px;font-weight:600}
+.mpPhoneBody details summary{padding:12px 0;font-size:15px;cursor:pointer}
+.mpReviewActions>*{min-width:0}.mpGraphRound{max-width:100%}.mpGraphRound select{max-width:100%;min-width:0}
+.mpGraphCaption>b,.mpGraphFooter>b{overflow-wrap:anywhere;min-width:0}
+.mpGraphHoleLabels span{overflow-wrap:anywhere}
+@container(max-width:480px){
+ .mpReviewTools{padding:12px}.mpReviewActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .mpReviewActions label{min-width:0;grid-column:1/-1}.mpReviewActions button{white-space:normal}
+ .mpPhone{border-width:3px;border-radius:18px;margin:12px auto}.mpPhoneBody,.mpMatchHeader{padding:16px 12px}
+ .mpPhoneBrand{padding:16px}.mpMatchHeader .mpPlayers{font-size:16px;gap:8px}
+ .mpEntry h3{font-size:16px}.mpEntry{margin:20px 0}.mpHoleTitle{gap:6px!important;font-size:18px!important}
+ .mpScoreLine{gap:6px}.mpScoreControl{padding:3px}.mpScoreControl button{min-width:38px}
+ .mpBoardOptions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .mpBoardOptions button{min-width:0;white-space:normal}.mpGraphDisplay{padding:10px}
+ .mpGraphCaption{align-items:start}.mpGraphCaption>b:first-child{flex:1}.mpGraphCaption>b:last-child{flex:1}
+ .mpGraphFooter{flex-wrap:wrap}.mpGraphFooter>b{flex-basis:100%}
+ .mpGraphHoleLabels{font-size:11px}.mpGraphHoleLabels .mpMilestoneLabel{font-size:10px}
+}
+@media(max-width:480px){.mpGraphDisplay.mpTVMode{padding:12px}.mpGraphFooter>b{flex-basis:100%}}
