@@ -19,3 +19,17 @@ s=setup();for(const id of [a,b])S.acknowledge(M,s,id,'r0m0',save);for(let h=1;h<
 // Later rounds use their own course/index/par snapshot before any stroke is allocated.
 s=setup();s.config.indexSource='club';s.config.roundSettings=[{courseName:'First',teeLabel:'Back Tee',clubIndex:M.UNIVERSAL_INDEX,par:Array(18).fill(4)},{courseName:'Second',teeLabel:'Front Tee',clubIndex:[...M.UNIVERSAL_INDEX].reverse(),par:Array(18).fill(5)}];S.prepareRound(M,s,'r1m0');assert.equal(s.config.course,'Second');assert.equal(s.config.tee,'Front Tee');assert.deepEqual(s.config.clubIndex,[...M.UNIVERSAL_INDEX].reverse());
 console.log('Match Play session checks passed');
+// A conceded hole is complete without inventing scores, from either player's view.
+s=setup();for(const id of [a,b])S.acknowledge(M,s,id,'r0m0',save);
+assert.throws(()=>S.nextHole(M,s,'r0m0',1,null,null),/Enter both/);
+M.concede(s,'r0m0','b',false,1);
+assert.equal(S.nextHole(M,s,'r0m0',1,null,null),2);
+assert.equal(M.matchState(s,'r0m0').played,1);
+assert.equal(s.matches.r0m0.holes[1].selfA,undefined);
+assert.equal(s.matches.r0m0.holes[1].selfB,undefined);
+assert.equal(s.matches.r0m0.holes[1].concededTo,'a');
+assert.throws(()=>M.concede(s,'r0m0','b',false,1),/current unfinished hole/);
+const reopened=JSON.parse(JSON.stringify(s));
+assert.equal(S.nextHole(M,reopened,'r0m0',1,null,null),2);
+assert.throws(()=>S.nextHole(M,reopened,'r0m0',2,null,null),/Enter both/);
+console.log('Concession navigation and score-free recovery checks passed');
