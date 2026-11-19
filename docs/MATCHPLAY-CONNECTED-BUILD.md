@@ -21,3 +21,9 @@ Independent player fields use score-specific preconditions so an opponent’s sa
 Final confirmation explicitly accepts the player’s recognised marker scores for missing own checks. Existing disagreements still block confirmation. Both opponents must confirm before advancement. Concurrent confirmations compare the marked result while ignoring the other player’s confirmation flag. Tests cover missing checks on the deciding hole and simultaneous confirmations.
 
 The latest completed all-square hole has a small A/s marker. It advances across consecutive square holes and disappears when the next completed hole gives either player a lead.
+
+## Review 15
+
+Both Concede Hole buttons lock as soon as either device has a complete own/marked score pair. The model enforces the same restriction. A tapped Next Hole is retained while saving or waiting for the other player. The screen advances once the required entries are available. Previous cancels a queued advance. Saving failures update the phone’s status text immediately. The fixed grade selector retains full text contrast.
+
+Regression checks cover the concession guard, pending-save readiness, missing entries and readiness after the other device saves. Hosted verification checks the locked controls and automatic advance without a second tap.

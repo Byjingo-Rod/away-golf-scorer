@@ -83,7 +83,7 @@ function requestHoleConcession(s,key,role,hole,by){
  if(state.winnerId||h!==state.nextHole)error('Record a concession on the current unfinished hole.');
  if(s.matches[key].holes[h]?.pendingConcession)error('This concession is already waiting for the other player to confirm.');
  lockHandicaps(s,key);
- const row=s.matches[key].holes[h]||{};
+ const row=s.matches[key].holes[h]||{};if((row.selfA!=null&&row.markerB!=null)||(row.selfB!=null&&row.markerA!=null))error('Both scores are entered. Hole concession is locked.');
  row.pendingConcession={by,to:by==='a'?'b':'a',recordedBy:role,recordedAt:new Date().toISOString()};
  s.matches[key].holes[h]=row;s.matches[key].checks={};
  s.audit.push({action:'hole concession recorded',match:key,hole:h,by,role,at:row.pendingConcession.recordedAt});

@@ -7355,3 +7355,5 @@ body.playerDevice .cloudHeader {
 .mpGraphHoleLabels .mpMilestone-square{background:transparent}
 
 .mpGraphCanvas{position:relative}.mpGraphSquare{position:absolute;transform:translate(-50%,-100%);font-size:14px;font-weight:700;line-height:18px;color:#344c53;white-space:nowrap;pointer-events:none}
+
+#mpJourneyGrade:disabled{opacity:1;color:#183e2f;-webkit-text-fill-color:#183e2f;font-weight:700;background:#fff;border:1px solid #759988}.mpHoleConcede:disabled[title]:not([title=""]){background:#eef0ef;color:#58645f;border-color:#c5cfca;cursor:not-allowed}

@@ -39,9 +39,10 @@ let retryPhone=createMatchplayConnection({request:unreliable,storage,key:'retry'
 await assert.rejects(retryPhone.enqueue({operation:'score',key:'r0m0',hole:2,kind:'marked',value:5}));
 const savedRevision=record.revision;retryPhone=createMatchplayConnection({request:unreliable,storage,key:'retry'});await retryPhone.flush();assert.equal(record.revision,savedRevision);assert.equal(retryPhone.pending,0);
 // Concessions require the other authenticated opponent then advance with no invented scores.
-await phoneA.refresh();await phoneA.enqueue({operation:'concede_hole',key:'r0m0',hole:2,by:'b'});
-await assert.rejects(sendA('command',{operation:'confirm_concession',key:'r0m0',hole:2,requestId:crypto.randomUUID(),expectedRevision:record.revision}),e=>e.code==='invalid_state');
-await phoneB.refresh();await phoneB.enqueue({operation:'confirm_concession',key:'r0m0',hole:2});assert.equal(M.matchState(record.state,'r0m0').played,2);
+await phoneB.refresh();await phoneB.enqueue({operation:'score',key:'r0m0',hole:2,kind:'own',value:5});await phoneB.enqueue({operation:'score',key:'r0m0',hole:2,kind:'marked',value:4});
+await phoneA.refresh();await phoneA.enqueue({operation:'concede_hole',key:'r0m0',hole:3,by:'b'});
+await assert.rejects(sendA('command',{operation:'confirm_concession',key:'r0m0',hole:3,requestId:crypto.randomUUID(),expectedRevision:record.revision}),e=>e.code==='invalid_state');
+await phoneB.refresh();await phoneB.enqueue({operation:'confirm_concession',key:'r0m0',hole:3});assert.equal(M.matchState(record.state,'r0m0').played,3);
 // An eliminated player retains reading access with scoring denied by server state.
 await phoneA.refresh();await phoneA.enqueue({operation:'concede_match',key:'r0m0'});
 await phoneA.enqueue({operation:'confirm_result',key:'r0m0'});await phoneB.refresh();await phoneB.enqueue({operation:'confirm_result',key:'r0m0'});
