@@ -94,3 +94,16 @@ assert.equal(S.holeScoreLabel({a:5,strokesA:2,netA:3},'a'),'5/3');
 assert.equal(S.holeScoreLabel({a:4,strokesA:0,netA:4},'a'),'4');
 assert.equal(S.holeScoreLabel({},'a'),'—');
 console.log('Compact strokes taken/net score labels passed');
+
+assert.deepEqual(S.milestoneStyle(0),{fill:'none',label:'A/s',colour:'square'});
+assert.equal(S.milestoneStyle(6).fill,'#dff1e5');
+assert.equal(S.milestoneStyle(-6).fill,'#dcecf7');
+assert.equal(S.milestoneStyle(-6).label,'+6');
+const resultSample=setup(),resultIds=M.opponents(resultSample,'r0m0');
+M.concede(resultSample,'r0m0','b',true);
+assert.equal(S.resultConfirmation(M,resultSample,'r0m0'),'Awaiting confirmation: Alex Andrews and Parker Price');
+M.confirmResult(resultSample,'r0m0','a');
+assert.equal(S.resultConfirmation(M,resultSample,'r0m0'),'Awaiting confirmation: Parker Price');
+M.confirmResult(resultSample,'r0m0','b');
+assert.equal(S.resultConfirmation(M,resultSample,'r0m0'),'Confirmed');
+console.log('Milestone colours and named result confirmation checks passed');

@@ -7347,3 +7347,9 @@ body.playerDevice .cloudHeader {
 .mpStandingRules>summary{font-size:16px;font-weight:700;cursor:pointer}
 .mpScoreControl>button:not(.mpScoreValue){flex:0 0 46px;min-width:46px;width:46px;padding:4px}
 .mpScoreControl .mpScoreValue{min-width:0;width:0;padding:4px;flex:1 1 0}
+
+/* Milestones follow the leading player. An all-square checkpoint stays on the baseline. */
+.mpBlue .mpScoreControl .mpScoreValue{background:#fff}
+.mpGraphHoleLabels .mpMilestone-green{background:#dff1e5}
+.mpGraphHoleLabels .mpMilestone-blue{background:#dcecf7}
+.mpGraphHoleLabels .mpMilestone-square{background:transparent}
