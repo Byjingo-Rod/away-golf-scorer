@@ -7283,3 +7283,21 @@ body.playerDevice .cloudHeader {
 .mpPhoneBody .mpParHint{white-space:nowrap;max-width:100%;font-size:18px;line-height:1.5}
 
 .mpPhoneBody .mpHoleTitle{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:20px;white-space:nowrap;margin-bottom:14px}.mpMatchHoleNote{font-size:13px!important;margin-top:0}.mpEntry .mpScoreLine{margin-top:8px}@media(max-width:360px){.mpPhoneBody .mpHoleTitle{font-size:18px;gap:6px}}
+
+/* Fixed seed tree: each successive match is centred on its two feeders. */
+.mpDraw>section{min-width:200px}.mpDrawMatches{display:grid;grid-template-rows:repeat(16,62px)}
+.mpDrawSlot{display:flex;align-items:center;position:relative;padding:6px 0;min-height:0}
+.mpDrawSlot>.card{width:100%;box-sizing:border-box;margin:0;min-height:0;padding:12px;position:relative;z-index:1}
+.mpDrawSlot>.card:after{content:"";position:absolute;right:-18px;top:50%;width:18px;border-top:2px solid #9bad9e}
+.mpDraw>section:last-child .card:after{display:none}
+.mpDraw>section:not(:first-child) .mpDrawSlot:before{content:"";position:absolute;left:-9px;top:25%;height:50%;width:9px;border:2px solid #9bad9e;border-right:0}
+.mpDraw>section:not(:first-child) .mpDrawSlot>.card:before{content:"";position:absolute;left:-9px;top:50%;width:9px;border-top:2px solid #9bad9e}
+.mpMatchHoleNote{font-weight:700}
+.mpBoardHeading,.mpBoardOptions{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.mpGraphDisplay{background:#f8faf9;padding:20px;border-radius:10px}.mpGraphRound{display:inline-flex;gap:12px;align-items:center}.mpGraphRound select{width:200px}
+.mpGraphKey,.mpGraphFooter{font-size:13px}.mpGraphMatch{padding:12px 0;border-bottom:1px solid #d4ddd8;break-inside:avoid}
+.mpGraphCaption,.mpGraphFooter{display:flex;align-items:center;justify-content:space-between;gap:12px}.mpGraphCaption>b:last-child{font-size:14px;text-align:right}
+.mpGraphMatch svg{display:block;width:100%;overflow:visible}.mpGraphFooter button{font-size:12px;padding:5px 8px}.mpGraphFooter>b{margin-right:auto}
+.mpGraphDisplay:fullscreen{overflow:auto;box-sizing:border-box;width:100vw;height:100vh;padding:22px 40px;background:#f8faf9;border-radius:0}
+.mpGraphDisplay:fullscreen .mpGraphMatch{padding:8px 0}.mpGraphDisplay:fullscreen .mpGraphFooter button{display:none}
+@media(max-width:600px){.mpGraphDisplay{padding:12px}.mpGraphCaption,.mpGraphFooter{flex-wrap:wrap}.mpGraphCaption>b:last-child{font-size:13px}.mpDrawMatches{grid-template-rows:repeat(16,70px)}}
