@@ -8,11 +8,20 @@ function acknowledge(M,s,id,key,persist){const journey=M.playerJourney(s,id);if(
 function enter(M,s,id,key,hole,own,marked,persist){if(!s.matches[key]?.acknowledgements?.[id])throw Error('Read the welcome page and press Got it before scoring.');return transaction(s,()=>{prepareRound(M,s,key);return M.recordPlayerScores(s,id,key,hole,own,marked);},persist);}
 function confirm(M,s,id,key,persist){const access=M.playerJourney(s,id);if(access.key!==key||access.status!=='confirmation')throw Error('Only the two opponents may confirm this match.');return transaction(s,()=>M.confirmResult(s,key,access.players[0]===id?'a':'b'),persist);}
 const STANDING_RULES=[
- 'Enter the total gross strokes for the hole. The app applies any handicap strokes.',
+ 'This match is played under the rules of Match Play. Enter total gross strokes for each hole. The app applies handicap strokes to determine the hole result.',
  'A given putt counts as one more stroke. If you have taken 3 strokes and your next putt is given then enter 4. This completes your score for the hole. It does not concede the hole.',
  'Use Concede Hole only when a player gives the whole hole to the opponent. Either player can record who conceded. The other player confirms the record on their screen. No hole scores are required.',
  'A concession is final under the Rules of Golf. Confirm concession acknowledges the app record.'
 ];
+function standingRules(M,otherPlayer,isHandicapped=true){
+ const possessive=M.handicapPossessive(otherPlayer).toLowerCase();
+ const pronoun=['his','her'].includes(possessive)?possessive:'their';
+ return STANDING_RULES.map((rule,index)=>index===0&&!isHandicapped?'This match is played under the rules of Match Play. Enter total gross strokes for each hole. Handicap strokes do not apply.':rule.replace('on their screen','on '+pronoun+' screen'));
+}
+function progressLabel(state){
+ if(!state.played)return state.text+' · 0 holes played';
+ return state.winnerId?state.text:state.text+' after '+state.played;
+}
 function concessionRole(M,s,id,key){const j=M.playerJourney(s,id);if(j.key!==key||!j.canScore)throw Error('You can only record or confirm a concession in your current match.');if(!s.matches[key].acknowledgements?.[id])throw Error('Read the opening rules and press Got it before scoring.');return j.players[0]===id?'a':'b';}
 function requestConcession(M,s,id,key,hole,by,persist){return transaction(s,()=>{const role=concessionRole(M,s,id,key);prepareRound(M,s,key);M.requestHoleConcession(s,key,role,hole,by);},persist);}
 function confirmConcession(M,s,id,key,hole,persist){return transaction(s,()=>{const role=concessionRole(M,s,id,key);prepareRound(M,s,key);M.confirmHoleConcession(s,key,role,hole);},persist);}
@@ -27,5 +36,5 @@ function nextHole(M,s,key,hole,own,marked){
 function findMatch(M,s,id){return M.playerJourney(s,id);}
 function welcome(M,s,id,key){prepareRound(M,s,key);const ids=M.opponents(s,key),side=ids.indexOf(id);if(side<0)throw Error('Player is not in this match.');const [round,match]=M.location(key),opponent=M.getPlayer(s,ids[1-side]),player=M.getPlayer(s,id),hcp=M.matchHandicaps(s,key);return {player,opponent,round,roundName:M.ROUNDS[round],time:M.teeTime(s,round,match),date:s.config.dates[round],course:s.config.course,tee:s.config.tee,playing:hcp.playing[side],opponentPlaying:hcp.playing[1-side],allowance:hcp.allowances[side],opponentAllowance:hcp.allowances[1-side],possessive:M.handicapPossessive(opponent)};}
 function holeInfo(M,s,key,hole){const card=prepareRound(M,s,key),allocation=M.holeStrokes(s,key,hole);return {...allocation,hole,dual:M.showCourseHole(s.config.scheduled,hole),par:Number(card?.par?.[allocation.course-1])||4};}
-return{STANDING_RULES,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo};
+return{STANDING_RULES,standingRules,progressLabel,prepareRound,transaction,acknowledge,enter,confirm,nextHole,requestConcession,confirmConcession,findMatch,welcome,holeInfo};
 });

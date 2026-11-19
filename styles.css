@@ -7277,3 +7277,7 @@ body.playerDevice .cloudHeader {
 .mpHoleConcede:disabled{opacity:1;font-weight:bold;background:#edf2f4;cursor:default}.mpScoreControl button:disabled{cursor:default}
 
 .mpConfirmConcession{display:block;width:100%;margin:8px 0 0;font-size:16px;min-height:44px}.mpStandingRules{background:white;border:1px solid #cdd9df;border-radius:8px;padding:14px;margin-top:18px}.mpStandingRules h3{margin-top:0}.mpStandingRules li,.mpPhoneBody details li{font-size:15px;line-height:1.5;margin:10px 0}.mpStandingRules ul,.mpPhoneBody details ul{padding-left:20px}
+
+.mpColourKey{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}.mpPhoneBody .mpColourKey{font-size:13px;line-height:1.5}.mpColourKey>span{display:inline-flex;align-items:center;gap:4px}.mpKeyDot{display:inline-block;width:10px;height:10px;border-radius:50%;border:1px solid #0002;flex:none}.mpKeyGreen{background:#16744c}.mpKeyBlue{background:#236eaa}.mpKeyRed{background:#be2638}.mpKeyAmber{background:#d99c25}
+
+.mpPhoneBody .mpParHint{white-space:nowrap;max-width:100%;font-size:18px;line-height:1.5}

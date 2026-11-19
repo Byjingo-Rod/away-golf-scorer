@@ -58,3 +58,12 @@ for(const recordedBy of ['a','b'])for(const by of ['a','b']){
 assert.ok(S.STANDING_RULES.some(rule=>rule.includes('3 strokes')&&rule.includes('enter 4')));
 assert.ok(S.STANDING_RULES.every(rule=>!/,\s*(and|but|or|nor)\b|\b(and|but|or|nor)\s*,/i.test(rule)));
 console.log('Two-player concession recording and standing rule checks passed');
+assert.ok(S.standingRules(M,{gender:'female'})[2].includes('on her screen'));
+assert.ok(S.standingRules(M,{gender:'male'})[2].includes('on his screen'));
+assert.ok(S.standingRules(M,{gender:'female'},false)[0].includes('Handicap strokes do not apply'));
+assert.ok(S.standingRules(M,{gender:'male'})[0].includes('rules of Match Play'));
+assert.equal(S.progressLabel({text:'Parker Price 6 up',played:10}),'Parker Price 6 up after 10');
+assert.equal(S.progressLabel({text:'All square',played:0}),'All square · 0 holes played');
+assert.equal(S.progressLabel({text:'All square',played:4}),'All square after 4');
+assert.equal(S.progressLabel({text:'6&4',played:14,winnerId:'winner'}),'6&4');
+console.log('Gender wording and match progress labels passed');
