@@ -1,28 +1,24 @@
-# Away Match Play integration — development stage 1
+# Away Match Play integration — development stage 2
 
-Match Play is selected in Event Details, before player selection. Its plan uses Away's normal day dates, courses, start times and tee controls. All existing tee positions remain selectable; Back is the initial selection.
+Match Play is selected in Event Details before player selection, uses Away’s round dates/courses/tees, defaults to Back Tee and excludes the other competitions. The club’s 16 seeded qualifiers and up to five reserves are pasted per grade. Qualifying playing handicaps stay separate from GA and are frozen for the playoffs. Scratch disables handicap controls.
 
-The qualifier page accepts Excel tab-separated cells, with optional recognised headings. Each enabled men's/ladies' grade has 16 seeds and up to five reserves. Playing handicaps are event-only qualifying figures, including plus handicaps. Scratch displays disabled GA/handicap fields. Importing does not modify saved player GA profiles. Other competition options are disabled and removed from the Match Play plan.
+The Teams page saves the fixed knockout tree and opening tee groups. Its player review now opens the event-code/name selection, personalised welcome and Got it acknowledgement, gross-score controls, automatic browser saving, concessions, accepted-hole overview, two-player result confirmation and personal win/elimination pages. Confirmed winners progress in the fixed tree; eliminated players can continue viewing the leaderboard. No separate Save My Scores action exists. Grey par is not an entered score until tapped or changed.
 
-Saving produces the fixed 16-seed knockout tree and four opening tee groups: match 1 with 8, 2 with 7, 3 with 6, 4 with 5. Each grade has its own model. Round dates/times and round course/tee snapshots are retained. The first four normal playing days correspond to the four knockout rounds. Normal golf-event pairing stays on its existing path.
+The session transaction rolls back changes if durable storage fails. Marker entries determine the recognised result; missing checks/disagreements prevent player confirmation. Unconfirmed decided matches allow existing entries to be corrected. Later rounds use their course/tee/index/par snapshots. Handicap values remain locked against later profile changes.
+
+## Review delivery
+
+`scripts/build-matchplay-review.mjs <absolute-output-directory>` packages an isolated copy of Away. It excludes `cloud.js` and `supabase.js`, disables network connections with CSP, does not install the live service worker, and offers 18-hole handicap and 36-hole scratch samples plus instructions. Review code PLAY26 is a simulation on that browser, not an authenticated player credential. The separate owner-private review Site does not change the installed Away app.
 
 ## Release boundary
 
-This branch is a development integration, not a live Match Play release. Match Play cloud publication and update are blocked until the match-specific player joining, score operations, confirmations, event permissions, offline recovery and multi-device synchronisation are connected. No database changes are applied by this branch. Do not merge/release it as a fully playable Match Play event.
+This branch is not a live Match Play release. Cloud publication and update remain blocked. Server-side identity/round access, score permissions, multi-device sync, offline queue reconciliation, referee/organiser operations and full grade-range/print integration are subsequent work. Browser-local role switching is a review facility, not an authorisation system. No database changes are applied by this stage. Do not merge/release it as a fully playable online event.
 
-The reviewed standalone Match Play design remains the reference for player screens, match overviews, grade-range editing, referee allocation and print stages. Subsequent work must complete those full integrations, including per-round starts/index selection and qualifier handicap snapshots on the server.
+The reviewed standalone design remains the reference for the remaining integration. Its referee-final model is retained; the current player review focuses on player-scored playoff rounds.
 
-## Checks
+## Validation
 
-- `node tests/matchplay-planning.mjs`
-- `node tests/matchplay-model.test.mjs`
-- `node tests/matchplay-handicaps.test.mjs`
-- `node tests/spreadsheet-workflow.cjs`
-- `node tests/player-profile-handicap.mjs`
-- `node tests/phone-team-handicap.cjs`
-- `node tests/code-separation-regression.mjs`
-- `node tests/version-15-96-33-organiser-tablet-wizard-refresh-regression.mjs`
-
-Browser-tested: new event selection; all tee options with Back default; handicapped qualifier paste; plus handicap; side-competition exclusion; save fixed draw; reopen all 16 qualifiers; Scratch disables the handicap controls.
-
-Shared rules source: `matchplay-model.mjs`. Rebuild its classic-browser wrapper using `node scripts/build-matchplay-core.mjs` after model changes.
+- Match Play planning, model, handicaps and session checks pass.
+- Existing spreadsheet workflow, player-profile handicap, phone-team handicap, code separation and organiser wizard refresh regressions pass.
+- Browser checks cover code/name selection, both welcome perspectives (+2 versus 2 = four strokes), acknowledgement, automatic score entry, opponent marker/check agreement, accepted overview, refresh recovery, match concession, both confirmations and winner progression.
+- Rebuild the classic model wrapper with `node scripts/build-matchplay-core.mjs`.

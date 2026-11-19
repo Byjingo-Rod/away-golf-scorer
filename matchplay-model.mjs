@@ -165,7 +165,7 @@ export function playerJourney(s,playerId){
  return {status:'waiting',canScore:false,lastWin,round:lastWin?lastWin.round+1:0,roundName:PLAYOFF_ROUNDS[lastWin?lastWin.round+1:0]};
 }
 export function recordPlayerScores(s,playerId,key,hole,own,marked){
- const access=playerJourney(s,playerId);if(!access.canScore||access.key!==key)throw Error('You can only score your current match.');
+ const access=playerJourney(s,playerId);if(access.key!==key||(!access.canScore&&!(access.status==='confirmation'&&Number(hole)<=matchState(s,key).played)))throw Error('You can only score or correct your current match.');
  return recordScores(s,key,access.players[0]===playerId?'a':'b',hole,own,marked);
 }
 
