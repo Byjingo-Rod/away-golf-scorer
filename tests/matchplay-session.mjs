@@ -130,3 +130,11 @@ M.recordScores(nextSample,'r0m0','b',1,5,4);
 assert.equal(S.navigationStatus(M,nextSample,'r0m0',1,4,5,0).ready,true);
 assert.equal(S.navigationStatus(M,nextSample,'r0m0',2,null,null,0).missing,true);
 console.log('Concession locking and delayed next-hole readiness passed');
+
+assert.equal(S.isAdvanceSwipe({x:250,y:200},{x:150,y:210}),true);
+assert.equal(S.isAdvanceSwipe({x:250,y:200},{x:190,y:200}),true);
+assert.equal(S.isAdvanceSwipe({x:250,y:200},{x:220,y:200}),false);
+assert.equal(S.isAdvanceSwipe({x:150,y:200},{x:250,y:200}),false);
+assert.equal(S.isAdvanceSwipe({x:250,y:200},{x:170,y:300}),false);
+assert.equal(S.isAdvanceSwipe(null,{x:150,y:200}),false);
+console.log('Left swipe recognition ignores short taps, right swipes and vertical scrolling');

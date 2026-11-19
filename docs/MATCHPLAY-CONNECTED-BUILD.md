@@ -27,3 +27,7 @@ The latest completed all-square hole has a small A/s marker. It advances across 
 Both Concede Hole buttons lock as soon as either device has a complete own/marked score pair. The model enforces the same restriction. A tapped Next Hole is retained while saving or waiting for the other player. The screen advances once the required entries are available. Previous cancels a queued advance. Saving failures update the phone’s status text immediately. The fixed grade selector retains full text contrast.
 
 Regression checks cover the concession guard, pending-save readiness, missing entries and readiness after the other device saves. Hosted verification checks the locked controls and automatic advance without a second tap.
+
+## Review 16
+
+A left swipe on the scoring phone invokes the same Next Hole button action. It uses Away’s 60-pixel threshold and horizontal direction ratio. Swipes starting on controls are ignored. Multi-touch and cancellation reset the gesture. Vertical scrolling is unchanged. Saving and opponent-entry waits retain the requested advance.
