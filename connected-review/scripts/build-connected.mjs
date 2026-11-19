@@ -1,0 +1,9 @@
+import fs from 'node:fs';import path from 'node:path';import {build} from 'esbuild';
+const root=process.cwd(),assets=path.join(root,'dist'),out=path.join(root,'build-temp');
+fs.rmSync(out,{recursive:true,force:true});fs.mkdirSync(out,{recursive:true});
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.png':'image/png','.svg':'image/svg+xml','.json':'application/json','.webmanifest':'application/manifest+json'};
+const map={};function walk(dir,prefix=''){for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const p=path.join(dir,entry.name),key=prefix+'/'+entry.name;if(entry.isDirectory())walk(p,key);else map[key]={body:fs.readFileSync(p).toString('base64'),type:types[path.extname(p)]||'application/octet-stream'};}}
+walk(assets);map['/connected-review.html']={body:fs.readFileSync('connected-review/page.html').toString('base64'),type:types['.html']};map['/connected-client.mjs']={body:fs.readFileSync('connected-review/client.mjs').toString('base64'),type:types['.mjs']};map['/matchplay-connection.mjs']={body:fs.readFileSync('matchplay-connection.mjs').toString('base64'),type:types['.mjs']};
+fs.writeFileSync('connected-review/generated-assets.mjs','export const ASSETS='+JSON.stringify(map)+';');
+await build({entryPoints:['connected-review/worker/index.mjs'],bundle:true,format:'esm',platform:'browser',target:'es2022',outfile:path.join(out,'index.js'),minify:true});
+fs.rmSync(assets,{recursive:true,force:true});fs.mkdirSync(path.join(assets,'server'),{recursive:true});fs.renameSync(path.join(out,'index.js'),path.join(assets,'server/index.js'));fs.mkdirSync(path.join(assets,'.openai'),{recursive:true});fs.copyFileSync('.openai/hosting.json',path.join(assets,'.openai/hosting.json'));fs.rmSync(out,{recursive:true,force:true});fs.rmSync('connected-review/generated-assets.mjs');console.log('Connected review Worker built');

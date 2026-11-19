@@ -3,7 +3,7 @@ export function createMatchplayConnection({request,storage,key,onState=()=>{},on
  let saved=JSON.parse(storage.getItem(key)||'{"revision":null,"queue":[]}'),busy=false,stopped=false;
  const persist=()=>storage.setItem(key,JSON.stringify(saved));
  function install(snapshot){saved.revision=snapshot.revision;saved.state=snapshot.state;persist();onState(structuredClone(snapshot));}
- async function refresh(){if(busy||saved.queue.length)return false;install(await request('read'));return true;}
+ async function refresh(){if(busy||stopped||saved.queue.length)return false;busy=true;try{install(await request('read'));return true;}finally{busy=false;}}
  async function flush(){
   if(busy||stopped)return;busy=true;
   try{

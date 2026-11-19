@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "build": "node connected-review/scripts/build-connected.mjs"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.44.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.8",
+    "esbuild": "0.25.12"
+  }
+}

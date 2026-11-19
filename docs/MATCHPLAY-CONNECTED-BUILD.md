@@ -1,24 +1,15 @@
-# Match Play connected build — prepared, not activated
+# Connected development review — stage 13
 
-The current owner review remains Development Review 8 with browser-local scoring. No connected endpoint is deployed. No production database rows or permissions have changed.
+`/connected-review` uses an isolated Sites Worker and D1 database. Installed Away and live Supabase events are unchanged. Earlier layout and planning pages remain browser-local.
 
-## Implemented
+The owner signs in to the same private Site on each device. Matching test codes identify the same sample event. Alex and Parker receive distinct server-issued review sessions. Spectators cannot score. This is an owner-operated sample harness. Selecting a review role is not real-player authentication.
 
-- `server/matchplay-service.mjs`: authoritative commands using the reviewed scoring model. Identity comes only from authenticated server membership. Player requests cannot replace a draw or choose another actor. Match/round access is checked on every write. Spectators and organisers cannot impersonate a player's score entry through this service.
-- `server/matchplay-handler.mjs`: bounded JSON requests, explicit origin allowlist, no-cache responses and authentication adapter boundary. Internal errors are not returned to clients.
-- `matchplay-connection.mjs`: durable pending command storage, exact-request retries after lost responses and conflict review. A stale entry is retained for review. It is never automatically rebased onto another player's newer save.
-- The store contract requires an atomic revision compare-and-swap. Request receipts are kept for the event lifetime so a reconnect cannot repeat an accepted command. A spectator snapshot excludes registration identifiers and the audit record.
+The SQL store uses conditional revision writes and durable command receipts. Exact retries after a lost response cannot repeat an accepted save. Tokens are hashed at rest and bound to the authenticated Site owner. Sessions expire after seven days. Test events remain until explicit cleanup is added. New codes start fresh events without deleting old tests.
 
-Run `node tests/matchplay-connection.mjs`. This invokes the HTTP request/response handler with two independent client stores and an in-memory canonical server store. Authentication and event membership are controlled test fixtures. It is not a live Supabase verification.
+The connected scoring view sends commands to the authoritative service. It has no player-switch controls. Polling pauses when hidden and backs off after failures. Unsent entries stay in local storage. A stale entry requires explicit review and removal before re-entry. It is never silently rebased.
 
-## Remaining activation work
+Checks: `tests/matchplay-session.mjs`, `tests/matchplay-connection.mjs` and `tests/matchplay-connected-worker.mjs <worker-bundle> <migration>` pass. The Worker test uses actual SQLite tables with separate player sessions. It checks owner isolation, read-only spectators, score sharing, stale writes, receipt replay and concession confirmation. Hosted browser checks and physical phone tests must be reported separately.
 
-1. Inspect current Away event membership, organiser and spectator policies through an approved database read. Do not trust client JSON or user-editable auth metadata.
-2. Bind the authentication adapter to verified Away Auth identities and the membership adapter to canonical event records. Preserve the existing event-code flow. A name selection alone must not grant access to an already claimed player.
-3. Implement and test a grade store with atomic conditional writes and durable receipts on an isolated database. Create a migration through the supported CLI workflow. No migration is included or applied in this build.
-4. Wire the asynchronous transport into the player view. Show pending, connected and conflict states. Remove test role switching from connected sessions. Poll only visible connected views with backoff and one request in flight. Stop polling when leaving the event. Preserve unsent commands through reload.
-5. Publish a separate connected development review after checking its audience and authentication flow. Verify two actual browser sessions plus a spectator. Exercise lost connectivity, corrections, concessions and next-round access before enabling installed Away.
+Build: retain the existing Site project ID. Install the dependencies in `connected-review/package.json` at the Sites checkout root. Copy the reviewed static assets with `scripts/build-matchplay-review.mjs` then run `connected-review/scripts/build-connected.mjs` in that checkout. Copy `matchplay-model.mjs`, `matchplay-session.js`, `matchplay-connection.mjs` and `server/matchplay-service.mjs` to matching root paths. Use `d1: "DB"` with no static manifest field. Generate schema changes through `npm run db:generate`. Preserve applied SQL and Drizzle metadata. The packaging workflow includes migrations for platform application.
 
-## Blocker observed
-
-The live schema read was not executed. Automatic approval review could not complete because the account usage limit had been reached. Do not route the same database operation through another tool to bypass this check. The development code can be prepared and tested locally while activation remains blocked.
+Still required for real Away: verified Away identities and canonical event membership, organiser publishing, access for every qualifier, full multi-round testing and real-phone reconnection testing. The earlier Supabase schema read did not execute because automatic approval review hit an account usage limit. This sample harness neither repeats that operation nor accesses that database.
